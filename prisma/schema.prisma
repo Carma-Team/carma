@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  phone         String?
+  city          String?
+  age           Int?
+  licenseYear   Int?
+  totalPoints   Int      @default(0)
+  totalDistance Float    @default(0)
+  level         Int      @default(1)
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  trips         Trip[]
+  vouchers      Voucher[]
+  achievements  UserAchievement[]
+  notifications Notification[]
+  friends       Friendship[]     @relation("UserFriends")
+  friendOf      Friendship[]     @relation("FriendOf")
+
+  @@map("users")
+}
+
+model Trip {
+  id              String    @id @default(cuid())
+  userId          String
+  startTime       DateTime
+  endTime         DateTime?
+  distanceKm      Float     @default(0)
+  durationSeconds Int       @default(0)
+  score           Float     @default(0)
+  points          Float     @default(0)
+  hardBrakes      Int       @default(0)
+  aggressiveAccels Int      @default(0)
+  sharpTurns      Int       @default(0)
+  phoneSeconds    Int       @default(0)
+  riskMultiplier  Float     @default(1.0)
+  startLocation   String?
+  endLocation     String?
+  aiInsight       String?
+  status          String    @default("active") // active | completed
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events          TripEvent[]
+
+  @@map("trips")
+}
+
+model TripEvent {
+  id        String   @id @default(cuid())
+  tripId    String
+  eventType String   // HARD_BRAKE | AGGRESSIVE_ACCEL | SHARP_TURN | PHONE_TOUCH
+  timestamp DateTime @default(now())
+  severity  Float    @default(1.0)
+
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@map("trip_events")
+}
+
+model Reward {
+  id          String    @id @default(cuid())
+  title       String
+  titleEn     String?
+  description String
+  descriptionEn String?
+  business    String
+  category    String    // fuel | food | eco | entertainment | shopping
+  pointsCost  Int
+  imageEmoji  String    @default("🎁")
+  isActive    Boolean   @default(true)
+  stock       Int       @default(100)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  vouchers    Voucher[]
+
+  @@map("rewards")
+}
+
+model Voucher {
+  id          String    @id @default(cuid())
+  userId      String
+  rewardId    String
+  code        String    @unique
+  qrData      String
+  redeemedAt  DateTime?
+  expiresAt   DateTime
+  isUsed      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward      Reward    @relation(fields: [rewardId], references: [id])
+
+  @@map("vouchers")
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  title       String
+  titleEn     String?
+  description String
+  descriptionEn String?
+  emoji       String
+  pointsBonus Int      @default(0)
+  condition   String   // JSON condition descriptor
+
+  users       UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  achievementId String
+  earnedAt      DateTime    @default(now())
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // trip_complete | achievement | reward | system
+  titleHe   String
+  titleEn   String?
+  bodyHe    String
+  bodyEn    String?
+  isRead    Boolean  @default(false)
+  data      String?  // JSON extra data
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Friendship {
+  id         String   @id @default(cuid())
+  userId     String
+  friendId   String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation("UserFriends", fields: [userId],   references: [id], onDelete: Cascade)
+  friend     User     @relation("FriendOf",    fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@map("friendships")
+}
+
+model LeaderboardEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // friends | city | national
+  rank      Int
+  score     Float
+  period    String   // weekly | monthly | alltime
+  updatedAt DateTime @default(now())
+
+  @@unique([userId, type, period])
+  @@map("leaderboard_entries")
+}
