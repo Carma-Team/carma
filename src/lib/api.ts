@@ -35,6 +35,20 @@ async function request<T>(
  * פונקציה שמחזירה נתונים מזוייפים כדי שהאפליקציה לא תקרוס בלי שרת
  */
 function getMockData(path: string): any {
+  if (path.includes('/api/auth/login') || path.includes('/api/auth/register')) {
+    return {
+      token: 'mock-token-123',
+      user: {
+        id: 'user-123',
+        name: 'ישראל ישראלי',
+        email: 'test@carma.com',
+        level: 5,
+        xp: 2500,
+        carmaPoints: 1250,
+        rank: 'Safe Driver'
+      }
+    }
+  }
   if (path.includes('/api/user/stats')) {
     return { stats: { totalPoints: 1250, totalDistance: 154.2, tripsCount: 12, level: 5, rank: 'Safe Driver' } }
   }
