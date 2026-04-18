@@ -1,11 +1,14 @@
-// import BleManager from 'react-native-ble-manager';
-// import { NativeEventEmitter, NativeModules } from 'react-native';
-
 /**
- * MOCKED BluetoothManager
- * This is a temporary implementation to prevent app crashes when
- * 'react-native-ble-manager' is not installed or when running in Web/Expo Go.
+ * BluetoothManager (Pure Mock Mode)
+ *
+ * This file is strictly for development and web-simulation.
+ * It contains NO native dependencies to prevent crashes in browser/Expo Go.
  */
+
+export interface BluetoothDevice {
+  id: string;
+  name: string;
+}
 
 export class BluetoothManager {
   private targetDeviceId: string | null = null;
@@ -15,34 +18,39 @@ export class BluetoothManager {
   constructor(onConnect: () => void, onDisconnect: () => void) {
     this.onConnect = onConnect;
     this.onDisconnect = onDisconnect;
-    this.init();
-  }
-
-  private init() {
-    console.log('[SDK] BluetoothManager Initialized (MOCKED MODE)');
-    // In a real device, we would add listeners here.
+    console.log('[SDK] BluetoothManager initialized in Mock mode');
   }
 
   public setTargetDevice(id: string | null) {
     this.targetDeviceId = id;
-    console.log('[SDK] Target Bluetooth Device set to:', id);
+    console.log('[SDK] Target device set to:', id);
   }
 
-  /**
-   * Mocked version of getting bonded devices
-   */
-  public async getBondedDevices() {
-    console.log('[SDK] Getting Bonded Devices (MOCKED)');
+  public async getBondedDevices(): Promise<BluetoothDevice[]> {
     return [
-      { id: 'mock-1', name: 'My Tesla Model 3' },
-      { id: 'mock-2', name: 'Car Bluetooth BT-45' },
+      { id: 'car-bt-01', name: 'My Tesla Model 3' },
+      { id: 'car-bt-02', name: 'Toyota Multimedia' },
+      { id: 'car-bt-03', name: 'Mazda Connect' },
     ];
   }
 
-  /**
-   * Mocked check for current connection
-   */
-  public async checkCurrentConnection() {
+  public async checkCurrentConnection(): Promise<boolean> {
     return false;
+  }
+
+  /**
+   * Simulates a Bluetooth connection event for demo/testing
+   */
+  public simulateConnect() {
+    console.log('[SDK] Simulating Bluetooth Connection...');
+    if (this.onConnect) this.onConnect();
+  }
+
+  /**
+   * Simulates a Bluetooth disconnection event for demo/testing
+   */
+  public simulateDisconnect() {
+    console.log('[SDK] Simulating Bluetooth Disconnection...');
+    if (this.onDisconnect) this.onDisconnect();
   }
 }

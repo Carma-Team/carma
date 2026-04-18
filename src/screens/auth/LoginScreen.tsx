@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/lib/api';
-import { COLORS } from '@/lib/constants';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { setUser, addToast } = useApp();
   const { t } = useTranslation();
 
@@ -61,7 +63,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Text style={styles.logoIcon}>🚗</Text>
@@ -117,22 +119,21 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: COLORS.dark },
-  inner:     { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  inner:     { flexGrow: 1, justifyContent: 'center', padding: SPACING.lg },
   logo:      { alignItems: 'center', marginBottom: 40 },
   logoIcon:  { fontSize: 64, marginBottom: 8 },
   logoTitle: { color: '#fff', fontSize: 36, fontWeight: '900' },
-  logoTagline:{ color: COLORS.textMuted, fontSize: 14, marginTop: 4 },
-  heading:   { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 24, textAlign: 'center' },
+  logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 14, marginTop: 4 },
+  heading:   { ...TYPOGRAPHY.h2, marginBottom: SPACING.lg, textAlign: 'center' },
   errorBox:  { backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
-  errorText: { color: '#ef4444', fontSize: 13, textAlign: 'center' },
+  errorText: { color: COLORS.danger, fontSize: 13, textAlign: 'center' },
   field:     { marginBottom: 16 },
-  label:     { color: COLORS.textMuted, fontSize: 13, marginBottom: 6 },
+  label:     { ...TYPOGRAPHY.label, marginBottom: 6 },
   input:     { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: '#fff', fontSize: 15 },
   btn:       { marginTop: 8 },
   guestBtn:  { marginTop: 16, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12 },
-  guestBtnText: { color: COLORS.textMuted, fontSize: 14, fontWeight: '600' },
+  guestBtnText: { ...TYPOGRAPHY.label, fontSize: 14 },
   link:      { marginTop: 24, alignItems: 'center' },
-  linkText:  { color: COLORS.textMuted, fontSize: 14 },
+  linkText:  { ...TYPOGRAPHY.caption, fontSize: 14 },
   linkBold:  { color: COLORS.brandLight, fontWeight: '700' },
 });

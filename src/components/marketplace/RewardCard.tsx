@@ -21,13 +21,17 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   return (
     <Card>
       <View style={styles.rewardRow}>
-        <Text style={styles.rewardEmoji}>{reward.imageEmoji}</Text>
+        <View style={styles.emojiContainer}>
+          <Text style={styles.rewardEmoji}>{reward.imageEmoji}</Text>
+        </View>
         <View style={styles.rewardInfo}>
           <Text style={styles.rewardTitle} numberOfLines={1}>
             {lang === 'he' ? reward.title : (reward.titleEn || reward.title)}
           </Text>
-          <Text style={styles.rewardBusiness}>{reward.business}</Text>
-          <Text style={styles.rewardCost}>⭐ {reward.pointsCost} {t('common.points')}</Text>
+          <Text style={styles.rewardBusiness}>🏢 {reward.business}</Text>
+          <View style={styles.costBadge}>
+            <Text style={styles.rewardCost}>⭐ {reward.pointsCost} {t('common.points')}</Text>
+          </View>
         </View>
         <Button
           size="sm"

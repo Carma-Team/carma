@@ -3,12 +3,13 @@ import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, KeyboardAvoidingView, Platform
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Button }   from '@/components/ui/Button'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/lib/api'
-import { COLORS }   from '@/lib/constants'
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RootStackParamList } from '@/navigation/types'
 
@@ -29,6 +30,7 @@ interface FormState {
 const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
 
 export default function RegisterScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets()
   const { setUser, addToast } = useApp()
   const { t } = useTranslation()
   const [form,    setForm]    = useState<FormState>(INITIAL)
@@ -78,7 +80,7 @@ export default function RegisterScreen({ navigation }: Props) {
   ]
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Text style={styles.logoIcon}>🚗</Text>
@@ -129,21 +131,20 @@ export default function RegisterScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root:     { flex: 1, backgroundColor: COLORS.dark },
-  inner:    { flexGrow: 1, padding: 24, paddingBottom: 40 },
+  inner:    { flexGrow: 1, padding: SPACING.lg, paddingBottom: 40 },
   logo:     { alignItems: 'center', marginBottom: 32, marginTop: 16 },
   logoIcon: { fontSize: 48, marginBottom: 6 },
   logoTitle:{ color: '#fff', fontSize: 30, fontWeight: '900' },
-  logoTagline:{ color: COLORS.textMuted, fontSize: 13, marginTop: 2 },
-  heading:  { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 20, textAlign: 'center' },
+  logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
+  heading:  { ...TYPOGRAPHY.h2, marginBottom: 20, textAlign: 'center' },
   errorBox: { backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
-  errorText:{ color: '#ef4444', fontSize: 13, textAlign: 'center' },
+  errorText:{ color: COLORS.danger, fontSize: 13, textAlign: 'center' },
   field:    { marginBottom: 14 },
-  label:    { color: COLORS.textMuted, fontSize: 13, marginBottom: 6 },
-  required: { color: '#ef4444' },
+  label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
+  required: { color: COLORS.danger },
   input:    { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, color: '#fff', fontSize: 15 },
   btn:      { marginTop: 8 },
   link:     { marginTop: 20, alignItems: 'center' },
-  linkText: { color: COLORS.textMuted, fontSize: 14 },
+  linkText: { ...TYPOGRAPHY.caption, fontSize: 14 },
   linkBold: { color: COLORS.brandLight, fontWeight: '700' },
 })

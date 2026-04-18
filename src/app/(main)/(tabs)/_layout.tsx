@@ -6,12 +6,11 @@ import { COLORS } from '@/lib/constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TAB_ITEMS = [
-  { name: 'dashboard',   icon: '🏠', labelKey: 'nav.dashboard'   },
-  { name: 'trip',        icon: '🚗', labelKey: 'nav.trip'        },
-  { name: 'roadmap',     icon: '🗺️', labelKey: 'nav.roadmap'     },
-  { name: 'marketplace', icon: '🎁', labelKey: 'nav.marketplace' },
-  { name: 'leaderboard', icon: '🏆', labelKey: 'nav.leaderboard' },
   { name: 'profile',     icon: '👤', labelKey: 'nav.profile'     },
+  { name: 'leaderboard', icon: '🏆', labelKey: 'nav.leaderboard' },
+  { name: 'marketplace', icon: '🎁', labelKey: 'nav.marketplace' },
+  { name: 'roadmap',     icon: '🗺️', labelKey: 'nav.roadmap'     },
+  { name: 'dashboard',   icon: '🏠', labelKey: 'nav.dashboard'   },
 ] as const;
 
 export default function TabsLayout() {
@@ -47,6 +46,12 @@ export default function TabsLayout() {
           }}
         />
       ))}
+      <Tabs.Screen
+        name="trip"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

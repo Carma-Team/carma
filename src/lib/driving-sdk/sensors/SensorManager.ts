@@ -3,10 +3,10 @@ import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 
 export class SensorManager {
-  private locationSub: Location.LocationSubscription | null = null;
+  private locationSub: any = null;
   private accelSub: any = null;
   private gyroSub: any = null;
-  private lastLocation: Location.LocationObject | null = null;
+  private lastLocation: any = null;
 
   private onEvent: (event: DrivingEvent) => void;
   private onUpdate: (data: { distanceKm: number, currentSpeed: number }) => void;
@@ -20,32 +20,43 @@ export class SensorManager {
   }
 
   public async start() {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') throw new Error('LOCATION_PERMISSION_DENIED');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        this.locationSub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 5 },
+          (loc) => this.handleLocation(loc)
+        );
+      } else {
+        console.warn('[SensorManager] Location permission denied');
+      }
 
-    // Location tracking
-    this.locationSub = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 5 },
-      (loc) => this.handleLocation(loc)
-    );
+      // Safe Accelerometer setup
+      const accelAvailable = await Accelerometer.isAvailableAsync();
+      if (accelAvailable) {
+        Accelerometer.setUpdateInterval(1000);
+        this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
+      }
 
-    // Accelerometer
-    if (await Accelerometer.isAvailableAsync()) {
-      Accelerometer.setUpdateInterval(1000);
-      this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
-    }
-
-    // Gyroscope
-    if (await Gyroscope.isAvailableAsync()) {
-      Gyroscope.setUpdateInterval(1000);
-      this.gyroSub = Gyroscope.addListener(data => this.handleGyro(data));
+      // Safe Gyroscope setup
+      const gyroAvailable = await Gyroscope.isAvailableAsync();
+      if (gyroAvailable) {
+        Gyroscope.setUpdateInterval(1000);
+        this.gyroSub = Gyroscope.addListener(data => this.handleGyro(data));
+      }
+    } catch (err) {
+      console.error('[SensorManager] Error starting sensors:', err);
     }
   }
 
   public stop() {
-    this.locationSub?.remove();
-    this.accelSub?.remove();
-    this.gyroSub?.remove();
+    try {
+      if (this.locationSub) this.locationSub.remove();
+      if (this.accelSub) this.accelSub.remove();
+      if (this.gyroSub) this.gyroSub.remove();
+    } catch (err) {
+      console.warn('[SensorManager] Error stopping sensors:', err);
+    }
     this.lastLocation = null;
   }
 

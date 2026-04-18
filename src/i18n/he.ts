@@ -61,11 +61,12 @@ const he = {
     noFriends: 'אין חברים עדיין',
   },
   profile: {
-    title: 'הפרופיל שלי', stats: 'סטטיסטיקות', achievements: 'הישגים',
-    tripHistory: 'היסטוריית נסיעות', settings: 'הגדרות', language: 'שפה',
+    title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
+    tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     level: 'רמה', joined: 'הצטרף', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות', totalDistance2: 'מרחק כולל',
+    driveMode: 'מצב נסיעה אוטומטי',
   },
   stats: {
     scoreHistory: 'היסטוריית ציונים', totalDistance: 'מרחק כולל',

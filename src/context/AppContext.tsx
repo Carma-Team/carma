@@ -36,9 +36,12 @@ interface AppContextValue {
   isLoading: boolean
   setIsLoading: (v: boolean) => void
   tripState: TripState
-  startTrip: () => Promise<void>
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
+  simulateBTConnect: () => void
+  simulateBTDisconnect: () => void
+  lastTripSummary: any | null
+  setLastTripSummary: (v: any | null) => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -50,6 +53,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
+  const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
 
   const sdk = useMemo(() => new CarmaDrivingSDK(), []);
   const tripRef = useRef(tripState)
@@ -83,11 +87,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // Auto-end trip when SDK signals trip ended (e.g., Bluetooth disconnect)
+    sdk.onTripEnd = (finalData) => {
+      if (tripRef.current.isActive) {
+        processEndTrip();
+      }
+    };
+
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => {
       subscription.remove();
     };
   }, [sdk]);
+
+  const processEndTrip = useCallback(async () => {
+    const finalState = { ...tripRef.current };
+
+    // Calculate rewards
+    const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
+    const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
+
+    const newTrip: Trip = {
+      id: `trip_${Date.now()}`,
+      date: new Date().toISOString(),
+      distance: finalState.distanceKm,
+      duration: finalState.durationSeconds,
+      score: score,
+      points: earnedPoints,
+      events: []
+    };
+
+    // Save locally
+    const existingTripsJson = await AsyncStorage.getItem('carma_trips');
+    const existingTrips = existingTripsJson ? JSON.parse(existingTripsJson) : [];
+    const updatedTrips = [newTrip, ...existingTrips].slice(0, 10);
+    setRecentTrips(updatedTrips);
+    await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
+
+    // Update user stats
+    if (user) {
+      const updatedUser = {
+        ...user,
+        totalPoints: user.totalPoints + earnedPoints,
+        totalDistance: (user.totalDistance || 0) + finalState.distanceKm
+      };
+      setUserState(updatedUser);
+      await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+    }
+
+    setLastTripSummary({
+      ...finalState,
+      score,
+      points: earnedPoints
+    });
+
+    setTripState(INITIAL_TRIP_STATE);
+    return finalState;
+  }, [user]);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -113,39 +169,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const endTrip = useCallback(async () => {
-    const finalSDKData = await sdk.stopTrip();
-    const finalState = { ...tripRef.current };
-
-    const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
-    const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
-
-    const newTrip: Trip = {
-      id: `trip_${Date.now()}`,
-      date: new Date().toISOString(),
-      distance: finalState.distanceKm,
-      duration: finalState.durationSeconds,
-      score: score,
-      points: earnedPoints,
-      events: []
-    };
-
-    const updatedTrips = [newTrip, ...recentTrips].slice(0, 10);
-    setRecentTrips(updatedTrips);
-    await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
-
-    if (user) {
-      const updatedUser = {
-        ...user,
-        totalPoints: user.totalPoints + earnedPoints,
-        totalDistance: (user.totalDistance || 0) + finalState.distanceKm
-      };
-      setUserState(updatedUser);
-      await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
-    }
-
-    setTripState(INITIAL_TRIP_STATE);
-    return finalState;
-  }, [sdk, user, recentTrips]);
+    await sdk.stopTrip();
+    return processEndTrip();
+  }, [sdk, processEndTrip]);
 
   const setUser = useCallback(async (u: AppUser | null) => {
     setUserState(u);
@@ -165,10 +191,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
 
+  const simulateBTConnect = useCallback(() => {
+    sdk.simulateBluetoothConnection();
+  }, [sdk]);
+
+  const simulateBTDisconnect = useCallback(() => {
+    sdk.simulateBluetoothDisconnection();
+  }, [sdk]);
+
   return (
     <AppContext.Provider value={{
       user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
-      tripState, startTrip, endTrip, recentTrips
+      tripState, startTrip, endTrip, recentTrips,
+      simulateBTConnect, simulateBTDisconnect,
+      lastTripSummary, setLastTripSummary
     }}>
       {children}
     </AppContext.Provider>

@@ -9,6 +9,7 @@ export function formatDistance(km: number, lang: 'he' | 'en' = 'he'): string {
 }
 
 export function formatDuration(seconds: number, lang: 'he' | 'en' = 'he'): string {
+  if (!seconds || isNaN(seconds)) return lang === 'he' ? '0 דק\'' : '0m'
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   if (mins === 0) return lang === 'he' ? `${secs} שנ'` : `${secs}s`

@@ -27,14 +27,14 @@ async function request<T>(
     return await res.json()
   } catch (error) {
     console.warn(`[API] Fetch failed for ${path}, returning mock data if available.`, error)
-    return getMockData(path) as T
+    return getMockData(path, options.method) as T
   }
 }
 
 /**
  * פונקציה שמחזירה נתונים מזוייפים כדי שהאפליקציה לא תקרוס בלי שרת
  */
-function getMockData(path: string): any {
+function getMockData(path: string, method?: string): any {
   if (path.includes('/api/auth/login') || path.includes('/api/auth/register')) {
     return {
       token: 'mock-token-123',
@@ -53,17 +53,73 @@ function getMockData(path: string): any {
     return { stats: { totalPoints: 1250, totalDistance: 154.2, tripsCount: 12, level: 5, rank: 'Safe Driver' } }
   }
   if (path.includes('/api/leaderboard')) {
-    return { entries: [
-      { id: '1', name: 'ישראל ישראלי', score: 98, points: 5000, avatar: 'https://i.pravatar.cc/150?u=1' },
-      { id: '2', name: 'יוסי כהן', score: 92, points: 4200, avatar: 'https://i.pravatar.cc/150?u=2' },
-      { id: 'guest-123', name: 'Guest User', score: 95, points: 1250, avatar: 'https://i.pravatar.cc/150?u=guest' }
-    ], currentUserId: 'guest-123' }
+    /**
+     * הערה לפיתוח: הנתונים כאן כרגע סטטיים (Mock).
+     * בעתיד, הנתונים ימשכו ממאגר נתונים (Database) לפי סוג הטבלה:
+     * - טאב "חברים": נתונים ממאגר חברי המשתמש.
+     * - טאב "עיר": נתונים ממאגר משותף של כל משתמשי האפליקציה באותה עיר.
+     * - טאב "ארצי": נתונים ממאגר כללי של כל משתמשי האפליקציה בישראל.
+     */
+    return {
+      entries: [
+        {
+          id: 'guest-123',
+          userId: 'guest-123',
+          rank: 1,
+          score: 95,
+          user: {
+            name: 'אתה (משתמש אורח)',
+            city: 'תל-אביב',
+            level: 5
+          }
+        },
+        {
+          id: 'anon-1',
+          userId: 'anon-1',
+          rank: 2,
+          score: 98,
+          user: {
+            name: 'אלמוני',
+            city: 'ישראל',
+            level: 3
+          }
+        }
+      ],
+      currentUserId: 'guest-123'
+    }
   }
   if (path.includes('/api/notifications')) {
     return { notifications: [] }
   }
+  if (path.includes('/api/rewards') && method === 'POST') {
+    // Mock for redeeming a reward
+    const rewardId = path.split('/').reverse()[1];
+    return {
+      voucher: {
+        id: `v-${Date.now()}`,
+        code: `CARMA-${Math.random().toString(36).toUpperCase().substring(2, 8)}`,
+        rewardId: rewardId,
+        isUsed: false,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        qrData: 'mock-qr-data',
+        reward: { imageEmoji: '🎁', title: 'הפרס החדש שלך' } // In real DB this would be a JOIN with rewards table
+      }
+    }
+  }
+
   if (path.includes('/api/rewards')) {
-    return { rewards: [], vouchers: [] }
+    /**
+     * DATABASE MAPPING:
+     * - This data comes from the "rewards" table.
+     * - Category filtering is done via a SQL query: SELECT * FROM rewards WHERE category = ?
+     */
+    const mockRewards: import('@/navigation/types').Reward[] = [
+      { id: 'r1', title: '50 ש"ח הנחה בתדלוק', titleEn: '50 ILS Fuel Discount', business: 'Paz', pointsCost: 500, imageEmoji: '⛽', category: 'fuel', stock: 100 },
+      { id: 'r2', title: 'קפה ומאפה חינם', titleEn: 'Free Coffee & Pastry', business: 'Arcaffe', pointsCost: 150, imageEmoji: '☕', category: 'food', stock: 50 },
+      { id: 'r3', title: 'שטיפת רכב חיצונית', titleEn: 'Exterior Car Wash', business: 'CityWash', pointsCost: 300, imageEmoji: '🚗', category: 'shopping', stock: 20 },
+      { id: 'r4', title: 'כרטיס לסרט', titleEn: 'Cinema Ticket', business: 'Cinema City', pointsCost: 400, imageEmoji: '🎬', category: 'entertainment', stock: 15 },
+    ]
+    return { rewards: mockRewards, vouchers: [] }
   }
   if (path.includes('/api/trips')) {
     return { trips: [], trip: null }

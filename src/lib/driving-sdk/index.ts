@@ -163,6 +163,15 @@ export class CarmaDrivingSDK {
       tripData: this.currentTripData
     };
   }
+
+  public simulateBluetoothConnection() {
+    this.btManager.simulateConnect();
+  }
+
+  public simulateBluetoothDisconnection() {
+    this.btManager.simulateDisconnect();
+  }
 }
+
 
 export * from './types';
