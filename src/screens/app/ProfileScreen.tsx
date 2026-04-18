@@ -148,20 +148,24 @@ export default function ProfileScreen() {
 
                 {/* Bars / Points */}
                 <View style={styles.barsContainer}>
-                  {trips.slice(0, 7).reverse().map((trip, idx) => (
-                    <View key={trip.id} style={styles.barWrapper}>
-                      <View
-                        style={[
-                          styles.bar,
-                          {
-                            height: `${trip.score}%`,
-                            backgroundColor: trip.score > 85 ? COLORS.success : trip.score > 70 ? COLORS.warning : COLORS.danger
-                          }
-                        ]}
-                      />
-                      <Text style={styles.xLabel}>{formatDate(trip.date, lang).split('/')[0]}/{formatDate(trip.date, lang).split('/')[1]}</Text>
-                    </View>
-                  ))}
+                  {trips.slice(0, 7).reverse().map((trip, idx) => {
+                    const dateStr = trip.start_time || trip.date;
+                    const formatted = dateStr ? formatDate(dateStr, lang) : '--/--';
+                    return (
+                      <View key={trip.id} style={styles.barWrapper}>
+                        <View
+                          style={[
+                            styles.bar,
+                            {
+                              height: `${trip.avg_score || trip.score || 0}%`,
+                              backgroundColor: (trip.avg_score || trip.score || 0) > 85 ? COLORS.success : (trip.avg_score || trip.score || 0) > 70 ? COLORS.warning : COLORS.danger
+                            }
+                          ]}
+                        />
+                        <Text style={styles.xLabel}>{formatted.split('/')[0]}/{formatted.split('/')[1]}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
               </View>
             </View>

@@ -38,6 +38,7 @@ interface AppContextValue {
   tripState: TripState
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
+  clearTripHistory: () => Promise<void>
   simulateBTConnect: () => void
   simulateBTDisconnect: () => void
   lastTripSummary: any | null
@@ -103,33 +104,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
 
+    // 🚩 תשתית למניעת רמאויות: אם לא בוצע מרחק (פחות מ-10 מטר), מציגים הודעה מתאימה ולא שומרים
+    if (finalState.distanceKm < 0.01) {
+      console.log('[Trip] Distance too low, showing "No Movement" modal.');
+      setLastTripSummary({ noMovement: true });
+      setTripState(INITIAL_TRIP_STATE);
+      return finalState;
+    }
+
     // Calculate rewards
     const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
     const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
 
+    // DATABASE MAPPING: matches 5.3.1.2 Trip Entity
     const newTrip: Trip = {
       id: `trip_${Date.now()}`,
-      date: new Date().toISOString(),
+      user_id: user?.id || 'guest-123',
+      start_time: new Date().toISOString(),
+      end_time: new Date().toISOString(),
+      avg_score: score,
       distance: finalState.distanceKm,
-      duration: finalState.durationSeconds,
-      score: score,
-      points: earnedPoints,
-      events: []
+      events_array: [] // Future: store events from session
     };
 
-    // Save locally
+    /**
+     * EXPORT TO DATABASE (Future implementation):
+     * await tripsApi.saveTrip(newTrip);
+     */
+
+    // Save locally for now (Mock behavior)
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
     const existingTrips = existingTripsJson ? JSON.parse(existingTripsJson) : [];
     const updatedTrips = [newTrip, ...existingTrips].slice(0, 10);
     setRecentTrips(updatedTrips);
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
-    // Update user stats
+    // Update user points (5.3.1.1 User.points)
     if (user) {
       const updatedUser = {
         ...user,
-        totalPoints: user.totalPoints + earnedPoints,
-        totalDistance: (user.totalDistance || 0) + finalState.distanceKm
+        points: (user.points || 0) + earnedPoints,
       };
       setUserState(updatedUser);
       await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
@@ -153,15 +167,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem('carma_user'),
           AsyncStorage.getItem('carma_trips')
         ])
+
+        let loadedUser: AppUser | null = null;
+        if (u) {
+          loadedUser = JSON.parse(u);
+          setUserState(loadedUser);
+        }
+
         if (l === 'he' || l === 'en') setLangState(l)
-        if (u) setUserState(JSON.parse(u))
-        if (t) setRecentTrips(JSON.parse(t))
+
+        if (t) {
+          const allTrips: Trip[] = JSON.parse(t);
+          // 🚩 סינון: הצג רק נסיעות שבוצעו אחרי הניקוי האחרון
+          if (loadedUser?.last_cleared_history) {
+            const clearDate = new Date(loadedUser.last_cleared_history).getTime();
+            setRecentTrips(allTrips.filter(trip =>
+              new Date(trip.start_time || (trip as any).date).getTime() > clearDate
+            ));
+          } else {
+            setRecentTrips(allTrips);
+          }
+        }
       } finally {
         setIsLoading(false)
       }
     }
     loadInitialData()
   }, [])
+
+  const clearTripHistory = useCallback(async () => {
+    if (!user) return;
+    const now = new Date().toISOString();
+    const updatedUser: AppUser = { ...user, last_cleared_history: now };
+
+    // מעדכנים את ה-State ואת ה-Storage
+    setUserState(updatedUser);
+    await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+
+    // "מנקים" את התצוגה - מציגים רק מה שחדש ממעכשיו
+    setRecentTrips([]);
+    addToast({ type: 'success', message: 'היסטוריית הנסיעות נוקתה מהתצוגה' });
+  }, [user, addToast]);
 
   const startTrip = useCallback(async () => {
     await sdk.startTrip();
@@ -202,7 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
-      tripState, startTrip, endTrip, recentTrips,
+      tripState, startTrip, endTrip, recentTrips, clearTripHistory,
       simulateBTConnect, simulateBTDisconnect,
       lastTripSummary, setLastTripSummary
     }}>

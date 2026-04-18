@@ -18,7 +18,7 @@ import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, recentTrips, isLoading, simulateBTConnect, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
+  const { user, setUser, recentTrips, isLoading, simulateBTConnect, tripState, startTrip, lastTripSummary, setLastTripSummary, clearTripHistory } = useApp();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
 
@@ -99,8 +99,11 @@ export default function DashboardScreen() {
 
         {/* Score + Level hero */}
         <Card glass glow style={styles.hero}>
-          <View style={[COMMON_STYLES.row, { gap: SPACING.md }]}>
-            <LevelBadge level={user.level} size="lg" lang={lang} showName />
+          <View style={[COMMON_STYLES.row, { gap: 0 }]}>
+            <View style={styles.badgeWrapper}>
+              {/* הגדלת התג ע"י שליחת סטייל מותאם אישית במידת הצורך, או שימוש ב-size=lg עם קנה מידה */}
+              <LevelBadge level={user.level} size="lg" lang={lang} showName />
+            </View>
             <View style={styles.heroRight}>
               <View style={styles.scoreRow}>
                 <Text style={[styles.score, { color: avgScore !== null ? scoreToColor(avgScore) : COLORS.success }]}>
@@ -108,15 +111,23 @@ export default function DashboardScreen() {
                 </Text>
                 <Text style={styles.scoreSub}>{t('dashboard.yourScore')}</Text>
               </View>
-              <Progress
-                value={getLevelProgress(user.totalPoints, user.level)}
-                color={getLevelConfig(user.level).color}
-                height={12}
-              />
-              <Text style={styles.progressText}>
-                {user.totalPoints.toLocaleString()} {t('common.points')}
-                {getPointsToNextLevel(user.totalPoints, user.level) > 0 && ` · ${getPointsToNextLevel(user.totalPoints, user.level)} לדרגה הבאה`}
-              </Text>
+              <View style={styles.progressContainer}>
+                <Progress
+                  value={getLevelProgress(user.points || user.totalPoints, user.level)}
+                  color={getLevelConfig(user.level).color}
+                  height={6}
+                />
+                <View style={styles.progressStatsRow}>
+                  <Text style={styles.progressPointsText}>
+                    {(user.points || user.totalPoints).toLocaleString()} {t('common.points')}
+                  </Text>
+                  {getPointsToNextLevel(user.points || user.totalPoints, user.level) > 0 && (
+                    <Text style={styles.progressPointsText}>
+                      {getPointsToNextLevel(user.points || user.totalPoints, user.level)} לדרגה הבאה
+                    </Text>
+                  )}
+                </View>
+              </View>
             </View>
           </View>
         </Card>
@@ -221,6 +232,15 @@ export default function DashboardScreen() {
                 <Button variant="danger" fullWidth onPress={handleLogout} style={{ marginTop: 10 }}>
                   🚪 {t('auth.logout')}
                 </Button>
+
+                <TouchableOpacity
+                  onPress={clearTripHistory}
+                  style={{ marginTop: 20, alignItems: 'center' }}
+                >
+                  <Text style={{ color: COLORS.textMuted, fontSize: 12, textDecorationLine: 'underline' }}>
+                    איפוס היסטוריית נסיעות (מקומי)
+                  </Text>
+                </TouchableOpacity>
               </View>
             </ScrollView>
           </Card>
@@ -260,45 +280,60 @@ export default function DashboardScreen() {
       <Modal visible={showSummary} animationType="slide" transparent>
         <View style={COMMON_STYLES.modalOverlay}>
           <Card style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>נסיעה הושלמה! 🎉</Text>
-
-            {tripSummary && (
-              <View style={styles.resultsContainer}>
-                <View style={[styles.scoreCircle, { borderColor: scoreToColor(tripSummary.score) }]}>
-                  <Text style={[styles.scoreValue, { color: scoreToColor(tripSummary.score) }]}>
-                    {Math.round(tripSummary.score)}
-                  </Text>
-                  <Text style={styles.scoreLabel}>ציון סופי</Text>
-                </View>
-
-                <View style={styles.statsGrid}>
-                  <View style={styles.statBox}>
-                    <Text style={styles.statValueSmall}>{tripSummary.distanceKm.toFixed(2)}</Text>
-                    <Text style={styles.statLabelSmall}>ק"מ</Text>
-                  </View>
-                  <View style={styles.statBox}>
-                    <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{tripSummary.points}</Text>
-                    <Text style={styles.statLabelSmall}>נקודות</Text>
-                  </View>
-                </View>
-
-                <View style={styles.eventsList}>
-                  <Text style={styles.eventsTitle}>פירוט אירועים:</Text>
-                  <View style={COMMON_STYLES.rowBetween}>
-                    <Text style={styles.eventLabel}>🛑 בלימות חדות</Text>
-                    <Text style={styles.eventCount}>{tripSummary.eventCounts.HARD_BRAKE}</Text>
-                  </View>
-                  <View style={COMMON_STYLES.rowBetween}>
-                    <Text style={styles.eventLabel}>📱 נגיעות בטלפון</Text>
-                    <Text style={styles.eventCount}>{tripSummary.eventCounts.PHONE_TOUCH}</Text>
-                  </View>
-                </View>
+            {tripSummary?.noMovement ? (
+              <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                <Text style={{ fontSize: 60, marginBottom: 20 }}>📍</Text>
+                <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>לא זוהתה תנועה משמעותית</Text>
+                <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 20 }]}>
+                  הנסיעה לא נשמרה ביומן מכיוון שלא נרשם מרחק נסיעה במהלך התיעוד.
+                </Text>
+                <Button fullWidth onPress={() => setShowSummary(false)}>
+                  הבנתי, תודה
+                </Button>
               </View>
-            )}
+            ) : (
+              <>
+                <Text style={styles.summaryTitle}>נסיעה הושלמה! 🎉</Text>
 
-            <Button fullWidth onPress={() => setShowSummary(false)} style={{ marginTop: 24 }}>
-              סגור וחזור לדף הבית
-            </Button>
+                {tripSummary && (
+                  <View style={styles.resultsContainer}>
+                    <View style={[styles.scoreCircle, { borderColor: scoreToColor(tripSummary.score) }]}>
+                      <Text style={[styles.scoreValue, { color: scoreToColor(tripSummary.score) }]}>
+                        {Math.round(tripSummary.score)}
+                      </Text>
+                      <Text style={styles.scoreLabel}>ציון סופי</Text>
+                    </View>
+
+                    <View style={styles.statsGrid}>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statValueSmall}>{tripSummary.distanceKm?.toFixed(2) || '0.00'}</Text>
+                        <Text style={styles.statLabelSmall}>ק"מ</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{tripSummary.points || 0}</Text>
+                        <Text style={styles.statLabelSmall}>נקודות</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.eventsList}>
+                      <Text style={styles.eventsTitle}>פירוט אירועים:</Text>
+                      <View style={COMMON_STYLES.rowBetween}>
+                        <Text style={styles.eventLabel}>🛑 בלימות חדות</Text>
+                        <Text style={styles.eventCount}>{tripSummary.eventCounts?.HARD_BRAKE || 0}</Text>
+                      </View>
+                      <View style={COMMON_STYLES.rowBetween}>
+                        <Text style={styles.eventLabel}>📱 נגיעות בטלפון</Text>
+                        <Text style={styles.eventCount}>{tripSummary.eventCounts?.PHONE_TOUCH || 0}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                <Button fullWidth onPress={() => setShowSummary(false)} style={{ marginTop: 24 }}>
+                  סגור וחזור לדף הבית
+                </Button>
+              </>
+            )}
           </Card>
         </View>
       </Modal>
@@ -314,12 +349,30 @@ const styles = StyleSheet.create({
   btIcon:        { fontSize: 18 },
   bell:          { width: 40, height: 40, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
   bellIcon:      { fontSize: 18 },
-  hero:          { marginBottom: SPACING.sm },
-  heroRight:     { flex: 1, gap: 6 },
-  scoreRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  hero:          {
+    marginBottom: SPACING.md,
+    marginTop: 15,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    borderWidth: 0.2,
+    borderColor: 'rgba(255,255,255,0.1)'
+  },
+  badgeWrapper:  {
+    marginRight: 40, // הזזה משמעותית יותר שמאלה מהדופן
+    transform: [{ scale: 1.2 }] // הגדלת התג ב-20%
+  },
+  heroRight:     { flex: 1, justifyContent: 'center' },
+  scoreRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 8 },
   score:         { fontSize: 48, fontWeight: '900' },
-  scoreSub:      { ...TYPOGRAPHY.caption },
-  progressText:  { ...TYPOGRAPHY.caption, fontSize: 11, marginTop: 2 },
+  scoreSub:      { ...TYPOGRAPHY.caption, fontSize: 13 },
+  progressContainer: { marginHorizontal: 4 },
+  progressStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4
+  },
+  progressPointsText: { ...TYPOGRAPHY.caption, fontSize: 10, color: '#fff' },
   ctaBtn:        { marginVertical: SPACING.lg }, // הוספת ריווח אנכי כדי שלא יהיה צמוד למדדים
   tripList:      { gap: SPACING.sm },
 

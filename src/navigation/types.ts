@@ -30,6 +30,10 @@ export interface AppUser {
   email?: string // For login context
   created_at?: string
   last_logged?: string
+  last_cleared_history?: string // Timestamp for UI filtering
+  driveModeEnabled?: boolean
+  bluetoothDeviceId?: string
+  bluetoothDeviceName?: string
 }
 
 /** 5.3.1.2 Trip */

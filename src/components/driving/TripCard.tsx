@@ -21,28 +21,24 @@ export function TripCard({ trip, onPress }: TripCardProps) {
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Card>
         <View style={styles.row}>
-          <Text style={styles.emoji}>{scoreToEmoji(trip.score)}</Text>
+          <Text style={styles.emoji}>{scoreToEmoji(trip.avg_score || trip.score)}</Text>
           <View style={styles.info}>
             <Text style={styles.title} numberOfLines={1}>
-              {trip.startLocation && trip.endLocation
-                ? `${trip.startLocation} → ${trip.endLocation}`
-                : formatDate(trip.startTime, lang)}
+              {formatDate(trip.start_time || trip.startTime, lang)}
             </Text>
             <Text style={styles.sub}>
-              {formatDate(trip.startTime, lang)} · {formatDuration(trip.durationSeconds, lang)} · {formatDistance(trip.distanceKm, lang)}
+              {formatDistance(trip.distance || trip.distanceKm, lang)} · {trip.avg_score || trip.score} {t('dashboard.yourScore')}
             </Text>
           </View>
           <View style={styles.right}>
-            <Badge variant={badgeVariant}>{Math.round(trip.score)}</Badge>
-            <Text style={styles.points}>+{Math.round(trip.points)} {t('common.points')}</Text>
+            <Badge variant={badgeVariant}>{Math.round(trip.avg_score || trip.score)}</Badge>
+            {trip.points && <Text style={styles.points}>+{Math.round(trip.points)} {t('common.points')}</Text>}
           </View>
         </View>
 
-        {(trip.hardBrakes > 0 || trip.phoneSeconds > 10) && (
+        {(trip.events_array?.length > 0) && (
           <View style={styles.events}>
-            {trip.hardBrakes > 0 && <Text style={styles.eventText}>⚡ {trip.hardBrakes} {t('trip.hardBrakes')}</Text>}
-            {trip.phoneSeconds > 10 && <Text style={styles.eventText}>📱 {trip.phoneSeconds}s</Text>}
-            {trip.riskMultiplier > 1 && <Text style={styles.riskText}>🌙 x{trip.riskMultiplier}</Text>}
+            <Text style={styles.eventText}>⚡ {trip.events_array.length} {t('trip.events') || 'אירועי בטיחות'}</Text>
           </View>
         )}
       </Card>
