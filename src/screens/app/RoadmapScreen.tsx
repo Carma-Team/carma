@@ -14,11 +14,11 @@ export default function RoadmapScreen() {
 
   if (!user) return null
   const currentLevel   = user.level
-  const currentPoints  = user.totalPoints
+  const currentPoints  = user.points || 0
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
-      <View style={[COMMON_STYLES.rowBetween, { paddingHorizontal: SPACING.md, marginBottom: SPACING.sm }]}>
+      <View style={[COMMON_STYLES.rowBetween, { paddingHorizontal: SPACING.md, marginTop: SPACING.md, marginBottom: SPACING.sm }]}>
         <View>
           <Text style={styles.heading}>{t('roadmap.title')}</Text>
           <Text style={styles.subtitle}>{t('roadmap.subtitle')}</Text>

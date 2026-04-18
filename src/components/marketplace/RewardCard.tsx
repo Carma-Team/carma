@@ -15,8 +15,8 @@ interface RewardCardProps {
 
 export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
-  const canAfford  = userPoints >= reward.pointsCost
-  const inStock    = reward.stock > 0
+  const canAfford  = userPoints >= reward.cost_points
+  const inStock    = (reward.stock ?? 1) > 0
 
   return (
     <Card>
@@ -26,11 +26,11 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
         </View>
         <View style={styles.rewardInfo}>
           <Text style={styles.rewardTitle} numberOfLines={1}>
-            {lang === 'he' ? reward.title : (reward.titleEn || reward.title)}
+            {lang === 'he' ? (reward.description || reward.title) : (reward.titleEn || reward.title)}
           </Text>
-          <Text style={styles.rewardBusiness}>🏢 {reward.business}</Text>
+          <Text style={styles.rewardBusiness}>🏢 {reward.business_name || reward.business}</Text>
           <View style={styles.costBadge}>
-            <Text style={styles.rewardCost}>⭐ {reward.pointsCost} {t('common.points')}</Text>
+            <Text style={styles.rewardCost}>⭐ {reward.cost_points} {t('common.points')}</Text>
           </View>
         </View>
         <Button
@@ -62,22 +62,22 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
       <View style={styles.voucherContent}>
         <Text style={styles.voucherEmoji}>{voucher.reward?.imageEmoji ?? '🎁'}</Text>
         <Text style={styles.voucherRewardTitle}>
-          {lang === 'he' ? voucher.reward?.title : (voucher.reward?.titleEn || voucher.reward?.title)}
+          {lang === 'he' ? (voucher.reward?.description || voucher.reward?.title) : (voucher.reward?.titleEn || voucher.reward?.title)}
         </Text>
 
         {/* Here you need to add a QR code renderer. Install: expo install expo-barcode-generator
-            or use react-native-qrcode-svg and pass voucher.qrData as the value. */}
+            or use react-native-qrcode-svg and pass voucher.qr_code as the value. */}
         <View style={styles.qrPlaceholder}>
-          <Text style={styles.qrCode}>{voucher.code}</Text>
+          <Text style={styles.qrCode}>{voucher.qr_code || voucher.code}</Text>
           <Text style={styles.qrNote}>{t('marketplace.voucher.scanQR')}</Text>
         </View>
 
         <Text style={styles.voucherExpiry}>
-          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString()}
+          {t('marketplace.voucher.expiry')}: {new Date(voucher.expired_at || voucher.expiresAt).toLocaleDateString()}
         </Text>
-        <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
-          <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>
-            {voucher.isUsed ? t('marketplace.voucher.used') : t('marketplace.voucher.active')}
+        <View style={[styles.statusBadge, { backgroundColor: voucher.status === 'used' ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
+          <Text style={{ color: voucher.status === 'used' ? '#ef4444' : '#22c55e', fontWeight: '700' }}>
+            {voucher.status === 'used' ? t('marketplace.voucher.used') : t('marketplace.voucher.active')}
           </Text>
         </View>
       </View>

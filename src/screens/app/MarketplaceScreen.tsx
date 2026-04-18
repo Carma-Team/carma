@@ -37,7 +37,8 @@ export default function MarketplaceScreen() {
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      await setUser({ ...user, totalPoints: user.totalPoints - selectedReward.pointsCost })
+      // Use 'points' instead of 'totalPoints' from 5.3.1.1
+      await setUser({ ...user, points: (user.points || 0) - selectedReward.cost_points })
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
       setTab('vouchers')
@@ -58,7 +59,7 @@ export default function MarketplaceScreen() {
         <Text style={styles.subtitle}>{t('marketplace.subtitle')}</Text>
 
         <Card glass style={styles.pointsCard}>
-          <Text style={styles.pointsValue}>{user.totalPoints.toLocaleString()}</Text>
+          <Text style={styles.pointsValue}>{(user.points || 0).toLocaleString()}</Text>
           <Text style={styles.pointsLabel}>{t('common.points')}</Text>
         </Card>
 
@@ -96,7 +97,7 @@ export default function MarketplaceScreen() {
             {loading
               ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
               : <View style={{ gap: 10 }}>
-                  {rewards.map(r => <RewardCard key={r.id} reward={r} userPoints={user.totalPoints} onRedeem={setSelectedReward} />)}
+                  {rewards.map(r => <RewardCard key={r.id} reward={r} userPoints={user.points || 0} onRedeem={setSelectedReward} />)}
                 </View>
             }
           </>
@@ -133,8 +134,8 @@ export default function MarketplaceScreen() {
             <TouchableOpacity style={styles.overlay} onPress={() => setSelectedReward(null)} activeOpacity={1} />
             <View style={styles.confirmSheet}>
               <Text style={styles.confirmEmoji}>{selectedReward.imageEmoji}</Text>
-              <Text style={styles.confirmTitle}>{lang === 'he' ? selectedReward.title : selectedReward.titleEn || selectedReward.title}</Text>
-              <Text style={styles.confirmCost}>⭐ {selectedReward.pointsCost} {t('common.points')}</Text>
+              <Text style={styles.confirmTitle}>{lang === 'he' ? (selectedReward.description || selectedReward.title) : selectedReward.titleEn || selectedReward.title}</Text>
+              <Text style={styles.confirmCost}>⭐ {selectedReward.cost_points} {t('common.points')}</Text>
               <TouchableOpacity style={styles.confirmBtn} onPress={confirmRedeem} disabled={redeeming}>
                 <Text style={styles.confirmBtnText}>{redeeming ? '...' : t('marketplace.redeem')}</Text>
               </TouchableOpacity>
