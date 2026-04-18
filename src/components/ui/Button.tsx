@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   base:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   fullWidth: { width: '100%' },
   disabled:  { opacity: 0.5 },
-  text:      { color: '#fff', fontWeight: '600' },
+  text:      { color: '#fff', fontWeight: '600', textAlign: 'center' },
 })
 
 export default Button
