@@ -50,6 +50,9 @@ export default function DashboardScreen() {
   async function handleLogout() {
     await AsyncStorage.multiRemove(['carma_token', 'carma_user'])
     await setUser(null)
+    setShowSettings(false)
+    // העברה למסך הכניסה
+    router.replace('/(auth)/login')
   }
 
   useEffect(() => {
@@ -236,12 +239,16 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity
                   onPress={clearTripHistory}
-                  style={{ marginTop: 20, alignItems: 'center' }}
+                  style={{ marginTop: 20, marginBottom: 20, alignItems: 'center' }}
                 >
                   <Text style={{ color: COLORS.textMuted, fontSize: 12, textDecorationLine: 'underline' }}>
                     איפוס היסטוריית נסיעות (מקומי)
                   </Text>
                 </TouchableOpacity>
+
+                <Button variant="outline" fullWidth onPress={() => setShowSettings(false)}>
+                  חזור למסך הבית
+                </Button>
               </View>
             </ScrollView>
           </Card>
@@ -304,7 +311,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)'
   },
   badgeWrapper:  {
-    marginRight: 40, // הזזה משמעותית יותר שמאלה מהדופן
+    marginRight: 20, // הזזה נוספת פנימה כדי למנוע חפיפה עם קו המיתאר
     transform: [{ scale: 1.2 }] // הגדלת התג ב-20%
   },
   heroRight:     { flex: 1, justifyContent: 'center' },
