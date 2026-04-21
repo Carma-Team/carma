@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Progress } from '@/components/ui/Progress';
 import { LevelBadge } from '@/components/gamification/LevelBadge';
 import { TripCard } from '@/components/driving/TripCard';
+import { TripSummaryModal } from '@/components/driving/TripSummaryModal';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getLevelConfig, getLevelProgress, getPointsToNextLevel, COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/lib/constants';
@@ -277,66 +278,11 @@ export default function DashboardScreen() {
       </Modal>
 
       {/* Modal סיכום נסיעה */}
-      <Modal visible={showSummary} animationType="slide" transparent>
-        <View style={COMMON_STYLES.modalOverlay}>
-          <Card style={styles.summaryCard}>
-            {tripSummary?.noMovement ? (
-              <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-                <Text style={{ fontSize: 60, marginBottom: 20 }}>📍</Text>
-                <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>לא זוהתה תנועה משמעותית</Text>
-                <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 20 }]}>
-                  הנסיעה לא נשמרה ביומן מכיוון שלא נרשם מרחק נסיעה במהלך התיעוד.
-                </Text>
-                <Button fullWidth onPress={() => setShowSummary(false)}>
-                  הבנתי, תודה
-                </Button>
-              </View>
-            ) : (
-              <>
-                <Text style={styles.summaryTitle}>נסיעה הושלמה! 🎉</Text>
-
-                {tripSummary && (
-                  <View style={styles.resultsContainer}>
-                    <View style={[styles.scoreCircle, { borderColor: scoreToColor(tripSummary.score) }]}>
-                      <Text style={[styles.scoreValue, { color: scoreToColor(tripSummary.score) }]}>
-                        {Math.round(tripSummary.score)}
-                      </Text>
-                      <Text style={styles.scoreLabel}>ציון סופי</Text>
-                    </View>
-
-                    <View style={styles.statsGrid}>
-                      <View style={styles.statBox}>
-                        <Text style={styles.statValueSmall}>{tripSummary.distanceKm?.toFixed(2) || '0.00'}</Text>
-                        <Text style={styles.statLabelSmall}>ק"מ</Text>
-                      </View>
-                      <View style={styles.statBox}>
-                        <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{tripSummary.points || 0}</Text>
-                        <Text style={styles.statLabelSmall}>נקודות</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.eventsList}>
-                      <Text style={styles.eventsTitle}>פירוט אירועים:</Text>
-                      <View style={COMMON_STYLES.rowBetween}>
-                        <Text style={styles.eventLabel}>🛑 בלימות חדות</Text>
-                        <Text style={styles.eventCount}>{tripSummary.eventCounts?.HARD_BRAKE || 0}</Text>
-                      </View>
-                      <View style={COMMON_STYLES.rowBetween}>
-                        <Text style={styles.eventLabel}>📱 נגיעות בטלפון</Text>
-                        <Text style={styles.eventCount}>{tripSummary.eventCounts?.PHONE_TOUCH || 0}</Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                <Button fullWidth onPress={() => setShowSummary(false)} style={{ marginTop: 24 }}>
-                  סגור וחזור לדף הבית
-                </Button>
-              </>
-            )}
-          </Card>
-        </View>
-      </Modal>
+      <TripSummaryModal
+        visible={showSummary}
+        onClose={() => setShowSummary(false)}
+        summary={tripSummary}
+      />
     </View>
   );
 }
@@ -395,20 +341,4 @@ const styles = StyleSheet.create({
   deviceItem:        { flexDirection: 'row', justifyContent: 'space-between', padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, marginBottom: 8 },
   deviceName:        { color: '#fff' },
   deviceSelectIcon:  { fontSize: 16 },
-
-  // Modal styles (ספציפיים לסיכום נסיעה)
-  summaryCard: { padding: SPACING.xl, alignItems: 'center', width: '100%', borderRadius: 35, backgroundColor: '#1A1A1A', borderColor: COLORS.border },
-  summaryTitle: { ...TYPOGRAPHY.h2, fontSize: 26, marginBottom: SPACING.lg },
-  resultsContainer: { width: '100%', alignItems: 'center' },
-  scoreCircle: { width: 140, height: 140, borderRadius: 70, borderWidth: 8, justifyContent: 'center', alignItems: 'center', marginBottom: SPACING.lg, backgroundColor: 'rgba(255,255,255,0.02)' },
-  scoreValue: { fontSize: 52, fontWeight: '900' },
-  scoreLabel: { ...TYPOGRAPHY.caption, fontSize: 14 },
-  statsGrid: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.lg, width: '100%' },
-  statBox: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', padding: SPACING.md, borderRadius: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  statValueSmall: { ...TYPOGRAPHY.h2, fontSize: 24 },
-  statLabelSmall: { ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 4 },
-  eventsList: { width: '100%', gap: SPACING.sm, backgroundColor: 'rgba(0,0,0,0.2)', padding: SPACING.md, borderRadius: 20 },
-  eventsTitle: { ...TYPOGRAPHY.h3, fontSize: 16, marginBottom: SPACING.sm },
-  eventLabel: { ...TYPOGRAPHY.body, color: COLORS.textMuted, fontSize: 14 },
-  eventCount: { ...TYPOGRAPHY.label, color: '#fff', fontSize: 16 },
 });
