@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -12,10 +13,24 @@ import { Ionicons } from '@expo/vector-icons';
 
 export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
-  const { addToast } = useApp();
+  const { addToast, registerPhoneTouch } = useApp();
   const { t } = useTranslation();
   const { state, startTrip, endTrip } = useTrip();
   const [loading, setLoading] = useState(false);
+
+  // זיהוי מעבר בין טאבים (עזיבת המסך) בזמן נסיעה
+  useFocusEffect(
+    useCallback(() => {
+      // הקוד הזה רץ כשהמסך מקבל פוקוס
+      return () => {
+        // הקוד הזה רץ כשהמסך מאבד פוקוס (המשתמש עובר לטאב אחר)
+        if (state.isActive) {
+          console.log('[ActiveTrip] Screen lost focus - registering phone touch');
+          registerPhoneTouch();
+        }
+      };
+    }, [state.isActive, registerPhoneTouch])
+  );
 
   async function handleStart() {
     setLoading(true);

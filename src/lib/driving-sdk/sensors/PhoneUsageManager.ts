@@ -32,8 +32,19 @@ export class PhoneUsageManager {
   private handleStateChange(nextState: AppStateStatus) {
     if (!this.isActive) return;
 
-    // We no longer trigger events here because AppContext handles it.
-    // This manager is kept for future expansion if needed, but inactive for now.
-    console.log('[SDK-Phone] State changed to (ignored):', nextState);
+    // זיהוי יציאה מהאפליקציה (רקע או מסך נעול)
+    if (nextState === 'background' || nextState === 'inactive') {
+      const now = Date.now();
+      // מניעת כפילויות (Cooldown של 3 שניות)
+      if (now - this.lastEventTime > 3000) {
+        this.lastEventTime = now;
+        console.log('[SDK-Phone] App moved to background/inactive - triggering event');
+        this.onEvent({
+          type: DrivingEventType.PHONE_USAGE,
+          timestamp: new Date(),
+          severity: 1.0
+        });
+      }
+    }
   }
 }

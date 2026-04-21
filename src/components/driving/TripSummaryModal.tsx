@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     paddingVertical: 25,
     alignItems: 'center',
     width: '94%',
-    maxHeight: '92%', // הגדלת הגובה המקסימלי
+    maxHeight: '92%',
     borderRadius: 35,
     backgroundColor: '#1A1A1A',
     borderWidth: 0.3,
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   summaryTitle: { ...TYPOGRAPHY.h2, fontSize: 26, marginBottom: SPACING.md },
   resultsContainer: { width: '100%', alignItems: 'center' },
   scoreCircle: {
-    width: 130, // הקטנה קלה כדי לחסוך מקום אנכי
+    width: 130,
     height: 130,
     borderRadius: 65,
     borderWidth: 8,

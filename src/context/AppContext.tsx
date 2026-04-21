@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, AppStateStatus } from 'react-native'
+import { useSegments } from 'expo-router'
 import type { AppUser, Language, ToastMessage, Trip } from '@/navigation/types'
 import { CarmaDrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
 
@@ -42,6 +43,8 @@ interface AppContextValue {
   simulateBTDisconnect: () => void
   lastTripSummary: any | null
   setLastTripSummary: (v: any | null) => void
+  startTrip: () => Promise<void>
+  registerPhoneTouch: () => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -55,9 +58,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
 
+  // נשתמש ב-segments לזיהוי מעבר טאבים
+  const segments = useSegments()
+  const lastSegmentRef = useRef('')
+
   const sdk = useMemo(() => new CarmaDrivingSDK(), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
+
+  const lastTouchTimeRef = useRef(0);
+
+  const registerPhoneTouch = useCallback(() => {
+    const now = Date.now();
+    // מניעת כפילויות - אם עברה פחות משנייה מאז הנגיעה האחרונה, אל תספור שוב
+    if (tripRef.current.isActive && now - lastTouchTimeRef.current > 1000) {
+      lastTouchTimeRef.current = now;
+      console.log('[AppContext] Registering phone touch (throttled)');
+      setTripState(prev => ({
+        ...prev,
+        eventCounts: {
+          ...prev.eventCounts,
+          PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1
+        }
+      }));
+    }
+  }, []);
+
+  // זיהוי מעבר בין טאבים בתוך האפליקציה
+  useEffect(() => {
+    if (!segments) return;
+    const currentPath = segments.join('/');
+
+    // אם הנסיעה פעילה והנתיב השתנה
+    if (tripState.isActive && lastSegmentRef.current && currentPath !== lastSegmentRef.current) {
+      console.log(`[AppContext] Tab change detected: ${lastSegmentRef.current} -> ${currentPath}`);
+
+      // לא סופרים אם חזרנו למסך הנסיעה
+      if (!currentPath.includes('ActiveTripScreen')) {
+        registerPhoneTouch();
+      }
+    }
+    lastSegmentRef.current = currentPath;
+  }, [segments, tripState.isActive, registerPhoneTouch]);
 
   useEffect(() => {
     sdk.onUpdate = (data: TripData) => {
@@ -77,18 +119,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (tripRef.current.isActive && nextAppState !== 'active') {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: {
-            ...prev.eventCounts,
-            PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1
-          }
-        }));
+        registerPhoneTouch();
       }
     };
 
-    // Auto-end trip when SDK signals trip ended (e.g., Bluetooth disconnect)
-    sdk.onTripEnd = (finalData) => {
+    sdk.onTripEnd = () => {
       if (tripRef.current.isActive) {
         processEndTrip();
       }
@@ -98,12 +133,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.remove();
     };
-  }, [sdk]);
+  }, [sdk, registerPhoneTouch]);
 
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
 
-    // Calculate rewards
     const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
     const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
 
@@ -117,14 +151,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       events: []
     };
 
-    // Save locally
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
     const existingTrips = existingTripsJson ? JSON.parse(existingTripsJson) : [];
     const updatedTrips = [newTrip, ...existingTrips].slice(0, 10);
     setRecentTrips(updatedTrips);
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
-    // Update user stats
     if (user) {
       const updatedUser = {
         ...user,
@@ -204,7 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
       tripState, startTrip, endTrip, recentTrips,
       simulateBTConnect, simulateBTDisconnect,
-      lastTripSummary, setLastTripSummary
+      lastTripSummary, setLastTripSummary, registerPhoneTouch
     }}>
       {children}
     </AppContext.Provider>
