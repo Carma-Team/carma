@@ -35,59 +35,59 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
           {isTooShort ? (
             <View style={{ alignItems: 'center', paddingVertical: 20 }}>
               <Text style={{ fontSize: 60, marginBottom: 20 }}>📍</Text>
-              <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>לא זוהתה נסיעה משמעותית</Text>
+              <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>{t('trip.noTripDetected')}</Text>
               <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 30 }]}>
-                הנסיעה לא נשמרה ביומן מכיוון שלא נרשם מרחק נסיעה מספק (לפחות 100 מטרים).
+                {t('trip.noTripDetectedDesc')}
               </Text>
               <Button fullWidth size="xl" onPress={onClose}>
-                הבנתי, תודה
+                {t('trip.gotIt')}
               </Button>
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
               <View style={{ alignItems: 'center' }}>
-                <Text style={styles.summaryTitle}>נסיעה הושלמה! 🎉</Text>
+                <Text style={styles.summaryTitle}>{t('trip.tripCompleted')}</Text>
 
                 <View style={styles.resultsContainer}>
                   <View style={[styles.scoreCircle, { borderColor: scoreToColor(trip.score) }]}>
                     <Text style={[styles.scoreValue, { color: scoreToColor(trip.score) }]}>
                       {Math.round(trip.score)}
                     </Text>
-                    <Text style={styles.scoreLabel}>ציון סופי</Text>
+                    <Text style={styles.scoreLabel}>{t('trip.finalScore')}</Text>
                   </View>
 
                   <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
                       <Text style={styles.statValueSmall}>{trip.distanceKm?.toFixed(2) || '0.00'}</Text>
-                      <Text style={styles.statLabelSmall}>ק"מ</Text>
+                      <Text style={styles.statLabelSmall}>{t('trip.km')}</Text>
                     </View>
                     <View style={styles.statBox}>
                       <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{trip.points || 0}</Text>
-                      <Text style={styles.statLabelSmall}>נקודות</Text>
+                      <Text style={styles.statLabelSmall}>{t('trip.points')}</Text>
                     </View>
                   </View>
 
                   <View style={styles.eventsList}>
-                    <Text style={styles.eventsTitle}>פירוט אירועים:</Text>
+                    <Text style={styles.eventsTitle}>{t('trip.eventDetails')}</Text>
 
                     <EventRow
                       icon="🛑"
-                      label="בלימות חדות"
+                      label={t('trip.hardBrakes')}
                       count={trip.eventCounts?.HARD_BRAKE || 0}
                     />
                     <EventRow
                       icon="🚀"
-                      label="האצות פתאומיות"
+                      label={t('trip.aggressiveAccels')}
                       count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0}
                     />
                     <EventRow
                       icon="↩️"
-                      label="פניות חדות"
+                      label={t('trip.sharpTurns')}
                       count={trip.eventCounts?.SHARP_TURN || 0}
                     />
                     <EventRow
                       icon="📱"
-                      label="נגיעות בטלפון"
+                      label={t('trip.phoneTouches')}
                       count={trip.eventCounts?.PHONE_TOUCH || 0}
                     />
                   </View>
@@ -100,12 +100,12 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                     onPress={() => onViewDetails(trip.id!)}
                     style={{ marginTop: 24 }}
                   >
-                    🔍 לצפייה בפרטים המלאים
+                    {t('trip.viewFullDetails')}
                   </Button>
                 )}
 
                 <Button fullWidth onPress={onClose} style={{ marginTop: 12, marginBottom: 10 }}>
-                  סגור וחזור לדף הבית
+                  {t('trip.closeAndHome')}
                 </Button>
               </View>
             </ScrollView>

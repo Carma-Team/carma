@@ -16,6 +16,7 @@ interface ButtonProps {
   onPress?: () => void
   children: React.ReactNode
   style?: ViewStyle
+  textStyle?: TextStyle
 }
 
 const variantStyle: Record<Variant, ViewStyle & { color?: string }> = {
@@ -33,7 +34,17 @@ const sizeStyle: Record<Size, { padding: ViewStyle; text: TextStyle }> = {
   xl: { padding: { paddingHorizontal: 32, paddingVertical: 18 }, text: { fontSize: 18 } },
 }
 
-export function Button({ variant = 'primary', size = 'md', loading, fullWidth, disabled, onPress, children, style }: ButtonProps) {
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  loading,
+  fullWidth,
+  disabled,
+  onPress,
+  children,
+  style,
+  textStyle
+}: ButtonProps) {
   const vStyle = variantStyle[variant]
   const sStyle = sizeStyle[size]
   const isDisabled = disabled || loading
@@ -54,7 +65,15 @@ export function Button({ variant = 'primary', size = 'md', loading, fullWidth, d
     >
       {loading
         ? <ActivityIndicator color="#fff" size="small" />
-        : <Text style={[styles.text, sStyle.text, variant === 'outline' && { color: COLORS.brand }]}>
+        : <Text
+            style={[
+              styles.text,
+              sStyle.text,
+              variant === 'outline' && { color: COLORS.brand },
+              textStyle
+            ]}
+            numberOfLines={1}
+          >
             {children}
           </Text>
       }
@@ -66,7 +85,7 @@ const styles = StyleSheet.create({
   base:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   fullWidth: { width: '100%' },
   disabled:  { opacity: 0.5 },
-  text:      { color: '#fff', fontWeight: '600', textAlign: 'center' },
+  text:      { color: '#fff', fontWeight: '600', textAlign: 'center', width: '100%' },
 })
 
 export default Button

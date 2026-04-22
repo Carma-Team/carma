@@ -139,6 +139,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
 
+    if (!finalState.isActive) {
+      console.log('[AppContext] processEndTrip called but trip is not active. Skipping.');
+      return null;
+    }
+
     // אם הנסיעה הייתה קצרה מדי (פחות מ-100 מטר), לא נשמור אותה
     if (finalState.distanceKm < 0.1) {
       console.log('[AppContext] Trip too short, skipping save');
@@ -231,9 +236,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const endTrip = useCallback(async () => {
+    // קריאה ל-stopTrip תפעיל אוטומטית את sdk.onTripEnd שמפעיל את processEndTrip
     await sdk.stopTrip();
-    return processEndTrip();
-  }, [sdk, processEndTrip]);
+
+    // אנחנו מחזירים את הסטייט האחרון שהיה לפני האיפוס
+    const finalState = { ...tripRef.current };
+    return finalState;
+  }, [sdk]);
 
   const setUser = useCallback(async (u: AppUser | null) => {
     setUserState(u);
