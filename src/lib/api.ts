@@ -114,12 +114,39 @@ function getMockData(path: string, method?: string): any {
   }
 
   if (path.includes('/api/leaderboard')) {
-    return {
-      entries: [
-        { id: 'e1', user_id: 'user-123', rank: 1, score: 95, user: { name: 'אתה', city: 'תל אביב' } },
-        { id: 'e2', user_id: 'anon-1', rank: 2, score: 88, user: { name: 'אלמוני', city: 'חיפה' } }
-      ]
+    const url = new URL(path, 'http://localhost');
+    const type = url.searchParams.get('type');
+
+    const nationalEntries = [
+      { id: 'e1', userId: 'user-123', rank: 1, score: 98, name: 'יוסי כהן', city: 'ירושלים', points: 4500 },
+      { id: 'e2', userId: 'user-456', rank: 2, score: 95, name: 'אתה', city: 'תל אביב', points: 4200 },
+      { id: 'e3', userId: 'user-789', rank: 3, score: 92, name: 'מיכל לוי', city: 'חיפה', points: 3900 },
+      { id: 'e4', userId: 'user-101', rank: 4, score: 88, name: 'דניאל אברהם', city: 'תל אביב', points: 3500 },
+      { id: 'e5', userId: 'user-202', rank: 5, score: 85, name: 'שרה ישראלי', city: 'אילת', points: 3100 },
+    ];
+
+    if (type === 'city') {
+      // רק משתמשים מתל אביב (העיר של המשתמש כביכול)
+      const cityEntries = nationalEntries
+        .filter(e => e.city === 'תל אביב')
+        .map((e, index) => ({ ...e, rank: index + 1 }));
+      return { entries: cityEntries, currentUserId: 'user-456' };
     }
+
+    if (type === 'friends') {
+      // רשימת חברים מצומצמת
+      const friendsEntries = [
+        { id: 'e2', userId: 'user-456', rank: 1, score: 95, name: 'אתה', city: 'תל אביב', points: 4200 },
+        { id: 'e3', userId: 'user-789', rank: 2, score: 92, name: 'מיכל לוי', city: 'חיפה', points: 3900 },
+      ];
+      return { entries: friendsEntries, currentUserId: 'user-456' };
+    }
+
+    // ברירת מחדל - ארצי
+    return {
+      entries: nationalEntries,
+      currentUserId: 'user-456'
+    };
   }
 
   return {}
