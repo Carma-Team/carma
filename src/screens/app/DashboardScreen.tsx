@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Progress } from '@/components/ui/Progress';
@@ -16,59 +15,46 @@ import { formatDistance } from '@/lib/utils';
 import { scoreToColor } from '@/lib/scoring';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 
+/**
+ * מסך הדאשבורד הראשי.
+ */
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, recentTrips, isLoading, simulateBTConnect, tripState, startTrip, lastTripSummary, setLastTripSummary, clearTripHistory } = useApp();
+  const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
 
-  // לוגיקה להצגת סיכום נסיעה
+  // לוגיקת הצגת סיכום נסיעה
   const [showSummary, setShowSummary] = useState(false);
-  const [tripSummary, setTripSummary] = useState<any>(null);
-
-  // לוגיקה להגדרות
-  const [showSettings, setShowSettings] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [devices, setDevices] = useState<{ id: string, name: string }[]>([])
-  const [showDevicePicker, setShowDevicePicker] = useState(false)
-
-  async function scanDevices() {
-    setIsScanning(true)
-    setShowDevicePicker(true)
-    setTimeout(() => {
-      setDevices([
-        { id: 'FC:58:FA:11:22:33', name: 'My Headphones (Sony)' },
-        { id: 'AA:BB:CC:DD:EE:FF', name: 'Home Speaker' },
-        { id: '00:11:22:33:44:55', name: 'Car Multimedia' },
-      ])
-      setIsScanning(false)
-    }, 1500)
-  }
-
-  const { setLang } = useTranslation()
-  async function handleLogout() {
-    await AsyncStorage.multiRemove(['carma_token', 'carma_user'])
-    await setUser(null)
-    setShowSettings(false)
-    // העברה למסך הכניסה
-    router.replace('/(auth)/login')
-  }
 
   useEffect(() => {
     if (lastTripSummary) {
-      setTripSummary(lastTripSummary);
       setShowSummary(true);
-      setLastTripSummary(null);
     }
-  }, [lastTripSummary, setLastTripSummary]);
+  }, [lastTripSummary]);
 
+  const handleCloseSummary = () => {
+    setShowSummary(false);
+    setLastTripSummary(null);
+  };
+
+  const handleViewDetails = (tripId: string) => {
+    setShowSummary(false);
+    setLastTripSummary(null);
+    router.push({
+      pathname: '/(home)/trip-detail',
+      params: { tripId }
+    });
+  };
+
+  // חישוב ציון ממוצע לנסיעות אחרונות
   useEffect(() => {
     if (recentTrips && recentTrips.length > 0) {
       const sum = recentTrips.reduce((acc, trip) => acc + (trip.score || 0), 0);
       setAvgScore(Math.round(sum / recentTrips.length));
     } else {
-      setAvgScore(95);
+      setAvgScore(null);
     }
   }, [recentTrips]);
 
@@ -80,7 +66,9 @@ export default function DashboardScreen() {
     );
   }
 
-  // אם יש נסיעה פעילה, נציג את מסך הנסיעה במקום הדאשבורד
+  // --- לוגיקת driving lifecycle ---
+  // אם יש נסיעה פעילה (בין אם ידנית או בלוטוס), נציג את מסך הנסיעה במקום הדאשבורד.
+  // זה מבטיח שהמשתמש לא יכול להיות בדאשבורד בזמן נסיעה.
   if (tripState.isActive) {
     return <ActiveTripScreen />;
   }
@@ -88,24 +76,27 @@ export default function DashboardScreen() {
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
-        {/* Header */}
+
+        {/* Header Section */}
         <View style={COMMON_STYLES.rowBetween}>
           <View>
             <Text style={styles.welcome}>{t('dashboard.welcome')},</Text>
             <Text style={styles.name}>{user.name.split(' ')[0]} 👋</Text>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.bell} onPress={() => setShowSettings(true)}>
-              <Text style={styles.bellIcon}>⚙️</Text>
+            <TouchableOpacity
+              style={styles.settingsBtn}
+              onPress={() => router.push('/(home)/settings')}
+            >
+              <Text style={styles.settingsIcon}>⚙️</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Score + Level hero */}
+        {/* Level & Points Card */}
         <Card glass glow style={styles.hero}>
           <View style={[COMMON_STYLES.row, { gap: 0 }]}>
             <View style={styles.badgeWrapper}>
-              {/* הגדלת התג ע"י שליחת סטייל מותאם אישית במידת הצורך, או שימוש ב-size=lg עם קנה מידה */}
               <LevelBadge level={user.level} size="lg" lang={lang} showName />
             </View>
             <View style={styles.heroRight}>
@@ -127,7 +118,7 @@ export default function DashboardScreen() {
                   </Text>
                   {getPointsToNextLevel(user.points || user.totalPoints, user.level) > 0 && (
                     <Text style={styles.progressPointsText}>
-                      {getPointsToNextLevel(user.points || user.totalPoints, user.level)} לדרגה הבאה
+                      {getPointsToNextLevel(user.points || user.totalPoints, user.level)} {t('dashboard.pointsToNextLevel')}
                     </Text>
                   )}
                 </View>
@@ -136,31 +127,36 @@ export default function DashboardScreen() {
           </View>
         </Card>
 
-        {/* Quick stats */}
+        {/* Quick Summary Grid */}
         <View style={COMMON_STYLES.statGrid}>
           <Card padding="none" style={COMMON_STYLES.statCard}>
             <Text style={COMMON_STYLES.statEmoji}>🚗</Text>
             <Text style={COMMON_STYLES.statValue}>{recentTrips.length}</Text>
-            <Text style={COMMON_STYLES.statLabel}>נסיעות</Text>
+            <Text style={COMMON_STYLES.statLabel}>{t('stats.totalTrips')}</Text>
           </Card>
           <Card padding="none" style={COMMON_STYLES.statCard}>
             <Text style={COMMON_STYLES.statEmoji}>📍</Text>
             <Text style={COMMON_STYLES.statValue}>{formatDistance(user.totalDistance || 0, lang)}</Text>
-            <Text style={COMMON_STYLES.statLabel}>מרחק</Text>
+            <Text style={COMMON_STYLES.statLabel}>{t('stats.totalDistance')}</Text>
           </Card>
           <Card padding="none" style={COMMON_STYLES.statCard}>
             <Text style={COMMON_STYLES.statEmoji}>⭐</Text>
             <Text style={COMMON_STYLES.statValue}>{user.totalPoints.toLocaleString()}</Text>
-            <Text style={COMMON_STYLES.statLabel}>נקודות</Text>
+            <Text style={COMMON_STYLES.statLabel}>{t('common.points')}</Text>
           </Card>
         </View>
 
-        {/* Start trip CTA */}
-        <Button fullWidth size="xl" onPress={startTrip} style={styles.ctaBtn}>
+        {/* Start Trip Action */}
+        <Button
+          fullWidth
+          size="xl"
+          onPress={startTrip}
+          style={styles.ctaBtn}
+        >
           🚗  {t('dashboard.startTrip')}
         </Button>
 
-        {/* Recent trips */}
+        {/* Recent History List */}
         <View style={COMMON_STYLES.section}>
           <Text style={COMMON_STYLES.sectionTitle}>{t('dashboard.recentTrips')}</Text>
 
@@ -172,136 +168,35 @@ export default function DashboardScreen() {
           ) : (
             <View style={styles.tripList}>
               {recentTrips.map(trip => (
-                <TripCard key={trip.id} trip={trip} onPress={() => {}} />
+                <TripCard
+                  key={trip.id}
+                  trip={trip}
+                  onPress={() => router.push({ pathname: '/(home)/trip-detail', params: { tripId: trip.id } })}
+                />
               ))}
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* Modal הגדרות */}
-      <Modal visible={showSettings} animationType="fade" transparent>
-        <View style={COMMON_STYLES.modalOverlay}>
-          <Card style={styles.settingsModalCard}>
-            <View style={COMMON_STYLES.rowBetween}>
-              <Text style={TYPOGRAPHY.h2}>{t('profile.settings')}</Text>
-              <TouchableOpacity onPress={() => setShowSettings(false)}>
-                <Text style={{ fontSize: 24 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ marginTop: 20 }}>
-              <View style={{ gap: 16 }}>
-                {/* Drive Mode Section */}
-                <Card style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                  <Text style={styles.settingsLabel}>🚗 {t('profile.driveMode') || 'מצב נסיעה אוטומטי'}</Text>
-                  <Text style={styles.settingsDescription}>
-                    האפליקציה תתחיל ותסיים נסיעה אוטומטית בעת חיבור למכשיר Bluetooth.
-                  </Text>
-                  <View style={styles.driveModeRow}>
-                    <Text style={styles.driveModeStatus}>
-                      {user.driveModeEnabled ? '✅ פעיל' : '❌ כבוי'}
-                    </Text>
-                    <Button
-                      size="sm"
-                      variant={user.driveModeEnabled ? 'danger' : 'success'}
-                      onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
-                    >
-                      {user.driveModeEnabled ? 'בטל' : 'הפעל'}
-                    </Button>
-                  </View>
-
-                  {user.driveModeEnabled && (
-                    <TouchableOpacity style={styles.bluetoothSelector} onPress={scanDevices}>
-                      <Text style={styles.bluetoothName}>{user.bluetoothDeviceName || 'בחר מכשיר Bluetooth...'}</Text>
-                      <Text style={styles.bluetoothIcon}>📡</Text>
-                    </TouchableOpacity>
-                  )}
-                </Card>
-
-                {/* Language Section */}
-                <Card style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                  <Text style={styles.settingsLabel}>{t('profile.language')}</Text>
-                  <View style={styles.langRow}>
-                    {(['he', 'en'] as const).map(l => (
-                      <TouchableOpacity key={l} onPress={() => setLang(l)} style={[styles.langBtn, lang === l && styles.langBtnActive]}>
-                        <Text style={[styles.langText, lang === l && styles.langTextActive]}>
-                          {l === 'he' ? '🇮🇱 עברית' : '🇬🇧 English'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </Card>
-
-                <Button variant="danger" fullWidth onPress={handleLogout} style={{ marginTop: 10 }}>
-                  🚪 {t('auth.logout')}
-                </Button>
-
-                <TouchableOpacity
-                  onPress={clearTripHistory}
-                  style={{ marginTop: 20, marginBottom: 20, alignItems: 'center' }}
-                >
-                  <Text style={{ color: COLORS.textMuted, fontSize: 12, textDecorationLine: 'underline' }}>
-                    איפוס היסטוריית נסיעות (מקומי)
-                  </Text>
-                </TouchableOpacity>
-
-                <Button variant="outline" fullWidth onPress={() => setShowSettings(false)}>
-                  חזור למסך הבית
-                </Button>
-              </View>
-            </ScrollView>
-          </Card>
-        </View>
-      </Modal>
-
-      {/* Modal בחירת מכשיר Bluetooth */}
-      <Modal visible={showDevicePicker} animationType="slide" transparent>
-        <View style={COMMON_STYLES.modalOverlay}>
-          <Card style={styles.devicePickerCard}>
-            <Text style={styles.modalTitle}>בחירת מכשיר Bluetooth</Text>
-            {isScanning ? (
-              <ActivityIndicator color={COLORS.brand} size="large" style={{ margin: 40 }} />
-            ) : (
-              <ScrollView>
-                {devices.map(device => (
-                  <TouchableOpacity
-                    key={device.id}
-                    style={styles.deviceItem}
-                    onPress={() => {
-                      setUser({ ...user, bluetoothDeviceId: device.id, bluetoothDeviceName: device.name });
-                      setShowDevicePicker(false);
-                    }}
-                  >
-                    <Text style={styles.deviceName}>{device.name}</Text>
-                    <Text style={styles.deviceSelectIcon}>🔗</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-            <Button variant="outline" onPress={() => setShowDevicePicker(false)}>ביטול</Button>
-          </Card>
-        </View>
-      </Modal>
-
-      {/* Modal סיכום נסיעה */}
+      {/* מודאל סיכום נסיעה - מופיע מעל הכל */}
       <TripSummaryModal
         visible={showSummary}
-        onClose={() => setShowSummary(false)}
-        summary={tripSummary}
+        trip={lastTripSummary}
+        onClose={handleCloseSummary}
+        onViewDetails={handleViewDetails}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root:          { flex: 1, backgroundColor: COLORS.dark },
   headerRight:   { flexDirection: 'row', gap: SPACING.sm },
   welcome:       { ...TYPOGRAPHY.caption },
-  name:          { ...TYPOGRAPHY.h2, fontSize: 26 }, // גודל ספציפי למסך הבית
-  btSim:         { width: 40, height: 40, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.brand },
-  btIcon:        { fontSize: 18 },
-  bell:          { width: 40, height: 40, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
-  bellIcon:      { fontSize: 18 },
+  name:          { ...TYPOGRAPHY.h2, fontSize: 26 },
+  settingsBtn:   { width: 40, height: 40, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
+  settingsIcon:  { fontSize: 18 },
   hero:          {
     marginBottom: SPACING.md,
     marginTop: 15,
@@ -311,8 +206,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)'
   },
   badgeWrapper:  {
-    marginRight: 20, // הזזה נוספת פנימה כדי למנוע חפיפה עם קו המיתאר
-    transform: [{ scale: 1.2 }] // הגדלת התג ב-20%
+    marginRight: 20,
+    transform: [{ scale: 1.2 }]
   },
   heroRight:     { flex: 1, justifyContent: 'center' },
   scoreRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 8 },
@@ -326,26 +221,6 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   progressPointsText: { ...TYPOGRAPHY.caption, fontSize: 10, color: '#fff' },
-  ctaBtn:        { marginVertical: SPACING.lg }, // הוספת ריווח אנכי כדי שלא יהיה צמוד למדדים
+  ctaBtn:        { marginVertical: SPACING.lg },
   tripList:      { gap: SPACING.sm },
-
-  // Settings Modal styles
-  settingsModalCard: { width: '90%', maxHeight: '80%', padding: 20, borderRadius: 25 },
-  settingsLabel:     { ...TYPOGRAPHY.label, color: '#fff', marginBottom: 8 },
-  settingsDescription: { ...TYPOGRAPHY.caption, fontSize: 12, marginBottom: 12 },
-  driveModeRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  driveModeStatus:   { color: '#fff', fontWeight: '700' },
-  bluetoothSelector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.dark, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border },
-  bluetoothName:     { color: COLORS.brandLight, fontSize: 13 },
-  bluetoothIcon:     { fontSize: 14 },
-  langRow:           { flexDirection: 'row', gap: 8 },
-  langBtn:           { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: COLORS.dark, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  langBtnActive:     { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
-  langText:          { ...TYPOGRAPHY.label, fontSize: 13 },
-  langTextActive:    { color: '#fff' },
-  devicePickerCard:  { width: '85%', padding: 20 },
-  modalTitle:        { ...TYPOGRAPHY.h3, marginBottom: 15 },
-  deviceItem:        { flexDirection: 'row', justifyContent: 'space-between', padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, marginBottom: 8 },
-  deviceName:        { color: '#fff' },
-  deviceSelectIcon:  { fontSize: 16 },
 });

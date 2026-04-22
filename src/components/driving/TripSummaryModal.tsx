@@ -9,34 +9,37 @@ import { useTranslation } from '@/hooks/useTranslation';
 interface TripSummaryModalProps {
   visible: boolean;
   onClose: () => void;
-  summary: {
+  trip: {
+    id?: string;
     score: number;
     distanceKm: number;
     points: number;
     eventCounts?: Record<string, number>;
-    noMovement?: boolean;
+    isTooShort?: boolean;
   } | null;
+  onViewDetails?: (id: string) => void;
 }
 
-export function TripSummaryModal({ visible, onClose, summary }: TripSummaryModalProps) {
+export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: TripSummaryModalProps) {
   const { t } = useTranslation();
 
-  if (!summary) return null;
+  if (!trip) return null;
 
-  const isNoMovement = summary.noMovement || (summary.distanceKm < 0.01);
+  // אם הנסיעה הייתה קצרה מדי או שלא זוהתה תנועה
+  const isTooShort = trip.isTooShort || (trip.distanceKm < 0.1);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={COMMON_STYLES.modalOverlay}>
         <Card style={styles.summaryCard}>
-          {isNoMovement ? (
+          {isTooShort ? (
             <View style={{ alignItems: 'center', paddingVertical: 20 }}>
               <Text style={{ fontSize: 60, marginBottom: 20 }}>📍</Text>
-              <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>לא זוהתה תנועה משמעותית</Text>
-              <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 20 }]}>
-                הנסיעה לא נשמרה ביומן מכיוון שלא נרשם מרחק נסיעה מספק (לפחות 10 מטרים).
+              <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>לא זוהתה נסיעה משמעותית</Text>
+              <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 30 }]}>
+                הנסיעה לא נשמרה ביומן מכיוון שלא נרשם מרחק נסיעה מספק (לפחות 100 מטרים).
               </Text>
-              <Button fullWidth onPress={onClose}>
+              <Button fullWidth size="xl" onPress={onClose}>
                 הבנתי, תודה
               </Button>
             </View>
@@ -46,20 +49,20 @@ export function TripSummaryModal({ visible, onClose, summary }: TripSummaryModal
                 <Text style={styles.summaryTitle}>נסיעה הושלמה! 🎉</Text>
 
                 <View style={styles.resultsContainer}>
-                  <View style={[styles.scoreCircle, { borderColor: scoreToColor(summary.score) }]}>
-                    <Text style={[styles.scoreValue, { color: scoreToColor(summary.score) }]}>
-                      {Math.round(summary.score)}
+                  <View style={[styles.scoreCircle, { borderColor: scoreToColor(trip.score) }]}>
+                    <Text style={[styles.scoreValue, { color: scoreToColor(trip.score) }]}>
+                      {Math.round(trip.score)}
                     </Text>
                     <Text style={styles.scoreLabel}>ציון סופי</Text>
                   </View>
 
                   <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
-                      <Text style={styles.statValueSmall}>{summary.distanceKm?.toFixed(2) || '0.00'}</Text>
+                      <Text style={styles.statValueSmall}>{trip.distanceKm?.toFixed(2) || '0.00'}</Text>
                       <Text style={styles.statLabelSmall}>ק"מ</Text>
                     </View>
                     <View style={styles.statBox}>
-                      <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{summary.points || 0}</Text>
+                      <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{trip.points || 0}</Text>
                       <Text style={styles.statLabelSmall}>נקודות</Text>
                     </View>
                   </View>
@@ -70,27 +73,38 @@ export function TripSummaryModal({ visible, onClose, summary }: TripSummaryModal
                     <EventRow
                       icon="🛑"
                       label="בלימות חדות"
-                      count={summary.eventCounts?.HARD_BRAKE || 0}
+                      count={trip.eventCounts?.HARD_BRAKE || 0}
                     />
                     <EventRow
                       icon="🚀"
                       label="האצות פתאומיות"
-                      count={summary.eventCounts?.AGGRESSIVE_ACCEL || 0}
+                      count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0}
                     />
                     <EventRow
                       icon="↩️"
                       label="פניות חדות"
-                      count={summary.eventCounts?.SHARP_TURN || 0}
+                      count={trip.eventCounts?.SHARP_TURN || 0}
                     />
                     <EventRow
                       icon="📱"
                       label="נגיעות בטלפון"
-                      count={summary.eventCounts?.PHONE_USAGE || summary.eventCounts?.PHONE_TOUCH || 0}
+                      count={trip.eventCounts?.PHONE_TOUCH || 0}
                     />
                   </View>
                 </View>
 
-                <Button fullWidth onPress={onClose} style={{ marginTop: 24, marginBottom: 10 }}>
+                {trip.id && onViewDetails && (
+                  <Button
+                    fullWidth
+                    variant="outline"
+                    onPress={() => onViewDetails(trip.id!)}
+                    style={{ marginTop: 24 }}
+                  >
+                    🔍 לצפייה בפרטים המלאים
+                  </Button>
+                )}
+
+                <Button fullWidth onPress={onClose} style={{ marginTop: 12, marginBottom: 10 }}>
                   סגור וחזור לדף הבית
                 </Button>
               </View>
@@ -106,7 +120,7 @@ function EventRow({ icon, label, count }: { icon: string, label: string, count: 
   return (
     <View style={styles.eventRow}>
       <Text style={styles.eventLabel}>{icon} {label}</Text>
-      <Text style={[styles.eventCount, count > 0 && { color: COLORS.error }]}>{count}</Text>
+      <Text style={[styles.eventCount, count > 0 && { color: COLORS.danger }]}>{count}</Text>
     </View>
   );
 }
@@ -141,7 +155,7 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingVertical: 12, // צמצום קל בפידינג
+    paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
     borderRadius: 20,
     alignItems: 'center',
@@ -152,7 +166,7 @@ const styles = StyleSheet.create({
   statLabelSmall: { ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
   eventsList: {
     width: '100%',
-    gap: 2, // צמצום המרווח בין השורות
+    gap: 2,
     backgroundColor: 'rgba(0,0,0,0.2)',
     padding: 12,
     borderRadius: 20

@@ -26,6 +26,10 @@ export class BluetoothManager {
     console.log('[SDK] Target device set to:', id);
   }
 
+  public getTargetDevice(): string | null {
+    return this.targetDeviceId;
+  }
+
   public async getBondedDevices(): Promise<BluetoothDevice[]> {
     return [
       { id: 'car-bt-01', name: 'My Tesla Model 3' },

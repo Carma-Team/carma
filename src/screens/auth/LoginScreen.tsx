@@ -27,7 +27,9 @@ export default function LoginScreen() {
       const data = await authApi.login(email, password);
       await AsyncStorage.setItem('carma_token', data.token);
       await setUser(data.user);
-      router.replace('/dashboard');
+
+      // כפייה של ניווט לטאבים לאחר עדכון המשתמש
+      router.replace('/(tabs)');
     } catch (e: any) {
       setError(e.message || t('auth.errors.invalidCredentials'));
     } finally {
@@ -54,7 +56,9 @@ export default function LoginScreen() {
       };
       await AsyncStorage.setItem('carma_token', 'mock-guest-token');
       await setUser(mockUser as any);
-      router.replace('/dashboard');
+
+      // כפייה של ניווט לטאבים לאחר עדכון המשתמש
+      router.replace('/(tabs)');
     } catch (e) {
       addToast({ title: t('common.error'), message: 'Failed to login as guest', type: 'error' });
     } finally {

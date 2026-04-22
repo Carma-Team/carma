@@ -17,7 +17,7 @@ type Section = 'stats' | 'chart' | 'trips' | 'notifications'
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets()
-  const { user } = useApp()
+  const { user, setUser } = useApp()
   const { t, lang } = useTranslation()
   const [section, setSection] = useState<Section>('stats')
   const [stats,   setStats]   = useState<DrivingStats | null>(null)

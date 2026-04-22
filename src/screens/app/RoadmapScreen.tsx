@@ -23,12 +23,6 @@ export default function RoadmapScreen() {
           <Text style={styles.heading}>{t('roadmap.title')}</Text>
           <Text style={styles.subtitle}>{t('roadmap.subtitle')}</Text>
         </View>
-        <TouchableOpacity
-          style={{ width: 40, height: 40, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.brand }}
-          onPress={simulateBTConnect}
-        >
-          <Text style={{ fontSize: 18 }}>📡</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.root} contentContainerStyle={COMMON_STYLES.scrollContent}>

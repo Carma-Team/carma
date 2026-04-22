@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, KeyboardAvoidingView, Platform
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Button }   from '@/components/ui/Button'
@@ -10,12 +11,6 @@ import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/lib/api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import type { RootStackParamList } from '@/navigation/types'
-
-interface Props {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>
-}
 
 interface FormState {
   name:        string
@@ -29,7 +24,8 @@ interface FormState {
 
 const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
 
-export default function RegisterScreen({ navigation }: Props) {
+export default function RegisterScreen() {
+  const router = useRouter()
   const insets = useSafeAreaInsets()
   const { setUser, addToast } = useApp()
   const { t } = useTranslation()
@@ -57,11 +53,11 @@ export default function RegisterScreen({ navigation }: Props) {
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
       })
-      // Here you need to store the JWT token returned by your backend
+
       await AsyncStorage.setItem('carma_token', data.token)
       await setUser(data.user)
       addToast({ type: 'success', message: `ברוך הבא, ${data.user.name.split(' ')[0]}! 🎉` })
-      navigation.replace('Main')
+      // אין צורך ב-router.replace, ה-Layout הראשי יזהה את המשתמש ויעביר לטאבים
     } catch (e: any) {
       setError(e.message || t('auth.errors.emailExists'))
     } finally {
@@ -120,7 +116,7 @@ export default function RegisterScreen({ navigation }: Props) {
           {t('auth.registerBtn')}
         </Button>
 
-        <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.link}>
+        <TouchableOpacity onPress={() => router.push('/login')} style={styles.link}>
           <Text style={styles.linkText}>
             {t('auth.hasAccount')} <Text style={styles.linkBold}>{t('auth.login')}</Text>
           </Text>

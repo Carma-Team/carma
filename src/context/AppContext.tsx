@@ -45,6 +45,7 @@ interface AppContextValue {
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
   registerPhoneTouch: () => void
+  sdk: CarmaDrivingSDK
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -138,6 +139,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
 
+    // אם הנסיעה הייתה קצרה מדי (פחות מ-100 מטר), לא נשמור אותה
+    if (finalState.distanceKm < 0.1) {
+      console.log('[AppContext] Trip too short, skipping save');
+      setLastTripSummary({ isTooShort: true });
+      setTripState(INITIAL_TRIP_STATE);
+      return finalState;
+    }
+
     const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
     const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
 
@@ -148,8 +157,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       duration: finalState.durationSeconds,
       score: score,
       points: earnedPoints,
-      events: []
+      events: [] // כאן ניתן להוסיף את רשימת האירועים המפורטת אם ה-SDK תומך בכך
     };
+
+    // === DB SYNC (TODO) ===
+    // כאן תתבצע השליחה לבסיס הנתונים בעתיד:
+    /*
+    try {
+      await api.saveTrip({
+        userId: user.id,
+        ...newTrip,
+        harshBrakingCount: finalState.eventCounts.HARD_BRAKE,
+        phoneUsageCount: finalState.eventCounts.PHONE_TOUCH,
+        // וכו'...
+      });
+    } catch (e) {
+      console.error('Failed to sync trip to DB', e);
+      // מומלץ: לשמור מקומית ולנסות שוב כשיהיה אינטרנט
+    }
+    */
+    // ======================
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
     const existingTrips = existingTripsJson ? JSON.parse(existingTripsJson) : [];
@@ -169,6 +196,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setLastTripSummary({
       ...finalState,
+      id: newTrip.id,
       score,
       points: earnedPoints
     });
@@ -180,14 +208,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [l, u, t] = await Promise.all([
+        const [l, u, t, btId] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
-          AsyncStorage.getItem('carma_trips')
+          AsyncStorage.getItem('carma_trips'),
+          AsyncStorage.getItem('carma_bt_device_id')
         ])
         if (l === 'he' || l === 'en') setLangState(l)
         if (u) setUserState(JSON.parse(u))
         if (t) setRecentTrips(JSON.parse(t))
+        if (btId) sdk.updateTargetDevice(btId)
       } finally {
         setIsLoading(false)
       }
@@ -207,7 +237,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setUser = useCallback(async (u: AppUser | null) => {
     setUserState(u);
-    u ? await AsyncStorage.setItem('carma_user', JSON.stringify(u)) : await AsyncStorage.removeItem('carma_user');
+    if (u) {
+      // TODO: לשלוח עדכון לשרת אם פרטי המשתמש השתנו (למשל driveModeEnabled)
+      await AsyncStorage.setItem('carma_user', JSON.stringify(u));
+    } else {
+      // TODO: לבצע קריאת API ל-Logout כדי לבטל את ה-Token בשרת
+      await AsyncStorage.removeItem('carma_user');
+      await AsyncStorage.removeItem('carma_token');
+    }
   }, [])
 
   const setLang = useCallback(async (l: Language) => {
@@ -236,7 +273,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
       tripState, startTrip, endTrip, recentTrips,
       simulateBTConnect, simulateBTDisconnect,
-      lastTripSummary, setLastTripSummary, registerPhoneTouch
+      lastTripSummary, setLastTripSummary, registerPhoneTouch,
+      sdk
     }}>
       {children}
     </AppContext.Provider>
