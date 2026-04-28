@@ -44,8 +44,8 @@ export default function SettingsScreen() {
         {
           text: t('common.confirm'),
           style: 'destructive',
-          onPress: () => {
-            clearTripHistory();
+          onPress: async () => {
+            await clearTripHistory();
             router.back();
           }
         }

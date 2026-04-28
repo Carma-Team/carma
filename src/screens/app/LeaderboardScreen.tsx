@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Card } from '@/components/ui/Card'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { useTranslation } from '@/hooks/useTranslation'
-import { leaderboardApi } from '@/lib/api'
+import { leaderboardApi } from '@/services/api/leaderboard.api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 import type { LeaderboardEntry, LeaderboardType } from '@/navigation/types'
 

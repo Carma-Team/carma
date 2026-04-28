@@ -4,18 +4,20 @@ import { Text, View, StyleSheet } from 'react-native';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS } from '@/lib/constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useApp } from '@/context/AppContext';
 
 const TAB_ITEMS = [
     { name: '(home)',      icon: '🏠', labelKey: 'nav.dashboard'   },
-      { name: 'roadmap',     icon: '🗺️', labelKey: 'nav.roadmap'     },
+    { name: 'roadmap',     icon: '🗺️', labelKey: 'nav.roadmap'     },
     { name: 'marketplace', icon: '🎁', labelKey: 'nav.marketplace' },
-  { name: 'leaderboard', icon: '🏆', labelKey: 'nav.leaderboard' },
+    { name: 'leaderboard', icon: '🏆', labelKey: 'nav.leaderboard' },
     { name: 'profile',     icon: '👤', labelKey: 'nav.profile'     },
 ] as const;
 
 export default function TabsLayout() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { registerPhoneTouch } = useApp();
 
   return (
     <Tabs
@@ -40,6 +42,12 @@ export default function TabsLayout() {
         <Tabs.Screen
           key={item.name}
           name={item.name}
+          listeners={{
+            tabPress: () => {
+              // רישום נגיעה בטלפון בעת מעבר טאב בזמן נסיעה
+              registerPhoneTouch();
+            },
+          }}
           options={{
             title: t(item.labelKey),
             tabBarIcon: ({ focused }) => (

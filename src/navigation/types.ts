@@ -17,11 +17,15 @@ export type MainTabParamList = {
 
 // ─── Database Entities (Mapping to 5.3.1) ────────────────────────────────────
 
+export type UserRole = 'driver' | 'business' | 'admin';
+
 /** 5.3.1.1 User */
 export interface AppUser {
   id: string
   name: string
   phone: string
+  role: UserRole
+  businessId?: string // מזהה העסק עבור משתמש מסוג business
   points: number
   level: number
   license_img_url?: string

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { StatusBar } from 'expo-status-bar';
@@ -11,28 +11,41 @@ if (!I18nManager.isRTL) {
   try {
     I18nManager.allowRTL(true);
     I18nManager.forceRTL(true);
-    // ב-Expo Go לפעמים צריך טעינה מחדש ידנית, אבל הקוד הזה מבטיח שהפעם הבאה תהיה RTL
   } catch (e) {
     console.warn('RTL initialization failed', e);
   }
 }
 
-/**
- * המבנה המקצועי לפי דוגמת Expo: ה-Layout מחליט איזה סטאק להציג.
- */
 function RootLayoutNav() {
   const { user, isLoading } = useApp();
   const router = useRouter();
+  const segments = useSegments();
 
   useEffect(() => {
-    if (!isLoading) {
-      if (!user) {
+    if (isLoading) return;
+
+    const rootSegment = segments[0];
+    const inAuthGroup = rootSegment === 'login' || rootSegment === 'register';
+    const inTabsGroup = rootSegment === '(tabs)';
+    const inBusinessGroup = rootSegment === '(business)';
+
+    if (!user) {
+      if (!inAuthGroup) {
         router.replace('/login');
+      }
+    } else {
+      if (user.role === 'business') {
+        if (!inBusinessGroup) {
+          router.replace('/(business)');
+        }
       } else {
-        router.replace('/(tabs)');
+        // מונע ניווט כפול אם אנחנו כבר בתוך הטאבים
+        if (!inTabsGroup && !inAuthGroup) {
+          router.replace('/(tabs)');
+        }
       }
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, segments]);
 
   if (isLoading) {
     return (
@@ -45,14 +58,14 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       {user ? (
-        // משתמש מחובר: מציגים את הטאבים (כאשר דף הבית הוא index בתוך הטאבים)
-        <Stack.Screen name="(tabs)" />
+        user.role === 'business' ? (
+          <Stack.Screen name="(business)" />
+        ) : (
+          <Stack.Screen name="(tabs)" />
+        )
       ) : (
-        // משתמש לא מחובר: מציגים את דף הכניסה
         <Stack.Screen name="login" />
       )}
-
-      {/* מסכים נוספים שזמינים תמיד או מודאלים */}
       <Stack.Screen name="register" />
     </Stack>
   );

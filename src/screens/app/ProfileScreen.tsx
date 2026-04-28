@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { LevelBadge } from '@/components/gamification/LevelBadge'
 import { TripCard } from '@/components/driving/TripCard'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
-import { tripsApi, userApi } from '@/lib/api'
+import { tripsApi } from '@/services/api/trips.api'
+import { userApi } from '@/services/api/user.api'
 import { getLevelConfig, COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 import { formatDistance, formatDuration, formatDate } from '@/lib/utils'
 import type { DrivingStats, Trip } from '@/navigation/types'
@@ -17,7 +16,7 @@ type Section = 'stats' | 'chart' | 'trips' | 'notifications'
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets()
-  const { user, setUser } = useApp()
+  const { user } = useApp()
   const { t, lang } = useTranslation()
   const [section, setSection] = useState<Section>('stats')
   const [stats,   setStats]   = useState<DrivingStats | null>(null)
@@ -27,16 +26,25 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (section === 'stats' && !stats) {
       setLoading(true)
-      userApi.stats().then(d => setStats(d.stats)).finally(() => setLoading(false))
+      userApi.stats()
+        .then(d => setStats(d.stats))
+        .catch(err => console.error('Stats error:', err))
+        .finally(() => setLoading(false))
     }
     if ((section === 'trips' || section === 'chart') && trips.length === 0) {
       setLoading(true)
-      tripsApi.list(20).then(d => setTrips(d.trips)).finally(() => setLoading(false))
+      tripsApi.list(20)
+        .then(d => setTrips(d.trips))
+        .catch(err => console.error('Trips error:', err))
+        .finally(() => setLoading(false))
     }
   }, [section])
 
   if (!user) return null
-  const levelConfig = getLevelConfig(user.level)
+
+  // הגנה על Level
+  const currentLevel = Math.max(1, user.level || 1)
+  const levelConfig = getLevelConfig(currentLevel)
 
   const sectionTabs: { key: Section; label: string; emoji: string }[] = [
     { key: 'stats',    label: t('profile.achievements') || 'הישגים', emoji: '🏆' },
@@ -51,7 +59,7 @@ export default function ProfileScreen() {
         {/* Profile header */}
         <Card glass style={styles.profileCard}>
           <View style={styles.profileRow}>
-            <LevelBadge level={user.level} size="lg" lang={lang} />
+            <LevelBadge level={currentLevel} size="lg" lang={lang} />
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{user.name}</Text>
               <Text style={styles.profileCity}>{user.city}</Text>
@@ -60,14 +68,14 @@ export default function ProfileScreen() {
               </Text>
             </View>
             <View style={styles.profilePoints}>
-              <Text style={styles.pointsValue}>{user.totalPoints.toLocaleString()}</Text>
+              <Text style={styles.pointsValue}>{(user.totalPoints || 0).toLocaleString()}</Text>
               <Text style={styles.pointsLabel}>{t('common.points')}</Text>
             </View>
           </View>
           <View style={styles.profileStats}>
             {[
-              { label: t('profile.totalDistance'), value: formatDistance(user.totalDistance, lang) },
-              { label: t('profile.level'),         value: String(user.level) },
+              { label: t('profile.totalDistance'), value: formatDistance(user.totalDistance || 0, lang) },
+              { label: t('profile.level'),         value: String(currentLevel) },
               { label: t('profile.joined'),        value: user.createdAt ? formatDate(user.createdAt, lang) : '—' },
             ].map(s => (
               <View key={s.label} style={styles.profileStat}>
@@ -102,10 +110,10 @@ export default function ProfileScreen() {
           </ScrollView>
         </View>
 
-        {/* Achievements (formerly Stats) */}
+        {/* Achievements / Stats */}
         {section === 'stats' && (
           loading
-            ? <ActivityIndicator color={COLORS.brand} />
+            ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 20 }} />
             : <View style={{ gap: 10 }}>
                 <View style={styles.statsGrid}>
                   {[
@@ -132,23 +140,20 @@ export default function ProfileScreen() {
             <Text style={[TYPOGRAPHY.h3, { marginBottom: 20 }]}>מגמת ציונים שבועית</Text>
 
             <View style={styles.chartContainer}>
-              {/* Y Axis Labels */}
               <View style={styles.yAxis}>
                 {[100, 75, 50, 25, 0].map(val => (
                   <Text key={val} style={styles.axisLabel}>{val}</Text>
                 ))}
               </View>
 
-              {/* Chart Content */}
               <View style={styles.chartContent}>
-                {/* Grid Lines */}
                 {[0, 1, 2, 3, 4].map(i => (
                   <View key={i} style={[styles.gridLine, { top: `${i * 25}%` }]} />
                 ))}
 
-                {/* Bars / Points */}
                 <View style={styles.barsContainer}>
-                  {trips.slice(0, 7).reverse().map((trip, idx) => {
+                  {trips.slice(0, 7).reverse().map((trip) => {
+                    const score = trip.avg_score || trip.score || 0;
                     const dateStr = trip.start_time || trip.date;
                     const formatted = dateStr ? formatDate(dateStr, lang) : '--/--';
                     return (
@@ -157,8 +162,8 @@ export default function ProfileScreen() {
                           style={[
                             styles.bar,
                             {
-                              height: `${trip.avg_score || trip.score || 0}%`,
-                              backgroundColor: (trip.avg_score || trip.score || 0) > 85 ? COLORS.success : (trip.avg_score || trip.score || 0) > 70 ? COLORS.warning : COLORS.danger
+                              height: `${score}%`,
+                              backgroundColor: score > 85 ? COLORS.success : score > 70 ? COLORS.warning : COLORS.danger
                             }
                           ]}
                         />
@@ -178,7 +183,7 @@ export default function ProfileScreen() {
         {/* Trips */}
         {section === 'trips' && (
           loading
-            ? <ActivityIndicator color={COLORS.brand} />
+            ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 20 }} />
             : trips.length === 0
               ? <Card style={COMMON_STYLES.emptyState}>
                   <Text style={COMMON_STYLES.emptyIcon}>🛣️</Text>
@@ -189,15 +194,13 @@ export default function ProfileScreen() {
                 </View>
         )}
 
-        {/* Notifications (formerly Settings) */}
+        {/* Notifications */}
         {section === 'notifications' && (
-          <View style={{ gap: 12 }}>
-            <Card style={COMMON_STYLES.emptyState}>
-              <Text style={COMMON_STYLES.emptyIcon}>🔔</Text>
-              <Text style={COMMON_STYLES.emptyText}>אין הודעות חדשות</Text>
-              <Text style={styles.emptySubtitle}>כאן יופיעו עדכונים על מבצעים, ציונים והודעות מערכת.</Text>
-            </Card>
-          </View>
+          <Card style={COMMON_STYLES.emptyState}>
+            <Text style={COMMON_STYLES.emptyIcon}>🔔</Text>
+            <Text style={COMMON_STYLES.emptyText}>אין הודעות חדשות</Text>
+            <Text style={styles.emptySubtitle}>כאן יופיעו עדכונים על מבצעים, ציונים והודעות מערכת.</Text>
+          </Card>
         )}
       </ScrollView>
     </View>
@@ -239,14 +242,13 @@ const styles = StyleSheet.create({
   statValue:         { color: '#fff', fontWeight: '900', fontSize: 20 },
   statLabel:         { ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 4, textAlign: 'center' },
   emptySubtitle:     { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 8 },
-  // Chart Styles
   chartContainer:    { flexDirection: 'row', height: 220, paddingRight: 10 },
   yAxis:             { width: 30, justifyContent: 'space-between', paddingVertical: 5, alignItems: 'flex-start' },
-  axisLabel:         { ...TYPOGRAPHY.caption, fontSize: 10, color: COLORS.textDim },
+  axisLabel:         { ...TYPOGRAPHY.caption, fontSize: 10, color: COLORS.textMuted },
   chartContent:      { flex: 1, marginLeft: 10, position: 'relative', borderLeftWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border },
   gridLine:          { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
   barsContainer:     { flex: 1, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', paddingHorizontal: 5 },
   barWrapper:        { alignItems: 'center', flex: 1 },
   bar:               { width: 20, borderRadius: 4, opacity: 0.8 },
-  xLabel:            { ...TYPOGRAPHY.caption, fontSize: 9, marginTop: 8, color: COLORS.textDim },
+  xLabel:            { ...TYPOGRAPHY.caption, fontSize: 9, marginTop: 8, color: COLORS.textMuted },
 })

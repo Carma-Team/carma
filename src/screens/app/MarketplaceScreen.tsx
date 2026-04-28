@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
-import { rewardsApi } from '@/lib/api'
+import { rewardsApi } from '@/services/api/rewards.api'
 import { REWARD_CATEGORIES, COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 import type { Reward, Voucher } from '@/navigation/types'
 
@@ -97,7 +97,17 @@ export default function MarketplaceScreen() {
             {loading
               ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
               : <View style={{ gap: 10 }}>
-                  {rewards.map(r => <RewardCard key={r.id} reward={r} userPoints={user.points || 0} onRedeem={setSelectedReward} />)}
+                  {rewards
+                    .filter(r => category === 'all' || r.category === category)
+                    .map(r => (
+                      <RewardCard
+                        key={r.id}
+                        reward={r}
+                        userPoints={user.points || 0}
+                        onRedeem={setSelectedReward}
+                      />
+                    ))
+                  }
                 </View>
             }
           </>

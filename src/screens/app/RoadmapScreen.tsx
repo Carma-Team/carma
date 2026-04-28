@@ -1,20 +1,26 @@
 import React from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native'
+import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Card }       from '@/components/ui/Card'
 import { Progress }   from '@/components/ui/Progress'
 import { useApp }     from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
-import { LEVELS, getLevelProgress, getPointsToNextLevel, COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
+import { LEVELS, getLevelProgress, getPointsToNextLevel, getLevelByPoints, COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 
 export default function RoadmapScreen() {
   const insets = useSafeAreaInsets()
-  const { user, simulateBTConnect } = useApp()
+  const { user } = useApp()
   const { t, lang } = useTranslation()
 
   if (!user) return null
-  const currentLevel   = user.level
+
+  // חישוב רמה בטוח: אם אין רמה למשתמש, נחשב לפי נקודות. מינימום 1, מקסימום 10.
   const currentPoints  = user.points || 0
+  const calculatedLevel = getLevelByPoints(currentPoints)
+  const currentLevel   = Math.min(10, Math.max(1, user.level || calculatedLevel))
+
+  // הגנה סופית: אם האינדקס לא קיים, ניקח את הרמה הראשונה
+  const levelInfo = LEVELS[currentLevel - 1] || LEVELS[0]
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
@@ -29,9 +35,9 @@ export default function RoadmapScreen() {
 
         {/* Current level hero */}
         <Card glass glow style={styles.hero}>
-          <Text style={styles.heroIcon}>{LEVELS[currentLevel - 1].icon}</Text>
-          <Text style={[styles.heroName, { color: LEVELS[currentLevel - 1].color }]}>
-            {lang === 'he' ? LEVELS[currentLevel - 1].name : LEVELS[currentLevel - 1].nameEn}
+          <Text style={styles.heroIcon}>{levelInfo.icon}</Text>
+          <Text style={[styles.heroName, { color: levelInfo.color }]}>
+            {lang === 'he' ? levelInfo.name : levelInfo.nameEn}
           </Text>
           <Text style={styles.heroPoints}>{currentPoints.toLocaleString()} {t('common.points')}</Text>
 
@@ -39,7 +45,7 @@ export default function RoadmapScreen() {
             <>
               <Progress
                 value={getLevelProgress(currentPoints, currentLevel)}
-                color={LEVELS[currentLevel - 1].color}
+                color={levelInfo.color}
                 height={8}
               />
               <Text style={styles.heroSub}>

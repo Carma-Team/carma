@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Button }   from '@/components/ui/Button'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
-import { authApi }  from '@/lib/api'
+import { authApi }  from '@/services/api/auth.api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
 
 interface FormState {
