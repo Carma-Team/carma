@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -22,8 +22,13 @@ export default function LoginScreen() {
   const [selectedRole, setSelectedRole] = useState<'driver' | 'business' | 'admin'>('driver');
 
   async function handleLogin() {
-    if (!email || !password) { setError(t('auth.errors.emailRequired')); return; }
-    setLoading(true); setError('');
+    if (!email || !password) {
+        setError(t('auth.errors.emailRequired'));
+        return;
+    }
+    setLoading(true);
+    setError('');
+
     try {
       const data = await authApi.login(email, password);
 

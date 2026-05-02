@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useApp } from '@/context/AppContext'
 import { Card } from '@/components/ui/Card'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { useTranslation } from '@/hooks/useTranslation'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme'
 import type { LeaderboardEntry, LeaderboardType } from '@/navigation/types'
 
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets()
   const { t } = useTranslation()
+  const { user } = useApp()
   const [type,          setType]          = useState<LeaderboardType>('national')
   const [entries,       setEntries]       = useState<LeaderboardEntry[]>([])
   const [currentUserId, setCurrentUserId] = useState('')
@@ -48,6 +50,15 @@ export default function LeaderboardScreen() {
           ))}
         </View>
 
+        {type !== 'friends' && (
+          <Text style={styles.filterSubtitle}>
+            {type === 'city'
+              ? `${t('leaderboard.showing_city')}: ${user?.city || 'תל אביב'}`
+              : `${t('leaderboard.showing_national')}: ${user?.country || 'ישראל'}`
+            }
+          </Text>
+        )}
+
         {loading
           ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
           : entries.length === 0
@@ -71,6 +82,12 @@ export default function LeaderboardScreen() {
 
 const styles = StyleSheet.create({
   heading:      { ...TYPOGRAPHY.h2, marginBottom: SPACING.md },
-  tabs:         { ...COMMON_STYLES.tabsContainer, marginBottom: SPACING.md }, // שימוש ב-Token הכללי עם מרווח ספציפי למסך
+  tabs:         { ...COMMON_STYLES.tabsContainer, marginBottom: SPACING.sm },
+  filterSubtitle: {
+    ...TYPOGRAPHY.caption,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+    color: COLORS.textMuted,
+  },
   divider:      { height: 1, backgroundColor: COLORS.border },
 })

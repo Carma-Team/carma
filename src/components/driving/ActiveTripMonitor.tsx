@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import type { TripState } from '@/hooks/useTrip'
-import { COLORS } from '@/lib/constants'
+import { COLORS } from '@/theme'
 
 interface ActiveTripMonitorProps {
   state: TripState

@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useTranslation } from '@/hooks/useTranslation'
-import { COLORS, SPACING, TYPOGRAPHY } from '@/lib/constants'
+import { COLORS, SPACING, TYPOGRAPHY } from '@/theme'
 import type { Reward, Voucher } from '@/navigation/types'
 
 // ─── RewardCard ───────────────────────────────────────────────────────────────

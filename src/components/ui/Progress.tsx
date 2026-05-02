@@ -1,6 +1,6 @@
 import React from 'react'
 import { View, StyleSheet, Text } from 'react-native'
-import { COLORS } from '@/lib/constants'
+import { COLORS } from '@/theme'
 
 interface ProgressProps {
   value: number   // 0–100

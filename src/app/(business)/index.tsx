@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/lib/constants';
+import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/theme';
 import { Reward } from '@/navigation/types';
 
 export default function BusinessDashboard() {

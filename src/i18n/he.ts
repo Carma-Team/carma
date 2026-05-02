@@ -72,6 +72,8 @@ const he = {
     title: 'טבלת המובילים', friends: 'חברים', city: 'עיר', national: 'ארצי',
     rank: 'מיקום', player: 'שחקן', score: 'ניקוד', you: 'אתה',
     noFriends: 'אין חברים עדיין',
+    showing_city: 'מציג נהגים ב',
+    showing_national: 'מציג נהגים ב',
   },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',

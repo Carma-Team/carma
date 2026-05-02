@@ -171,6 +171,13 @@ export class CarmaDrivingSDK {
   public simulateBluetoothDisconnection() {
     this.btManager.simulateDisconnect();
   }
+
+  public debugAddDistance(km: number) {
+    if (this.isTripActive && this.currentTripData) {
+      this.currentTripData.distanceKm += km;
+      if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+    }
+  }
 }
 
 

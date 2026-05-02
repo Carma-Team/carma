@@ -8,16 +8,17 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { scoreToGrade, scoreToColor } from '@/lib/scoring';
 import { formatDate, formatDistance, formatDuration, scoreToEmoji } from '@/lib/utils';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme';
 import type { Trip } from '@/navigation/types';
 
 export default function TripDetailScreen() {
   const { tripId } = useLocalSearchParams<{ tripId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { recentTrips, t, lang } = useApp();
+  const { recentTrips } = useApp();
+  const { t, lang } = useTranslation();
 
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [trip, setTrip] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,16 +49,17 @@ export default function TripDetailScreen() {
     );
   }
 
-  const grade = scoreToGrade(trip.score);
-  const color = scoreToColor(trip.score);
+  const score = trip.score ?? trip.avg_score ?? 0;
+  const grade = scoreToGrade(score);
+  const color = scoreToColor(score);
   const badgeVariant = { excellent: 'success', good: 'success', fair: 'warning', poor: 'danger' }[grade] as any;
 
-  // מיפוי אירועים מהאובייקט שנשמר
+  // מיפוי אירועים גמיש - תומך במבנה ה-SDK ובמבנה ה-DB העתידי
   const events = [
-    { label: t('trip.hardBrakes'), emoji: '🛑', value: trip.hardBrakes || 0, bad: (trip.hardBrakes || 0) > 0 },
-    { label: t('trip.aggressiveAccels'), emoji: '🚀', value: trip.aggressiveAccels || 0, bad: (trip.aggressiveAccels || 0) > 0 },
-    { label: t('trip.sharpTurns'), emoji: '↩️', value: trip.sharpTurns || 0, bad: (trip.sharpTurns || 0) > 0 },
-    { label: t('trip.phoneTouches'), emoji: '📱', value: trip.phoneSeconds || 0, bad: (trip.phoneSeconds || 0) > 0 },
+    { label: t('trip.hardBrakes'), emoji: '🛑', value: trip.hardBrakes ?? trip.eventCounts?.HARD_BRAKE ?? 0, bad: (trip.hardBrakes || trip.eventCounts?.HARD_BRAKE) > 0 },
+    { label: t('trip.aggressiveAccels'), emoji: '🚀', value: trip.aggressiveAccels ?? trip.eventCounts?.AGGRESSIVE_ACCEL ?? 0, bad: (trip.aggressiveAccels || trip.eventCounts?.AGGRESSIVE_ACCEL) > 0 },
+    { label: t('trip.sharpTurns'), emoji: '↩️', value: trip.sharpTurns ?? trip.eventCounts?.SHARP_TURN ?? 0, bad: (trip.sharpTurns || trip.eventCounts?.SHARP_TURN) > 0 },
+    { label: t('trip.phoneTouches'), emoji: '📱', value: trip.phoneSeconds ?? trip.phoneSeconds ?? 0, bad: (trip.phoneSeconds || trip.phoneSeconds) > 0 },
   ];
 
   return (
@@ -69,18 +71,18 @@ export default function TripDetailScreen() {
 
         {/* Score hero */}
         <Card glass glow style={styles.hero}>
-          <Text style={styles.heroEmoji}>{scoreToEmoji(trip.score)}</Text>
-          <Text style={[styles.heroScore, { color }]}>{Math.round(trip.score)}</Text>
+          <Text style={styles.heroEmoji}>{scoreToEmoji(score)}</Text>
+          <Text style={[styles.heroScore, { color }]}>{Math.round(score)}</Text>
           <Badge variant={badgeVariant}>{t(`trip.status.${grade}`)}</Badge>
-          <Text style={styles.heroDate}>{formatDate(trip.date || trip.startTime, lang)}</Text>
+          <Text style={styles.heroDate}>{formatDate(trip.date || trip.startTime || trip.start_time, lang)}</Text>
         </Card>
 
         {/* Stats Grid */}
         <View style={styles.statsRow}>
           {[
-            { emoji: '⏱️', label: t('trip.duration'), value: formatDuration(trip.duration || trip.durationSeconds, lang) },
-            { emoji: '📍', label: t('trip.distance'), value: formatDistance(trip.distance || trip.distanceKm, lang) },
-            { emoji: '⭐', label: t('common.points'), value: `+${Math.round(trip.points)}` },
+            { emoji: '⏱️', label: t('trip.duration'), value: formatDuration(trip.duration || trip.durationSeconds || 0, lang) },
+            { emoji: '📍', label: t('trip.distance'), value: formatDistance(trip.distance || trip.distanceKm || 0, lang) },
+            { emoji: '⭐', label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
           ].map(s => (
             <Card key={s.label} padding="sm" style={styles.statCard}>
               <Text style={styles.statEmoji}>{s.emoji}</Text>

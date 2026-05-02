@@ -24,7 +24,7 @@ export function TripCard({ trip, onPress }: TripCardProps) {
           <Text style={styles.emoji}>{scoreToEmoji(trip.avg_score || trip.score)}</Text>
           <View style={styles.info}>
             <Text style={styles.title} numberOfLines={1}>
-              {formatDate(trip.start_time || trip.startTime, lang)}
+              {formatDate(trip.start_time || trip.startTime || (trip as any).date, lang)}
             </Text>
             <Text style={styles.sub}>
               {formatDistance(trip.distance || trip.distanceKm, lang)} · {trip.avg_score || trip.score} {t('dashboard.yourScore')}

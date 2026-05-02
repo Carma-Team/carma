@@ -46,6 +46,7 @@ interface AppContextValue {
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
   registerPhoneTouch: () => void
+  debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
   sdk: CarmaDrivingSDK
 }
@@ -60,6 +61,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
+
+  // Filtered trips based on last_cleared_history
+  const filteredTrips = useMemo(() => {
+    if (!user?.last_cleared_history) return recentTrips;
+    const cutoff = new Date(user.last_cleared_history).getTime();
+    return recentTrips.filter(trip => {
+      const tripStartTime = new Date(trip.start_time).getTime();
+      return tripStartTime > cutoff;
+    });
+  }, [recentTrips, user?.last_cleared_history]);
 
   const sdk = useMemo(() => new CarmaDrivingSDK(), []);
   const tripRef = useRef(tripState)
@@ -105,6 +116,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
 
     try {
+      // TODO: Future Sync - Ensure trip is sent to server along with identified city/country.
       await tripsApi.save({
         distance: finalState.distanceKm,
         avg_score: score,
@@ -118,12 +130,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const newTrip: Trip = {
       id: `trip_${Date.now()}`,
-      date: new Date().toISOString(),
+      user_id: user?.id || 'guest',
+      start_time: new Date(Date.now() - finalState.durationSeconds * 1000).toISOString(),
+      end_time: new Date().toISOString(),
       distance: finalState.distanceKm,
-      duration: finalState.durationSeconds,
-      score: score,
+      avg_score: score,
+      score: score, // fallback for legacy components
       points: earnedPoints,
-      events: []
+      events_array: [],
+      events: [] // fallback for UI
     };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -198,6 +213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const parsedUser = JSON.parse(u);
           if (!parsedUser.level) parsedUser.level = getLevelByPoints(parsedUser.totalPoints || 0);
           setUserState(parsedUser);
+          // TODO: Future Sync - Fetch latest trips from API and merge with local state
         }
         if (t) setRecentTrips(JSON.parse(t))
         if (btId) sdk.updateTargetDevice(btId)
@@ -211,6 +227,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk])
 
   const startTrip = useCallback(async () => {
+    // TODO: GPS Logic - After first GPS sample, perform reverse geocoding to identify
+    // current city/country, then update user state locally.
     await sdk.startTrip();
     setTripState({ ...INITIAL_TRIP_STATE, isActive: true });
   }, [sdk]);
@@ -221,15 +239,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const setUser = useCallback(async (u: AppUser | null) => {
-    setUserState(u);
-    if (u) {
-      await AsyncStorage.setItem('carma_user', JSON.stringify(u));
-    } else {
+    if (!u) {
+      // Logout Logic:
+      // If user is admin, we keep carma_trips in storage so they reappear on next login
+      // but we clear the current state and remove the user (including the cutoff date).
+      setUserState(null);
+      setRecentTrips([]);
       await AsyncStorage.removeItem('carma_user');
       await AsyncStorage.removeItem('carma_token');
-      await AsyncStorage.removeItem('carma_trips');
+    } else {
+      // Login Logic:
+      setUserState(u);
+      await AsyncStorage.setItem('carma_user', JSON.stringify(u));
+
+      // Load trips immediately on login to sync with the new user context
+      const t = await AsyncStorage.getItem('carma_trips');
+      if (t) setRecentTrips(JSON.parse(t));
     }
-  }, [])
+  }, [user]);
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
@@ -239,26 +266,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const simulateBTConnect = useCallback(() => sdk.simulateBluetoothConnection(), [sdk]);
   const simulateBTDisconnect = useCallback(() => sdk.simulateBluetoothDisconnection(), [sdk]);
 
+  const debugAddDistance = useCallback((km: number) => {
+    sdk.debugAddDistance(km);
+  }, [sdk]);
+
   const clearTripHistory = useCallback(async () => {
     try {
-      await AsyncStorage.removeItem('carma_trips');
-      setRecentTrips([]);
+      const now = new Date().toISOString();
+      if (user) {
+        const updatedUser = { ...user, last_cleared_history: now };
+        setUserState(updatedUser);
+        await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+      }
+
       addToast({
         title: lang === 'he' ? 'ההיסטוריה נמחקה' : 'History Cleared',
-        message: lang === 'he' ? 'כל נתוני הנסיעות המקומיים הוסרו' : 'Local trip data has been removed',
+        message: lang === 'he' ? 'היסטוריית הנסיעות הוסתרה' : 'Trip history has been hidden',
         type: 'success'
       });
     } catch (e) {
       console.error('Failed to clear history', e);
     }
-  }, [lang, addToast]);
+  }, [lang, addToast, user]);
 
   return (
     <AppContext.Provider value={{
       user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
-      tripState, startTrip, endTrip, recentTrips,
+      tripState, startTrip, endTrip,
+      recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
       lastTripSummary, setLastTripSummary, registerPhoneTouch,
+      debugAddDistance,
       clearTripHistory,
       sdk
     }}>

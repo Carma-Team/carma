@@ -69,6 +69,8 @@ const en = {
     title: 'Leaderboard', friends: 'Friends', city: 'City', national: 'National',
     rank: 'Rank', player: 'Player', score: 'Score', you: 'You',
     noFriends: 'No friends yet',
+    showing_city: 'Showing drivers in',
+    showing_national: 'Showing drivers in',
   },
   profile: {
     title: 'My Profile', stats: 'Stats', achievements: 'Achievements',

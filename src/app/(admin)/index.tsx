@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { useApp } from '@/context/AppContext';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme';
 import { Button } from '@/components/ui/Button';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

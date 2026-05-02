@@ -5,7 +5,8 @@ import { Card }       from '@/components/ui/Card'
 import { Progress }   from '@/components/ui/Progress'
 import { useApp }     from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
-import { LEVELS, getLevelProgress, getPointsToNextLevel, getLevelByPoints, COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/lib/constants'
+import { LEVELS, getLevelProgress, getPointsToNextLevel, getLevelByPoints } from '@/lib/constants'
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme'
 
 export default function RoadmapScreen() {
   const insets = useSafeAreaInsets()

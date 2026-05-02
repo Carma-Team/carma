@@ -21,7 +21,10 @@ export function formatScore(score: number): string {
 }
 
 export function formatDate(dateStr: string, lang: 'he' | 'en' = 'he'): string {
+  if (!dateStr) return '';
   const date = new Date(dateStr)
+  if (isNaN(date.getTime())) return '';
+
   return lang === 'he'
     ? date.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })
     : date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })

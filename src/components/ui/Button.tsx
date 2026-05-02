@@ -2,7 +2,7 @@ import React from 'react'
 import {
   TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, TextStyle,
 } from 'react-native'
-import { COLORS } from '@/lib/constants'
+import { COLORS } from '@/theme'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
 type Size    = 'sm' | 'md' | 'lg' | 'xl'
@@ -69,6 +69,7 @@ export function Button({
             style={[
               styles.text,
               sStyle.text,
+              fullWidth && { flex: 1 },
               variant === 'outline' && { color: COLORS.brand },
               textStyle
             ]}

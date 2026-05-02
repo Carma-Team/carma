@@ -2,7 +2,7 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Text, View, StyleSheet } from 'react-native';
 import { useTranslation } from '@/hooks/useTranslation';
-import { COLORS } from '@/lib/constants';
+import { COLORS } from '@/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 

@@ -2,6 +2,7 @@ import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { levelToEmoji } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
+import { COLORS, TYPOGRAPHY, SPACING } from '@/theme'
 import type { LeaderboardEntry } from '@/navigation/types'
 
 interface LeaderboardRowProps {
@@ -31,15 +32,15 @@ export function LeaderboardRow({ entry, isCurrentUser }: LeaderboardRowProps) {
 }
 
 const styles = StyleSheet.create({
-  row:              { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
-  highlighted:      { backgroundColor: 'rgba(99,102,241,0.08)' },
-  rank:             { width: 32, fontSize: 18, textAlign: 'center' },
-  avatar:           { fontSize: 22 },
+  row:              { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, gap: SPACING.sm },
+  highlighted:      { backgroundColor: COLORS.brand + '15' }, // 15% opacity
+  rank:             { width: 35, ...TYPOGRAPHY.body, fontWeight: '700', textAlign: 'center' },
+  avatar:           { fontSize: 24 },
   info:             { flex: 1 },
-  name:             { color: '#fff', fontWeight: '600', fontSize: 14 },
-  nameHighlighted:  { color: '#818cf8' },
-  city:             { color: '#94a3b8', fontSize: 12 },
-  score:            { color: '#f59e0b', fontWeight: '700', fontSize: 15 },
+  name:             { color: COLORS.text, ...TYPOGRAPHY.body, fontWeight: '600' },
+  nameHighlighted:  { color: COLORS.brandLight },
+  city:             { color: COLORS.text, fontSize: 12, opacity: 0.7 },
+  score:            { color: COLORS.warning, fontWeight: '700', fontSize: 16 },
 })
 
 export default LeaderboardRow

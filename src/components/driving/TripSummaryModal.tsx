@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/lib/constants';
+import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/theme';
 import { scoreToColor } from '@/lib/scoring';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -39,7 +39,7 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
               <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 30 }]}>
                 {t('trip.noTripDetectedDesc')}
               </Text>
-              <Button fullWidth size="xl" onPress={onClose}>
+              <Button fullWidth size="xl" onPress={onClose} textStyle={{ textAlign: 'center' }}>
                 {t('trip.gotIt')}
               </Button>
             </View>
