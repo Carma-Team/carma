@@ -43,7 +43,7 @@ export default function RoadmapScreen() {
           <Text style={styles.heroPoints}>{currentPoints.toLocaleString()} {t('common.points')}</Text>
 
           {currentLevel < 10 && (
-            <>
+            <View style={{ width: '100%', paddingHorizontal: 25 }}>
               <Progress
                 value={getLevelProgress(currentPoints, currentLevel)}
                 color={levelInfo.color}
@@ -52,7 +52,7 @@ export default function RoadmapScreen() {
               <Text style={styles.heroSub}>
                 עוד {getPointsToNextLevel(currentPoints, currentLevel).toLocaleString()} {t('common.points')} לרמה הבאה
               </Text>
-            </>
+            </View>
           )}
         </Card>
 
@@ -120,11 +120,13 @@ export default function RoadmapScreen() {
 
                   {isCurrent && currentLevel < 10 && (
                     <View style={styles.progressRow}>
-                      <Progress
-                        value={getLevelProgress(currentPoints, currentLevel)}
-                        color={lvl.color}
-                        height={5}
-                      />
+                      <View style={{ paddingHorizontal: 15 }}>
+                        <Progress
+                          value={getLevelProgress(currentPoints, currentLevel)}
+                          color={lvl.color}
+                          height={5}
+                        />
+                      </View>
                       <Text style={styles.progressLabel}>
                         {currentPoints.toLocaleString()} / {lvl.maxPoints === Infinity ? '∞' : lvl.maxPoints.toLocaleString()}
                       </Text>
@@ -143,7 +145,7 @@ export default function RoadmapScreen() {
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: COLORS.dark },
   heading:      { ...TYPOGRAPHY.h2 },
-  subtitle:     { ...TYPOGRAPHY.caption, marginBottom: SPACING.md },
+  subtitle:     { ...TYPOGRAPHY.caption, marginBottom: 4 },
   hero:         { alignItems: 'center', gap: 8, paddingVertical: 28, marginBottom: SPACING.lg },
   heroIcon:     { fontSize: 56 },
   heroName:     { fontSize: 22, fontWeight: '900' },

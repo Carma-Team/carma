@@ -207,8 +207,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)'
   },
   badgeWrapper:  {
-    marginRight: 20,
-    transform: [{ scale: 1.2 }]
+    marginLeft: 10,
+    marginRight: 15,
+    transform: [{ scale: 1.0 }]
   },
   heroRight:     { flex: 1, justifyContent: 'center' },
   scoreRow:      { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 8 },
