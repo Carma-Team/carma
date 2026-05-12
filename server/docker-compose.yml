@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: carma_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carma
+      POSTGRES_PASSWORD: carma_dev
+      POSTGRES_DB: carma
+    ports:
+      - "5432:5432"
+    volumes:
+      - carma_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carma -d carma"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carma_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: development
+      PORT: "3000"
+      DATABASE_URL: postgresql+asyncpg://carma:carma_dev@db:5432/carma
+      JWT_SECRET: dev_secret_change_me_min_16_chars
+      SMS_PROVIDER: console
+      CORS_ORIGINS: "*"
+    ports:
+      - "3000:3000"
+    profiles:
+      - app
+
+volumes:
+  carma_db_data:

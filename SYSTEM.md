@@ -1,0 +1,722 @@
+# CARMA — Full System Documentation
+
+> This document describes the CARMA backend server, the integration with May's mobile app, and the surrounding infrastructure (DB, Docker, CI/CD, Azure, Monitoring).
+
+---
+
+## Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Architecture Overview](#2-architecture-overview)
+3. [Tech Stack](#3-tech-stack)
+4. [Repository Layout](#4-repository-layout)
+5. [Database — Schema and Rationale](#5-database--schema-and-rationale)
+6. [Server Modules (Routers + Services)](#6-server-modules-routers--services)
+7. [Authentication Flows](#7-authentication-flows)
+8. [Full API Reference](#8-full-api-reference)
+9. [Integration with May's Frontend](#9-integration-with-mays-frontend)
+10. [Running Locally — Step by Step](#10-running-locally--step-by-step)
+11. [CI/CD and Azure Deployment](#11-cicd-and-azure-deployment)
+12. [Monitoring and Observability](#12-monitoring-and-observability)
+13. [Spec Compliance Map](#13-spec-compliance-map)
+14. [Out of Scope](#14-out-of-scope)
+15. [Next Steps](#15-next-steps)
+
+---
+
+## 1. Executive Summary
+
+**What it is:** A backend REST API for CARMA — a safe-driving rewards platform. The server provides the mobile app (May's Expo / React Native app) with everything it needs: registration and login, trip persistence, the rewards marketplace, the leaderboard, and statistics.
+
+**Stack:** Python 3.12 + FastAPI + SQLAlchemy 2.0 (async) + PostgreSQL 16 with PostGIS + JWT auth + Twilio (optional).
+
+**Two parallel authentication paths:**
+- **Email + Password** — what May's frontend actually calls (matches her existing contract).
+- **Phone + OTP via SMS** — per the formal spec (section 4.2.1). Ready for future / later integration.
+
+Both paths produce the same JWT — a client holding a token can call every API regardless of how it logged in.
+
+**Deployment:** Container-based — multi-stage Dockerfile, suitable for Azure Container Apps. Postgres on Azure Database for PostgreSQL Flexible Server (PostGIS supported). Application Insights for monitoring (via `azure-monitor-opentelemetry`).
+
+**CI/CD:** Two workflows under `.github/workflows/`:
+- `ci.yml` — always runs (ruff, mypy, alembic migrations, pytest, docker build).
+- `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
+
+**Key note:** May's frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
+
+---
+
+## 2. Architecture Overview
+
+```
+┌────────────────────┐         ┌────────────────────┐
+│ Expo / React Native│  HTTPS  │   FastAPI Server   │
+│   (May's app)      │ ─────►  │ (carma-server, :3000)│
+│   AsyncStorage:    │ Bearer  │                    │
+│   carma_token (JWT)│  token  │  Routers:          │
+└────────────────────┘         │   auth · users     │
+                               │   trips · rewards  │
+                               │   vouchers ·       │
+                               │   leaderboard ·    │
+                               │   notifications    │
+                               │   health           │
+                               └─────────┬──────────┘
+                                         │ SQLAlchemy async (asyncpg)
+                                         ▼
+                          ┌──────────────────────────┐
+                          │ PostgreSQL + PostGIS 16  │
+                          │  - users · otp_codes     │
+                          │  - trips · events        │
+                          │  - businesses · rewards  │
+                          │  - redemptions · levels  │
+                          └──────────────────────────┘
+
+   ┌────────────┐                              ┌──────────────────────┐
+   │  Twilio    │ ◄── SMS (when SMS_PROVIDER=  │ Application Insights │
+   │  (OTP SMS) │      twilio in production)   │ (OpenTelemetry)      │
+   └────────────┘                              └──────────────────────┘
+```
+
+**Principles:**
+- Authentication is enforced **per route** via the `CurrentUser` FastAPI dependency. Routes without it (auth/register, auth/login, OTP routes, health) are public.
+- The DB is only accessed through async SQLAlchemy sessions injected via `Depends(get_db)`.
+- The server is stateless — no session memory, the JWT carries the identity.
+
+---
+
+## 3. Tech Stack
+
+| Layer | Technology | Why |
+|---|---|---|
+| Runtime | Python 3.12 (slim container) | Modern, fast, matches the workshop's `.venv` setup |
+| Framework | FastAPI 0.115 | Async, OpenAPI auto-generation, Pydantic-native |
+| Language | Python with type hints + mypy strict | Type safety where it matters |
+| ORM | SQLAlchemy 2.0 (async, with `asyncpg` driver) | Production standard, full type-safety in 2.0 |
+| Migrations | Alembic | Schema-as-code, autogenerated from models |
+| DB | PostgreSQL 16 + PostGIS 3.4 | Geographic location support (Marketplace radius search) |
+| Validation | Pydantic v2 + `pydantic-settings` | DTOs, env validation in one model |
+| Auth | `python-jose` (JWT) + `passlib[bcrypt]` | Stateless tokens, secure password and OTP hashing |
+| SMS | Twilio (optional) | OTP delivery in production. In dev — `ConsoleSmsSender` logs to stdout |
+| Rate limit | `slowapi` | Per-IP throttling on auth endpoints |
+| Monitoring | `azure-monitor-opentelemetry` + OpenTelemetry instrumentations | Auto-instrumented requests, DB, exceptions |
+| Server | `uvicorn[standard]` | ASGI server (production: also via Docker `CMD`) |
+| Tests | `pytest` + `pytest-asyncio` + `httpx` ASGITransport | Async-aware testing without a live server |
+| Container | Docker multi-stage | Small production image, runs migrations on boot |
+| Local DB | Docker Compose (`postgis/postgis:16-3.4`) | No need to install Postgres on Windows |
+| CI | GitHub Actions | Free, integrates naturally with Azure |
+| Cloud | Azure (Container Apps + Postgres Flexible + ACR + App Insights) | User's choice |
+
+---
+
+## 4. Repository Layout
+
+```
+Carma/                                # Git repo root
+├── .github/workflows/
+│   ├── ci.yml                        # ruff+mypy+alembic+pytest+docker — always runs
+│   └── deploy.yml                    # Build+push+deploy to Azure — gated on secrets
+│
+├── server/                           # ▼ The new Python project
+│   ├── app/
+│   │   ├── main.py                   # FastAPI app, middleware, router registration
+│   │   ├── config.py                 # Pydantic Settings (env validation)
+│   │   ├── database.py               # async engine + session factory
+│   │   ├── monitoring.py             # Application Insights init (no-op if unset)
+│   │   ├── seed.py                   # creates levels/businesses/rewards/demo user
+│   │   ├── models/                   # SQLAlchemy 2.0 declarative models
+│   │   │   ├── base.py, enums.py
+│   │   │   └── user.py · otp.py · level.py · trip.py · event.py
+│   │   │     · business.py · reward.py · redemption.py
+│   │   ├── schemas/                  # Pydantic DTOs (with camelCase aliases)
+│   │   │   ├── _base.py              # CamelModel — alias_generator=to_camel
+│   │   │   └── auth.py · user.py · trip.py · reward.py
+│   │   │     · leaderboard.py · stats.py
+│   │   ├── core/
+│   │   │   ├── security.py           # bcrypt, JWT, random helpers
+│   │   │   └── deps.py               # FastAPI dependencies (DbSession, CurrentUser)
+│   │   ├── services/                 # Business logic (no FastAPI knowledge)
+│   │   │   ├── sms.py · auth.py · users.py · trips.py
+│   │   │   └── rewards.py · leaderboard.py
+│   │   └── routers/                  # FastAPI routers (HTTP layer)
+│   │       ├── auth.py · users.py · trips.py · rewards.py
+│   │       └── leaderboard.py · notifications.py · health.py
+│   ├── alembic/                      # Migrations
+│   │   ├── env.py, script.py.mako
+│   │   └── versions/                 # populated by `alembic revision`
+│   ├── alembic.ini
+│   ├── tests/
+│   │   └── test_smoke.py             # health + auth rejection
+│   ├── Dockerfile                    # multi-stage: deps → runtime
+│   ├── docker-compose.yml            # local Postgres+PostGIS
+│   ├── requirements.txt              # runtime deps
+│   ├── requirements-dev.txt          # +ruff, mypy, pytest, httpx
+│   ├── pyproject.toml                # ruff + mypy + pytest config
+│   ├── .env.example
+│   └── README.md                     # quick start
+│
+└── SYSTEM.md                         # ← You are here
+```
+
+---
+
+## 5. Database — Schema and Rationale
+
+### Entities
+
+| Entity | Role | Spec section |
+|---|---|---|
+| `User` | End user (driver/business/admin). Unifies both auth paths. | 5.3.1.1 |
+| `OtpCode` | Temporary OTP codes, hashed. Older codes are auto-consumed when a new one is issued. | 4.2.1 + 5.2.4-5.2.5 |
+| `Level` | Levels table 1–10 with point thresholds and discounts. | Appendix D |
+| `Trip` | A single trip (start, end, score, counts). | 5.3.1.2 |
+| `Event` | An anomalous event in a trip (brake, turn, etc.) + JSONB sensor data. | 5.3.1.6 |
+| `Business` | A business (Marketplace) with location. | 5.3.1.4 |
+| `Reward` | A specific reward at a business. | 5.3.1.3 |
+| `Redemption` | Redemption of a reward — QR + status + 5-min validity (spec 5.2.5). | 5.3.1.5 |
+
+### Key fields on `User`
+
+```python
+class User(Base, TimestampMixin):
+    id, name, email?, password_hash?, phone?,        # Auth: email+password or phone+OTP
+    role: UserRole,                                  # DRIVER | BUSINESS | ADMIN
+    language: Language,                              # HE | EN
+    age?, city?, license_year?, avatar_url?,
+
+    points: int,                                     # Current redeemable balance
+    total_points: int,                               # Lifetime accumulation (drives level)
+    total_distance: float,                           # Total km driven
+    level: int,                                      # 1–10 (denormalized; computed from total_points)
+
+    drive_mode_enabled, bluetooth_device_id, bluetooth_device_name,
+    last_lat, last_lng, last_location_at,            # Last known driver location
+    last_cleared_history,                            # UI history filter
+
+    is_phone_verified, failed_otp_count, locked_until,   # Spec 5.2.4 enforcement
+```
+
+**Why both `points` and `total_points`?** May's frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
+
+### Locations and PostGIS
+
+PostGIS is installed in the container image (`postgis/postgis:16-3.4`) and enabled per database. For MVP we store `location_lat`/`location_lng` as plain `Float`. As scale grows, we can add a generated `geography(Point, 4326)` column with a GIST index (via `geoalchemy2` — already in requirements) and switch Marketplace radius queries to use `ST_DWithin`.
+
+The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api/users/me/location`. In the app this is fed by `expo-location`.
+
+### Indexes already defined
+
+- `users (phone)`, `users (email)`, `users (role)`
+- `otp_codes (phone, purpose, consumed_at)` — active-OTP lookup
+- `otp_codes (expires_at)` — for cleanup
+- `trips (user_id, start_time)`, `trips (status)`
+- `events (trip_id, timestamp)`, `events (type)`
+- `businesses (category)`, `businesses (location_lat, location_lng)`
+- `rewards (business_id, is_active)`, `rewards (category)`
+- `redemptions (user_id, status)`, `redemptions (qr_code)`
+
+---
+
+## 6. Server Modules (Routers + Services)
+
+| Router (HTTP) | Service (logic) | What it does |
+|---|---|---|
+| `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Enforces lockout after 5 failed OTPs. |
+| `routers/users.py` | `services/users.py` | `/users/me` profile + location + GDPR delete + `/user/stats`. |
+| `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
+| `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, 5-min validity), my vouchers. |
+| `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, sorted by `total_points`. |
+| `routers/notifications.py` | — | Stub. Returns an empty list until a model is added. |
+| `routers/health.py` | — | `/health` (DB ping), `/health/live` (uptime). |
+| — | `services/sms.py` | SmsSender abstraction — Twilio in prod, Console in dev. |
+
+### Global middleware (in `app/main.py`)
+
+1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`).
+2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour.
+3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
+
+Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.
+
+---
+
+## 7. Authentication Flows
+
+### A. Email + Password (what May's app calls)
+
+```
+Mobile App                                   Server
+   │                                            │
+   │  POST /api/auth/register                   │
+   │  { name, email, password, phone?,          │
+   │    city?, age?, licenseYear? }             │
+   │ ─────────────────────────────────────────► │
+   │                                            │ passlib bcrypt.hash(password)
+   │                                            │ INSERT INTO users
+   │                                            │ jose.jwt.encode({sub, email, role}, secret, HS256)
+   │  201 { token, user }                       │
+   │ ◄───────────────────────────────────────── │
+   │                                            │
+   │  AsyncStorage.setItem('carma_token', token)│
+   │                                            │
+   │  POST /api/auth/login                      │
+   │  { email, password }                       │
+   │ ─────────────────────────────────────────► │
+   │                                            │ scalar(select(User).where(email=...))
+   │                                            │ passlib bcrypt.verify()
+   │                                            │ jose.jwt.encode(...)
+   │  200 { token, user }                       │
+   │ ◄───────────────────────────────────────── │
+   │                                            │
+   │  GET /api/auth/me                          │
+   │  Authorization: Bearer <token>             │
+   │ ─────────────────────────────────────────► │
+   │  200 user                                  │
+   │ ◄───────────────────────────────────────── │
+```
+
+### B. Phone + OTP (per spec, section 4.2.1)
+
+```
+Mobile App                                   Server                 Twilio (prod)
+   │                                            │                        │
+   │  POST /api/auth/otp/register               │                        │
+   │  { phone: +972501234567, name, ... }       │                        │
+   │ ─────────────────────────────────────────► │                        │
+   │                                            │ secrets.randbelow → 6 digits
+   │                                            │ passlib bcrypt.hash    │
+   │                                            │ INSERT OtpCode         │
+   │                                            │ ─── SMS body ────────► │
+   │  200 { message, expiresInSeconds: 300 }    │                        │
+   │ ◄───────────────────────────────────────── │                        │
+   │                                            │                        │
+   │  POST /api/auth/otp/verify                 │                        │
+   │  { phone, code }                           │                        │
+   │ ─────────────────────────────────────────► │                        │
+   │                                            │ passlib bcrypt.verify  │
+   │                                            │ on fail: failed_otp_count++│
+   │                                            │ if >= 5: locked_until = now+15min │
+   │                                            │ on success: consume,  │
+   │                                            │    mark is_phone_verified│
+   │  200 { token, user }                       │                        │
+   │ ◄───────────────────────────────────────── │                        │
+```
+
+### JWT details
+
+- **HMAC SHA256** signed with `JWT_SECRET` (≥16 chars, enforced by Pydantic Settings).
+- Default lifetime: `JWT_EXPIRES_MINUTES=10080` (= 7 days).
+- Payload: `{ sub, email, phone, role, iat, exp }`.
+- No refresh token yet — when the token expires the user re-logs in. Easy to add later.
+
+### Protections
+
+| Protection | Where it lives |
+|---|---|
+| OTP stored as bcrypt hash (never plaintext!) | `services/auth.py::_issue_otp` |
+| Only one active OTP per phone (older ones auto-consumed) | `UPDATE otp_codes SET consumed_at = now()` before insert |
+| 5 failed attempts → 15-minute lockout | `services/auth.py::_record_failure` (spec 5.2.4) |
+| Rate-limit on register/login/verify | `slowapi` global + extendable per-route |
+| Passwords with bcrypt salt (passlib auto) | `core/security.py::hash_password` |
+| TLS 1.3 | Termination at Azure Container Apps ingress |
+| Full account deletion (GDPR) | `DELETE /api/users/me` — cascade on trips/redemptions |
+
+---
+
+## 8. Full API Reference
+
+> All endpoints except `/health/*` and `/api/auth/{register,login,otp/*}` require `Authorization: Bearer <token>`.
+
+### Auth
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/auth/register` | `{ name, email, password, phone?, city?, age?, licenseYear? }` | `201 { token, user }` |
+| POST | `/api/auth/login` | `{ email, password }` | `200 { token, user }` |
+| GET | `/api/auth/me` | — | `200 user` |
+| POST | `/api/auth/otp/register` | `{ phone, name, language?, age?, city? }` | `200 { message, expiresInSeconds }` |
+| POST | `/api/auth/otp/request` | `{ phone }` | `200 { message, expiresInSeconds }` |
+| POST | `/api/auth/otp/verify` | `{ phone, code }` | `200 { token, user }` |
+
+### Users
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/users/me` | User profile |
+| PATCH | `/api/users/me` | Update name/language/age/city |
+| PUT | `/api/users/me/location` | Update last location `{ lat, lng }` |
+| DELETE | `/api/users/me` | Delete account (GDPR) → 204 |
+| GET | `/api/user/stats` | Aggregate stats |
+
+### Trips
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/trips` | — | `{ trips }` |
+| POST | `/api/trips` | `{ start_time | startTime, end_time | endTime, distance | distanceKm, avg_score | avgScore | score, events | events_array, ... }` | trip |
+| GET | `/api/trips/{id}` | — | `{ trip }` (with events) |
+
+### Rewards & Vouchers
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/rewards?category=fuel\|food\|eco\|entertainment\|shopping` | Active rewards + the user's vouchers |
+| POST | `/api/rewards/{id}/redeem` | Redeem — debits points, issues 5-minute QR |
+| GET | `/api/vouchers` | My vouchers |
+
+### Leaderboard
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/leaderboard?type=national\|city\|friends` | Currently `friends` returns just the user themselves (friend model not added). |
+
+### Notifications
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/notifications` | `[]` — stub until model is added |
+
+### System
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | DB ping — for readiness probes |
+| GET | `/health/live` | Uptime in seconds |
+| GET | `/api/docs` | Swagger UI |
+| GET | `/api/openapi.json` | OpenAPI schema |
+
+---
+
+## 9. Integration with May's Frontend
+
+### Her code layout (Expo / React Native)
+
+```
+carma-may/carma-app/src/
+├── services/api/
+│   ├── client.ts          # fetch wrapper + Bearer token + fallback to mocks
+│   ├── auth.api.ts        # login/register/me
+│   ├── trips.api.ts       # list/save/getById
+│   ├── rewards.api.ts     # list/redeem/myVouchers
+│   ├── leaderboard.api.ts # get
+│   ├── notifications.api.ts
+│   ├── user.api.ts        # stats
+│   └── mocks/mockData.ts  # fallback data when server is unreachable
+├── screens/auth/
+│   ├── LoginScreen.tsx    # Sends { email, password }, stores { token, user }
+│   └── RegisterScreen.tsx # Sends { name, email, password, phone?, city?, age?, licenseYear? }
+└── context/AppContext.tsx # Global state, sends trips via tripsApi.save
+```
+
+### How to connect her app to our server
+
+At `carma-may/carma-app/src/services/api/client.ts`:
+```ts
+const BASE_URL = 'http://localhost:3000';
+```
+
+- **Android emulator** on the same machine: use `http://10.0.2.2:3000`.
+- **Physical device** on the same Wi-Fi: replace with the host's IP, e.g. `http://192.168.1.42:3000`.
+- **iOS Simulator**: `http://localhost:3000` works as-is.
+- **Azure** (after deploy): `https://carma-api.<region>.azurecontainerapps.io`.
+
+### API contract comparison (Frontend ↔ Backend)
+
+| Endpoint she calls | What she expects | What the server returns | Match |
+|---|---|---|---|
+| `POST /api/auth/login` | `{ token, user }` | `{ token, user }` | ✅ |
+| `POST /api/auth/register` | `{ token, user }` | `{ token, user }` | ✅ |
+| `GET /api/auth/me` | user | user | ✅ |
+| `GET /api/trips` | `{ trips }` | `{ trips }` | ✅ |
+| `POST /api/trips` | trip | trip | ✅ |
+| `GET /api/rewards` | `{ rewards, vouchers }` | `{ rewards, vouchers }` | ✅ |
+| `POST /api/rewards/:id/redeem` | `{ voucher }` | `{ voucher }` | ✅ |
+| `GET /api/vouchers` | `{ vouchers }` | `{ vouchers }` | ✅ |
+| `GET /api/leaderboard?type=...` | `{ entries, currentUserId }` | `{ entries, currentUserId }` | ✅ |
+| `GET /api/notifications` | array | `[]` (stub) | ✅ |
+| `GET /api/user/stats` | `{ stats }` | `{ stats }` | ✅ |
+
+### Handling snake_case ↔ camelCase mixing
+
+Pydantic schemas inherit from `CamelModel` (`app/schemas/_base.py`) which sets:
+```python
+model_config = ConfigDict(
+    alias_generator=to_camel,
+    populate_by_name=True,
+    from_attributes=True,
+)
+```
+
+That makes the wire format camelCase (Python attributes stay snake_case). Routes set `response_model_by_alias=True`, so output is always camelCase. For trip-save where the frontend genuinely mixes naming, the DTO declares both via `AliasChoices`:
+
+```python
+distance_km: float | None = Field(
+    default=None,
+    validation_alias=AliasChoices("distanceKm", "distance"),
+)
+avg_score: float | None = Field(
+    default=None,
+    validation_alias=AliasChoices("avgScore", "avg_score", "score"),
+)
+```
+
+Both styles are accepted on input.
+
+---
+
+## 10. Running Locally — Step by Step
+
+### Prerequisites
+
+- Python 3.11+ (3.12 recommended — matches the Dockerfile and CI)
+- Docker Desktop (for Postgres+PostGIS)
+- Git
+
+### Initial setup
+
+```powershell
+cd c:\Users\tzvai\OneDrive\BSc\year_3\workshop\Carma\server
+
+# 1. Virtualenv
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+
+# 2. Env vars
+copy .env.example .env
+# (defaults work for dev)
+
+# 3. Start Postgres+PostGIS
+docker compose up -d db
+
+# 4. Generate the initial migration from the models, then apply it
+alembic revision --autogenerate -m "init"
+alembic upgrade head
+
+# 5. Seed (levels, businesses, rewards, demo user)
+python -m app.seed
+```
+
+### Run the server
+
+```powershell
+uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+```
+
+- API: `http://localhost:3000/api/...`
+- Swagger: `http://localhost:3000/api/docs`
+- Health: `http://localhost:3000/health`
+
+### Demo user
+
+```
+email:    daniel@carma.app
+password: password123
+```
+
+### Quick smoke test (PowerShell)
+
+```powershell
+# Login
+$body = '{"email":"daniel@carma.app","password":"password123"}'
+$res = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/auth/login `
+  -ContentType 'application/json' -Body $body
+$token = $res.token
+$res.user.name   # "דניאל כהן"
+
+# GET /me
+Invoke-RestMethod -Uri http://localhost:3000/api/auth/me `
+  -Headers @{ Authorization = "Bearer $token" }
+```
+
+### Useful commands
+
+```powershell
+uvicorn app.main:app --reload          # dev server
+ruff check . ; ruff format .           # lint + format
+mypy app                               # typecheck
+pytest                                 # tests
+alembic revision --autogenerate -m "msg"   # new migration
+alembic upgrade head                   # apply migrations
+alembic downgrade -1                   # rollback one
+python -m app.seed                     # reseed
+```
+
+---
+
+## 11. CI/CD and Azure Deployment
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+Runs on every PR and every push to main:
+
+1. **Code checks:** `ruff check`, `ruff format --check`, `mypy app`.
+2. **DB check:** spins up Postgres+PostGIS as a service, runs `alembic upgrade head` to verify the migrations apply cleanly, then `pytest`.
+3. **Docker build:** verifies the Dockerfile builds. No push (that's in deploy).
+
+### Deploy Workflow (`.github/workflows/deploy.yml`)
+
+Runs on push to main or manually. **Gated** on the existence of the `AZURE_CREDENTIALS` secret — skips silently otherwise.
+
+When it runs:
+
+1. `azure/login@v2` with a service principal.
+2. `az acr login` to ACR.
+3. `docker build` + `docker push` of an image tagged `:${{ github.sha }}`.
+4. `az containerapp update --image` to roll out.
+
+### Azure setup (one-time)
+
+```bash
+RG=carma-rg
+LOC=westeurope
+ACR=carmaregistry         # globally unique
+APP=carma-api
+DB=carma-pg
+
+az group create -n $RG -l $LOC
+
+az acr create -n $ACR -g $RG --sku Basic --admin-enabled true
+
+az postgres flexible-server create -g $RG -n $DB -l $LOC \
+  --tier Burstable --sku-name Standard_B1ms \
+  --admin-user carma_admin --admin-password "ChangeMeStrong123!" \
+  --version 16 --public-access 0.0.0.0
+az postgres flexible-server parameter set -g $RG -s $DB \
+  --name azure.extensions --value POSTGIS
+az postgres flexible-server db create -g $RG -s $DB -d carma
+
+az containerapp env create -n carma-env -g $RG -l $LOC
+az containerapp create -n $APP -g $RG --environment carma-env \
+  --image $ACR.azurecr.io/carma-server:bootstrap \
+  --target-port 3000 --ingress external \
+  --registry-server $ACR.azurecr.io \
+  --secrets db-url="postgresql+asyncpg://..." jwt-secret="<random>" \
+  --env-vars ENV=production DATABASE_URL=secretref:db-url \
+             JWT_SECRET=secretref:jwt-secret SMS_PROVIDER=twilio
+```
+
+### GitHub secrets
+
+| Secret | What it is |
+|---|---|
+| `AZURE_CREDENTIALS` | JSON output of `az ad sp create-for-rbac --sdk-auth` |
+| `AZURE_RESOURCE_GROUP` | e.g. `carma-rg` |
+| `AZURE_CONTAINER_APP` | e.g. `carma-api` |
+| `AZURE_CONTAINER_REGISTRY` | e.g. `carmaregistry` (without `.azurecr.io`) |
+
+### Migrations in production
+
+The Dockerfile entrypoint is:
+```dockerfile
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+```
+Every deployment runs all pending migrations before the server boots. Alembic migrations are idempotent — re-running `upgrade head` on a fully-migrated DB is a no-op.
+
+---
+
+## 12. Monitoring and Observability
+
+### Application Insights
+
+`app/monitoring.py::configure_monitoring` wires `azure-monitor-opentelemetry` plus the FastAPI and SQLAlchemy OpenTelemetry instrumentations. If `APPLICATIONINSIGHTS_CONNECTION_STRING` is unset it's a silent no-op — good for dev.
+
+Auto-collected:
+- **Requests** — every HTTP request: duration, status, route.
+- **Dependencies** — every Postgres query, every Twilio call.
+- **Exceptions** — uncaught exceptions (also captured by the global handler).
+- **Live Metrics** — CPU/RPS/latency in real-time in the Azure portal.
+
+### Health endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | DB connection check — Azure Container Apps readiness probe. |
+| `GET /health/live` | Uptime — liveness probe. |
+
+### Logs
+
+`uvicorn` and our `logging` calls emit to stdout/stderr. Azure Container Apps streams them to Log Analytics. Useful KQL:
+```kusto
+ContainerAppConsoleLogs_CL
+| where ContainerAppName_s == "carma-api"
+| where TimeGenerated > ago(1h)
+| order by TimeGenerated desc
+```
+
+---
+
+## 13. Spec Compliance Map
+
+| Spec section | What's required | Where it lives |
+|---|---|---|
+| 4.1.1 Platform support | iOS 14+ / Android 11+ | May's frontend (Expo) |
+| 4.1.2 BT pairing | Up to 2 vehicles | `User.bluetooth_device_id` (extendable) |
+| **4.2.1 Phone + OTP auth** | SMS with code | `services/auth.py::register_with_otp / verify_otp` |
+| 4.2.2 Registration details | name, age, license | `schemas/auth.py::RegisterIn / OtpRegisterIn` |
+| 4.3.5 Scoring + gamification | Score + points | `Trip.avg_score`, `Trip.points`, `User.points` / `total_points` |
+| 4.3.5.3 Roadmap 10 levels | Levels table | `Level` model + `app/seed.py` |
+| 4.3.6 Marketplace | Catalog + QR | `services/rewards.py` |
+| 4.3.6.2 One-time QR | Expires in 5 min | `VOUCHER_TTL_MINUTES = 5` |
+| 4.4.4 Points accumulation | Updated on sync | `services/trips.py::save` |
+| 4.5 / 5.2.3 GDPR | Self-deletion | `DELETE /api/users/me` |
+| **5.2.1 TLS 1.3** | All traffic | Azure Container Apps ingress |
+| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` |
+| **5.2.5 QR 5-min validity** | Expiry | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
+| **5.3 Data entities** | All spec tables | `app/models/` |
+
+### Not 1:1 to spec — deliberate
+
+- **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
+- **Email-based auth:** spec only covers phone. We added email+password because May's frontend was already wired for it. Both paths are active.
+- **Friendships:** spec doesn't define a friends table, but May uses it. Currently `leaderboard?type=friends` returns only the user themselves until a model is added.
+
+---
+
+## 14. Out of Scope
+
+Matching spec section 8:
+
+- **OBD-II integration**
+- **Offline redemption**
+- **Driver chat**
+- **Social media sharing**
+- **Web admin panel** — admins use the same mobile app.
+
+Deliberately deferred:
+
+- **Full CARMA Score algorithm** (Appendix C) — score is currently client-side; will move to `app/services/scoring.py`.
+- **Notification + Achievement + Friendship models**.
+- **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
+- **Refresh tokens** — current JWT is 7 days, single token.
+
+---
+
+## 15. Next Steps
+
+### Right now (integrate with May)
+
+1. Run the API: `uvicorn app.main:app --reload` from `server/`. Visit `/api/docs`.
+2. Change `BASE_URL` in May's `client.ts` to the host IP (physical device) or leave `localhost` (simulator).
+3. Log in in the app with `daniel@carma.app` / `password123` — should hit the real server.
+4. Run a trip in the app and verify it persists in the DB (`docker exec -it carma_db psql -U carma -d carma -c "SELECT id, user_id, distance_km, avg_score FROM trips ORDER BY created_at DESC LIMIT 5;"`).
+
+### Soon
+
+5. Implement the full Score algorithm in `app/services/scoring.py`.
+6. Add `Notification`, `Achievement`, `Friendship` models + migrations.
+7. Replace the notifications stub with real data + push notifications (Expo Push).
+8. Add e2e tests for auth + trips + rewards.
+9. Stand up Azure with the commands above and ship the first deploy.
+10. Set `APPLICATIONINSIGHTS_CONNECTION_STRING` and confirm telemetry.
+
+### Later
+
+11. **PostGIS GEOGRAPHY** column on `businesses` + GIST index for fast radius searches.
+12. **Refresh tokens** with rotation.
+13. **Per-user rate limiting** (slowapi with a Redis storage).
+14. **Multi-language SMS templates**.
+15. **Admin endpoints** for tuning scoring parameters (spec Appendix C-VI).
+
+---
+
+> **Questions / feedback:** This document is the single source of truth for how the server is built and integrates with the frontend. If something changes in code but not here — update it.
