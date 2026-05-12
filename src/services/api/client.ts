@@ -13,9 +13,9 @@ async function getAuthToken(): Promise<string | null> {
  */
 export async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { public?: boolean } = {}
 ): Promise<T> {
-  const token = await getAuthToken();
+  const token = options.public ? null : await getAuthToken();
 
   // לוגיקת סימולציה למנהל מערכת (Admin)
   if (token === 'mock-admin-token') {

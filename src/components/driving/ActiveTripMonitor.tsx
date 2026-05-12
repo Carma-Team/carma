@@ -1,114 +1,151 @@
-import React from 'react'
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
-import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { formatDuration, formatDistance } from '@/lib/utils'
-import { useTranslation } from '@/hooks/useTranslation'
-import type { TripState } from '@/hooks/useTrip'
-import { COLORS } from '@/theme'
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
+import { formatDuration, formatDistance } from '@/lib/utils';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface ActiveTripMonitorProps {
-  state: TripState
-  onEnd: () => void
-  loading?: boolean
+  tripState: {
+    durationSeconds: number;
+    distanceKm: number;
+    eventCounts: {
+      HARD_BRAKE: number;
+      AGGRESSIVE_ACCEL: number;
+      SHARP_TURN: number;
+      PHONE_TOUCH: number;
+    };
+  };
+  onEnd: () => void;
+  showDebug?: boolean;
+  onDebugAddDistance?: (km: number) => void;
 }
 
-function getLight(state: TripState): 'green' | 'yellow' | 'red' {
-  const { eventCounts } = state
-  const total = (eventCounts.HARD_BRAKE || 0) * 5 +
-                (eventCounts.AGGRESSIVE_ACCEL || 0) * 3 +
-                (eventCounts.SHARP_TURN || 0) * 2 +
-                (eventCounts.PHONE_TOUCH || 0) * 10
-
-  if (total === 0)  return 'green'
-  if (total <= 5)   return 'yellow'
-  return 'red'
-}
-
-const LIGHT_CONFIG = {
-  green:  { color: '#22c55e', emoji: '😊' },
-  yellow: { color: '#f59e0b', emoji: '😐' },
-  red:    { color: '#ef4444', emoji: '😟' },
-}
-
-export function ActiveTripMonitor({ state, onEnd, loading }: ActiveTripMonitorProps) {
-  const { t, lang } = useTranslation()
-  const light  = getLight(state)
-  const config = LIGHT_CONFIG[light]
+export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDistance }: ActiveTripMonitorProps) {
+  const { t } = useTranslation();
 
   const events = [
-    { key: 'HARD_BRAKE',       label: t('trip.hardBrakes'),       emoji: '⚡', count: state.eventCounts.HARD_BRAKE },
-    { key: 'AGGRESSIVE_ACCEL', label: t('trip.aggressiveAccels'), emoji: '🚀', count: state.eventCounts.AGGRESSIVE_ACCEL },
-    { key: 'SHARP_TURN',       label: t('trip.sharpTurns'),       emoji: '↩️', count: state.eventCounts.SHARP_TURN },
-    { key: 'PHONE_TOUCH',      label: t('trip.phoneTouches'),     emoji: '📱', count: state.eventCounts.PHONE_TOUCH },
-  ]
+    { label: t('trip.hardBrakes'), value: tripState.eventCounts.HARD_BRAKE, emoji: '🛑', color: COLORS.warning },
+    { label: t('trip.aggressiveAccels'), value: tripState.eventCounts.AGGRESSIVE_ACCEL, emoji: '🚀', color: COLORS.warning },
+    { label: t('trip.sharpTurns'), value: tripState.eventCounts.SHARP_TURN, emoji: '↩️', color: COLORS.warning },
+    { label: t('trip.phoneTouches'), value: tripState.eventCounts.PHONE_TOUCH, emoji: '📱', color: COLORS.danger },
+  ];
 
   return (
     <View style={styles.container}>
-      {/* Traffic light */}
-      <Card glass style={styles.lightCard}>
-        <View style={[styles.circle, { backgroundColor: config.color, shadowColor: config.color }]}>
-          <Text style={styles.circleEmoji}>{config.emoji}</Text>
-        </View>
-        <Text style={styles.lightLabel}>{t(`trip.trafficLight.${light}`)}</Text>
-      </Card>
-
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <Card glass style={styles.statCard}>
-          <Text style={styles.statValue}>{formatDuration(state.durationSeconds, lang)}</Text>
+      {/* Timer & Distance */}
+      <View style={styles.statsContainer}>
+        <View style={styles.statBox}>
           <Text style={styles.statLabel}>{t('trip.duration')}</Text>
-        </Card>
-        <Card glass style={styles.statCard}>
-          <Text style={styles.statValue}>{formatDistance(state.distanceKm, lang)}</Text>
+          <Text style={styles.statValue}>{formatDuration(tripState.durationSeconds)}</Text>
+        </View>
+        <View style={styles.statBox}>
           <Text style={styles.statLabel}>{t('trip.distance')}</Text>
-        </Card>
+          <Text style={styles.statValue}>{formatDistance(tripState.distanceKm)}</Text>
+        </View>
       </View>
 
-      {/* Event counters */}
-      <Card glass padding="sm">
-        <View style={styles.eventsGrid}>
-          {events.map(ev => (
-            <View key={ev.key} style={styles.eventCell}>
-              <Text style={styles.eventLabel}>{ev.emoji} {ev.label}</Text>
-              <Text style={[styles.eventCount, { color: ev.count > 0 ? '#ef4444' : '#22c55e' }]}>{ev.count}</Text>
-            </View>
-          ))}
-        </View>
-      </Card>
+      {/* Real-time Events Grid */}
+      <Text style={styles.sectionTitle}>{t('trip.eventsDetected')}</Text>
+      <View style={styles.grid}>
+        {events.map(event => (
+          <Card key={event.label} style={styles.eventCard}>
+            <Text style={styles.eventEmoji}>{event.emoji}</Text>
+            <Text style={[styles.eventValue, { color: event.value > 0 ? event.color : '#fff' }]}>
+              {event.value}
+            </Text>
+            <Text style={styles.eventLabel}>{event.label}</Text>
+          </Card>
+        ))}
+      </View>
 
-      {/* Speed (Debug/Info) */}
-      <Text style={styles.speedText}>מהירות נוכחית: {Math.round(state.currentSpeedKmH)} קמ"ש</Text>
-
-      {/* End Trip Button */}
+      {/* Main Action - End Trip */}
       <Button
-        variant="outline"
+        variant="danger"
+        fullWidth
+        size="xl"
         onPress={onEnd}
-        loading={loading}
-        style={styles.endBtn}
+        style={styles.inlineEndBtn}
       >
-        🏁 סיום נסיעה
+        🛑 {t('trip.endBtn')}
       </Button>
+
+      {/* Admin Debug Tools */}
+      {showDebug && onDebugAddDistance && (
+        <View style={styles.debugContainer}>
+          <Text style={styles.debugTitle}>🛠️ כלי ניהול (מצב דמו)</Text>
+          <View style={styles.debugRow}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => onDebugAddDistance(10)}
+              style={styles.debugBtn}
+            >
+              +10 ק"מ
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onPress={() => onDebugAddDistance(0.1)}
+              style={styles.debugBtn}
+            >
+              +100 מטר
+            </Button>
+          </View>
+        </View>
+      )}
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  container:  { gap: 12 },
-  lightCard:  { alignItems: 'center', paddingVertical: 24 },
-  circle:     { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.5, shadowRadius: 20, elevation: 8, marginBottom: 12 },
-  circleEmoji:{ fontSize: 36 },
-  lightLabel: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  statsRow:   { flexDirection: 'row', gap: 12 },
-  statCard:   { flex: 1, alignItems: 'center', paddingVertical: 12 },
-  statValue:  { color: '#fff', fontSize: 22, fontWeight: '700' },
-  statLabel:  { color: '#94a3b8', fontSize: 12, marginTop: 4 },
-  eventsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  eventCell:  { width: '45%', flexGrow: 1, flexDirection: 'row', justifyContent: 'space-between', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
-  eventLabel: { color: '#cbd5e1', fontSize: 12 },
-  eventCount: { fontSize: 13, fontWeight: '700' },
-  speedText:  { color: COLORS.textMuted, textAlign: 'center', fontSize: 12, marginTop: 8 },
-  endBtn:     { marginTop: 12, borderColor: '#ef4444' }
-})
+  container: { flex: 1 },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+    backgroundColor: COLORS.card,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border
+  },
+  statBox: { alignItems: 'center', flex: 1 },
+  statLabel: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 5 },
+  statValue: { color: '#fff', fontSize: 32, fontWeight: '900' },
+  sectionTitle: { ...TYPOGRAPHY.label, color: COLORS.textMuted, marginBottom: 15, marginStart: 5 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', marginBottom: 25 },
+  eventCard: { width: '48%', alignItems: 'center', paddingVertical: 20 },
+  eventEmoji: { fontSize: 24, marginBottom: 8 },
+  eventValue: { fontSize: 28, fontWeight: '900', marginBottom: 4 },
+  eventLabel: { ...TYPOGRAPHY.caption, fontSize: 12 },
+  inlineEndBtn: { borderRadius: 20, height: 65, marginBottom: 15 },
+  debugContainer: {
+    marginBottom: 20,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: COLORS.warning,
+    borderRadius: 16,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(255, 153, 0, 0.05)',
+  },
+  debugTitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.warning,
+    marginBottom: 12,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  },
+  debugRow: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center'
+  },
+  debugBtn: {
+    flex: 1,
+    maxWidth: 140
+  }
+});
 
-export default ActiveTripMonitor
+export default ActiveTripMonitor;

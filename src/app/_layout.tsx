@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
-import { COLORS } from '@/theme';
+import { COLORS } from '@/constants/theme';
 
 // RTL Support
 if (!I18nManager.isRTL) {

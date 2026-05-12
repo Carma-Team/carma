@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp } from '@/context/AppContext'
-import { Card } from '@/components/ui/Card'
-import { LeaderboardRow } from '@/components/social/LeaderboardRow'
+import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
+import { LeaderboardList } from '@/components/social/LeaderboardList'
 import { useTranslation } from '@/hooks/useTranslation'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme'
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import type { LeaderboardEntry, LeaderboardType } from '@/navigation/types'
 
 export default function LeaderboardScreen() {
@@ -21,7 +21,11 @@ export default function LeaderboardScreen() {
   useEffect(() => {
     setLoading(true)
     leaderboardApi.get(type)
-      .then(data => { setEntries(data.entries); setCurrentUserId(data.currentUserId) })
+      .then(data => {
+        setEntries(data.entries)
+        setCurrentUserId(data.currentUserId)
+      })
+      .catch(err => console.error('Leaderboard error:', err))
       .finally(() => setLoading(false))
   }, [type])
 
@@ -36,58 +40,40 @@ export default function LeaderboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
         <Text style={styles.heading}>{t('leaderboard.title')}</Text>
 
-        <View style={styles.tabs}>
-          {tabs.map(tab => (
-            <TouchableOpacity
-              key={tab.key}
-              onPress={() => setType(tab.key)}
-              style={[COMMON_STYLES.tab, type === tab.key && COMMON_STYLES.tabActive]}
-            >
-              <Text style={[COMMON_STYLES.tabText, type === tab.key && COMMON_STYLES.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <LeaderboardTabs
+          activeTab={type}
+          onTabChange={setType}
+          tabs={tabs}
+        />
+
+        <View style={{ height: 20 }} />
 
         {type !== 'friends' && (
-          <Text style={styles.filterSubtitle}>
-            {type === 'city'
-              ? `${t('leaderboard.showing_city')}: ${user?.city || 'תל אביב'}`
-              : `${t('leaderboard.showing_national')}: ${user?.country || 'ישראל'}`
-            }
-          </Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={styles.filterSubtitle}>
+              {type === 'city'
+                ? `${t('leaderboard.showing_city')}: ${user?.city || 'תל אביב'}`
+                : `${t('leaderboard.showing_national')}: ${user?.country || 'ישראל'}`
+              }
+            </Text>
+          </View>
         )}
 
-        {loading
-          ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
-          : entries.length === 0
-            ? <Card style={COMMON_STYLES.emptyState}>
-                <Text style={COMMON_STYLES.emptyIcon}>👥</Text>
-                <Text style={COMMON_STYLES.emptyText}>{t('leaderboard.noFriends')}</Text>
-              </Card>
-            : <Card padding="none" style={{ overflow: 'hidden' }}>
-                {entries.map((entry, i) => (
-                  <View key={entry.id}>
-                    {i > 0 && <View style={styles.divider} />}
-                    <LeaderboardRow entry={entry} isCurrentUser={entry.userId === currentUserId} />
-                  </View>
-                ))}
-              </Card>
-        }
+        <LeaderboardList
+          entries={entries}
+          loading={loading}
+          currentUserId={currentUserId}
+        />
       </ScrollView>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  heading:      { ...TYPOGRAPHY.h2, marginBottom: SPACING.md },
-  tabs:         { ...COMMON_STYLES.tabsContainer, marginBottom: SPACING.sm },
+  heading:      { ...TYPOGRAPHY.h2, marginBottom: SPACING.lg },
   filterSubtitle: {
     ...TYPOGRAPHY.caption,
     textAlign: 'center',
-    marginBottom: SPACING.md,
     color: COLORS.textMuted,
   },
-  divider:      { height: 1, backgroundColor: COLORS.border },
 })

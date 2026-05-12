@@ -1,7 +1,7 @@
 import { Redirect } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { View, ActivityIndicator } from 'react-native';
-import { COLORS } from '@/theme';
+import { COLORS } from '@/constants/theme';
 
 /**
  * דף הבית הראשי (/).
