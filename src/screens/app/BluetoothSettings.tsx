@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
-import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/theme';
+import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
 
 export default function BluetoothSettings() {
