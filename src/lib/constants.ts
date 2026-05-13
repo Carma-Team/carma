@@ -43,6 +43,29 @@ export function getLevelProgress(currentPoints: number, currentLevel: number): n
   return Math.min(100, Math.max(0, percent))
 }
 
+export interface UserLevelData {
+  currentLevel: number;
+  config: LevelConfig;
+  progress: number;
+  pointsToNext: number;
+  isMaxLevel: boolean;
+}
+
+export function getUserLevelData(totalPoints: number): UserLevelData {
+  const level = getLevelByPoints(totalPoints);
+  const config = getLevelConfig(level);
+  const progress = getLevelProgress(totalPoints, level);
+  const pointsToNext = getPointsToNextLevel(totalPoints, level);
+
+  return {
+    currentLevel: level,
+    config,
+    progress,
+    pointsToNext,
+    isMaxLevel: config.maxPoints === Infinity
+  };
+}
+
 export const RISK_HOURS = {
   WEEKEND_NIGHT: { days: [4, 5], startHour: 23, endHour: 4, multiplier: 2.0 },
   WEEKDAY_NIGHT: { days: [0, 1, 2, 3, 6], startHour: 23, endHour: 4, multiplier: 1.5 },

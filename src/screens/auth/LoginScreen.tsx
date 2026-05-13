@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/theme';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
 export default function LoginScreen() {
   const router = useRouter();

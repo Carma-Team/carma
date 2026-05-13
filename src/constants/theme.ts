@@ -85,23 +85,27 @@ export const COMMON_STYLES = {
   },
   statCard: {
     flex: 1,
-    minWidth: '30%',
+    minWidth: '45%',
     alignItems: 'center' as const,
-    padding: SPACING.sm,
+    padding: SPACING.md,
+    minHeight: 110,
+    justifyContent: 'center' as const,
   },
   statEmoji: {
-    fontSize: 20,
-    marginBottom: 4,
+    fontSize: 32,
+    marginBottom: 6,
   },
   statValue: {
-    ...TYPOGRAPHY.label,
+    ...TYPOGRAPHY.h3,
+    fontSize: 20,
     color: '#fff',
   },
   statLabel: {
     ...TYPOGRAPHY.caption,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
     textAlign: 'center' as const,
+    opacity: 0.8,
   },
   // סגנון למצבי "אין נתונים"
   emptyState: {

@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/navigation/types'
-import { CarmaDrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
 import { tripsApi } from '@/services/api/trips.api'
-import { getLevelByPoints } from '@/lib/constants'
+import { getUserLevelData } from '@/lib/constants'
 
 export interface TripState {
   isActive: boolean;
@@ -48,12 +48,16 @@ interface AppContextValue {
   registerPhoneTouch: () => void
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
-  sdk: CarmaDrivingSDK
+  sdk: typeof DrivingSDK
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
 
+import { useRouter } from 'expo-router'
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  // ... rest of the state
   const [user, setUserState] = useState<AppUser | null>(null)
   const [lang, setLangState] = useState<Language>('he')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -72,7 +76,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [recentTrips, user?.last_cleared_history]);
 
-  const sdk = useMemo(() => new CarmaDrivingSDK(), []);
+  const sdk = DrivingSDK;
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
 
@@ -149,14 +153,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (user) {
       const newTotalPoints = (user.totalPoints || 0) + earnedPoints;
-      const newLevel = getLevelByPoints(newTotalPoints);
+      const { currentLevel } = getUserLevelData(newTotalPoints);
 
       const updatedUser = {
         ...user,
         points: (user.points || 0) + earnedPoints,
         totalPoints: newTotalPoints,
         totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
-        level: newLevel
+        level: currentLevel
       };
       setUserState(updatedUser);
       await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
@@ -189,6 +193,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // ניווט אוטומטי ברגע שהבלוטוס מזוהה
+    sdk.onAutoStart = () => {
+      router.push('/(app)/active-trip');
+      addToast({
+        title: lang === 'he' ? 'נסיעה התחילה' : 'Trip Started',
+        message: lang === 'he' ? 'זוהה חיבור בלוטוס לרכב' : 'Bluetooth connection detected',
+        type: 'success'
+      });
+    };
+
+    // האזנה להתחלה אוטומטית מה-SDK
+    (sdk as any).onAutoStart = () => {
+      router.push('/(app)/active-trip');
+    };
+
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (tripRef.current.isActive && nextAppState !== 'active') {
         registerPhoneTouch();
@@ -211,7 +230,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (l === 'he' || l === 'en') setLangState(l as Language)
         if (u) {
           const parsedUser = JSON.parse(u);
-          if (!parsedUser.level) parsedUser.level = getLevelByPoints(parsedUser.totalPoints || 0);
+          if (!parsedUser.level) {
+            const { currentLevel } = getUserLevelData(parsedUser.totalPoints || 0);
+            parsedUser.level = currentLevel;
+          }
           setUserState(parsedUser);
           // TODO: Future Sync - Fetch latest trips from API and merge with local state
         }
@@ -267,8 +289,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const simulateBTDisconnect = useCallback(() => sdk.simulateBluetoothDisconnection(), [sdk]);
 
   const debugAddDistance = useCallback((km: number) => {
-    sdk.debugAddDistance(km);
-  }, [sdk]);
+    setTripState(prev => ({
+      ...prev,
+      distanceKm: prev.distanceKm + km
+    }));
+  }, []);
 
   const clearTripHistory = useCallback(async () => {
     try {

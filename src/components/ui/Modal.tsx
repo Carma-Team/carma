@@ -1,6 +1,6 @@
 import React from 'react'
 import { Modal as RNModal, View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
-import { COLORS } from '@/theme'
+import { COLORS } from '@/constants/theme'
 
 interface ModalProps {
   open: boolean

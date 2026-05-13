@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/theme';
+import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();

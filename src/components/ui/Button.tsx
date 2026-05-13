@@ -2,7 +2,7 @@ import React from 'react'
 import {
   TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, TextStyle,
 } from 'react-native'
-import { COLORS } from '@/theme'
+import { COLORS } from '@/constants/theme'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
 type Size    = 'sm' | 'md' | 'lg' | 'xl'

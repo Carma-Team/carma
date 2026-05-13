@@ -57,7 +57,7 @@ const he = {
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
   },
   marketplace: {
-    title: 'חנות הפרסים', subtitle: 'מימש את הנקודות שלך',
+    title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
     myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים', points: 'נקודות',
     redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
     notEnoughPoints: 'אין מספיק נקודות', outOfStock: 'אזל מהמלאי', expires: 'תפוגה',
@@ -65,7 +65,7 @@ const he = {
     voucher: { title: 'השובר שלך', code: 'קוד', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
     bonusDilemma: {
       title: 'בחר את הפרס שלך!', invest: 'השקע בנקודות', investDesc: 'שמור נקודות לפרס גדול יותר',
-      redeem: 'מימש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',
+      redeem: 'ממש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',
     },
   },
   leaderboard: {
@@ -80,7 +80,10 @@ const he = {
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     level: 'רמה', joined: 'הצטרף', phone: 'טלפון', city: 'עיר', age: 'גיל',
-    licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות', totalDistance2: 'מרחק כולל',
+    licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',
+    noNotifications: 'אין הודעות חדשות',
+    notificationsSubtitle: 'כאן יופיעו עדכונים על מבצעים, ציונים והודעות מערכת.',
+    totalDistance2: 'מרחק כולל',
     driveMode: 'מצב נסיעה אוטומטי',
     settings: 'הגדרות',
     driveModeDesc: 'האפליקציה תתחיל ותסיים נסיעה אוטומטית בעת חיבור למכשיר Bluetooth המוגדר.',

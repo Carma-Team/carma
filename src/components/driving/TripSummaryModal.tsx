@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/theme';
+import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { scoreToColor } from '@/lib/scoring';
 import { useTranslation } from '@/hooks/useTranslation';
 
