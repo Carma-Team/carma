@@ -23,10 +23,12 @@ export type UserRole = 'driver' | 'business' | 'admin';
 export interface AppUser {
   id: string
   name: string
-  phone: string
+  phone?: string
   role: UserRole
   businessId?: string // מזהה העסק עבור משתמש מסוג business
   points: number
+  totalPoints?: number
+  totalDistance?: number
   level: number
   license_img_url?: string
   language: 'he' | 'en'
@@ -51,6 +53,21 @@ export interface Trip {
   avg_score: number
   distance: number
   events_array: any[]
+  // camelCase aliases returned by the server (normalized in trips.api.ts)
+  distanceKm?: number
+  startTime?: string
+  endTime?: string
+  avgScore?: number
+  userId?: string
+  events?: any[]
+  // extra display fields
+  score?: number
+  points?: number
+  durationSeconds?: number
+  hardBrakes?: number
+  aggressiveAccels?: number
+  sharpTurns?: number
+  phoneSeconds?: number
 }
 
 /** 5.3.1.3 Reward */
