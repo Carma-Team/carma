@@ -12,7 +12,7 @@ import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setUser, addToast } = useApp();
+  const { setUser } = useApp();
   const { t } = useTranslation();
 
   const [email,    setEmail]    = useState('');
@@ -32,60 +32,29 @@ export default function LoginScreen() {
     try {
       const data = await authApi.login(email, password);
 
-      if (selectedRole === 'driver') {
-        const driverUser = {
+      await AsyncStorage.setItem('carma_token', data.token);
+
+      const role = data.user.role ?? selectedRole;
+
+      if (role === 'admin') {
+        await setUser({ ...data.user, role: 'admin' as const });
+        router.replace('/(admin)');
+      } else if (role === 'business') {
+        await setUser({ ...data.user, role: 'business' as const });
+        router.replace('/(business)');
+      } else {
+        await setUser({
           ...data.user,
           role: 'driver' as const,
-          points: 0,
-          level: 1,
-          totalPoints: 0,
-          totalDistance: 0
-        };
-        await AsyncStorage.setItem('carma_token', data.token);
-        await setUser(driverUser as any);
+          points: data.user.points ?? 0,
+          level: data.user.level ?? 1,
+          totalPoints: data.user.totalPoints ?? 0,
+          totalDistance: data.user.totalDistance ?? 0,
+        });
         router.replace('/(tabs)');
-      }
-      else if (selectedRole === 'business') {
-        const businessUser = {
-          ...data.user,
-          role: 'business' as const,
-          businessId: 'b1',
-          name: 'קפה לנדוור - סניף ראשי'
-        };
-        await AsyncStorage.setItem('carma_token', data.token);
-        await setUser(businessUser as any);
-        router.replace('/(business)');
       }
     } catch (e: any) {
       setError(e.message || t('auth.errors.invalidCredentials'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleAdminLogin() {
-    setLoading(true);
-    setError('');
-    try {
-      const adminToken = 'mock-admin-token';
-      const mockAdmin = {
-        id: 'admin-123',
-        name: 'מנהל מערכת (Mock)',
-        email: 'admin@carma.com',
-        role: 'admin' as const,
-        avatar: 'https://i.pravatar.cc/150?u=admin',
-        level: 99,
-        points: 9999,
-        totalPoints: 9999,
-        totalDistance: 999.9,
-        rank: 'Administrator'
-      };
-
-      await AsyncStorage.setItem('carma_token', adminToken);
-      await setUser(mockAdmin as any);
-      router.replace('/(admin)');
-    } catch (e) {
-      addToast({ title: t('common.error'), message: 'Failed to login as admin', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -118,42 +87,34 @@ export default function LoginScreen() {
 
         {error ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
 
-        {selectedRole !== 'admin' ? (
-          <>
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('auth.email')}</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder={t('auth.emailPlaceholder')}
-                placeholderTextColor={COLORS.textMuted}
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
-            </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.email')}</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            placeholder={t('auth.emailPlaceholder')}
+            placeholderTextColor={COLORS.textMuted}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+        </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('auth.password')}</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder={t('auth.passwordPlaceholder')}
-                placeholderTextColor={COLORS.textMuted}
-                secureTextEntry
-              />
-            </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>{t('auth.password')}</Text>
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            placeholder={t('auth.passwordPlaceholder')}
+            placeholderTextColor={COLORS.textMuted}
+            secureTextEntry
+          />
+        </View>
 
-            <Button fullWidth size="lg" onPress={handleLogin} loading={loading} style={styles.btn}>
-              {selectedRole === 'business' ? 'כניסת בעל עסק' : t('auth.loginBtn')}
-            </Button>
-          </>
-        ) : (
-          <Button fullWidth size="lg" onPress={handleAdminLogin} loading={loading} variant="secondary" style={styles.btn}>
-            כניסה כמנהל מערכת (Mock)
-          </Button>
-        )}
+        <Button fullWidth size="lg" onPress={handleLogin} loading={loading} style={styles.btn}>
+          {selectedRole === 'business' ? 'כניסת בעל עסק' : t('auth.loginBtn')}
+        </Button>
 
         <TouchableOpacity onPress={() => router.push('/register')} style={styles.link}>
           <Text style={styles.linkText}>
