@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, ViewStyle } from 'react-native';
 import { COMMON_STYLES } from '@/constants/theme';
-import type { LeaderboardType } from '@/navigation/types';
+import type { LeaderboardType } from '@/types';
 
 interface LeaderboardTabsProps {
   activeTab: LeaderboardType;

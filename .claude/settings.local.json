@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr create --base B1 --head claude/connect-mobile-backend-IRvxr --title 'Connect mobile app to backend server' --body ' *)"
+    ]
+  }
+}

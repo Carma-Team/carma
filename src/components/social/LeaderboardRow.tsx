@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native'
 import { levelToEmoji } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme'
-import type { LeaderboardEntry } from '@/navigation/types'
+import type { LeaderboardEntry } from '@/types'
 
 interface LeaderboardRowProps {
   entry: LeaderboardEntry

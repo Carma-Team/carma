@@ -1,8 +1,13 @@
 /**
- * BluetoothManager (Pure Mock Mode)
+ * @fileoverview ניהול חיבור Bluetooth לרכב — BluetoothManager
+ * @module lib/driving-sdk/BluetoothManager
  *
- * This file is strictly for development and web-simulation.
- * It contains NO native dependencies to prevent crashes in browser/Expo Go.
+ * @description
+ * מימוש Mock בלבד (ללא תלויות native) לצורך פיתוח ו-Expo Go.
+ * מחזיר רשימת מכשירים מדומה ומאפשר סימולציה של חיבור/ניתוק.
+ * כשהאפליקציה תועבר לייצור — יוחלף ב-BleManager אמיתי (react-native-ble-plx).
+ *
+ * @remarks ללא קריאות שרת — כל הנתונים מקומיים.
  */
 
 export interface BluetoothDevice {

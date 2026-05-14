@@ -5,9 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
-import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/theme';
+import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
 import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
 
+/**
+ * מסך בחירת מכשיר Bluetooth לזיהוי אוטומטי של נסיעות.
+ * כל הפעולות הן מקומיות בלבד (SDK + AsyncStorage) — אין קריאות לשרת.
+ */
 export default function BluetoothSettings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -21,13 +25,15 @@ export default function BluetoothSettings() {
     loadSettings();
   }, []);
 
+  /**
+   * טוען את רשימת המכשירים הזמינים מה-SDK ואת המכשיר הנבחר מ-AsyncStorage.
+   * [שרת] אין — הכל מקומי. SDK.getAvailableDevices() מחזיר מכשירים מדומים במצב Mock.
+   */
   const loadSettings = async () => {
     try {
-      // טעינת רשימת מכשירים מה-SDK
       const available = await sdk.getAvailableDevices();
       setDevices(available);
 
-      // טעינת המכשיר הנבחר מהזיכרון
       const savedId = await AsyncStorage.getItem('carma_bt_device_id');
       setSelectedId(savedId);
     } catch (error) {
@@ -37,6 +43,12 @@ export default function BluetoothSettings() {
     }
   };
 
+  /**
+   * בוחרת / מבטלת בחירת מכשיר Bluetooth.
+   * לחיצה על מכשיר נבחר — מבטלת את הבחירה.
+   * לחיצה על מכשיר חדש — שומרת ב-AsyncStorage ומעדכנת את ה-SDK.
+   * [שרת] אין — הכל מקומי (AsyncStorage + SDK).
+   */
   const handleSelect = async (device: BluetoothDevice) => {
     try {
       const newId = selectedId === device.id ? null : device.id;
@@ -55,6 +67,7 @@ export default function BluetoothSettings() {
     }
   };
 
+  /** מרנדרת שורת מכשיר אחד ברשימה, עם סימון אם הוא הנבחר. */
   const renderItem = ({ item }: { item: BluetoothDevice }) => (
     <TouchableOpacity
       style={[styles.deviceItem, selectedId === item.id && styles.selectedItem]}

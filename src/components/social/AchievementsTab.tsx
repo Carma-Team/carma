@@ -4,7 +4,7 @@ import { StatsGrid } from '@/components/ui/StatsGrid';
 import { COLORS } from '@/constants/theme';
 import { formatDistance, formatDuration } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { DrivingStats } from '@/navigation/types';
+import type { DrivingStats } from '@/types';
 
 interface AchievementsTabProps {
   stats: DrivingStats | null;

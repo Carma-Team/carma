@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { COMMON_STYLES, TYPOGRAPHY, COLORS } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { Voucher } from '@/navigation/types';
+import type { Voucher } from '@/types';
 
 interface VoucherListProps {
   vouchers: Voucher[];

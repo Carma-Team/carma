@@ -1,3 +1,18 @@
+/**
+ * @fileoverview ה-SDK המרכזי לניהול נסיעות — CarmaDrivingSDK
+ * @module lib/driving-sdk
+ *
+ * @description
+ * מחלקה יחידנית (Singleton) שמנהלת את מחזור חיי הנסיעה:
+ * - התחלה/סיום ידני ואוטומטי (דרך Bluetooth)
+ * - טיימר רץ שמעדכן את TripData כל שנייה
+ * - האזנה לאירועי חיישנים (בלימה/האצה/פנייה) דרך SensorManager
+ * - האזנה לשימוש בטלפון דרך PhoneUsageManager
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart
+ *
+ * @remarks ללא קריאות שרת — כל הלוגיקה מקומית. השמירה לשרת מתבצעת ב-AppContext אחרי stopTrip().
+ * @see AppContext.processEndTrip — שם מתבצע tripsApi.save() לאחר סיום נסיעה
+ */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
@@ -17,6 +32,7 @@ export class CarmaDrivingSDK {
   public onTripEnd?: (data: TripData) => void;
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
+  public onAutoStart?: () => void;
 
   constructor(config: SDKConfig = {}) {
     this.config = {
@@ -51,6 +67,7 @@ export class CarmaDrivingSDK {
     if (this.config.autoStartOnBluetooth && !this.isTripActive) {
       console.log('[SDK] Auto-starting trip via Bluetooth');
       await this.startTrip();
+      if (this.onAutoStart) this.onAutoStart();
     }
   }
 
@@ -182,3 +199,6 @@ export class CarmaDrivingSDK {
 
 
 export * from './types';
+
+/** Singleton instance used by AppContext */
+export const DrivingSDK = new CarmaDrivingSDK();

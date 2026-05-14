@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/Progress';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LevelConfig } from '@/navigation/types';
+import type { LevelConfig } from '@/types';
 
 interface RoadmapHeroProps {
   userPoints: number;

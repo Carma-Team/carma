@@ -2,14 +2,18 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/theme';
+import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 
+/**
+ * מסך הגדרות.
+ * כולל: מצב נהיגה + בחירת Bluetooth, שפה, מחיקת היסטוריה, התנתקות.
+ * כל הפעולות כאן הן מקומיות (AsyncStorage / AppContext) — אין קריאות לשרת.
+ */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -18,6 +22,11 @@ export default function SettingsScreen() {
 
   if (!user) return null;
 
+  /**
+   * מציגה dialog אישור ואז מתנתקת.
+   * setUser(null) מנקה את AppContext, AsyncStorage (token + user) ומחזירה למסך הכניסה.
+   * [שרת] אין קריאה לשרת — ההתנתקות היא מקומית בלבד.
+   */
   async function handleLogout() {
     Alert.alert(
       t('auth.logout'),
@@ -35,6 +44,12 @@ export default function SettingsScreen() {
     );
   }
 
+  /**
+   * מציגה dialog אישור ואז מסתירה את היסטוריית הנסיעות.
+   * המחיקה היא לוגית בלבד — מעדכנת lastClearedHistory בתאריך עכשיו,
+   * והנסיעות הישנות יסוננו ב-AppContext (filteredTrips).
+   * [שרת] אין קריאה לשרת — הנסיעות לא נמחקות מבסיס הנתונים.
+   */
   const handleClearHistory = () => {
     Alert.alert(
       t('profile.dataManagement'),
@@ -80,7 +95,7 @@ export default function SettingsScreen() {
                 </Text>
                 <Button
                   size="sm"
-                  variant={user.driveModeEnabled ? 'danger' : 'success'}
+                  variant={user.driveModeEnabled ? 'primary' : 'outline'}
                   onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
@@ -178,5 +193,5 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   actionTextDanger: { color: COLORS.danger, fontWeight: '600' },
   logoutBtn: { marginTop: 20 },
-  versionText: { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 30, color: COLORS.textDim }
+  versionText: { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 30, color: COLORS.textMuted }
 });

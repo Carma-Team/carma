@@ -1,208 +1,175 @@
-// ─── User ────────────────────────────────────────────────────────────────────
-export interface User {
-  id: string
-  name: string
-  email: string
-  phone?: string | null
-  city?: string | null
-  age?: number | null
-  licenseYear?: number | null
-  totalPoints: number
-  totalDistance: number
-  level: number
-  avatarUrl?: string | null
-  createdAt: string
-  // הגדרות מצב רכב
-  driveModeEnabled?: boolean
-  bluetoothDeviceId?: string | null
-  bluetoothDeviceName?: string | null
+// ─── Enums ────────────────────────────────────────────────────────────────────
+// Server serializes enums as lowercase strings (see UserOut field serializers)
+export type UserRole = 'driver' | 'business' | 'admin';
+export type Language = 'he' | 'en';
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+// Matches server's UserOut camelCase wire format
+export interface AppUser {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  role: UserRole;
+  language: Language;
+  avatarUrl?: string;
+  age?: number;
+  city?: string;
+  licenseYear?: number;
+  points: number;
+  totalPoints: number;
+  totalDistance: number;
+  level: number;
+  driveModeEnabled: boolean;
+  bluetoothDeviceId?: string;
+  bluetoothDeviceName?: string;
+  businessId?: string;
+  createdAt?: string;
+  // App-only fields (not from server)
+  country?: string;
+  rank?: string;
+  unreadNotifications?: number;
+  lastClearedHistory?: string;
 }
 
-// ─── Trip ────────────────────────────────────────────────────────────────────
-export type TripStatus = 'active' | 'completed'
-
-export type TripEventType =
-  | 'HARD_BRAKE'
-  | 'AGGRESSIVE_ACCEL'
-  | 'SHARP_TURN'
-  | 'PHONE_TOUCH'
-
-export interface TripEvent {
-  id?: string
-  tripId?: string
-  eventType: TripEventType
-  timestamp: string
-  severity: number
-}
-
+// ─── Trip ─────────────────────────────────────────────────────────────────────
+// Matches server's TripOut camelCase wire format
 export interface Trip {
-  id: string
-  userId: string
-  startTime: string
-  endTime?: string | null
-  distanceKm: number
-  durationSeconds: number
-  score: number
-  points: number
-  hardBrakes: number
-  aggressiveAccels: number
-  sharpTurns: number
-  phoneSeconds: number
-  riskMultiplier: number
-  startLocation?: string | null
-  endLocation?: string | null
-  aiInsight?: string | null
-  status: TripStatus
-  events?: TripEvent[]
+  id: string;
+  userId: string;
+  startTime: string;
+  endTime?: string;
+  distanceKm: number;
+  durationSeconds: number;
+  avgScore: number;
+  points: number;
+  hardBrakes: number;
+  aggressiveAccels: number;
+  sharpTurns: number;
+  phoneSeconds: number;
+  riskMultiplier: number;
+  startLocation?: string;
+  endLocation?: string;
+  aiInsight?: string;
+  status: string;
+  // Local-only aliases (used by TripCard/TripDetailScreen for locally-created trips)
+  score?: number;
+  eventsArray?: any[];
 }
 
-// ─── Reward / Voucher ────────────────────────────────────────────────────────
-export type RewardCategory = 'fuel' | 'food' | 'eco' | 'entertainment' | 'shopping'
-
+// ─── Reward ───────────────────────────────────────────────────────────────────
+// Matches server's RewardOut camelCase wire format
 export interface Reward {
-  id: string
-  title: string
-  titleEn?: string | null
-  description: string
-  descriptionEn?: string | null
-  business: string
-  category: RewardCategory
-  pointsCost: number
-  imageEmoji: string
-  isActive: boolean
-  stock: number
-  expiresAt?: string | null
+  id: string;
+  businessId: string;
+  business: string;        // business name string
+  titleHe: string;
+  titleEn?: string;
+  descriptionHe: string;
+  descriptionEn?: string;
+  category: string;
+  costPoints: number;
+  imageEmoji: string;
+  isActive: boolean;
+  stock: number;
+  expiresAt?: string;
 }
 
+// ─── Voucher ──────────────────────────────────────────────────────────────────
+// Matches server's VoucherOut camelCase wire format
 export interface Voucher {
-  id: string
-  userId: string
-  rewardId: string
-  code: string
-  qrData: string
-  redeemedAt?: string | null
-  expiresAt: string
-  isUsed: boolean
-  createdAt: string
-  reward?: Reward
+  id: string;
+  userId: string;
+  rewardId: string;
+  code: string;
+  qrData: string;
+  status: 'pending' | 'used' | 'expired' | 'cancelled';
+  isUsed: boolean;
+  expiresAt: string;
+  redeemedAt?: string;
+  createdAt: string;
+  reward: Reward;
 }
 
-// ─── Achievement ─────────────────────────────────────────────────────────────
-export interface Achievement {
-  id: string
-  key: string
-  title: string
-  titleEn?: string | null
-  description: string
-  descriptionEn?: string | null
-  emoji: string
-  pointsBonus: number
-  condition: string
-  earnedAt?: string
-  earned?: boolean
-}
-
-// ─── Notification ────────────────────────────────────────────────────────────
-export type NotificationType = 'trip_complete' | 'achievement' | 'reward' | 'system'
-
-export interface Notification {
-  id: string
-  userId: string
-  type: NotificationType
-  titleHe: string
-  titleEn?: string | null
-  bodyHe: string
-  bodyEn?: string | null
-  isRead: boolean
-  data?: string | null
-  createdAt: string
-}
-
-// ─── Leaderboard ─────────────────────────────────────────────────────────────
-export type LeaderboardType = 'friends' | 'city' | 'national'
-export type LeaderboardPeriod = 'weekly' | 'monthly' | 'alltime'
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+// Matches server's LeaderboardOut camelCase wire format
+export type LeaderboardType = 'friends' | 'city' | 'national';
 
 export interface LeaderboardEntry {
-  id: string
-  userId: string
-  type: LeaderboardType
-  rank: number
-  score: number
-  period: LeaderboardPeriod
-  user?: {
-    id: string
-    name: string
-    city?: string | null
-    level: number
-    avatarUrl?: string | null
-  }
+  id: string;
+  userId: string;
+  rank: number;
+  score: number;
+  user: {
+    id: string;
+    name?: string;
+    city?: string;
+    level: number;
+    avatarUrl?: string;
+  };
 }
 
-// ─── Stats ───────────────────────────────────────────────────────────────────
+// ─── Stats ────────────────────────────────────────────────────────────────────
+// Matches server's StatsOut camelCase wire format
 export interface DrivingStats {
-  totalTrips: number
-  totalDistance: number
-  totalPoints: number
-  averageScore: number
-  totalDurationSeconds: number
-  safeTripsCount: number
-  recentScores: { date: string; score: number }[]
+  totalTrips: number;
+  totalDistance: number;
+  totalPoints: number;
+  averageScore: number;
+  safeTripsCount: number;
+  totalDurationSeconds: number;
+  recentScores: { date: string; score: number }[];
   eventCounts: {
-    hardBrakes: number
-    aggressiveAccels: number
-    sharpTurns: number
-    phoneSeconds: number
-  }
+    hardBrakes: number;
+    aggressiveAccels: number;
+    sharpTurns: number;
+    phoneSeconds: number;
+  };
 }
 
-// ─── Level ───────────────────────────────────────────────────────────────────
-export interface LevelConfig {
-  level: number
-  name: string
-  nameEn: string
-  minPoints: number
-  maxPoints: number
-  color: string
-  icon: string
-  perks: string[]
+// ─── Notifications ────────────────────────────────────────────────────────────
+export interface Notification {
+  id: string;
+  title: string;
+  body: string;
+  type: 'info' | 'reward' | 'trip';
+  timestamp: string;
 }
 
-// ─── App context ─────────────────────────────────────────────────────────────
-export type Language = 'he' | 'en'
-
-export interface AppUser extends User {
-  unreadNotifications?: number
-}
-
-export interface ToastMessage {
-  id: string
-  type: 'success' | 'error' | 'info' | 'warning'
-  message: string
-  duration?: number
-}
-
-// ─── API ─────────────────────────────────────────────────────────────────────
-export interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
-}
-
-// ─── Scoring ─────────────────────────────────────────────────────────────────
-export interface ScoringInput {
-  hardBrakes: number
-  aggressiveAccels: number
-  sharpTurns: number
-  phoneSeconds: number
-  durationSeconds: number
-  distanceKm: number
-  startTime: Date
-}
-
+// ─── Scoring (local SDK) ──────────────────────────────────────────────────────
 export interface ScoringResult {
-  score: number
-  points: number
-  riskMultiplier: number
-  penalties: number
-  distanceFactor: number
+  score: number;
+  pointsEarned: number;
+  rankUp?: boolean;
+}
+
+export interface ScoringInput {
+  hardBrakes: number;
+  aggressiveAccels: number;
+  sharpTurns: number;
+  phoneSeconds: number;
+  durationSeconds: number;
+  distanceKm: number;
+  startTime: Date;
+}
+
+// ─── Level ────────────────────────────────────────────────────────────────────
+export interface LevelConfig {
+  level: number;
+  name: string;
+  nameEn: string;
+  minPoints: number;
+  maxPoints: number;
+  color: string;
+  icon: string;
+  perks: string[];
+}
+
+// ─── UI ───────────────────────────────────────────────────────────────────────
+export interface ToastMessage {
+  id: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  title?: string;
+  message: string;
+  duration?: number;
 }

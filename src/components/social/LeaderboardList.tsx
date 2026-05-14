@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/Card';
 import { LeaderboardRow } from '@/components/social/LeaderboardRow';
 import { COLORS, COMMON_STYLES, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LeaderboardEntry } from '@/navigation/types';
+import type { LeaderboardEntry } from '@/types';
 
 interface LeaderboardListProps {
   entries: LeaderboardEntry[];

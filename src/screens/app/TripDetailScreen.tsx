@@ -2,19 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Card } from '@/components/ui/Card';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { scoreToGrade } from '@/lib/scoring';
-import { formatDate, formatDistance, formatDuration } from '@/lib/utils';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { formatDistance, formatDuration } from '@/lib/utils';
+import { COLORS, COMMON_STYLES } from '@/constants/theme';
 import { TripScoreHero } from '@/components/driving/TripScoreHero';
 import { TripEventsList } from '@/components/driving/TripEventsList';
 import { StatsGrid } from '@/components/ui/StatsGrid';
-
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
 import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
 
+/**
+ * מסך פירוט נסיעה בודדת.
+ * מקבל tripId כ-param בניתוב ומחפש את הנסיעה ברשימת recentTrips שב-AppContext.
+ * אין קריאה לשרת — הנתונים כבר נטענו בעת הכניסה לאפליקציה.
+ */
 export default function TripDetailScreen() {
   const { tripId } = useLocalSearchParams<{ tripId: string }>();
   const router = useRouter();
@@ -25,8 +27,14 @@ export default function TripDetailScreen() {
   const [trip, setTrip] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  /**
+   * מחפש את הנסיעה לפי tripId בתוך recentTrips (state מקומי, ללא שרת).
+   * recentTrips נטענות בעת ההתחברות מ-tripsApi.list() ומתעדכנות עם כל נסיעה חדשה.
+   *
+   * [שרת] אין קריאה לשרת בשלב זה. אם הנסיעה לא נמצאת ב-recentTrips
+   * (למשל נסיעה ישנה יותר מ-10 האחרונות) — תוצג הודעת שגיאה.
+   */
   useEffect(() => {
-    // חיפוש הנסיעה ברשימת הנסיעות האחרונות
     const foundTrip = recentTrips.find(t => t.id === tripId);
     if (foundTrip) {
       setTrip(foundTrip);
@@ -53,14 +61,13 @@ export default function TripDetailScreen() {
     );
   }
 
-  const score = trip.score ?? trip.avg_score ?? 0;
+  const score = trip.avgScore ?? trip.score ?? 0;
 
-  // מיפוי אירועים גמיש - תומך במבנה ה-SDK ובמבנה ה-DB העתידי
   const events = [
-    { label: t('trip.hardBrakes'), emoji: '🛑', value: trip.hardBrakes ?? trip.eventCounts?.HARD_BRAKE ?? 0, bad: (trip.hardBrakes || trip.eventCounts?.HARD_BRAKE) > 0 },
-    { label: t('trip.aggressiveAccels'), emoji: '🚀', value: trip.aggressiveAccels ?? trip.eventCounts?.AGGRESSIVE_ACCEL ?? 0, bad: (trip.aggressiveAccels || trip.eventCounts?.AGGRESSIVE_ACCEL) > 0 },
-    { label: t('trip.sharpTurns'), emoji: '↩️', value: trip.sharpTurns ?? trip.eventCounts?.SHARP_TURN ?? 0, bad: (trip.sharpTurns || trip.eventCounts?.SHARP_TURN) > 0 },
-    { label: t('trip.phoneTouches'), emoji: '📱', value: trip.phoneSeconds ?? trip.phoneSeconds ?? 0, bad: (trip.phoneSeconds || trip.phoneSeconds) > 0 },
+    { label: t('trip.hardBrakes'),      emoji: '🛑', value: trip.hardBrakes ?? 0,      bad: (trip.hardBrakes ?? 0) > 0 },
+    { label: t('trip.aggressiveAccels'),emoji: '🚀', value: trip.aggressiveAccels ?? 0, bad: (trip.aggressiveAccels ?? 0) > 0 },
+    { label: t('trip.sharpTurns'),      emoji: '↩️', value: trip.sharpTurns ?? 0,       bad: (trip.sharpTurns ?? 0) > 0 },
+    { label: t('trip.phoneTouches'),    emoji: '📱', value: trip.phoneSeconds ?? 0,      bad: (trip.phoneSeconds ?? 0) > 0 },
   ];
 
   return (
@@ -72,14 +79,14 @@ export default function TripDetailScreen() {
         {/* Score hero */}
         <TripScoreHero
           score={score}
-          date={trip.date || trip.startTime || trip.start_time}
+          date={trip.startTime}
           lang={lang}
         />
 
         {/* Stats Grid */}
         <StatsGrid items={[
-          { emoji: '⏱️', label: t('trip.duration'), value: formatDuration(trip.duration || trip.durationSeconds || 0, lang) },
-          { emoji: '📍', label: t('trip.distance'), value: formatDistance(trip.distance || trip.distanceKm || 0, lang) },
+          { emoji: '⏱️', label: t('trip.duration'), value: formatDuration(trip.durationSeconds ?? 0, lang) },
+          { emoji: '📍', label: t('trip.distance'), value: formatDistance(trip.distanceKm ?? 0, lang) },
           { emoji: '⭐', label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
         ]} />
 

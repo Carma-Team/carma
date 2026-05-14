@@ -5,23 +5,31 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { ActiveTripMonitor } from '@/components/driving/ActiveTripMonitor';
-
 import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
 
 /**
  * מסך נסיעה פעילה.
  * מוצג אוטומטית על ידי ה-Dashboard כאשר tripState.isActive הוא true.
+ * אינו מסך עצמאי בניתוב — הוא מוחלף ע"י DashboardScreen כשהנסיעה פעילה.
  */
 export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
   const { tripState, endTrip, user, debugAddDistance } = useApp();
   const { t } = useTranslation();
 
-  // הצגת כלי ניהול אם המשתמש אדמין או שהשם שלו מכיל "מנהל" (לצורך הדמו)
-  const showDebug = user?.role === 'admin' || user?.name?.includes('מנהל');
+  // כפתור debug להוספת מרחק מופיע רק למשתמש admin
+  const showDebug = user?.role === 'admin';
 
+  /**
+   * מציגה dialog אישור לפני סיום הנסיעה.
+   * עם אישור: קוראת ל-endTrip() מ-AppContext.
+   *
+   * [שרת] endTrip() → sdk.stopTrip() → processEndTrip() → tripsApi.save()
+   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר mock trip
+   *   - USE_REAL_SERVER=true  → POST /api/trips לשרת האמיתי של נווה
+   * לאחר השמירה: הנסיעה מופיעה ברשימת recentTrips ומוצג modal סיכום.
+   */
   const handleEndTrip = async () => {
-    // הצגת שאלת אישור לפני סיום הנסיעה
     Alert.alert(
       t('trip.endTripConfirm'),
       t('trip.endTripMessage'),
@@ -34,7 +42,6 @@ export default function ActiveTripScreen() {
           text: t('trip.endBtn'),
           style: 'destructive',
           onPress: async () => {
-            // קריאה לסיום נסיעה - ה-Dashboard יטפל בהצגת הסיכום
             await endTrip();
           }
         }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { TripList } from '@/components/driving/TripList';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { Trip } from '@/navigation/types';
+import type { Trip } from '@/types';
 
 interface TripHistoryTabProps {
   trips: Trip[];

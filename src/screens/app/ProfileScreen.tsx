@@ -12,8 +12,13 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { tripsApi } from '@/services/api/trips.api'
 import { userApi } from '@/services/api/user.api'
 import { COMMON_STYLES } from '@/constants/theme'
-import type { DrivingStats, Trip } from '@/navigation/types'
+import type { DrivingStats, Trip } from '@/types'
 
+/**
+ * מסך פרופיל המשתמש.
+ * כולל 4 טאבים: הישגים, גרף ציונים, היסטוריית נסיעות, התראות.
+ * כל טאב נטען בפעם הראשונה שנכנסים אליו (lazy loading).
+ */
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets()
   const { user } = useApp()
@@ -23,6 +28,17 @@ export default function ProfileScreen() {
   const [trips,   setTrips]   = useState<Trip[]>([])
   const [loading, setLoading] = useState(false)
 
+  /**
+   * טוען נתונים לפי הטאב הפעיל — רק בפעם הראשונה (לא טוען שוב אם כבר יש נתונים).
+   *
+   * [שרת] userApi.stats() → GET /api/user/stats — עבור טאב הישגים וגרף:
+   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר MOCK_STATS / MOCK_DRIVER_STATS
+   *   - USE_REAL_SERVER=true  → GET /api/user/stats לשרת האמיתי של נווה
+   *
+   * [שרת] tripsApi.list(20) → GET /api/trips — עבור טאב נסיעות וגרף:
+   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר MOCK_TRIPS
+   *   - USE_REAL_SERVER=true  → GET /api/trips לשרת האמיתי של נווה
+   */
   useEffect(() => {
     if (section === 'stats' && !stats) {
       setLoading(true)

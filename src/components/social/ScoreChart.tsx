@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { formatDate } from '@/lib/utils';
-import type { Trip } from '@/navigation/types';
+import type { Trip } from '@/types';
 
 interface ScoreChartProps {
   trips: Trip[];

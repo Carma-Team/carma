@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { TripCard } from './TripCard';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, COMMON_STYLES, SPACING } from '@/constants/theme';
-import type { Trip } from '@/navigation/types';
+import type { Trip } from '@/types';
 
 interface TripListProps {
   trips: Trip[];
