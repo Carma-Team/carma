@@ -5,7 +5,6 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Button }   from '@/components/ui/Button'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -27,16 +26,29 @@ const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city:
 export default function RegisterScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { setUser, addToast } = useApp()
+  const { loginUser, addToast } = useApp()
   const { t } = useTranslation()
   const [form,    setForm]    = useState<FormState>(INITIAL)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
 
+  /** מעדכן שדה בודד בטופס הרישום מבלי לאפס את שאר השדות. */
   function update(field: keyof FormState, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
+  /**
+   * שולחת בקשת רישום משתמש חדש.
+   * מבצעת ולידציה מקומית לפני שליחה.
+   *
+   * [שרת] authApi.register — אין mock interceptor לרישום.
+   * תמיד שולח POST /api/auth/register:
+   *   - USE_REAL_SERVER=false → לשרת המקומי (carma-local-server, db.json)
+   *   - USE_REAL_SERVER=true  → לשרת האמיתי של נווה
+   *
+   * לאחר הצלחה: קורא ל-loginUser (AppContext) שמטפל בשמירת token וסנכרון נסיעות,
+   * ומציג toast ברוך הבא. הניתוב לטאבים מתבצע אוטומטית ע"י ה-Layout.
+   */
   async function handleRegister() {
     if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
     if (!form.email) { setError(t('auth.errors.emailRequired')); return }
@@ -54,9 +66,9 @@ export default function RegisterScreen() {
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
       })
 
-      await AsyncStorage.setItem('carma_token', data.token)
-      await setUser(data.user)
-      addToast({ type: 'success', message: `ברוך הבא, ${data.user.name.split(' ')[0]}! 🎉` })
+      await loginUser(data)
+      const firstName = data.user?.name?.split(' ')[0] ?? 'משתמש'
+      addToast({ type: 'success', message: `ברוך הבא, ${firstName}! 🎉` })
       // אין צורך ב-router.replace, ה-Layout הראשי יזהה את המשתמש ויעביר לטאבים
     } catch (e: any) {
       setError(e.message || t('auth.errors.emailExists'))

@@ -1,7 +1,7 @@
 import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { getLevelConfig } from '@/lib/constants'
-import type { Language } from '@/navigation/types'
+import type { Language } from '@/types'
 
 interface LevelBadgeProps {
   level: number

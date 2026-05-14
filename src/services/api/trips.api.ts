@@ -1,36 +1,42 @@
+/**
+ * @fileoverview API לניהול נסיעות
+ * @module services/api/trips
+ *
+ * @description
+ * - `list` — שליפת רשימת נסיעות המשתמש
+ * - `save` — שמירת נסיעה שהסתיימה (נקרא מ-AppContext.processEndTrip)
+ * - `getById` — שליפת פרטי נסיעה בודדת
+ *
+ * @server
+ * - GET /api/trips — USE_REAL_SERVER=false → mock; true → שרת נווה
+ * - POST /api/trips — USE_REAL_SERVER=false → mock (מחזיר trip עם ID ייחודי); true → שרת נווה
+ * - GET /api/trips/:id — USE_REAL_SERVER=false → mock; true → שרת נווה
+ */
 import { request } from './client';
-import { Trip } from '@/navigation/types';
+import type { Trip } from '@/types';
 
-// ממיר תגובת שרת (camelCase) לפורמט הפנימי של האפליקציה (snake_case)
-function normalizeTrip(raw: any): Trip {
-  return {
-    ...raw,
-    user_id:      raw.user_id      ?? raw.userId      ?? '',
-    start_time:   raw.start_time   ?? raw.startTime   ?? '',
-    end_time:     raw.end_time     ?? raw.endTime,
-    avg_score:    raw.avg_score    ?? raw.avgScore     ?? 0,
-    distance:     raw.distance     ?? raw.distanceKm   ?? 0,
-    events_array: raw.events_array ?? raw.events       ?? [],
-  };
-}
+// שדות שנשלחים לשרת בשמירת נסיעה — נגזרים מ-Trip כדי שלא יסטו
+export type SaveTripPayload = Partial<Pick<Trip,
+  | 'startTime'
+  | 'endTime'
+  | 'distanceKm'
+  | 'avgScore'
+  | 'durationSeconds'
+  | 'points'
+  | 'hardBrakes'
+  | 'aggressiveAccels'
+  | 'sharpTurns'
+  | 'phoneSeconds'
+>>;
 
 export const tripsApi = {
-  /** 5.3.1.2 Trip - קבלת כל הנסיעות של המשתמש */
-  list: async () => {
-    const res = await request<{ trips: any[] }>('/api/trips');
-    return { trips: res.trips.map(normalizeTrip) };
-  },
+  list: () => request<{ trips: Trip[] }>('/api/trips'),
 
-  /** שמירת נסיעה חדשה בסיום */
-  save: (tripData: Partial<Trip>) =>
+  save: (payload: SaveTripPayload) =>
     request<Trip>('/api/trips', {
       method: 'POST',
-      body: JSON.stringify(tripData),
+      body: JSON.stringify(payload),
     }),
 
-  /** קבלת נתוני נסיעה ספציפית */
-  getById: async (id: string) => {
-    const res = await request<{ trip: any }>(`/api/trips/${id}`);
-    return { trip: normalizeTrip(res.trip) };
-  },
+  getById: (id: string) => request<{ trip: Trip }>(`/api/trips/${id}`),
 };

@@ -1,50 +1,120 @@
-# Welcome to your Expo app 👋
+# CARMA — Mobile App (`carma-app`)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A React Native / Expo app that rewards safe driving. Drivers earn points based on trip scores, redeem rewards from partner businesses, and track progress on a gamified leaderboard.
 
-## Get started
+---
 
-1. Install dependencies
+## Prerequisites
 
-   ```bash
-   npm install
-   ```
+- Node.js 18+
+- Expo CLI (`npm install -g expo-cli`)
+- Expo Go on your physical device
+- `carma-local-server` running on port 3000 (see sibling folder)
 
-2. Start the app
+---
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Running the App
 
 ```bash
-npm run reset-project
+# Terminal 1 — local dev server (must be running first)
+cd ../carma-local-server
+node server.js
+
+# Terminal 2 — Expo
+npm install
+npx expo start --tunnel
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Open Expo Go on your phone and scan the QR code.
+All `/api/*` requests are proxied through Metro to the local server — no manual IP configuration needed.
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## Project Structure
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+carma-app/
+├── src/
+│   ├── app/                    # File-based routing (Expo Router)
+│   │   ├── _layout.tsx         # Root layout — wraps everything in AppProvider
+│   │   ├── login.tsx           # Login screen route
+│   │   ├── register.tsx        # Registration screen route
+│   │   ├── (tabs)/             # Bottom-tab navigator
+│   │   │   ├── _layout.tsx     # Tab bar definition
+│   │   │   ├── (home)/         # Home tab — dashboard, trip detail, settings
+│   │   │   ├── leaderboard.tsx
+│   │   │   ├── marketplace.tsx
+│   │   │   ├── profile.tsx
+│   │   │   └── roadmap.tsx
+│   │   └── (business)/         # Business dashboard (reward management)
+│   │
+│   ├── screens/                # Full-page screen components
+│   │   ├── auth/               # LoginScreen, RegisterScreen
+│   │   └── app/                # DashboardScreen, ActiveTripScreen, MarketplaceScreen, etc.
+│   │
+│   ├── components/             # Reusable UI components, grouped by domain
+│   │   ├── ui/                 # Generic: Button, Card, Modal, Toast, Badge, Progress
+│   │   ├── dashboard/          # DashboardHeader, RecentTripsSection
+│   │   ├── driving/            # ActiveTripHeader, TripCard, TripSummaryModal, etc.
+│   │   ├── gamification/       # DashboardHero, LevelBadge, RoadmapHero, RoadmapLevelItem
+│   │   ├── marketplace/        # RewardCard, VoucherCard, CategoryFilter, RedeemConfirmSheet
+│   │   └── social/             # LeaderboardList, ProfileHeader, ScoreChart, AchievementsTab
+│   │
+│   ├── context/
+│   │   └── AppContext.tsx       # Global state: user, trip, toasts, language, SDK listeners
+│   │
+│   ├── services/api/           # HTTP layer — one file per resource
+│   │   ├── client.ts           # Core fetch wrapper (auth token, error handling)
+│   │   ├── auth.api.ts         # /api/auth/login, /register, /me
+│   │   ├── trips.api.ts        # /api/trips
+│   │   ├── rewards.api.ts      # /api/rewards, /redeem
+│   │   ├── user.api.ts         # /api/users/me, /stats
+│   │   ├── leaderboard.api.ts  # /api/leaderboard
+│   │   ├── levels.api.ts       # /api/levels
+│   │   ├── business.api.ts     # /api/business/rewards (CRUD)
+│   │   └── notifications.api.ts
+│   │
+│   ├── lib/
+│   │   ├── driving-sdk/        # Driving sensor + Bluetooth SDK (see its own README)
+│   │   ├── constants.ts        # Level config — loaded from server at startup via setLevels()
+│   │   ├── scoring.ts          # Trip score calculation helpers
+│   │   └── utils.ts            # General utilities
+│   │
+│   ├── hooks/
+│   │   ├── useTrip.ts          # Trip state helpers
+│   │   ├── useDriveMode.ts     # Drive-mode activation logic
+│   │   └── useTranslation.ts   # i18n hook (returns strings for current language)
+│   │
+│   ├── constants/
+│   │   ├── serverConfig.ts     # Derives Metro server origin at runtime (tunnel-aware)
+│   │   ├── theme.ts            # Colors, spacing, typography
+│   │   └── index.ts            # Re-exports
+│   │
+│   ├── i18n/
+│   │   ├── he.ts               # Hebrew strings
+│   │   └── en.ts               # English strings
+│   │
+│   └── types/
+│       └── index.ts            # Shared TypeScript types (AppUser, Trip, Reward, etc.)
+│
+├── metro.config.js             # Adds /api/* proxy middleware → localhost:3000
+├── app.json                    # Expo app config
+├── tsconfig.json
+└── package.json
+```
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
+## Key Concepts
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### API / Networking
+All HTTP requests go through `src/services/api/client.ts`, which attaches the JWT token from AsyncStorage. In development, `serverConfig.ts` detects the Expo tunnel URL at runtime and sends `/api/*` calls to the Metro server. `metro.config.js` intercepts those calls and proxies them to the local Express server on port 3000.
+
+### Global State
+`AppContext.tsx` manages user session, active trip, toasts, and language. It also initialises the driving SDK listeners and syncs data with the server on startup.
+
+### Routing
+Expo Router uses the file system under `src/app/`. Route files import their corresponding screen from `src/screens/` and pass props down. Layouts (`_layout.tsx`) handle tab bars and auth guards.
+
+### Levels
+Level thresholds and metadata are fetched from `/api/levels` at startup and stored in a mutable module variable via `setLevels()` in `lib/constants.ts`. All level calculations use that runtime value, not hardcoded data.

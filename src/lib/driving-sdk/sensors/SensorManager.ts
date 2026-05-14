@@ -1,3 +1,15 @@
+/**
+ * @fileoverview חיישני מיקום, תאוצה וגירוסקופ לזיהוי אירועי נהיגה — SensorManager
+ * @module lib/driving-sdk/sensors/SensorManager
+ *
+ * @description
+ * מאזין ל-GPS (expo-location), תאוצומטר ו-Gyroscope (expo-sensors).
+ * - GPS: מחשב מרחק ומהירות נוכחית בין דגימות עוקבות (Haversine)
+ * - תאוצומטר: מזהה בלימה חזקה (force > 2.8, y < -0.5) והאצה אגרסיבית
+ * - Gyroscope: מזהה פנייה חדה (|z| > 2.0)
+ *
+ * @remarks ללא קריאות שרת — לוגיקה מקומית בלבד. מפעיל callbacks ל-CarmaDrivingSDK.
+ */
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';

@@ -1,3 +1,16 @@
+/**
+ * @fileoverview Hook לניהול מצב נסיעה אוטומטי מבוסס Bluetooth — useDriveMode
+ * @module hooks/useDriveMode
+ *
+ * @description
+ * כשמצב נהיגה מופעל ויש מכשיר BT מוגדר — בודק כל 5 שניות אם הרכב מחובר.
+ * חיבור → startTrip אוטומטי. ניתוק → endTrip אוטומטי.
+ *
+ * @remarks
+ * כרגע הבדיקה מדומה (isConnectedToCar = false תמיד).
+ * לשדרוג: להחליף ב-BleManager.addListener עם react-native-ble-plx.
+ * ללא קריאות שרת ישירות.
+ */
 import { useEffect, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useTrip } from '@/hooks/useTrip';

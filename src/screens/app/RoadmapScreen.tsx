@@ -8,6 +8,11 @@ import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { RoadmapHero } from '@/components/gamification/RoadmapHero'
 import { RoadmapLevelItem } from '@/components/gamification/RoadmapLevelItem'
 
+/**
+ * מסך מפת הדרך — מציג את כל רמות הגמיפיקציה ואת התקדמות המשתמש.
+ * [שרת] אין קריאות לשרת — כל הנתונים מגיעים מ-AppContext (user.points, user.level)
+ * שנטענו בעת ההתחברות. רשימת הרמות (LEVELS) מוגדרת סטטית ב-constants.
+ */
 export default function RoadmapScreen() {
   const insets = useSafeAreaInsets()
   const { user } = useApp()

@@ -7,14 +7,16 @@
     "icon": "./assets/images/icon.png",
     "scheme": "carmaapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.carma.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CARMA uses your location to track driving safety and distance.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CARMA tracks your trips in the background to reward safe driving.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -31,7 +33,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -50,7 +52,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false

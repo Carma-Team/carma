@@ -14,9 +14,6 @@ import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 
-/**
- * מסך הדאשבורד הראשי - עבר רפקטורינג מלא למבנה מודולרי נקי.
- */
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -75,7 +72,7 @@ export default function DashboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section - מופרד לקומפוננטה */}
-        <DashboardHeader userName={user.name} />
+        <DashboardHeader userName={user.name || ''} />
 
         {/* Level & Points Card */}
         <DashboardHero

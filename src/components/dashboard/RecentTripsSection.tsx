@@ -3,7 +3,7 @@ import { View, Text } from 'react-native';
 import { TripList } from '@/components/driving/TripList';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COMMON_STYLES } from '@/constants/theme';
-import type { Trip } from '@/navigation/types';
+import type { Trip } from '@/types';
 
 interface RecentTripsSectionProps {
   trips: Trip[];

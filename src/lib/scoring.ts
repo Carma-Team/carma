@@ -1,4 +1,17 @@
-import type { ScoringInput, ScoringResult } from '@/navigation/types'
+/**
+ * @fileoverview חישוב ציון וניקוד נסיעה — מנוע הניקוד של CARMA
+ * @module lib/scoring
+ *
+ * @description
+ * פונקציות pure (ללא תופעות לוואי) לחישוב:
+ * - `calculateScore` — ציון 0–100 לפי אירועי נהיגה, מרחק וזמן. מחזיר גם נקודות שנצברו.
+ * - `getRiskMultiplier` — מכפיל סיכון לפי שעה/יום (לילות סוף שבוע = x2)
+ * - `scoreToGrade` — המרה ל-excellent/good/fair/poor
+ * - `scoreToColor` — צבע hex מתאים לציון (ירוק–אדום)
+ *
+ * @remarks ללא קריאות שרת — חישוב מקומי בלבד. הניקוד הסופי נשלח לשרת ב-tripsApi.save().
+ */
+import type { ScoringInput, ScoringResult } from '@/types'
 
 export function getRiskMultiplier(startTime: Date): number {
   const hour = startTime.getHours()

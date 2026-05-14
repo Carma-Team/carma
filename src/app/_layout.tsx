@@ -39,7 +39,7 @@ function RootLayoutNav() {
           router.replace('/(business)');
         }
       } else {
-        // מונע ניווט כפול אם אנחנו כבר בתוך הטאבים
+        // driver ו-admin מנותבים לאותם tabs
         if (!inTabsGroup && !inAuthGroup) {
           router.replace('/(tabs)');
         }

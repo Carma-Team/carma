@@ -1,3 +1,14 @@
+/**
+ * @fileoverview זיהוי שימוש בטלפון בזמן נסיעה — PhoneUsageManager
+ * @module lib/driving-sdk/sensors/PhoneUsageManager
+ *
+ * @description
+ * מאזין לשינויי AppState (active/background/inactive).
+ * כשהאפליקציה עוברת לרקע או מסך נעול בזמן נסיעה — נרשם אירוע PHONE_USAGE.
+ * cooldown של 3 שניות בין אירועים למניעת כפילויות.
+ *
+ * @remarks ללא קריאות שרת — לוגיקה מקומית בלבד.
+ */
 import { AppState, AppStateStatus } from 'react-native';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 

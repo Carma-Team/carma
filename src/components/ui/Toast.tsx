@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { Animated, Text, StyleSheet, View } from 'react-native'
-import type { ToastMessage } from '@/navigation/types'
+import type { ToastMessage } from '@/types'
 
 interface ToastProps {
   toast: ToastMessage

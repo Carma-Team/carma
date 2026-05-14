@@ -1,10 +1,32 @@
+/**
+ * @fileoverview מנהל המצב הגלובלי של האפליקציה — AppContext
+ * @module context/AppContext
+ *
+ * @description
+ * Context מרכזי שמנהל את כל ה-state הגלובלי:
+ * - **משתמש**: טעינה מ-AsyncStorage, refresh מהשרת בהתחברות, logout
+ * - **נסיעה**: `processEndTrip` — חישוב ציון, שמירה לשרת, עדכון נקודות/רמה
+ * - **רשימת נסיעות**: sync עם שרת בהתחברות, שמירה ל-AsyncStorage
+ * - **UI**: toasts, שפה, loading state
+ * - **SDK**: האזנה ל-callbacks של CarmaDrivingSDK
+ *
+ * @server
+ * - `authApi.me()` — GET /api/auth/me — רענון פרטי משתמש בהפעלה
+ * - `tripsApi.list()` — GET /api/trips — sync נסיעות בהתחברות
+ * - `tripsApi.save()` — POST /api/trips — שמירת נסיעה שהסתיימה
+ * - USE_REAL_SERVER=false: כל הקריאות מיורטות ב-client.ts (mock)
+ * - USE_REAL_SERVER=true: קריאות לשרת האמיתי של נווה
+ */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, AppStateStatus, InteractionManager } from 'react-native'
-import type { AppUser, Language, ToastMessage, Trip } from '@/navigation/types'
+import type { AppUser, Language, ToastMessage, Trip } from '@/types'
+import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
 import { tripsApi } from '@/services/api/trips.api'
-import { getUserLevelData } from '@/lib/constants'
+import { authApi } from '@/services/api/auth.api'
+import { levelsApi } from '@/services/api/levels.api'
+import { getUserLevelData, setLevels } from '@/lib/constants'
 
 export interface TripState {
   isActive: boolean;
@@ -30,6 +52,7 @@ const INITIAL_TRIP_STATE: TripState = {
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
+  loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
   toasts: ToastMessage[]
@@ -66,15 +89,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
 
-  // Filtered trips based on last_cleared_history
+  // Filtered trips based on lastClearedHistory
   const filteredTrips = useMemo(() => {
-    if (!user?.last_cleared_history) return recentTrips;
-    const cutoff = new Date(user.last_cleared_history).getTime();
-    return recentTrips.filter(trip => {
-      const tripStartTime = new Date(trip.start_time).getTime();
-      return tripStartTime > cutoff;
-    });
-  }, [recentTrips, user?.last_cleared_history]);
+    if (!user?.lastClearedHistory) return recentTrips;
+    const cutoff = new Date(user.lastClearedHistory).getTime();
+    return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
+  }, [recentTrips, user?.lastClearedHistory]);
 
   const sdk = DrivingSDK;
   const tripRef = useRef(tripState)
@@ -119,35 +139,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const earnedPoints = Math.round(finalState.distanceKm * 15) + 50;
     const score = Math.max(0, 100 - (finalState.eventCounts.HARD_BRAKE * 5) - (finalState.eventCounts.PHONE_TOUCH * 10));
 
+    let savedTrip: Trip | null = null;
     try {
-      // TODO: Future Sync - Ensure trip is sent to server along with identified city/country.
-      await tripsApi.save({
-        distance: finalState.distanceKm,
-        avg_score: score,
-        start_time: new Date(Date.now() - finalState.durationSeconds * 1000).toISOString(),
-        end_time: new Date().toISOString(),
-        events_array: []
+      savedTrip = await tripsApi.save({
+        distanceKm: finalState.distanceKm,
+        avgScore: score,
+        durationSeconds: finalState.durationSeconds,
+        startTime: new Date(Date.now() - finalState.durationSeconds * 1000).toISOString(),
+        endTime: new Date().toISOString(),
+        points: earnedPoints,
+        hardBrakes: finalState.eventCounts.HARD_BRAKE,
+        aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
+        sharpTurns: finalState.eventCounts.SHARP_TURN,
+        phoneSeconds: finalState.eventCounts.PHONE_TOUCH,
       });
     } catch (e) {
       console.error('[AppContext] Failed to sync trip', e);
     }
 
-    const newTrip: Trip = {
-      id: `trip_${Date.now()}`,
-      user_id: user?.id || 'guest',
-      start_time: new Date(Date.now() - finalState.durationSeconds * 1000).toISOString(),
-      end_time: new Date().toISOString(),
-      distance: finalState.distanceKm,
-      avg_score: score,
-      score: score, // fallback for legacy components
-      points: earnedPoints,
-      events_array: [],
-      events: [] // fallback for UI
-    };
+    const newTrip: Trip = savedTrip
+      ? { ...savedTrip, score }
+      : {
+          id: `trip_${Date.now()}`,
+          userId: user?.id || 'guest',
+          startTime: new Date(Date.now() - finalState.durationSeconds * 1000).toISOString(),
+          endTime: new Date().toISOString(),
+          distanceKm: finalState.distanceKm,
+          durationSeconds: finalState.durationSeconds,
+          avgScore: score,
+          score,
+          points: earnedPoints,
+          hardBrakes: finalState.eventCounts.HARD_BRAKE,
+          aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
+          sharpTurns: finalState.eventCounts.SHARP_TURN,
+          phoneSeconds: finalState.eventCounts.PHONE_TOUCH,
+          riskMultiplier: 1.0,
+          status: 'completed',
+        };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
     const existingTrips = existingTripsJson ? JSON.parse(existingTripsJson) : [];
-    const updatedTrips = [newTrip, ...existingTrips].slice(0, 10);
+    const updatedTrips = [newTrip, ...existingTrips.filter((t: Trip) => t.id !== newTrip.id)].slice(0, 10);
     setRecentTrips(updatedTrips);
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
@@ -221,24 +253,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [l, u, t, btId] = await Promise.all([
+        const [l, u, t, btId, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
           AsyncStorage.getItem('carma_trips'),
-          AsyncStorage.getItem('carma_bt_device_id')
+          AsyncStorage.getItem('carma_bt_device_id'),
+          AsyncStorage.getItem('carma_token'),
+          levelsApi.list().catch(() => null),
         ])
+        if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
         if (l === 'he' || l === 'en') setLangState(l as Language)
-        if (u) {
-          const parsedUser = JSON.parse(u);
-          if (!parsedUser.level) {
-            const { currentLevel } = getUserLevelData(parsedUser.totalPoints || 0);
-            parsedUser.level = currentLevel;
-          }
-          setUserState(parsedUser);
-          // TODO: Future Sync - Fetch latest trips from API and merge with local state
-        }
-        if (t) setRecentTrips(JSON.parse(t))
         if (btId) sdk.updateTargetDevice(btId)
+
+        if (u && token) {
+          // יש token שמור — מאמת מול השרת ומרענן נתונים
+          try {
+            const freshUser = await authApi.me();
+            const merged = { ...JSON.parse(u), ...freshUser };
+            if (!merged.level) {
+              const { currentLevel } = getUserLevelData(merged.totalPoints || 0);
+              merged.level = currentLevel;
+            }
+            setUserState(merged);
+            await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
+
+            const serverData = await tripsApi.list();
+            setRecentTrips(serverData.trips);
+            await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+          } catch {
+            // טוקן לא תקף — ניקוי ומעבר ל-login
+            await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
+            setUserState(null);
+            setRecentTrips([]);
+          }
+        } else if (t) {
+          setRecentTrips(JSON.parse(t));
+        }
       } catch (e) {
         console.error('Error loading initial data', e);
       } finally {
@@ -260,23 +310,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return tripRef.current;
   }, [sdk]);
 
+  const loginUser = useCallback(async (data: AuthResponse) => {
+    await AsyncStorage.setItem('carma_token', data.token);
+    await setUser(data.user);
+  }, []);
+
   const setUser = useCallback(async (u: AppUser | null) => {
     if (!u) {
-      // Logout Logic:
-      // If user is admin, we keep carma_trips in storage so they reappear on next login
-      // but we clear the current state and remove the user (including the cutoff date).
       setUserState(null);
       setRecentTrips([]);
       await AsyncStorage.removeItem('carma_user');
       await AsyncStorage.removeItem('carma_token');
     } else {
-      // Login Logic:
       setUserState(u);
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
 
-      // Load trips immediately on login to sync with the new user context
-      const t = await AsyncStorage.getItem('carma_trips');
-      if (t) setRecentTrips(JSON.parse(t));
+      // Sync trips from server after login
+      try {
+        const serverData = await tripsApi.list();
+        setRecentTrips(serverData.trips);
+        await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+      } catch {
+        const cached = await AsyncStorage.getItem('carma_trips');
+        if (cached) setRecentTrips(JSON.parse(cached));
+      }
     }
   }, [user]);
 
@@ -299,7 +356,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const now = new Date().toISOString();
       if (user) {
-        const updatedUser = { ...user, last_cleared_history: now };
+        const updatedUser = { ...user, lastClearedHistory: now };
         setUserState(updatedUser);
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
@@ -316,7 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, setUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
+      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,

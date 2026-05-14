@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Hook לתרגום טקסטים לפי שפת המשתמש — useTranslation
+ * @module hooks/useTranslation
+ *
+ * @description
+ * קורא את שפת המשתמש מ-AppContext ומחזיר פונקציית `t(key)` לגישה למחרוזות.
+ * תומך ב-dot-notation לגישה לשדות מקוננים (לדוגמה: `t('auth.errors.emailRequired')`).
+ * קובצי התרגום: `i18n/he.ts` (עברית), `i18n/en.ts` (אנגלית).
+ *
+ * @remarks ללא קריאות שרת — מקומי בלבד.
+ */
 import { useApp } from '@/context/AppContext'
 import he from '@/i18n/he'
 import en from '@/i18n/en'

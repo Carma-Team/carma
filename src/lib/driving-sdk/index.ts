@@ -1,5 +1,22 @@
-import { BluetoothManager, BluetoothDevice } from './BluetoothManager';
-import { TripData, DrivingEventType } from './types';
+/**
+ * @fileoverview ה-SDK המרכזי לניהול נסיעות — CarmaDrivingSDK
+ * @module lib/driving-sdk
+ *
+ * @description
+ * מחלקה יחידנית (Singleton) שמנהלת את מחזור חיי הנסיעה:
+ * - התחלה/סיום ידני ואוטומטי (דרך Bluetooth)
+ * - טיימר רץ שמעדכן את TripData כל שנייה
+ * - האזנה לאירועי חיישנים (בלימה/האצה/פנייה) דרך SensorManager
+ * - האזנה לשימוש בטלפון דרך PhoneUsageManager
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart
+ *
+ * @remarks ללא קריאות שרת — כל הלוגיקה מקומית. השמירה לשרת מתבצעת ב-AppContext אחרי stopTrip().
+ * @see AppContext.processEndTrip — שם מתבצע tripsApi.save() לאחר סיום נסיעה
+ */
+import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
+import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
+import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { DrivingEventType, DrivingEvent, SDKConfig, TripData } from '@/lib/driving-sdk/types';
 
 /**
  * DrivingSDK - Standalone Hardware Facade.
@@ -9,26 +26,38 @@ class DrivingSDKManager {
   private bluetooth: BluetoothManager;
 
   public onUpdate?: (data: TripData) => void;
-  public onTripEnd?: () => void;
-  public onAutoStart?: () => void; // אירוע לניווט אוטומטי
+  public onAutoStart?: () => void;
 
-  private constructor() {
-    this.bluetooth = new BluetoothManager(
-      () => {
-        console.log('[DrivingSDK] Event: Auto-Start Triggered');
-        this.startTrip();
-        if (this.onAutoStart) this.onAutoStart();
-      },
-      () => {
-        console.log('[DrivingSDK] Event: Auto-Stop Triggered');
-        this.stopTrip();
-      }
+  constructor(config: SDKConfig = {}) {
+    this.config = {
+      autoStartOnBluetooth: true,
+      sensorUpdateInterval: 1000,
+      scoringEnabled: true,
+      ...config
+    };
+
+    this.btManager = new BluetoothManager(
+      () => this.handleBluetoothConnect(),
+      () => this.handleBluetoothDisconnect()
+    );
+
+    this.sensorManager = new SensorManager(
+      (event) => this.handleEvent(event),
+      (update) => this.handleSensorUpdate(update)
+    );
+
+    this.phoneManager = new PhoneUsageManager(
+      (event) => this.handleEvent(event)
     );
   }
 
-  public static getInstance(): DrivingSDKManager {
-    if (!DrivingSDKManager.instance) {
-      DrivingSDKManager.instance = new DrivingSDKManager();
+  // --- Bluetooth Logic ---
+
+  private async handleBluetoothConnect() {
+    if (this.config.autoStartOnBluetooth && !this.isTripActive) {
+      console.log('[SDK] Auto-starting trip via Bluetooth');
+      await this.startTrip();
+      if (this.onAutoStart) this.onAutoStart();
     }
     return DrivingSDKManager.instance;
   }
@@ -78,6 +107,8 @@ class DrivingSDKManager {
   }
 }
 
-export const DrivingSDK = DrivingSDKManager.getInstance();
-export type { BluetoothDevice, TripData };
-export { DrivingEventType };
+
+export * from './types';
+
+/** Singleton instance used by AppContext */
+export const DrivingSDK = new CarmaDrivingSDK();

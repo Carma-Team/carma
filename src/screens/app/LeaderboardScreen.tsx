@@ -7,8 +7,13 @@ import { LeaderboardList } from '@/components/social/LeaderboardList'
 import { useTranslation } from '@/hooks/useTranslation'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
-import type { LeaderboardEntry, LeaderboardType } from '@/navigation/types'
+import type { LeaderboardEntry, LeaderboardType } from '@/types'
 
+/**
+ * מסך טבלת הדירוג.
+ * מציג דירוג נהגים בשלושה מצבים: חברים, עיר, ארצי.
+ * בלחיצה על טאב — נטענת רשימה חדשה מהשרת.
+ */
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets()
   const { t } = useTranslation()
@@ -18,6 +23,13 @@ export default function LeaderboardScreen() {
   const [currentUserId, setCurrentUserId] = useState('')
   const [loading,       setLoading]       = useState(true)
 
+  /**
+   * טוען את רשימת הדירוג מחדש בכל שינוי סוג (חברים / עיר / ארצי).
+   *
+   * [שרת] leaderboardApi.get(type) → GET /api/leaderboard?type=...
+   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר mock leaderboard לפי סוג
+   *   - USE_REAL_SERVER=true  → GET /api/leaderboard לשרת האמיתי של נווה
+   */
   useEffect(() => {
     setLoading(true)
     leaderboardApi.get(type)

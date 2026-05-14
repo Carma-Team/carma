@@ -1,3 +1,16 @@
+/**
+ * @fileoverview פונקציות עזר כלליות לפורמט תצוגה
+ * @module lib/utils
+ *
+ * @description
+ * פונקציות pure לפורמט נתונים לתצוגה בממשק:
+ * - `formatPoints` / `formatDistance` / `formatDuration` / `formatScore` — פורמט מספרים
+ * - `formatDate` / `formatTime` / `formatRelativeTime` — פורמט תאריכים (עברית/אנגלית)
+ * - `scoreToEmoji` / `levelToEmoji` — המרה לאמוג'י
+ * - `truncate` / `clamp` / `sleep` — כלי עזר כלליים
+ *
+ * @remarks ללא קריאות שרת — פונקציות מקומיות בלבד.
+ */
 export function formatPoints(points: number, lang: 'he' | 'en' = 'he'): string {
   const rounded = Math.round(points)
   return lang === 'he' ? `${rounded.toLocaleString('he-IL')} נקודות` : `${rounded.toLocaleString('en-US')} pts`

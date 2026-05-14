@@ -1,9 +1,15 @@
-import { useApp } from '@/context/AppContext';
-
 /**
- * Hook simplified to act as a proxy for the Global Trip Context.
- * All logic now resides in AppContext to ensure consistency across screens.
+ * @fileoverview Hook גישה מהירה לנסיעה — useTrip
+ * @module hooks/useTrip
+ *
+ * @description
+ * Proxy קל ל-AppContext שחושף רק את שדות הנסיעה:
+ * `state` (TripState), `startTrip`, `endTrip`.
+ * כל הלוגיקה האמיתית נמצאת ב-AppContext.processEndTrip.
+ *
+ * @remarks ללא קריאות שרת ישירות — ראה AppContext לשמירת נסיעה.
  */
+import { useApp } from '@/context/AppContext';
 export function useTrip() {
   const { tripState, startTrip, endTrip } = useApp();
 
