@@ -346,8 +346,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const simulateBTDisconnect = useCallback(() => sdk.simulateBluetoothDisconnection(), [sdk]);
 
   const debugAddDistance = useCallback((km: number) => {
-    sdk.debugAddDistance(km);
-  }, [sdk]);
+    setTripState(prev => ({
+      ...prev,
+      distanceKm: prev.distanceKm + km
+    }));
+  }, []);
 
   const clearTripHistory = useCallback(async () => {
     try {
