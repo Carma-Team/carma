@@ -19,7 +19,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { InteractionManager } from 'react-native'
+import { InteractionManager, AppState } from 'react-native'
 import { calculateScore } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
@@ -30,9 +30,12 @@ import { authApi } from '@/services/api/auth.api'
 import { levelsApi } from '@/services/api/levels.api'
 import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import { SyncManager } from '@/services/sync/SyncManager'
+import type { ValidTripPayload } from '@/services/sync/types'
 
 export interface TripState {
   isActive: boolean;
+  sessionId: string;
   startTime: Date | null;
   durationSeconds: number;
   distanceKm: number;
@@ -48,6 +51,7 @@ export interface TripState {
 
 const INITIAL_TRIP_STATE: TripState = {
   isActive: false,
+  sessionId: '',
   startTime: null,
   durationSeconds: 0,
   distanceKm: 0,
@@ -153,33 +157,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const earnedPoints = Math.round(scoringResult.points);
     const tripStartTime = finalState.startTime?.toISOString()
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
+    const endTime = new Date().toISOString();
+
+    const validTripPayload: ValidTripPayload = {
+      localTripId: finalState.sessionId,
+      startTime: tripStartTime,
+      endTime,
+      distanceKm: finalState.distanceKm,
+      durationSeconds: finalState.durationSeconds,
+      avgScore: score,
+      points: earnedPoints,
+      hardBrakes: finalState.eventCounts.HARD_BRAKE,
+      aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
+      sharpTurns: finalState.eventCounts.SHARP_TURN,
+      phoneSeconds: Math.round(finalState.phoneSeconds),
+      riskMultiplier: scoringResult.riskMultiplier,
+      penalties: scoringResult.penalties,
+    };
 
     let savedTrip: Trip | null = null;
     try {
-      // TODO: Future Sync - Ensure trip is sent to server along with identified city/country.
-      savedTrip = await tripsApi.save({
-        distanceKm: finalState.distanceKm,
-        avgScore: score,
-        durationSeconds: finalState.durationSeconds,
-        startTime: tripStartTime,
-        endTime: new Date().toISOString(),
-        points: earnedPoints,
-        hardBrakes: finalState.eventCounts.HARD_BRAKE,
-        aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
-        sharpTurns: finalState.eventCounts.SHARP_TURN,
-        phoneSeconds: Math.round(finalState.phoneSeconds),
-      });
+      savedTrip = await tripsApi.save(validTripPayload);
     } catch (e) {
-      console.error('[AppContext] Failed to sync trip', e);
+      console.warn('[AppContext] Server unreachable — queuing trip for later sync', e);
+      await SyncManager.enqueue(validTripPayload);
     }
 
     const newTrip: Trip = savedTrip
       ? { ...savedTrip, score }
       : {
-          id: `trip_${Date.now()}`,
+          id: finalState.sessionId,
           userId: user?.id || 'guest',
           startTime: tripStartTime,
-          endTime: new Date().toISOString(),
+          endTime,
           distanceKm: finalState.distanceKm,
           durationSeconds: finalState.durationSeconds,
           avgScore: score,
@@ -279,6 +289,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [sdk, user]);
 
+  // ─── SyncManager: replace local-only trip with server trip after offline sync ──
+  useEffect(() => {
+    SyncManager.onTripSynced = (localId: string, serverTrip: Trip) => {
+      setRecentTrips(prev => {
+        const updated = prev.map(t =>
+          t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
+        );
+        AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
+        return updated;
+      });
+    };
+  }, []);
+
+  // ─── AppState: flush queued trips when app returns to foreground ──────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        SyncManager.flushQueue().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -315,6 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } else if (t) {
           setRecentTrips(JSON.parse(t));
         }
+        SyncManager.flushQueue().catch(() => {});
       } catch (e) {
         console.error('Error loading initial data', e);
       } finally {
@@ -328,8 +362,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // TODO: GPS Logic - After first GPS sample, perform reverse geocoding to identify
     // current city/country, then update user state locally.
     const now = new Date();
+    const sessionId = `trip_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     await sdk.startTrip();
-    setTripState({ ...INITIAL_TRIP_STATE, isActive: true, startTime: now });
+    setTripState({ ...INITIAL_TRIP_STATE, isActive: true, startTime: now, sessionId });
   }, [sdk]);
 
   const endTrip = useCallback(async () => {

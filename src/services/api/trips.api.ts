@@ -4,7 +4,7 @@
  *
  * @description
  * - `list` — שליפת רשימת נסיעות המשתמש
- * - `save` — שמירת נסיעה שהסתיימה (נקרא מ-AppContext.processEndTrip)
+ * - `save` — שמירת נסיעה שהסתיימה (נקרא מ-SyncManager.flushQueue)
  * - `getById` — שליפת פרטי נסיעה בודדת
  *
  * @server
@@ -14,29 +14,19 @@
  */
 import { request } from './client';
 import type { Trip } from '@/types';
-
-// שדות שנשלחים לשרת בשמירת נסיעה — נגזרים מ-Trip כדי שלא יסטו
-export type SaveTripPayload = Partial<Pick<Trip,
-  | 'startTime'
-  | 'endTime'
-  | 'distanceKm'
-  | 'avgScore'
-  | 'durationSeconds'
-  | 'points'
-  | 'hardBrakes'
-  | 'aggressiveAccels'
-  | 'sharpTurns'
-  | 'phoneSeconds'
->>;
+import type { ValidTripPayload } from '@/services/sync/types';
 
 export const tripsApi = {
   list: () => request<{ trips: Trip[] }>('/api/trips'),
 
-  save: (payload: SaveTripPayload) =>
-    request<Trip>('/api/trips', {
+  save: (payload: ValidTripPayload): Promise<Trip> => {
+    const { localTripId, ...body } = payload;
+    return request<Trip>('/api/trips', {
       method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+      body: JSON.stringify(body),
+      headers: { 'Idempotency-Key': localTripId },
+    });
+  },
 
   getById: (id: string) => request<{ trip: Trip }>(`/api/trips/${id}`),
 };
