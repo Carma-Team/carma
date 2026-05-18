@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 
 from app.core.deps import CurrentUser, DbSession
 from app.schemas.stats import StatsOut
@@ -33,10 +33,12 @@ async def update_location(dto: UpdateLocationIn, user: CurrentUser, db: DbSessio
 @router.delete(
     "/me",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Delete the authenticated user account (GDPR right to be forgotten)",
 )
-async def delete_me(user: CurrentUser, db: DbSession) -> None:
+async def delete_me(user: CurrentUser, db: DbSession) -> Response:
     await users_service.delete_account(db, user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # Singular `/api/user/stats` is its own router because May's client uses that exact path.
