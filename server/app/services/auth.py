@@ -8,6 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.audit import audit, hash_email, mask_phone
 from app.core.security import (
     create_access_token,
     hash_code,
@@ -67,20 +68,24 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    audit("auth.registered", user_id=user.id, via="email")
     return _auth_response(user)
 
 
 async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
     user = await db.scalar(select(User).where(User.email == dto.email.lower()))
     if user is None or not user.password_hash:
+        audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     _assert_not_locked(user)
     if not verify_password(dto.password, user.password_hash):
+        audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="bad_password")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
     user.last_logged_at = _now()
     await db.commit()
     await db.refresh(user)
+    audit("auth.login.success", user_id=user.id, via="email")
     return _auth_response(user)
 
 
@@ -105,6 +110,8 @@ async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
     if settings.env != "production":
         log.debug("[dev-otp] phone=%s code=%s", phone, code)
 
+    audit("auth.otp.issued", phone_masked=mask_phone(phone), purpose=OTP_PURPOSE,
+          ttl=settings.otp_ttl_seconds)
     return OtpSent(message="OTP sent", expires_in_seconds=settings.otp_ttl_seconds)
 
 
@@ -159,6 +166,7 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     if not verify_code(dto.code, otp.code_hash):
         otp.attempts += 1
         await _record_failure(db, user)
+        audit("auth.otp.failure", user_id=user.id, attempts=user.failed_otp_count)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect OTP")
 
     otp.consumed_at = _now()
@@ -168,6 +176,7 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     user.last_logged_at = _now()
     await db.commit()
     await db.refresh(user)
+    audit("auth.otp.success", user_id=user.id)
     return _auth_response(user)
 
 
@@ -176,4 +185,5 @@ async def _record_failure(db: AsyncSession, user: User) -> None:
     if user.failed_otp_count >= settings.otp_max_attempts:
         user.locked_until = _now() + timedelta(seconds=settings.otp_lockout_seconds)
         user.failed_otp_count = 0
+        audit("auth.lockout", user_id=user.id, lockout_until=user.locked_until.isoformat())
     await db.commit()

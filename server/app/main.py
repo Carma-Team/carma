@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Set up logging FIRST so even early imports go through the right formatter.
+from app.core.logging import configure_logging
+
+configure_logging()
+
 import logging
 
 from fastapi import FastAPI, Request, status
@@ -11,6 +16,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.middlewares.request_id import RequestIdMiddleware
+from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
 from app.routers import (
     auth,
@@ -21,8 +28,6 @@ from app.routers import (
     trips,
     users,
 )
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["500/hour", "30/minute"])
 
@@ -38,6 +43,10 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
+
+# Order matters: RequestId runs first (sets contextvar), then RequestLog uses it.
+app.add_middleware(RequestLogMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

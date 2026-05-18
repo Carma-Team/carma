@@ -27,7 +27,12 @@ class TwilioSmsSender:
     async def send(self, to: str, body: str) -> None:
         # twilio-python is sync; for our volume that's fine. If it becomes a bottleneck we can
         # wrap in run_in_executor.
-        self._client.messages.create(to=to, from_=self._from, body=body)
+        try:
+            self._client.messages.create(to=to, from_=self._from, body=body)
+        except Exception as e:
+            from app.core.audit import audit, mask_phone
+            audit("sms.send.failure", to_masked=mask_phone(to), error=str(e))
+            raise
 
 
 def _build() -> SmsSender:

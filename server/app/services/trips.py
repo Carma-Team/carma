@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
 
@@ -65,4 +66,6 @@ async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
 
     await db.commit()
     await db.refresh(trip)
+    audit("trips.saved", user_id=user.id, trip_id=trip.id, distance_km=trip.distance_km,
+          points=trip.points, avg_score=trip.avg_score)
     return TripOut.from_orm_trip(trip)

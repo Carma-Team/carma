@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+# Auto-generated from the server's /api/openapi.json via `npm run gen:api`
+src/services/api/generated.ts
+
 # Expo
 .expo/
 dist/

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import UpdateLocationIn, UpdateProfileIn
@@ -28,8 +29,10 @@ async def update_location(db: AsyncSession, user: User, dto: UpdateLocationIn) -
 
 
 async def delete_account(db: AsyncSession, user: User) -> None:
+    user_id = user.id
     await db.delete(user)
     await db.commit()
+    audit("user.deleted", user_id=user_id)
 
 
 async def stats(db: AsyncSession, user_id: str) -> StatsOut:

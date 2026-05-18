@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import user_id_ctx
 from app.core.security import decode_access_token
 from app.database import get_db
 from app.models import User
@@ -37,6 +38,7 @@ async def current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
     if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account is locked")
+    user_id_ctx.set(user.id)
     return user
 
 

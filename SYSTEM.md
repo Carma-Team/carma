@@ -1,6 +1,6 @@
 # CARMA — Full System Documentation
 
-> This document describes the CARMA backend server, the integration with May's mobile app, and the surrounding infrastructure (DB, Docker, CI/CD, Azure, Monitoring).
+> This document describes the CARMA backend server, the integration with the mobile app, and the surrounding infrastructure (DB, Docker, CI/CD, Azure, Monitoring). A Hebrew version lives at [SYSTEM.he.md](SYSTEM.he.md).
 
 ---
 
@@ -14,7 +14,7 @@
 6. [Server Modules (Routers + Services)](#6-server-modules-routers--services)
 7. [Authentication Flows](#7-authentication-flows)
 8. [Full API Reference](#8-full-api-reference)
-9. [Integration with May's Frontend](#9-integration-with-mays-frontend)
+9. [Integration with the Mobile Frontend](#9-integration-with-the-mobile-frontend)
 10. [Running Locally — Step by Step](#10-running-locally--step-by-step)
 11. [CI/CD and Azure Deployment](#11-cicd-and-azure-deployment)
 12. [Monitoring and Observability](#12-monitoring-and-observability)
@@ -26,12 +26,12 @@
 
 ## 1. Executive Summary
 
-**What it is:** A backend REST API for CARMA — a safe-driving rewards platform. The server provides the mobile app (May's Expo / React Native app) with everything it needs: registration and login, trip persistence, the rewards marketplace, the leaderboard, and statistics.
+**What it is:** A backend REST API for CARMA — a safe-driving rewards platform. The server provides the mobile app (Expo / React Native) with everything it needs: registration and login, trip persistence, the rewards marketplace, the leaderboard, and statistics.
 
 **Stack:** Python 3.12 + FastAPI + SQLAlchemy 2.0 (async) + PostgreSQL 16 with PostGIS + JWT auth + Twilio (optional).
 
 **Two parallel authentication paths:**
-- **Email + Password** — what May's frontend actually calls (matches her existing contract).
+- **Email + Password** — what the mobile frontend actually calls (matches her existing contract).
 - **Phone + OTP via SMS** — per the formal spec (section 4.2.1). Ready for future / later integration.
 
 Both paths produce the same JWT — a client holding a token can call every API regardless of how it logged in.
@@ -42,7 +42,7 @@ Both paths produce the same JWT — a client holding a token can call every API 
 - `ci.yml` — always runs (ruff, mypy, alembic migrations, pytest, docker build).
 - `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
 
-**Key note:** May's frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
+**Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
 
 ---
 
@@ -51,7 +51,7 @@ Both paths produce the same JWT — a client holding a token can call every API 
 ```
 ┌────────────────────┐         ┌────────────────────┐
 │ Expo / React Native│  HTTPS  │   FastAPI Server   │
-│   (May's app)      │ ─────►  │ (carma-server, :3000)│
+│   (the mobile app)      │ ─────►  │ (carma-server, :3000)│
 │   AsyncStorage:    │ Bearer  │                    │
 │   carma_token (JWT)│  token  │  Routers:          │
 └────────────────────┘         │   auth · users     │
@@ -111,50 +111,53 @@ Both paths produce the same JWT — a client holding a token can call every API 
 ## 4. Repository Layout
 
 ```
-Carma/                                # Git repo root
-├── .github/workflows/
-│   ├── ci.yml                        # ruff+mypy+alembic+pytest+docker — always runs
-│   └── deploy.yml                    # Build+push+deploy to Azure — gated on secrets
+carma/                                # Carma-Team/carma (monorepo root)
+├── .github/
+│   ├── workflows/
+│   │   ├── ci-server.yml             # lint always; mypy/pytest/smoke gated by label or workflow_dispatch
+│   │   ├── ci-mobile.yml             # tsc always; npm test gated by label
+│   │   └── deploy.yml                # Azure Container Apps — gated on AZURE_CREDENTIALS
+│   └── pull_request_template.md
 │
-├── server/                           # ▼ The new Python project
+├── server/                           # Python backend (FastAPI)
 │   ├── app/
-│   │   ├── main.py                   # FastAPI app, middleware, router registration
-│   │   ├── config.py                 # Pydantic Settings (env validation)
-│   │   ├── database.py               # async engine + session factory
-│   │   ├── monitoring.py             # Application Insights init (no-op if unset)
-│   │   ├── seed.py                   # creates levels/businesses/rewards/demo user
-│   │   ├── models/                   # SQLAlchemy 2.0 declarative models
-│   │   │   ├── base.py, enums.py
-│   │   │   └── user.py · otp.py · level.py · trip.py · event.py
-│   │   │     · business.py · reward.py · redemption.py
-│   │   ├── schemas/                  # Pydantic DTOs (with camelCase aliases)
-│   │   │   ├── _base.py              # CamelModel — alias_generator=to_camel
-│   │   │   └── auth.py · user.py · trip.py · reward.py
-│   │   │     · leaderboard.py · stats.py
-│   │   ├── core/
-│   │   │   ├── security.py           # bcrypt, JWT, random helpers
-│   │   │   └── deps.py               # FastAPI dependencies (DbSession, CurrentUser)
-│   │   ├── services/                 # Business logic (no FastAPI knowledge)
-│   │   │   ├── sms.py · auth.py · users.py · trips.py
-│   │   │   └── rewards.py · leaderboard.py
-│   │   └── routers/                  # FastAPI routers (HTTP layer)
-│   │       ├── auth.py · users.py · trips.py · rewards.py
-│   │       └── leaderboard.py · notifications.py · health.py
+│   │   ├── main.py · config.py · database.py · monitoring.py · seed.py
+│   │   ├── models/                   # SQLAlchemy 2.0 declarative (User, Trip, Event,
+│   │   │                             #   Reward, Business, Redemption, Level, OtpCode)
+│   │   ├── schemas/                  # Pydantic DTOs (CamelModel base; camelCase wire format)
+│   │   ├── core/                     # security (bcrypt + JWT), deps (DbSession, CurrentUser)
+│   │   ├── services/                 # Business logic: auth, users, trips, rewards, leaderboard, sms
+│   │   └── routers/                  # FastAPI routers: auth, users, trips, rewards,
+│   │                                 #   leaderboard, notifications, health
 │   ├── alembic/                      # Migrations
-│   │   ├── env.py, script.py.mako
-│   │   └── versions/                 # populated by `alembic revision`
-│   ├── alembic.ini
-│   ├── tests/
-│   │   └── test_smoke.py             # health + auth rejection
-│   ├── Dockerfile                    # multi-stage: deps → runtime
-│   ├── docker-compose.yml            # local Postgres+PostGIS
-│   ├── requirements.txt              # runtime deps
-│   ├── requirements-dev.txt          # +ruff, mypy, pytest, httpx
-│   ├── pyproject.toml                # ruff + mypy + pytest config
+│   ├── tests/                        # pytest
+│   ├── Dockerfile · docker-compose.yml
+│   ├── requirements.txt · requirements-dev.txt · pyproject.toml
 │   ├── .env.example
-│   └── README.md                     # quick start
+│   └── README.md
 │
-└── SYSTEM.md                         # ← You are here
+├── mobile/                           # Expo / React Native frontend
+│   ├── src/
+│   │   ├── app/                      # expo-router screens (auth, tabs, admin, business)
+│   │   ├── screens/, components/, context/, hooks/
+│   │   ├── services/api/             # client.ts (Bearer), auth.api.ts, trips.api.ts, ...
+│   │   │   └── generated.ts          # auto-generated from /api/openapi.json (gitignored)
+│   │   ├── lib/driving-sdk/          # IMU/GPS/BLE simulation
+│   │   └── types/                    # shared TS interfaces
+│   ├── package.json                  # `npm run gen:api` regenerates types from the server
+│   ├── metro.config.js               # proxies to localhost:3000
+│   └── app.json
+│
+├── mock-server/                      # Express + db.json mock — deprecated (kept for offline dev)
+│   └── local-server/
+│
+├── scripts/
+│   ├── dev.ps1                       # one-command local dev (DB + server + Metro)
+│   └── smoke.sh                      # end-to-end HTTP smoke test
+│
+├── CHANGELOG.md                      # contract changes per release
+├── SYSTEM.md                         # ← You are here
+└── README.md                         # top-level intro
 ```
 
 ---
@@ -195,7 +198,7 @@ class User(Base, TimestampMixin):
     is_phone_verified, failed_otp_count, locked_until,   # Spec 5.2.4 enforcement
 ```
 
-**Why both `points` and `total_points`?** May's frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
+**Why both `points` and `total_points`?** the mobile frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
 
 ### Locations and PostGIS
 
@@ -241,7 +244,7 @@ Authentication is **not** a middleware — it's the `CurrentUser` dependency on 
 
 ## 7. Authentication Flows
 
-### A. Email + Password (what May's app calls)
+### A. Email + Password (what the mobile app calls)
 
 ```
 Mobile App                                   Server
@@ -386,12 +389,12 @@ Mobile App                                   Server                 Twilio (prod
 
 ---
 
-## 9. Integration with May's Frontend
+## 9. Integration with the Mobile Frontend
 
 ### Her code layout (Expo / React Native)
 
 ```
-carma-may/carma-app/src/
+mobile/src/
 ├── services/api/
 │   ├── client.ts          # fetch wrapper + Bearer token + fallback to mocks
 │   ├── auth.api.ts        # login/register/me
@@ -409,7 +412,7 @@ carma-may/carma-app/src/
 
 ### How to connect her app to our server
 
-At `carma-may/carma-app/src/services/api/client.ts`:
+At `mobile/src/services/api/client.ts`:
 ```ts
 const BASE_URL = 'http://localhost:3000';
 ```
@@ -649,7 +652,7 @@ ContainerAppConsoleLogs_CL
 
 | Spec section | What's required | Where it lives |
 |---|---|---|
-| 4.1.1 Platform support | iOS 14+ / Android 11+ | May's frontend (Expo) |
+| 4.1.1 Platform support | iOS 14+ / Android 11+ | the mobile frontend (Expo) |
 | 4.1.2 BT pairing | Up to 2 vehicles | `User.bluetooth_device_id` (extendable) |
 | **4.2.1 Phone + OTP auth** | SMS with code | `services/auth.py::register_with_otp / verify_otp` |
 | 4.2.2 Registration details | name, age, license | `schemas/auth.py::RegisterIn / OtpRegisterIn` |
@@ -667,8 +670,8 @@ ContainerAppConsoleLogs_CL
 ### Not 1:1 to spec — deliberate
 
 - **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
-- **Email-based auth:** spec only covers phone. We added email+password because May's frontend was already wired for it. Both paths are active.
-- **Friendships:** spec doesn't define a friends table, but May uses it. Currently `leaderboard?type=friends` returns only the user themselves until a model is added.
+- **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
+- **Friendships:** spec doesn't define a friends table, but the mobile app calls a leaderboard `type=friends`. Currently it returns only the user themselves until a model is added.
 
 ---
 
@@ -693,10 +696,10 @@ Deliberately deferred:
 
 ## 15. Next Steps
 
-### Right now (integrate with May)
+### Right now (mobile integration)
 
 1. Run the API: `uvicorn app.main:app --reload` from `server/`. Visit `/api/docs`.
-2. Change `BASE_URL` in May's `client.ts` to the host IP (physical device) or leave `localhost` (simulator).
+2. Change `BASE_URL` in `mobile/src/services/api/client.ts` to the host IP (physical device) or leave `localhost` (simulator).
 3. Log in in the app with `daniel@carma.app` / `password123` — should hit the real server.
 4. Run a trip in the app and verify it persists in the DB (`docker exec -it carma_db psql -U carma -d carma -c "SELECT id, user_id, distance_km, avg_score FROM trips ORDER BY created_at DESC LIMIT 5;"`).
 

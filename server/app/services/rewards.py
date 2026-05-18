@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.audit import audit
 from app.core.security import random_voucher_code
 from app.models import BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.schemas.reward import RewardOut, VoucherOut
@@ -66,6 +67,8 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     await db.refresh(redemption)
     # eager-load reward+business for response
     await db.refresh(redemption, attribute_names=["reward"])
+    audit("rewards.redeemed", user_id=user.id, reward_id=reward.id,
+          cost_points=reward.cost_points, voucher_id=redemption.id)
     return VoucherOut.from_orm_redemption(redemption)
 
 
