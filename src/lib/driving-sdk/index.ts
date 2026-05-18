@@ -17,8 +17,8 @@ import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { TripValidationManager } from '@/lib/driving-sdk/TripValidationManager';
-import { DrivingEventType, DrivingEvent, SDKConfig, TripData, TransportMode } from '@/lib/driving-sdk/types';
-import { fraudApi } from '@/services/api/fraud.api';
+import { DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent } from '@/lib/driving-sdk/types';
+import type { FraudEvaluation } from '@/lib/driving-sdk/FraudDetector';
 
 export class CarmaDrivingSDK {
   private config: SDKConfig;
@@ -39,8 +39,9 @@ export class CarmaDrivingSDK {
   public onTripEnd?: (data: TripData) => void;
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
-  // Mai: show "תחבורה ציבורית זוהתה — הנסיעה לא תירשם" toast when this fires
-  public onFraudDetected?: (confidence: number, mode: TransportMode) => void;
+  // AppContext wires this to reset trip state + call fraudApi.syncInvalidTrip()
+  // Mai: show "נסיעה בתחבורה ציבורית זוהתה" toast/modal when this fires
+  public onFraudDetected?: (event: FraudDetectedEvent) => void;
 
   constructor(config: SDKConfig = {}) {
     this.config = {
@@ -71,8 +72,8 @@ export class CarmaDrivingSDK {
       this.startTrip();
     };
     this.validationManager.onTripEnded = () => this.stopTrip();
-    this.validationManager.onFraudSuspected = (confidence, mode) =>
-      this.handleFraud(confidence, mode);
+    this.validationManager.onFraudSuspected = (evaluation) =>
+      this.handleFraud(evaluation);
 
     if (this.config.targetBluetoothId) {
       this.btManager.setTargetDevice(this.config.targetBluetoothId);
@@ -164,8 +165,8 @@ export class CarmaDrivingSDK {
 
   // --- Fraud Handling ---
 
-  private async handleFraud(confidence: number, mode: TransportMode) {
-    console.log(`[SDK] Fraud: ${mode} at ${Math.round(confidence * 100)}% — aborting session silently`);
+  private handleFraud(evaluation: FraudEvaluation): void {
+    console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
     this.isValidating = false;
 
     // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
@@ -175,16 +176,15 @@ export class CarmaDrivingSDK {
     this.sensorManager.stop();
     this.phoneManager.stop();
 
-    this.onFraudDetected?.(confidence, mode);
-
-    await fraudApi.syncInvalidTrip({
-      reason: 'NON_CAR_TRANSPORT',
-      transportMode: mode as 'CAR' | 'TRAIN' | 'UNKNOWN',
-      fraudConfidence: confidence,
+    // Delegate server sync + UI to AppContext via onFraudDetected
+    const event: FraudDetectedEvent = {
+      confidence: evaluation.score,
+      mode: evaluation.mode,
+      telemetry: evaluation.telemetry,
       durationMs: Date.now() - this.validationStartTime,
       maxSpeedKmh: this.validationMaxSpeed,
-      timestamp: new Date().toISOString(),
-    });
+    };
+    this.onFraudDetected?.(event);
   }
 
   // --- Internal Handlers ---

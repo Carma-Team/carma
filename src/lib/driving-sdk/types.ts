@@ -61,3 +61,18 @@ export interface TripData {
 export type TripUpdateCallback = (data: Partial<TripData>) => void;
 export type EventCallback = (event: DrivingEvent) => void;
 export type StateChangeCallback = (isActive: boolean) => void;
+
+// ─── Fraud Detection Event ────────────────────────────────────────────────────
+// Fired by CarmaDrivingSDK.onFraudDetected; contains everything AppContext needs
+// to build the InvalidTripPayload for Sean's backend.
+export interface FraudDetectedEvent {
+  confidence: number;       // 0–1 fraud score
+  mode: TransportMode;      // classified transport mode
+  telemetry: {
+    avgSpeedKmh: number;    // average speed over the detection window
+    maxLateralAccelG: number; // peak gravity-removed lateral force (g-units)
+    yawVariance: number;    // yaw rate variance (rad²/s²)
+  };
+  durationMs: number;       // validation session length (BT connect → fraud detection)
+  maxSpeedKmh: number;      // peak speed seen during the session
+}

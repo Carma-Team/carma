@@ -1,5 +1,5 @@
 import { ValidationState, TransportMode, ValidationSample } from '@/lib/driving-sdk/types';
-import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/driving-sdk/FraudDetector';
+import { FraudDetector, FraudEvaluation, FRAUD_SCORE_THRESHOLD } from '@/lib/driving-sdk/FraudDetector';
 
 // ─── Thresholds (Appendix E — נספח ה') ───────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -22,7 +22,8 @@ export class TripValidationManager {
   public onTripConfirmed?: () => void;
   public onTripEnded?: () => void;
   public onStateChange?: (state: ValidationState) => void;
-  public onFraudSuspected?: (confidence: number, mode: TransportMode) => void;
+  // Fires when FraudDetector classifies non-car transport — passes full evaluation for API payload
+  public onFraudSuspected?: (evaluation: FraudEvaluation) => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ export class TripValidationManager {
               this.continuousAboveThresholdMs = 0;
               this.fraudDetector.reset();
               this.setState(ValidationState.IDLE);
-              this.onFraudSuspected?.(fraud.score, fraud.mode);
+              this.onFraudSuspected?.(fraud);
               return;
             }
 
@@ -148,7 +149,7 @@ export class TripValidationManager {
             if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD) {
               this.fraudSuspectedFired = true;
               console.log(`[Validation] Rule 3 (mid-trip) — ${fraud.mode} detected (score=${fraud.score.toFixed(2)})`);
-              this.onFraudSuspected?.(fraud.score, fraud.mode);
+              this.onFraudSuspected?.(fraud);
             }
           }
         }

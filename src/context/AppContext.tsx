@@ -24,9 +24,11 @@ import { calculateScore } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { CarmaDrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
+import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { levelsApi } from '@/services/api/levels.api'
+import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 
 export interface TripState {
@@ -249,6 +251,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [sdk, processEndTrip]);
+
+  // ─── Fraud Detection Handler ──────────────────────────────────────────────
+  // Fires when TripValidationManager detects non-car transport (Rule 3).
+  // SDK already aborted the session silently — our job here is state cleanup + server sync.
+  useEffect(() => {
+    sdk.onFraudDetected = (event: FraudDetectedEvent) => {
+      // Discard any accumulated trip data — fraudulent sessions earn zero CARMA Points
+      setTripState(INITIAL_TRIP_STATE);
+
+      // TODO: Mai — implement "נסיעה בתחבורה ציבורית זוהתה" toast/modal component
+
+      // Report to Sean's backend (non-blocking — failure must never affect the user flow)
+      fraudApi.syncInvalidTrip({
+        userId: user?.id ?? 'anonymous',
+        timestamp: new Date().toISOString(),
+        detectedMode: event.mode as 'TRAIN' | 'BUS' | 'UNKNOWN',
+        fraudScore: event.confidence,
+        telemetrySummary: {
+          avgSpeed: event.telemetry.avgSpeedKmh,
+          maxLateralAccel: event.telemetry.maxLateralAccelG,
+          gyroVariance: event.telemetry.yawVariance,
+        },
+        durationMs: event.durationMs,
+        maxSpeedKmh: event.maxSpeedKmh,
+      }).catch(() => {});
+    };
+  }, [sdk, user]);
 
   useEffect(() => {
     async function loadInitialData() {

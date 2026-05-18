@@ -235,7 +235,9 @@ describe('Rule 3 — FraudDetector (train/bus detection)', () => {
 
     expect(confirmed).not.toHaveBeenCalled();
     expect(fraudSuspected).toHaveBeenCalledTimes(1);
-    expect(fraudSuspected).toHaveBeenCalledWith(expect.any(Number), TransportMode.TRAIN);
+    expect(fraudSuspected).toHaveBeenCalledWith(
+      expect.objectContaining({ score: expect.any(Number), mode: TransportMode.TRAIN })
+    );
     expect(m.getState()).toBe(ValidationState.IDLE);
     m.stop();
   });

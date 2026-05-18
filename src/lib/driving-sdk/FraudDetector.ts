@@ -63,6 +63,12 @@ export interface FraudEvaluation {
   isReady: boolean;
   mode: TransportMode;
   signals: { a: boolean; b: boolean; c: boolean };
+  // Raw computed values — passed through to the API payload for Sean's analytics
+  telemetry: {
+    avgSpeedKmh: number;
+    maxLateralAccelG: number;
+    yawVariance: number;        // rad²/s²
+  };
 }
 
 // ─── FraudDetector ───────────────────────────────────────────────────────────
@@ -79,30 +85,39 @@ export class FraudDetector {
   }
 
   evaluate(): FraudEvaluation {
+    const emptyTelemetry = { avgSpeedKmh: 0, maxLateralAccelG: 0, yawVariance: 0 };
+
     if (this.speedBuffer.size < MIN_SAMPLES_TO_EVALUATE) {
-      return { score: 0, isReady: false, mode: TransportMode.UNKNOWN, signals: { a: false, b: false, c: false } };
+      return {
+        score: 0, isReady: false, mode: TransportMode.UNKNOWN,
+        signals: { a: false, b: false, c: false }, telemetry: emptyTelemetry,
+      };
     }
 
     const speeds = this.speedBuffer.values;
     const accels = this.accelBuffer.values;
     const gyros  = this.gyroBuffer.values;
 
-    const avgSpeed       = speeds.reduce((s, v) => s + v, 0) / speeds.length;
-    const speedVariance  = this.calcVariance(speeds);
-    const maxLateralAccel = Math.max(...accels);
-    const yawVariance    = this.calcVariance(gyros);
+    const avgSpeedKmh     = speeds.reduce((s, v) => s + v, 0) / speeds.length;
+    const speedVariance   = this.calcVariance(speeds);
+    const maxLateralAccelG = Math.max(...accels);
+    const yawVariance     = this.calcVariance(gyros);
 
     // Signal A: low speed variance (constant speed) AND high-speed (not urban stop-go)
-    const signalA = speedVariance < SPEED_VARIANCE_THRESHOLD && avgSpeed > MIN_AVG_SPEED_KMH;
+    const signalA = speedVariance < SPEED_VARIANCE_THRESHOLD && avgSpeedKmh > MIN_AVG_SPEED_KMH;
     // Signal B: near-zero lateral force (rails prevent sway)
-    const signalB = maxLateralAccel < LATERAL_ACCEL_MAX_G;
+    const signalB = maxLateralAccelG < LATERAL_ACCEL_MAX_G;
     // Signal C: minimal heading change (straight-line travel)
     const signalC = yawVariance < YAW_VARIANCE_THRESHOLD;
 
     const score = (signalA ? WEIGHT_A : 0) + (signalB ? WEIGHT_B : 0) + (signalC ? WEIGHT_C : 0);
     const mode  = score >= FRAUD_SCORE_THRESHOLD ? TransportMode.TRAIN : TransportMode.UNKNOWN;
 
-    return { score, isReady: true, mode, signals: { a: signalA, b: signalB, c: signalC } };
+    return {
+      score, isReady: true, mode,
+      signals: { a: signalA, b: signalB, c: signalC },
+      telemetry: { avgSpeedKmh, maxLateralAccelG, yawVariance },
+    };
   }
 
   reset(): void {
