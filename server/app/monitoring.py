@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 log = logging.getLogger(__name__)
 
 
-def configure_monitoring(app: object) -> None:
+def configure_monitoring(app: FastAPI) -> None:
     """No-op if APPLICATIONINSIGHTS_CONNECTION_STRING is unset."""
     conn = settings.applicationinsights_connection_string
     if not conn:
