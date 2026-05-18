@@ -31,6 +31,7 @@ export interface TripData {
   events: DrivingEvent[];
   averageSpeed: number;
   maxSpeed: number;
+  phoneSeconds: number;
 }
 
 export type TripUpdateCallback = (data: Partial<TripData>) => void;

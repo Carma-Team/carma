@@ -18,7 +18,8 @@ export function getRiskMultiplier(startTime: Date): number {
   const day  = startTime.getDay()
   const isNight = hour >= 23 || hour < 4
   if (!isNight) return 1.0
-  const isWeekendNight = day === 4 || day === 5
+  // Thu=4, Fri=5 (Israeli weekend start); Sat=6 (late night still high-risk)
+  const isWeekendNight = day === 4 || day === 5 || day === 6
   return isWeekendNight ? 2.0 : 1.5
 }
 

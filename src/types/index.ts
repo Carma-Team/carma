@@ -139,8 +139,10 @@ export interface Notification {
 // ─── Scoring (local SDK) ──────────────────────────────────────────────────────
 export interface ScoringResult {
   score: number;
-  pointsEarned: number;
-  rankUp?: boolean;
+  points: number;
+  riskMultiplier: number;
+  penalties: number;
+  distanceFactor: number;
 }
 
 export interface ScoringInput {

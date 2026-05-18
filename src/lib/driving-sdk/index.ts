@@ -18,15 +18,20 @@ import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { DrivingEventType, DrivingEvent, SDKConfig, TripData } from '@/lib/driving-sdk/types';
 
-/**
- * DrivingSDK - Standalone Hardware Facade.
- */
-class DrivingSDKManager {
-  private static instance: DrivingSDKManager;
-  private bluetooth: BluetoothManager;
+export class CarmaDrivingSDK {
+  private config: SDKConfig;
+  private btManager: BluetoothManager;
+  private sensorManager: SensorManager;
+  private phoneManager: PhoneUsageManager;
+  private isTripActive: boolean = false;
+  private currentTripData: TripData | null = null;
+  private timer: any = null;
 
+  // Callbacks
+  public onTripStart?: (tripId: string) => void;
+  public onTripEnd?: (data: TripData) => void;
+  public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
-  public onAutoStart?: () => void;
 
   constructor(config: SDKConfig = {}) {
     this.config = {
@@ -47,8 +52,13 @@ class DrivingSDKManager {
     );
 
     this.phoneManager = new PhoneUsageManager(
-      (event) => this.handleEvent(event)
+      (event) => this.handleEvent(event),
+      (totalSeconds) => this.handlePhoneSeconds(totalSeconds)
     );
+
+    if (this.config.targetBluetoothId) {
+      this.btManager.setTargetDevice(this.config.targetBluetoothId);
+    }
   }
 
   // --- Bluetooth Logic ---
@@ -57,58 +67,141 @@ class DrivingSDKManager {
     if (this.config.autoStartOnBluetooth && !this.isTripActive) {
       console.log('[SDK] Auto-starting trip via Bluetooth');
       await this.startTrip();
-      if (this.onAutoStart) this.onAutoStart();
-    }
-    return DrivingSDKManager.instance;
-  }
-
-  // --- Bluetooth ---
-
-  /**
-   * מחזיר את כל המכשירים המשויכים, ממוינים: קודם הזמינים.
-   */
-  public async getPairedDevices(): Promise<BluetoothDevice[]> {
-    return this.bluetooth.getSortedPairedDevices();
-  }
-
-  public async updateTargetDevice(deviceId: string | null): Promise<void> {
-    await this.bluetooth.setTargetDevice(deviceId);
-  }
-
-  public getSelectedDevice(): string | null {
-    return this.bluetooth.getTargetDevice();
-  }
-
-  // --- Trip Lifecycle ---
-
-  public async startTrip(): Promise<void> {
-    if (this.onUpdate) {
-      this.onUpdate({
-        startTime: new Date(),
-        distanceKm: 0,
-        durationSeconds: 0,
-        events: [],
-        averageSpeed: 0,
-        maxSpeed: 0
-      });
     }
   }
 
-  public async stopTrip(): Promise<void> {
-    if (this.onTripEnd) this.onTripEnd();
+  private async handleBluetoothDisconnect() {
+    if (this.isTripActive) {
+      console.log('[SDK] Auto-ending trip via Bluetooth disconnect');
+      await this.stopTrip();
+    }
+  }
+
+  public updateTargetDevice(deviceId: string | null) {
+    this.config.targetBluetoothId = deviceId;
+    this.btManager.setTargetDevice(deviceId);
+  }
+
+  // --- Trip Control ---
+
+  public async startTrip(): Promise<string> {
+    if (this.isTripActive) return 'ALREADY_ACTIVE';
+
+    this.isTripActive = true;
+    const tripId = `trip_${Date.now()}`;
+
+    this.currentTripData = {
+      startTime: new Date(),
+      distanceKm: 0,
+      durationSeconds: 0,
+      events: [],
+      averageSpeed: 0,
+      maxSpeed: 0,
+      phoneSeconds: 0,
+    };
+
+    await this.sensorManager.start();
+    this.phoneManager.start();
+
+    this.timer = setInterval(() => {
+      if (this.currentTripData) {
+        this.currentTripData.durationSeconds += 1;
+        if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+      }
+    }, 1000);
+
+    if (this.onTripStart) this.onTripStart(tripId);
+    return tripId;
+  }
+
+  public async stopTrip(): Promise<TripData | null> {
+    if (!this.isTripActive || !this.currentTripData) return null;
+
+    this.isTripActive = false;
+    if (this.timer) clearInterval(this.timer);
+
+    this.currentTripData.endTime = new Date();
+    this.sensorManager.stop();
+    this.phoneManager.stop();
+
+    const finalData = { ...this.currentTripData };
+    if (this.onTripEnd) this.onTripEnd(finalData);
+
+    this.currentTripData = null;
+    return finalData;
+  }
+
+  // --- Internal Handlers ---
+
+  private handleEvent(event: DrivingEvent) {
+    if (!this.isTripActive || !this.currentTripData) {
+      console.warn('[SDK] Event ignored: Trip not active', event.type);
+      return;
+    }
+
+    // Cooldown logic (only for physical sensors, not for phone usage)
+    if (event.type !== DrivingEventType.PHONE_USAGE) {
+      const lastEvent = this.currentTripData.events[this.currentTripData.events.length - 1];
+      if (lastEvent && (event.timestamp.getTime() - lastEvent.timestamp.getTime() < 3000)) {
+        return;
+      }
+    }
+
+    console.log(`[SDK] Event Recorded: ${event.type}`);
+    this.currentTripData.events.push(event);
+
+    if (this.onEventDetected) this.onEventDetected(event);
+
+    // Immediate UI update for events
+    if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+  }
+
+  private handlePhoneSeconds(totalSeconds: number) {
+    if (!this.isTripActive || !this.currentTripData) return;
+    this.currentTripData.phoneSeconds = totalSeconds;
+    if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+  }
+
+  private handleSensorUpdate(update: { distanceKm: number, currentSpeed: number }) {
+    if (!this.isTripActive || !this.currentTripData) return;
+
+    this.currentTripData.distanceKm += update.distanceKm;
+    this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
+
+    const hours = this.currentTripData.durationSeconds / 3600;
+    if (hours > 0) {
+      this.currentTripData.averageSpeed = this.currentTripData.distanceKm / hours;
+    }
+
+    if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+  }
+
+  public async getAvailableDevices() {
+    return this.btManager.getBondedDevices();
+  }
+
+  public getStatus() {
+    return {
+      isActive: this.isTripActive,
+      tripData: this.currentTripData
+    };
   }
 
   public simulateBluetoothConnection() {
-    this.bluetooth.simulateConnect();
+    this.btManager.simulateConnect();
   }
 
   public simulateBluetoothDisconnection() {
-    this.bluetooth.simulateDisconnect();
+    this.btManager.simulateDisconnect();
+  }
+
+  public debugAddDistance(km: number) {
+    if (this.isTripActive && this.currentTripData) {
+      this.currentTripData.distanceKm += km;
+      if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
+    }
   }
 }
 
 
 export * from './types';
-
-/** Singleton instance used by AppContext */
-export const DrivingSDK = new CarmaDrivingSDK();
