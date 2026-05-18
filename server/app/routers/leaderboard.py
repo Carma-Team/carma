@@ -11,8 +11,9 @@ from app.services import leaderboard as leaderboard_service
 router = APIRouter(prefix="/api/leaderboard", tags=["leaderboard"])
 
 
-@router.get("", response_model=LeaderboardOut, response_model_by_alias=True,
-            summary="Leaderboard ranked by total points")
+@router.get(
+    "", response_model=LeaderboardOut, response_model_by_alias=True, summary="Leaderboard ranked by total points"
+)
 async def get_leaderboard(
     user: CurrentUser,
     db: DbSession,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -18,16 +18,17 @@ _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
 
 async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    where = [Reward.is_active.is_(True)]
+    from sqlalchemy.sql import ColumnElement
+
+    where: list[ColumnElement[bool]] = [Reward.is_active.is_(True)]
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
 
-    rewards = (await db.scalars(
-        select(Reward)
-        .where(*where)
-        .options(selectinload(Reward.business))
-        .order_by(Reward.cost_points.asc())
-    )).all()
+    rewards = (
+        await db.scalars(
+            select(Reward).where(*where).options(selectinload(Reward.business)).order_by(Reward.cost_points.asc())
+        )
+    ).all()
 
     vouchers = await _list_user_vouchers(db, user_id)
     return {
@@ -42,16 +43,14 @@ async def list_my_vouchers(db: AsyncSession, user_id: str) -> dict[str, object]:
 
 
 async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
-    reward = await db.scalar(
-        select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business))
-    )
+    reward = await db.scalar(select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business)))
     if reward is None or not reward.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not available")
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
     code = random_voucher_code()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=VOUCHER_TTL_MINUTES)
+    expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
     user.points -= reward.cost_points
     redemption = Redemption(
@@ -67,8 +66,13 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     await db.refresh(redemption)
     # eager-load reward+business for response
     await db.refresh(redemption, attribute_names=["reward"])
-    audit("rewards.redeemed", user_id=user.id, reward_id=reward.id,
-          cost_points=reward.cost_points, voucher_id=redemption.id)
+    audit(
+        "rewards.redeemed",
+        user_id=user.id,
+        reward_id=reward.id,
+        cost_points=reward.cost_points,
+        voucher_id=redemption.id,
+    )
     return VoucherOut.from_orm_redemption(redemption)
 
 

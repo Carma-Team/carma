@@ -5,8 +5,13 @@ description = "CARMA backend API - safe driving rewards platform"
 requires-python = ">=3.11"
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"app/seed.py" = ["E501"]   # table-style data rows are easier to read wide
+"app/main.py" = ["E402"]   # configure_logging() must run before other imports
+"alembic/env.py" = ["E402"] # alembic context init order
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "ASYNC"]

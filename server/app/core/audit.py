@@ -7,6 +7,7 @@ fields land in the JSON record (and Application Insights' customDimensions).
 Example:
     audit("auth.login.success", user_id=user.id, via="email")
 """
+
 from __future__ import annotations
 
 import hashlib

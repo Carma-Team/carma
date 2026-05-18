@@ -1,4 +1,5 @@
 """One structured log line per request, with duration and status code."""
+
 from __future__ import annotations
 
 import logging

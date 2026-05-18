@@ -22,7 +22,7 @@ class RewardOut(CamelModel):
     expires_at: datetime | None
 
     @classmethod
-    def from_orm_reward(cls, reward: Any) -> "RewardOut":
+    def from_orm_reward(cls, reward: Any) -> RewardOut:
         return cls.model_validate(
             {
                 "id": reward.id,
@@ -56,7 +56,7 @@ class VoucherOut(CamelModel):
     reward: RewardOut
 
     @classmethod
-    def from_orm_redemption(cls, r: Any) -> "VoucherOut":
+    def from_orm_redemption(cls, r: Any) -> VoucherOut:
         return cls.model_validate(
             {
                 "id": r.id,

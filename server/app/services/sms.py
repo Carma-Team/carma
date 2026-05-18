@@ -31,6 +31,7 @@ class TwilioSmsSender:
             self._client.messages.create(to=to, from_=self._from, body=body)
         except Exception as e:
             from app.core.audit import audit, mask_phone
+
             audit("sms.send.failure", to_masked=mask_phone(to), error=str(e))
             raise
 

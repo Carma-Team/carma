@@ -18,7 +18,7 @@ def configure_monitoring(app: object) -> None:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
         configure_azure_monitor(connection_string=conn)
-        FastAPIInstrumentor.instrument_app(app)  # type: ignore[arg-type]
+        FastAPIInstrumentor.instrument_app(app)
         SQLAlchemyInstrumentor().instrument()
         log.info("Application Insights enabled")
     except Exception as e:  # noqa: BLE001

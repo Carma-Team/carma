@@ -19,9 +19,7 @@ class Trip(Base):
     __tablename__ = "trips"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
-    user_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -50,12 +48,10 @@ class Trip(Base):
     end_location: Mapped[str | None] = mapped_column(String(200))
 
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    user: Mapped["User"] = relationship(back_populates="trips")
-    events: Mapped[list["Event"]] = relationship(back_populates="trip", cascade="all, delete-orphan")
+    user: Mapped[User] = relationship(back_populates="trips")
+    events: Mapped[list[Event]] = relationship(back_populates="trip", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_trips_user_start", "user_id", "start_time"),

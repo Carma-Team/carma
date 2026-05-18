@@ -19,9 +19,7 @@ class Business(Base):
     __tablename__ = "businesses"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
-    owner_user_id: Mapped[str | None] = mapped_column(
-        String(32), ForeignKey("users.id"), unique=True
-    )
+    owner_user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), unique=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     category: Mapped[BusinessCategory] = mapped_column(
         Enum(BusinessCategory, name="business_category"),
@@ -32,12 +30,10 @@ class Business(Base):
     location_lng: Mapped[float] = mapped_column(Float, nullable=False)
     address: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    owner: Mapped["User | None"] = relationship(back_populates="business")
-    rewards: Mapped[list["Reward"]] = relationship(back_populates="business", cascade="all, delete-orphan")
+    owner: Mapped[User | None] = relationship(back_populates="business")
+    rewards: Mapped[list[Reward]] = relationship(back_populates="business", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_businesses_category", "category"),

@@ -58,9 +58,9 @@ class User(Base, TimestampMixin):
 
     last_logged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    trips: Mapped[list["Trip"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    redemptions: Mapped[list["Redemption"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    business: Mapped["Business | None"] = relationship(back_populates="owner", uselist=False)
+    trips: Mapped[list[Trip]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    redemptions: Mapped[list[Redemption]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    business: Mapped[Business | None] = relationship(back_populates="owner", uselist=False)
 
     __table_args__ = (
         Index("ix_users_phone", "phone"),

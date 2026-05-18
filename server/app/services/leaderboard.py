@@ -22,9 +22,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType) -> Leader
             user_id=u.id,
             rank=idx + 1,
             score=u.total_points,
-            user=LeaderboardUserSummary(
-                id=u.id, name=u.name, city=u.city, level=u.level, avatar_url=u.avatar_url
-            ),
+            user=LeaderboardUserSummary(id=u.id, name=u.name, city=u.city, level=u.level, avatar_url=u.avatar_url),
         )
         for idx, u in enumerate(users)
     ]

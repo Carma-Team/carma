@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -10,7 +11,6 @@ from app.core.logging import user_id_ctx
 from app.core.security import decode_access_token
 from app.database import get_db
 from app.models import User
-from datetime import datetime, timezone
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -36,7 +36,7 @@ async def current_user(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+    if user.locked_until and user.locked_until > datetime.now(UTC):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account is locked")
     user_id_ctx.set(user.id)
     return user

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict
 
 from jose import JWTError, jwt
@@ -48,7 +48,7 @@ def random_voucher_code() -> str:
 
 
 def create_access_token(*, user_id: str, email: str | None, phone: str | None, role: UserRole) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": user_id,
         "email": email,
@@ -57,7 +57,8 @@ def create_access_token(*, user_id: str, email: str | None, phone: str | None, r
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.jwt_expires_minutes)).timestamp()),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGO)
+    token: str = jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGO)
+    return token
 
 
 def decode_access_token(token: str) -> TokenPayload:

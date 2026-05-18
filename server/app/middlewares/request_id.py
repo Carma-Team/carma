@@ -1,4 +1,5 @@
 """Per-request correlation ID. Set from `X-Request-ID` header or generated."""
+
 from __future__ import annotations
 
 import uuid

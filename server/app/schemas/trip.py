@@ -11,18 +11,10 @@ from app.schemas._base import CamelModel
 class SaveTripIn(CamelModel):
     """May's frontend posts a mix of snake_case and camelCase. Accept all variants."""
 
-    start_time: datetime | None = Field(
-        default=None, validation_alias=AliasChoices("startTime", "start_time")
-    )
-    end_time: datetime | None = Field(
-        default=None, validation_alias=AliasChoices("endTime", "end_time")
-    )
-    distance_km: float | None = Field(
-        default=None, validation_alias=AliasChoices("distanceKm", "distance")
-    )
-    avg_score: float | None = Field(
-        default=None, validation_alias=AliasChoices("avgScore", "avg_score", "score")
-    )
+    start_time: datetime | None = Field(default=None, validation_alias=AliasChoices("startTime", "start_time"))
+    end_time: datetime | None = Field(default=None, validation_alias=AliasChoices("endTime", "end_time"))
+    distance_km: float | None = Field(default=None, validation_alias=AliasChoices("distanceKm", "distance"))
+    avg_score: float | None = Field(default=None, validation_alias=AliasChoices("avgScore", "avg_score", "score"))
     duration_seconds: int | None = None
     points: int | None = None
     hard_brakes: int | None = None
@@ -37,7 +29,7 @@ class SaveTripIn(CamelModel):
     ai_insight: str | None = None
 
     @model_validator(mode="after")
-    def _defaults(self) -> "SaveTripIn":
+    def _defaults(self) -> SaveTripIn:
         if self.start_time is None:
             self.start_time = datetime.utcnow()
         return self
@@ -65,7 +57,7 @@ class TripOut(CamelModel):
     status: str
 
     @classmethod
-    def from_orm_trip(cls, trip: Any) -> "TripOut":
+    def from_orm_trip(cls, trip: Any) -> TripOut:
         return cls.model_validate(
             {
                 "id": trip.id,

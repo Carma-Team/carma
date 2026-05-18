@@ -1,4 +1,5 @@
 """Smoke tests — verify the app boots and unauthenticated endpoints behave correctly."""
+
 from __future__ import annotations
 
 import pytest

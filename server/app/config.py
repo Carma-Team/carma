@@ -41,11 +41,13 @@ class Settings(BaseSettings):
     def _validate_twilio(self) -> Settings:
         if self.sms_provider == "twilio":
             missing = [
-                k for k, v in {
+                k
+                for k, v in {
                     "TWILIO_ACCOUNT_SID": self.twilio_account_sid,
                     "TWILIO_AUTH_TOKEN": self.twilio_auth_token,
                     "TWILIO_FROM_NUMBER": self.twilio_from_number,
-                }.items() if not v
+                }.items()
+                if not v
             ]
             if missing:
                 raise ValueError(f"SMS_PROVIDER=twilio requires {', '.join(missing)}")
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    return Settings()
 
 
 settings = get_settings()

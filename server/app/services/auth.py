@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
@@ -28,7 +28,7 @@ OTP_PURPOSE = "LOGIN"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _assert_not_locked(user: User) -> None:
@@ -38,9 +38,7 @@ def _assert_not_locked(user: User) -> None:
 
 
 def _token_for(user: User) -> str:
-    return create_access_token(
-        user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role)
-    )
+    return create_access_token(user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role))
 
 
 def _auth_response(user: User) -> AuthOut:
@@ -48,6 +46,7 @@ def _auth_response(user: User) -> AuthOut:
 
 
 # ─── Email + password (May's app) ────────────────────────────────────────────
+
 
 async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
     email = dto.email.lower()
@@ -91,6 +90,7 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
 
+
 async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
     code = random_digits(settings.otp_length)
     expires_at = _now() + timedelta(seconds=settings.otp_ttl_seconds)
@@ -110,8 +110,7 @@ async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
     if settings.env != "production":
         log.debug("[dev-otp] phone=%s code=%s", phone, code)
 
-    audit("auth.otp.issued", phone_masked=mask_phone(phone), purpose=OTP_PURPOSE,
-          ttl=settings.otp_ttl_seconds)
+    audit("auth.otp.issued", phone_masked=mask_phone(phone), purpose=OTP_PURPOSE, ttl=settings.otp_ttl_seconds)
     return OtpSent(message="OTP sent", expires_in_seconds=settings.otp_ttl_seconds)
 
 
@@ -126,13 +125,15 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
         existing.age = dto.age
         existing.city = dto.city
     else:
-        db.add(User(
-            phone=dto.phone,
-            name=dto.name,
-            language=dto.language or Language.HE,
-            age=dto.age,
-            city=dto.city,
-        ))
+        db.add(
+            User(
+                phone=dto.phone,
+                name=dto.name,
+                language=dto.language or Language.HE,
+                age=dto.age,
+                city=dto.city,
+            )
+        )
     await db.commit()
     return await _issue_otp(db, dto.phone)
 
@@ -141,8 +142,9 @@ async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     user = await db.scalar(select(User).where(User.phone == phone))
     if user is None:
         # don't leak account existence — same shape, no SMS
-        return OtpSent(message="If the phone is registered an OTP has been sent",
-                       expires_in_seconds=settings.otp_ttl_seconds)
+        return OtpSent(
+            message="If the phone is registered an OTP has been sent", expires_in_seconds=settings.otp_ttl_seconds
+        )
     _assert_not_locked(user)
     return await _issue_otp(db, phone)
 

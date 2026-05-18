@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -13,17 +13,13 @@ from app.schemas.trip import SaveTripIn, TripOut
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
-    rows = await db.scalars(
-        select(Trip).where(Trip.user_id == user_id).order_by(Trip.start_time.desc()).limit(100)
-    )
+    rows = await db.scalars(select(Trip).where(Trip.user_id == user_id).order_by(Trip.start_time.desc()).limit(100))
     return [TripOut.from_orm_trip(t) for t in rows.all()]
 
 
 async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     trip = await db.scalar(
-        select(Trip)
-        .where(Trip.id == trip_id, Trip.user_id == user_id)
-        .options(selectinload(Trip.events))
+        select(Trip).where(Trip.id == trip_id, Trip.user_id == user_id).options(selectinload(Trip.events))
     )
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
@@ -31,7 +27,7 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
 
 
 async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
-    start = dto.start_time or datetime.now(timezone.utc)
+    start = dto.start_time or datetime.now(UTC)
     end = dto.end_time
     duration = dto.duration_seconds
     if duration is None and end is not None:
@@ -55,7 +51,7 @@ async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
         status=TripStatus.COMPLETED if end else TripStatus.ACTIVE,
-        synced_at=datetime.now(timezone.utc),
+        synced_at=datetime.now(UTC),
     )
     db.add(trip)
 
@@ -66,6 +62,12 @@ async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
 
     await db.commit()
     await db.refresh(trip)
-    audit("trips.saved", user_id=user.id, trip_id=trip.id, distance_km=trip.distance_km,
-          points=trip.points, avg_score=trip.avg_score)
+    audit(
+        "trips.saved",
+        user_id=user.id,
+        trip_id=trip.id,
+        distance_km=trip.distance_km,
+        points=trip.points,
+        avg_score=trip.avg_score,
+    )
     return TripOut.from_orm_trip(trip)

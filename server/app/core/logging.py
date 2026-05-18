@@ -5,13 +5,13 @@
 - Every record carries a `request_id` set by `app.middlewares.request_id`.
 - `RedactFilter` blanks out password/code/token/qr_code if they ever leak.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import re
 from contextvars import ContextVar
-from typing import Any
 
 from pythonjsonlogger import jsonlogger
 
@@ -61,7 +61,7 @@ def configure_logging() -> None:
 
     if env == "production":
         handler.setFormatter(
-            jsonlogger.JsonFormatter(
+            jsonlogger.JsonFormatter(  # type: ignore[no-untyped-call]
                 "%(asctime)s %(levelname)s %(name)s %(request_id)s %(user_id)s %(message)s",
                 rename_fields={"levelname": "level", "asctime": "timestamp", "name": "logger"},
             )
