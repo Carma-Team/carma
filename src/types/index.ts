@@ -136,6 +136,19 @@ export interface Notification {
   timestamp: string;
 }
 
+// ─── Trip Validation (local SDK) ─────────────────────────────────────────────
+// String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts
+// to avoid a circular import between @/types and the SDK layer.
+export interface TripValidationResult {
+  isValid: boolean;
+  state: 'IDLE' | 'PRE_TRIP' | 'SCORING' | 'ENDED';
+  transportMode: 'CAR' | 'TRAIN' | 'UNKNOWN';
+  fraudConfidence: number;           // 0–1; Phase 2 populates this
+  continuousAboveThresholdMs: number; // Rule 1 counter
+  continuousBelowThresholdMs: number; // Rule 2 counter
+  invalidReason?: string;            // human-readable, sent to fraud.api
+}
+
 // ─── Scoring (local SDK) ──────────────────────────────────────────────────────
 export interface ScoringResult {
   score: number;

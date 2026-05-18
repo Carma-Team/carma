@@ -17,6 +17,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { USE_REAL_SERVER, LOCAL_SERVER_URL } from '@/constants/serverConfig';
 
+// Carries the HTTP status so callers (e.g. SyncManager) can distinguish 4xx from network errors
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 const REAL_SERVER_URL = 'https://carma-api.example.com'; // TODO: עדכן לכתובת השרת של נווה
 const BASE_URL = USE_REAL_SERVER ? REAL_SERVER_URL : LOCAL_SERVER_URL;
 
@@ -43,7 +51,7 @@ export async function request<T>(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.detail || data.error || 'Request failed');
+    throw new ApiError(res.status, data.detail || data.error || 'Request failed');
   }
 
   if (res.status === 204) return undefined as unknown as T;

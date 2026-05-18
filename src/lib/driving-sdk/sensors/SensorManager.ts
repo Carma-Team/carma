@@ -30,23 +30,32 @@ export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;
   private lastLocation: any = null;
+  private isRunning = false;
 
   // LPF gravity state — initialised to [0,0,1] (phone face-up assumption)
   private gravity = { x: 0, y: 0, z: 1 };
 
+  // Latest raw sensor values — bundled into onUpdate at GPS rate for fraud detection
+  private latestAccelX = 0; // gravity-removed lateral component (g-units)
+  private latestGyroZ  = 0; // yaw rate (rad/s)
+
   private onEvent: (event: DrivingEvent) => void;
-  private onUpdate: (data: { distanceKm: number, currentSpeed: number }) => void;
+  private onUpdate: (data: { distanceKm: number; currentSpeed: number; accelX: number; gyroZ: number }) => void;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
-    onUpdate: (data: { distanceKm: number, currentSpeed: number }) => void
+    onUpdate: (data: { distanceKm: number; currentSpeed: number; accelX: number; gyroZ: number }) => void
   ) {
     this.onEvent = onEvent;
     this.onUpdate = onUpdate;
   }
 
   public async start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
     this.gravity = { x: 0, y: 0, z: 1 };
+    this.latestAccelX = 0;
+    this.latestGyroZ  = 0;
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -76,6 +85,8 @@ export class SensorManager {
   }
 
   public stop() {
+    if (!this.isRunning) return;
+    this.isRunning = false;
     try {
       if (this.locationSub) this.locationSub.remove();
       if (this.accelSub) this.accelSub.remove();
@@ -99,7 +110,9 @@ export class SensorManager {
     this.lastLocation = loc;
     this.onUpdate({
       distanceKm: distance,
-      currentSpeed: (loc.coords.speed || 0) * 3.6
+      currentSpeed: (loc.coords.speed || 0) * 3.6,
+      accelX: this.latestAccelX,
+      gyroZ: this.latestGyroZ,
     });
   }
 
@@ -113,6 +126,9 @@ export class SensorManager {
     const dy = data.y - this.gravity.y;
     const dz = data.z - this.gravity.z;
     const dynamicMag = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // Always track latest lateral component for fraud detection (regardless of event threshold)
+    this.latestAccelX = dx;
 
     if (dynamicMag < DYNAMIC_ACCEL_THRESHOLD) return;
 
@@ -129,6 +145,9 @@ export class SensorManager {
   }
 
   private handleGyro(data: { x: number; y: number; z: number }) {
+    // Always track latest yaw rate for fraud detection (regardless of event threshold)
+    this.latestGyroZ = data.z;
+
     // Use full rotation magnitude — handles phones mounted at any angle in the car.
     const rotMag = Math.sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
 
