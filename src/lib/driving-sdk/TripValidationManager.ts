@@ -1,4 +1,5 @@
 import { ValidationState, TransportMode, ValidationSample } from '@/lib/driving-sdk/types';
+import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/driving-sdk/FraudDetector';
 
 // ─── Thresholds (Appendix E — נספח ה') ───────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -10,23 +11,23 @@ export class TripValidationManager {
   private state: ValidationState = ValidationState.IDLE;
   private continuousAboveThresholdMs = 0;
   private continuousBelowThresholdMs = 0;
-  private latestSpeedKmh = 0;
+  private latestSpeedKmh       = 0;
+  private latestLateralAccelG  = 0;  // gravity-removed X-axis (g-units) — Rule 3 Signal B
+  private latestGyroZ          = 0;  // yaw rate (rad/s) — Rule 3 Signal C
   private ticker: ReturnType<typeof setInterval> | null = null;
+  private fraudDetector        = new FraudDetector();
+  private fraudSuspectedFired  = false;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
-  // Called when Rule 1 is satisfied — CarmaDrivingSDK should call startTrip() here
   public onTripConfirmed?: () => void;
-  // Called when Rule 2 is satisfied — CarmaDrivingSDK should call stopTrip() here
   public onTripEnded?: () => void;
-  // Called on every state transition — useful for UI and logging
   public onStateChange?: (state: ValidationState) => void;
-  // Phase 2 hook — populated by FraudDetector when transport mode is classified
   public onFraudSuspected?: (confidence: number, mode: TransportMode) => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
   public start(): void {
-    if (this.ticker) return; // guard against double-start
+    if (this.ticker) return;
     this.reset();
     this.ticker = setInterval(() => this.tick(), TICK_INTERVAL_MS);
     console.log('[Validation] Started — waiting for movement');
@@ -41,12 +42,16 @@ export class TripValidationManager {
     console.log('[Validation] Stopped and reset');
   }
 
-  // ─── Speed Feed (called by SensorManager or CarmaDrivingSDK.onUpdate) ─────
-  // TripValidationManager consumes one value per tick at 1Hz.
-  // The caller (SensorManager at 10Hz) just overwrites; we read the latest on each tick.
+  // ─── Speed + Sensor Feed ──────────────────────────────────────────────────
+  // Called at up to 10Hz; tick() reads the latest values at 1Hz.
   public updateSample(sample: ValidationSample): void {
     this.latestSpeedKmh = sample.speedKmh;
-    // Phase 2: pass accel/gyro to FraudDetector sliding window here
+    if (sample.accel) {
+      this.latestLateralAccelG = sample.accel.x;
+    }
+    if (sample.gyroYaw !== undefined) {
+      this.latestGyroZ = sample.gyroYaw;
+    }
   }
 
   // ─── Public Getters ────────────────────────────────────────────────────────
@@ -63,10 +68,13 @@ export class TripValidationManager {
     return {
       state: this.state,
       latestSpeedKmh: this.latestSpeedKmh,
+      latestLateralAccelG: this.latestLateralAccelG,
+      latestGyroZ: this.latestGyroZ,
       continuousAboveThresholdMs: this.continuousAboveThresholdMs,
       continuousBelowThresholdMs: this.continuousBelowThresholdMs,
       startThresholdMs: START_THRESHOLD_MS,
       endThresholdMs: END_THRESHOLD_MS,
+      fraudEvaluation: this.fraudDetector.evaluate(),
     };
   }
 
@@ -78,6 +86,9 @@ export class TripValidationManager {
       case ValidationState.IDLE:
         if (this.latestSpeedKmh > SPEED_THRESHOLD_KMH) {
           this.continuousAboveThresholdMs = TICK_INTERVAL_MS;
+          // First fraud sample: collected at the IDLE→PRE_TRIP boundary so that
+          // we have exactly MIN_SAMPLES_TO_EVALUATE samples when Rule 1 is checked.
+          this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
           this.setState(ValidationState.PRE_TRIP);
         }
         break;
@@ -85,16 +96,32 @@ export class TripValidationManager {
       case ValidationState.PRE_TRIP:
         if (this.latestSpeedKmh > SPEED_THRESHOLD_KMH) {
           this.continuousAboveThresholdMs += TICK_INTERVAL_MS;
+          this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
+
           if (this.continuousAboveThresholdMs >= START_THRESHOLD_MS) {
-            // Rule 1 satisfied ✓
             this.continuousAboveThresholdMs = START_THRESHOLD_MS; // cap — prevent overflow
+
+            // Rule 3: evaluate fraud BEFORE confirming the trip.
+            // At this point the window has exactly MIN_SAMPLES_TO_EVALUATE (30) samples.
+            const fraud = this.fraudDetector.evaluate();
+            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD) {
+              console.log(`[Validation] Rule 3 — ${fraud.mode} detected (score=${fraud.score.toFixed(2)}) — trip rejected`);
+              this.continuousAboveThresholdMs = 0;
+              this.fraudDetector.reset();
+              this.setState(ValidationState.IDLE);
+              this.onFraudSuspected?.(fraud.score, fraud.mode);
+              return;
+            }
+
+            // Rule 1 satisfied, no fraud ✓
             this.setState(ValidationState.SCORING);
             console.log('[Validation] Rule 1 passed — trip confirmed, scoring begins');
             this.onTripConfirmed?.();
           }
         } else {
-          // Speed dropped before 30s — reset to IDLE
+          // Speed dropped before 30s — discard accumulated fraud data and reset
           this.continuousAboveThresholdMs = 0;
+          this.fraudDetector.reset();
           this.setState(ValidationState.IDLE);
           console.log('[Validation] Pre-trip reset — speed dropped below threshold');
         }
@@ -112,6 +139,18 @@ export class TripValidationManager {
         } else {
           // Movement resumed — reset end-of-trip counter
           this.continuousBelowThresholdMs = 0;
+
+          // Continue sliding-window fraud monitoring during scoring.
+          // Fires onFraudSuspected at most once per session.
+          if (!this.fraudSuspectedFired) {
+            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
+            const fraud = this.fraudDetector.evaluate();
+            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD) {
+              this.fraudSuspectedFired = true;
+              console.log(`[Validation] Rule 3 (mid-trip) — ${fraud.mode} detected (score=${fraud.score.toFixed(2)})`);
+              this.onFraudSuspected?.(fraud.score, fraud.mode);
+            }
+          }
         }
         break;
 
@@ -134,6 +173,10 @@ export class TripValidationManager {
     this.state = ValidationState.IDLE;
     this.continuousAboveThresholdMs = 0;
     this.continuousBelowThresholdMs = 0;
-    this.latestSpeedKmh = 0;
+    this.latestSpeedKmh      = 0;
+    this.latestLateralAccelG = 0;
+    this.latestGyroZ         = 0;
+    this.fraudDetector.reset();
+    this.fraudSuspectedFired = false;
   }
 }

@@ -8,7 +8,7 @@
  * - טיימר רץ שמעדכן את TripData כל שנייה
  * - האזנה לאירועי חיישנים (בלימה/האצה/פנייה) דרך SensorManager
  * - האזנה לשימוש בטלפון דרך PhoneUsageManager
- * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
  *
  * @remarks ללא קריאות שרת — כל הלוגיקה מקומית. השמירה לשרת מתבצעת ב-AppContext אחרי stopTrip().
  * @see AppContext.processEndTrip — שם מתבצע tripsApi.save() לאחר סיום נסיעה
@@ -16,14 +16,21 @@
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
-import { DrivingEventType, DrivingEvent, SDKConfig, TripData } from '@/lib/driving-sdk/types';
+import { TripValidationManager } from '@/lib/driving-sdk/TripValidationManager';
+import { DrivingEventType, DrivingEvent, SDKConfig, TripData, TransportMode } from '@/lib/driving-sdk/types';
+import { fraudApi } from '@/services/api/fraud.api';
 
 export class CarmaDrivingSDK {
   private config: SDKConfig;
   private btManager: BluetoothManager;
   private sensorManager: SensorManager;
   private phoneManager: PhoneUsageManager;
+  private validationManager: TripValidationManager;
+
   private isTripActive: boolean = false;
+  private isValidating: boolean = false;
+  private validationStartTime = 0;
+  private validationMaxSpeed  = 0;
   private currentTripData: TripData | null = null;
   private timer: any = null;
 
@@ -32,6 +39,8 @@ export class CarmaDrivingSDK {
   public onTripEnd?: (data: TripData) => void;
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
+  // Mai: show "תחבורה ציבורית זוהתה — הנסיעה לא תירשם" toast when this fires
+  public onFraudDetected?: (confidence: number, mode: TransportMode) => void;
 
   constructor(config: SDKConfig = {}) {
     this.config = {
@@ -56,6 +65,15 @@ export class CarmaDrivingSDK {
       (totalSeconds) => this.handlePhoneSeconds(totalSeconds)
     );
 
+    this.validationManager = new TripValidationManager();
+    this.validationManager.onTripConfirmed = () => {
+      this.isValidating = false;
+      this.startTrip();
+    };
+    this.validationManager.onTripEnded = () => this.stopTrip();
+    this.validationManager.onFraudSuspected = (confidence, mode) =>
+      this.handleFraud(confidence, mode);
+
     if (this.config.targetBluetoothId) {
       this.btManager.setTargetDevice(this.config.targetBluetoothId);
     }
@@ -64,15 +82,27 @@ export class CarmaDrivingSDK {
   // --- Bluetooth Logic ---
 
   private async handleBluetoothConnect() {
-    if (this.config.autoStartOnBluetooth && !this.isTripActive) {
-      console.log('[SDK] Auto-starting trip via Bluetooth');
-      await this.startTrip();
-    }
+    if (!this.config.autoStartOnBluetooth || this.isTripActive || this.isValidating) return;
+
+    console.log('[SDK] BT connected — starting trip validation');
+    this.isValidating = true;
+    this.validationStartTime = Date.now();
+    this.validationMaxSpeed  = 0;
+
+    // Sensors must run during validation so TripValidationManager receives speed data.
+    // SensorManager.start() is idempotent — safe to call again when startTrip() fires.
+    await this.sensorManager.start();
+    this.validationManager.start();
   }
 
   private async handleBluetoothDisconnect() {
+    if (this.isValidating) {
+      this.validationManager.stop();
+      this.sensorManager.stop();
+      this.isValidating = false;
+    }
     if (this.isTripActive) {
-      console.log('[SDK] Auto-ending trip via Bluetooth disconnect');
+      this.validationManager.stop();
       await this.stopTrip();
     }
   }
@@ -100,6 +130,7 @@ export class CarmaDrivingSDK {
       phoneSeconds: 0,
     };
 
+    // SensorManager may already be running (started during validation phase)
     await this.sensorManager.start();
     this.phoneManager.start();
 
@@ -129,6 +160,31 @@ export class CarmaDrivingSDK {
 
     this.currentTripData = null;
     return finalData;
+  }
+
+  // --- Fraud Handling ---
+
+  private async handleFraud(confidence: number, mode: TransportMode) {
+    console.log(`[SDK] Fraud: ${mode} at ${Math.round(confidence * 100)}% — aborting session silently`);
+    this.isValidating = false;
+
+    // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
+    this.isTripActive = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.currentTripData = null;
+    this.sensorManager.stop();
+    this.phoneManager.stop();
+
+    this.onFraudDetected?.(confidence, mode);
+
+    await fraudApi.syncInvalidTrip({
+      reason: 'NON_CAR_TRANSPORT',
+      transportMode: mode as 'CAR' | 'TRAIN' | 'UNKNOWN',
+      fraudConfidence: confidence,
+      durationMs: Date.now() - this.validationStartTime,
+      maxSpeedKmh: this.validationMaxSpeed,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   // --- Internal Handlers ---
@@ -162,7 +218,18 @@ export class CarmaDrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number, currentSpeed: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; accelX: number; gyroZ: number }) {
+    // Track peak speed across the whole session (validation + scoring) for fraud payload
+    this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
+
+    // Always feed sensor data to TripValidationManager (works in both phases)
+    this.validationManager.updateSample({
+      speedKmh: update.currentSpeed,
+      timestamp: Date.now(),
+      accel: { x: update.accelX, y: 0, z: 0 },
+      gyroYaw: update.gyroZ,
+    });
+
     if (!this.isTripActive || !this.currentTripData) return;
 
     this.currentTripData.distanceKm += update.distanceKm;
@@ -183,6 +250,7 @@ export class CarmaDrivingSDK {
   public getStatus() {
     return {
       isActive: this.isTripActive,
+      isValidating: this.isValidating,
       tripData: this.currentTripData
     };
   }
