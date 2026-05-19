@@ -43,6 +43,7 @@ export interface TripState {
   distanceKm: number;
   currentSpeedKmH: number;
   phoneSeconds: number;
+  phoneWeightedSeconds: number; // Σ k(v_i) — fed to calculateScore instead of raw phoneSeconds
   eventCounts: {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
@@ -59,8 +60,26 @@ const INITIAL_TRIP_STATE: TripState = {
   distanceKm: 0,
   currentSpeedKmH: 0,
   phoneSeconds: 0,
+  phoneWeightedSeconds: 0,
   eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, PHONE_TOUCH: 0 },
 };
+
+// ─── Kinetic Phone Penalty ────────────────────────────────────────────────────
+// k(v) = clamp(v / 60, 0.20, 2.00)
+// At 5 km/h → 0.20× (crawling floor); at 60 km/h → 1.0× (reference); at 120 km/h → 2.0× (cap)
+const K_PHONE_V_REF = 60   // km/h — multiplier equals 1.0 at this speed
+const K_PHONE_MIN   = 0.20 // crawling-traffic floor
+const K_PHONE_MAX   = 2.00 // highway cap
+
+function computePhoneWeightedSeconds(tripData: TripData): number {
+  const phoneEvents = tripData.events.filter(e => e.type === DrivingEventType.PHONE_USAGE)
+  if (phoneEvents.length === 0 || tripData.phoneSeconds === 0) return tripData.phoneSeconds
+  const avgK = phoneEvents.reduce((sum, ev) => {
+    const k = Math.min(K_PHONE_MAX, Math.max(K_PHONE_MIN, (ev.speedKmh ?? K_PHONE_V_REF) / K_PHONE_V_REF))
+    return sum + k
+  }, 0) / phoneEvents.length
+  return tripData.phoneSeconds * avgK
+}
 
 interface AppContextValue {
   user: AppUser | null
@@ -153,6 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
       phoneSeconds: finalState.phoneSeconds,
+      phoneWeightedSeconds: finalState.phoneWeightedSeconds,
       durationSeconds: finalState.durationSeconds,
       distanceKm: finalState.distanceKm,
       startTime: finalState.startTime ?? new Date(),
@@ -254,12 +274,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     sdk.onUpdate = (data: TripData) => {
+      const phoneWeightedSeconds = computePhoneWeightedSeconds(data)
       setTripState(prev => ({
         ...prev,
         isActive: true,
         durationSeconds: data.durationSeconds,
         distanceKm: data.distanceKm,
         phoneSeconds: data.phoneSeconds,
+        phoneWeightedSeconds,
         eventCounts: {
           HARD_BRAKE: data.events.filter(e => e.type === DrivingEventType.HARD_BRAKE).length,
           AGGRESSIVE_ACCEL: data.events.filter(e => e.type === DrivingEventType.AGGRESSIVE_ACCEL).length,

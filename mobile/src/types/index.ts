@@ -163,6 +163,7 @@ export interface ScoringInput {
   aggressiveAccels: number;
   sharpTurns: number;
   phoneSeconds: number;
+  phoneWeightedSeconds: number; // Σ k(v_i) — kinetic-scaled phone time; k = clamp(v/60, 0.20, 2.00)
   durationSeconds: number;
   distanceKm: number;
   startTime: Date;
