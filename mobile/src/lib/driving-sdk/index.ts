@@ -33,6 +33,8 @@ export class CarmaDrivingSDK {
   private validationMaxSpeed  = 0;
   private currentTripData: TripData | null = null;
   private timer: any = null;
+  // Wall-clock start used to compute durationSeconds — setInterval is throttled by the OS in background.
+  private tripStartMs = 0;
   // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
   private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
 
@@ -120,8 +122,19 @@ export class CarmaDrivingSDK {
   public async startTrip(): Promise<string> {
     if (this.isTripActive) return 'ALREADY_ACTIVE';
 
+    // Manual trip start: BT-triggered trips already started the validator in handleBluetoothConnect.
+    // Without this, users on trains who start manually bypass fraud detection entirely (D-FRAUD-3).
+    if (!this.isValidating) {
+      this.isValidating = true;
+      this.validationStartTime = Date.now();
+      this.validationMaxSpeed = 0;
+      await this.sensorManager.start();
+      this.validationManager.start();
+    }
+
     this.isTripActive = true;
     this.lastEventTime = {};
+    this.tripStartMs = Date.now();
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -140,7 +153,9 @@ export class CarmaDrivingSDK {
 
     this.timer = setInterval(() => {
       if (this.currentTripData) {
-        this.currentTripData.durationSeconds += 1;
+        // Use wall-clock elapsed time — setInterval is throttled in background on iOS/Android,
+        // causing durationSeconds to lag behind real time and inflating averageSpeed (D-SDK-5).
+        this.currentTripData.durationSeconds = Math.floor((Date.now() - this.tripStartMs) / 1000);
         if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
       }
     }, 1000);
@@ -153,7 +168,7 @@ export class CarmaDrivingSDK {
     if (!this.isTripActive || !this.currentTripData) return null;
 
     this.isTripActive = false;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
 
     this.currentTripData.endTime = new Date();
     this.sensorManager.stop();
@@ -236,7 +251,11 @@ export class CarmaDrivingSDK {
 
     if (!this.isTripActive || !this.currentTripData) return;
 
-    this.currentTripData.distanceKm += update.distanceKm;
+    // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise
+    // accumulates phantom distance via Haversine (D-SDK-3).
+    if (update.currentSpeed >= 3) {
+      this.currentTripData.distanceKm += update.distanceKm;
+    }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
 
     const hours = this.currentTripData.durationSeconds / 3600;

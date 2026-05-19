@@ -234,7 +234,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         level: newLevel
       };
       setUserState(updatedUser);
-      await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+      // Non-blocking — a storage failure must never leave the trip stuck in "active" state (D-CTX-2).
+      AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser)).catch(e =>
+        console.error('[AppContext] Failed to persist user after trip end', e)
+      );
     }
 
     setLastTripSummary({
