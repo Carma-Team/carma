@@ -32,8 +32,8 @@ import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { SyncManager } from '@/services/sync/SyncManager'
 import type { ValidTripPayload } from '@/services/sync/types'
-import { calculateLevel, detectLevelUp } from '@/lib/driving-sdk/utils/gamification'
-import type { GamificationLevel } from '@/lib/driving-sdk/utils/gamification'
+import { calculateLevel, detectLevelUp } from '@/lib/gamification'
+import type { GamificationLevel } from '@/lib/gamification'
 
 export interface TripState {
   isActive: boolean;
