@@ -32,6 +32,8 @@ import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { SyncManager } from '@/services/sync/SyncManager'
 import type { ValidTripPayload } from '@/services/sync/types'
+import { calculateLevel, detectLevelUp } from '@/lib/driving-sdk/utils/gamification'
+import type { GamificationLevel } from '@/lib/driving-sdk/utils/gamification'
 
 export interface TripState {
   isActive: boolean;
@@ -83,6 +85,8 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
   sdk: CarmaDrivingSDK
+  // TODO: Mai — subscribe to `userLevelState` for level-up animations and progress bar UI
+  userLevelState: GamificationLevel
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -95,6 +99,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
+  const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => calculateLevel(0))
 
   // Filtered trips based on lastClearedHistory
   const filteredTrips = useMemo(() => {
@@ -215,6 +220,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newTotalPoints = currentPoints + earnedPoints;
       const newLevel = getLevelByPoints(newTotalPoints);
 
+      const levelUpEvent = detectLevelUp(currentPoints, newTotalPoints);
+      if (levelUpEvent) {
+        console.log(`[Gamification] LEVEL_UP! From ${levelUpEvent.from} to ${levelUpEvent.to}`);
+      }
+      setUserLevelState(calculateLevel(newTotalPoints));
+
       const updatedUser = {
         ...user,
         points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
@@ -334,6 +345,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
+            setUserLevelState(calculateLevel(merged.totalPoints || 0));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
 
             const serverData = await tripsApi.list();
@@ -439,7 +451,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       lastTripSummary, setLastTripSummary, registerPhoneTouch,
       debugAddDistance,
       clearTripHistory,
-      sdk
+      sdk,
+      userLevelState,
     }}>
       {children}
     </AppContext.Provider>
