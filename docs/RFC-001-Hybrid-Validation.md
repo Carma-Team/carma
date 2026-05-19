@@ -1,7 +1,7 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
-**מסמך:** RFC-001 | **גרסה:** 1.0 | **תאריך:** 2026-05-20
+**מסמך:** RFC-001 | **גרסה:** 1.1 | **תאריך:** 2026-05-20
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract`
-**סטטוס:** פעיל — מיועד לביצוע בשלב ההנדסי הבא
+**סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
 
 ---
 
@@ -87,8 +87,12 @@ header          = "Idempotency-Key: <localTripId>"
 body.payloadSignature = "ph:<32-char-hex>"  // placeholder עד להטמעת expo-crypto
 ```
 
-**Phase 1 (current):** FNV-1a hash placeholder — deterministic, מספיק לפיתוח ולבדיקות.
-**Phase 2 (Production):** `expo-crypto.digestStringAsync(CryptoAlgorithm.HMAC_SHA256, ...)` עם מפתח שמנוהל דרך App Attestation (iOS) / Play Integrity (Android).
+**ספרינט נוכחי — Phase 1+2 ממוזגים:**
+- FNV-1a placeholder פעיל בלקוח (`ph:` prefix) — שרת מקבל ומאגר ל-DB
+- Sean מיישם `_verify_signature()` עם bypass זמני ל-`ph:` בלבד
+- Dan משדרג ל-HMAC-SHA256 אמיתי דרך `expo-crypto` ברגע שמנגנון הסוד מוכן
+
+**Sprint+1:** `expo-crypto.digestStringAsync(CryptoAlgorithm.HMAC_SHA256, ...)` עם מפתח מנוהל דרך App Attestation (iOS) / Play Integrity (Android) — הסרת ה-`ph:` bypass לחלוטין.
 
 ---
 
@@ -96,9 +100,11 @@ body.payloadSignature = "ph:<32-char-hex>"  // placeholder עד להטמעת exp
 
 ---
 
-### 4.1 Sean — Backend Lead (עדיפות יורדת)
+### 4.1 Sean — Backend Lead
 
-#### [SEAN-P0] נתיב אימות מהיר — `/api/trips` Validation Gate
+> **🔴 [SEAN-P0] ו-[SEAN-P1] להלן: עדיפות קריטית — לספרינט הנוכחי.** אין המתנה לספרינט הבא. הבקאנד חשוף כעת לזיוף מלא. כל משימה מסומנת P0/P1 מטה חייבת להיסגר לפני merge ל-main.
+
+#### [SEAN-P0 | ספרינט נוכחי] נתיב אימות מהיר — `/api/trips` Validation Gate
 
 **מה:** הוסף לוגיקת validation ב-`trips_service.save()` לפני כתיבה ל-DB.
 
@@ -123,14 +129,14 @@ def _validate_trip_plausibility(dto: SaveTripIn) -> None:
             raise HTTPException(422, f"avg_speed implausible ({avg_speed:.0f} km/h)")
 ```
 
-#### [SEAN-P0] חישוב ציון עצמאי בצד-שרת
+#### [SEAN-P0 | ספרינט נוכחי] חישוב ציון עצמאי בצד-שרת
 
 **מה:** מרר את נוסחת הניקוד של `scoring.ts` ב-Python ב-`server/app/services/trips.py`. השוה בין ציון הלקוח לציון השרת.
 
 ```python
 def _server_calculate_score(dto: SaveTripIn) -> float:
     dur = max(dto.duration_seconds or 1, 1)
-    phone_w = dto.phone_seconds or 0  # Phase 2: accept phoneWeightedSeconds
+    phone_w = dto.phone_seconds or 0  # ספרינט נוכחי: phone_weighted_seconds יתווסף ע"י Naveh
     penalties = (
         (dto.hard_brakes or 0) * 5 +
         (dto.aggressive_accels or 0) * 3 +
@@ -150,7 +156,13 @@ if dto.avg_score is not None:
 trip.avg_score = round(server_score, 1)  # שרת קובע — לא הלקוח
 ```
 
-#### [SEAN-P1] אימות חתימת HMAC-SHA256
+> **⚠️ 422 Edge-Case Guard — טיפול בחוסר עקביות זמני:**
+> שני תרחישים לגיטימיים יכולים לגרום ל-delta > 5 מבלי שמדובר בזיוף:
+> 1. **Clock drift / timezone offset:** `startTime` של הלקוח מחושב ב-Local Time; `getRiskMultiplier()` מבוסס על `getHours()` מקומי. אם השרת נמצא ב-UTC ולא ממיר נכון — מכפיל הסיכון שונה → delta בנקודות. **Sean: וודא שהשרת מחשב `riskMultiplier` לפי `startTime` של הלקוח ב-UTC, לא שעון השרת.**
+> 2. **Rounding cascade:** `phoneWeightedSeconds` הוא float שעובר `Math.round()` ושוב `round()` בשרת. הפרש של ±0.5 שניות מכפיל ב-`40/duration` יכול לתת delta של עד 3 נקודות על נסיעות קצרות. **Sean: שמור delta threshold ב-7.0 (לא 5.0) עד שנוסיף `phone_weighted_seconds` שדה נפרד.**
+> 3. **Stale SyncManager retry:** נסיעה שנדחתה ב-422 **חייבת להיות מסומנת permanent failure** (`PERMANENT_FAILURE_STATUSES`) ולא לחזור לתור. מאי מטפלת ב-UI, Sean מחזיר error code ייחודי (e.g., `422 SCORE_MISMATCH`) כדי לאפשר הבחנה.
+
+#### [SEAN-P0 | ספרינט נוכחי] אימות חתימת HMAC-SHA256
 
 **מה:** לאחר שמנגנון ניהול המפתחות ייקבע (Phase 2), הוסף middleware לאימות `payloadSignature` ב-`routers/trips.py`.
 
@@ -161,8 +173,9 @@ import hmac, hashlib
 SHARED_SECRET = settings.trip_signing_secret  # env var, Vault/KeyVault
 
 def _verify_signature(digest: dict, signature: str | None) -> None:
+    # ספרינט נוכחי: קבל ph: prefix (FNV-1a placeholder מהלקוח) — אל תדחה
     if not signature or signature.startswith("ph:"):
-        return  # Phase 1 placeholder — accept without verification
+        return
     canonical = json.dumps(digest, sort_keys=True)
     expected = hmac.new(
         SHARED_SECRET.encode(), (SHARED_SECRET + ":" + canonical).encode(), hashlib.sha256
@@ -171,7 +184,9 @@ def _verify_signature(digest: dict, signature: str | None) -> None:
         raise HTTPException(403, "Invalid payload signature")
 ```
 
-#### [SEAN-P1] שמירת אירועי נסיעה ל-Event table
+> **הערה לספרינט:** הוסף `TRIP_SIGNING_SECRET` ל-Azure Key Vault ול-`.env.example`. אסור לקשור ערך ברירת מחדל (empty string) שיגרום ל-bypass בשגגה בסביבת production.
+
+#### [SEAN-P1 | ספרינט נוכחי] שמירת אירועי נסיעה ל-Event table
 
 **מה:** `trips_service.save()` כרגע מקבל `dto.events` אבל לא כותב לטבלת `events`. **כל נתוני האירועים אובדים.** הוסף bulk insert.
 
@@ -190,15 +205,17 @@ if dto.events:
         db.add(ev)
 ```
 
-#### [SEAN-P2] Rate Limiting על `/api/trips`
+#### [SEAN-P2 | Sprint+1] Rate Limiting על `/api/trips`
 
 **מה:** הוסף middleware rate limit — לא יותר מ-20 נסיעות ביום למשתמש.
 
 ---
 
-### 4.2 Naveh — Database Lead (עדיפות יורדת)
+### 4.2 Naveh — Database Lead
 
-#### [NAVEH-P0] עדכון אטומי של נקודות משתמש — מניעת Lost Update
+> **🔴 [NAVEH-P0] להלן: עדיפות קריטית — לספרינט הנוכחי.** ה-Lost Update bug ב-`user.points` הוא race condition פעיל שמגיע לייצור עם כל flush של SyncManager. ה-migration חייב לרוץ לפני שה-validation endpoint של Sean עולה לאוויר.
+
+#### [NAVEH-P0 | ספרינט נוכחי] עדכון אטומי של נקודות משתמש — מניעת Lost Update
 
 **מה:** שורות 72–75 ב-`trips_service.save()` מבצעות read-modify-write שאינו אטומי. תחת עומס (50 נסיעות בתור) זה גורם לאובדן נקודות מובטח.
 
@@ -224,7 +241,7 @@ if trip.points > 0 or trip.distance_km > 0:
 
 **הסבר:** `UPDATE ... SET points = points + ?` מתורגם ל-SQL שהמנוע מבצע בתוך single lock — אטומי לחלוטין, ללא race condition.
 
-#### [NAVEH-P0] Migration: הוסף עמודת `telemetry_digest` לטבלת `trips`
+#### [NAVEH-P0 | ספרינט נוכחי] Migration: הוסף עמודות `telemetry_digest` ו-`phone_weighted_seconds` לטבלת `trips`
 
 **מה:** שמירת ה-TelemetryDigest כ-JSONB לצורך audit trail ו-retroactive analysis.
 
@@ -248,36 +265,34 @@ payload_signature: str | None = Field(
 )
 ```
 
-```bash
-# Migration:
-alembic revision --autogenerate -m "add telemetry_digest and payload_signature to trips"
-alembic upgrade head
-```
-
-#### [NAVEH-P1] הוסף עמודת `phone_weighted_seconds` לטבלת `trips`
-
-**מה:** הלקוח שולח `phoneSeconds` (גולמי) ומשתמש ב-`phoneWeightedSeconds` לחישוב הציון. השרת שומר רק את הגולמי. ללא השדה המשוקלל, השרת לא יכול לשחזר את הציון.
-
 ```python
-# server/app/models/trip.py
+# server/app/models/trip.py — הוסף גם phone_weighted_seconds באותה migration:
 phone_weighted_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 ```
 
 ```python
-# server/app/schemas/trip.py — SaveTripIn
+# server/app/schemas/trip.py — SaveTripIn — הוסף:
 phone_weighted_seconds: float | None = Field(
     default=None,
     validation_alias=AliasChoices("phoneWeightedSeconds", "phone_weighted_seconds")
 )
 ```
 
-#### [NAVEH-P1] איחוד מערכת הרמות — Single Source of Truth
+> **קריטי:** `phone_weighted_seconds` חיוני לכך ש-Sean יוכל לשחזר את הציון המדויק מהלקוח ב-`_server_calculate_score()`. ללא שדה זה, כל נסיעה עם שימוש בטלפון בפועל תייצר delta שקרי ותיחסם ב-422. **שתי העמודות (`telemetry_digest`, `phone_weighted_seconds`) חייבות להיכנס לאותה Alembic migration בספרינט הנוכחי.**
+
+```bash
+# Migration — ספרינט נוכחי:
+alembic revision --autogenerate -m "hybrid-validation: add telemetry_digest, payload_signature, phone_weighted_seconds to trips"
+alembic upgrade head
+```
+
+#### [NAVEH-P1 | ספרינט נוכחי] איחוד מערכת הרמות — Single Source of Truth
 
 **מה:** כרגע `gamification.ts` ו-`constants.ts` מגדירים שתי מפות רמות שונות לחלוטין (pragot שונים). יש ליצור endpoint `/api/levels` שמחזיר מפה אחת סמכותית מה-DB, ולהבטיח ש-`gamification.ts` משתמשת בנתוני השרת ולא בקבועים קשיחים.
 
 **Alembic migration:** הוסף טבלת `levels` עם `min_points`, `multiplier`, `label`.
 
-#### [NAVEH-P2] Index על `fraud_reports.user_id + reported_at`
+#### [NAVEH-P2 | Sprint+1] Index על `fraud_reports.user_id + reported_at`
 
 **מה:** כבר קיים `ix_fraud_reports_reported_at` — הוסף composite index `(user_id, reported_at DESC)` לשאילתות analytics.
 
@@ -344,35 +359,80 @@ sdk.onUpdate = (data: TripData) => {
 
 ---
 
-## 5. פרוטוקול ה-Rollout
+## 5. פרוטוקול ה-Rollout — ספרינט מואץ (Crash-Program)
+
+> **v1.1 — Phase 1 ו-Phase 2 מוזגו לספרינט הנוכחי.** ה-backend חשוף כעת. אין המתנה.
 
 ```
-Phase 1 (current — ענף זה):
-  ✅ Client signs payload with FNV-1a placeholder
-  ✅ Server accepts but ignores signature (ph: prefix)
-  ✅ TelemetryDigest stored in DB (after Naveh migration)
+══════════════════════════════════════════════════════════════
+  ספרינט נוכחי  [Phase 1 + Phase 2 — ממוזגים]
+══════════════════════════════════════════════════════════════
 
-Phase 2 (Sprint+1):
-  ○ Sean implements server-side score recalculation
-  ○ Sean implements plausibility validation
-  ○ Naveh adds telemetry_digest column + atomic points UPDATE
-  ○ Dan upgrades to real HMAC-SHA256 via expo-crypto
+  Dan (בוצע ✅)
+    ✅ Client FNV-1a digest + payloadSignature ('ph:' prefix)
+    ✅ TelemetryDigest interface + ValidTripPayload fields
+    ✅ 125 tests green, branch pushed
 
-Phase 3 (Sprint+2):
-  ○ Sean enforces signature rejection (remove ph: bypass)
-  ○ App Attestation / Play Integrity key provisioning
-  ○ Rate limiting on /api/trips
+  Naveh (🔴 פתוח — ספרינט נוכחי)
+    ○ Alembic migration: telemetry_digest (JSONB) +
+      payload_signature (String 128) +
+      phone_weighted_seconds (Float) → trips table
+    ○ Atomic SQL UPDATE לנקודות משתמש (מניעת Lost Update)
+    ○ איחוד מערכת רמות — /api/levels כ-Single Source of Truth
+
+  Sean (🔴 פתוח — ספרינט נוכחי)
+    ○ _validate_trip_plausibility() — sanity checks לפני DB write
+    ○ _server_calculate_score() — Python mirror של scoring.ts
+    ○ Score mismatch enforcement (delta > 7.0 → 422 SCORE_MISMATCH)
+    ○ _verify_signature() + ph: bypass (תואם לפלייסהולדר הלקוח)
+    ○ bulk insert אירועים ל-events table
+    ○ TRIP_SIGNING_SECRET → Azure Key Vault + .env.example
+
+  Mai (🟡 פתוח — ספרינט נוכחי)
+    ○ 422 SCORE_MISMATCH → toast "נסיעה נדחתה" (לא retry)
+    ○ 403 INVALID_SIGNATURE → toast + trip_id copy לתמיכה
+
+══════════════════════════════════════════════════════════════
+  Sprint+1  [קשיחה ואבטחה מלאה]
+══════════════════════════════════════════════════════════════
+
+  Dan
+    ○ שדרוג ל-expo-crypto HMAC-SHA256 אמיתי
+    ○ App Attestation (iOS) / Play Integrity (Android)
+
+  Sean
+    ○ הסרת ph: bypass — סירוב מוחלט לחתימות לא תקפות
+    ○ Rate limiting: מקסימום 20 נסיעות ליום / משתמש
+    ○ Score delta threshold מ-7.0 → 5.0 (phone_weighted_seconds זמין)
+
+  Naveh
+    ○ Composite index: fraud_reports(user_id, reported_at DESC)
+    ○ Active-trip checkpoint table (שחזור ממוות סוללה)
+══════════════════════════════════════════════════════════════
 ```
+
+### קריטריוני כניסה ל-Sprint+1 (Definition of Done — ספרינט נוכחי)
+
+| בעל תפקיד | קריטריון | בדיקה |
+|-----------|---------|-------|
+| Naveh | Migration הורץ ב-staging, `alembic current` = head | `alembic history` |
+| Sean | POST `/api/trips` עם `avg_score=150` מחזיר 422 | curl test |
+| Sean | POST עם delta=10 מחזיר 422 SCORE_MISMATCH | integration test |
+| Sean | POST עם `ph:` signature עובר ✓ | integration test |
+| Mai | נסיעה שנדחית ב-422 לא נכנסת לתור SyncManager | E2E test |
+| Dan | `payloadSignature` שנשלח ≠ `undefined` בכל POST | log audit |
 
 ---
 
 ## 6. הבטחות שאסור לשבור
 
-1. **Mai's SDK Boundary:** אין לוגיקה עסקית של CARMA תוך `mobile/src/lib/driving-sdk/`
-2. **No Breaking Schema Changes:** כל שדות ה-`telemetryDigest` ו-`payloadSignature` הם אופציונליים עד Phase 3
-3. **125 Tests Must Stay Green:** כל שינוי ב-`ValidTripPayload` חייב לשמור על תאימות לאחור עם `makePayload()` הקיים בבדיקות
-4. **Idempotency is Sacred:** ה-Idempotency-Key protocol אינו משתנה — retry בטוח נשמר
+1. **Mai's SDK Boundary:** אין לוגיקה עסקית של CARMA תחת `mobile/src/lib/driving-sdk/` — גבול זה נצחי וסגור לכל פולש.
+2. **No Breaking Schema Changes:** שדות `telemetryDigest` ו-`payloadSignature` הם אופציונליים לאורך כל ספרינט הנוכחי — אין שבירת תאימות לאחור עם גרסאות app ישנות שעדיין ב-store.
+3. **125 Tests Must Stay Green:** כל שינוי ב-`ValidTripPayload` שומר תאימות מלאה עם `makePayload()` בבדיקות — הוספת שדות אופציונליים בלבד.
+4. **Idempotency is Sacred:** ה-Idempotency-Key protocol אינו משתנה — retry בטוח נשמר גם אחרי 422.
+5. **422 לעולם לא גורם לאובדן נסיעה:** נסיעה שנדחית ב-`SCORE_MISMATCH` **אינה** נכנסת לתור SyncManager. היא נרשמת ל-audit log עם `trip_id`, מוצגת למשתמש (Mai), ונידונה ידנית ע"י Support — לא נשלחת שוב.
+6. **Permanent 422 ≠ Network Error:** `SyncManager.PERMANENT_FAILURE_STATUSES` כבר מכיל `422` — הגדרה זו נשמרת ונאכפת.
 
 ---
 
-*RFC-001 | CTO Signature: Dan Ofri | 2026-05-20*
+*RFC-001 v1.1 | CTO Signature: Dan Ofri | 2026-05-20 | Crash-Program Revision*
