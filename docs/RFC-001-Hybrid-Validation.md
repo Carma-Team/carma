@@ -1,6 +1,6 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
-**מסמך:** RFC-001 | **גרסה:** 1.1 | **תאריך:** 2026-05-20
-**מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract`
+**מסמך:** RFC-001 | **גרסה:** 1.2 | **תאריך:** 2026-05-20
+**מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
 **סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
 
 ---
@@ -88,7 +88,7 @@ body.payloadSignature = "ph:<32-char-hex>"  // placeholder עד להטמעת exp
 ```
 
 **ספרינט נוכחי — Phase 1+2 ממוזגים:**
-- FNV-1a placeholder פעיל בלקוח (`ph:` prefix) — שרת מקבל ומאגר ל-DB
+- HMAC-SHA256 פעיל בלקוח (`ph:` prefix לביפאס ספרינט נוכחי) — שרת מקבל ומאגר ל-DB
 - Sean מיישם `_verify_signature()` עם bypass זמני ל-`ph:` בלבד
 - Dan משדרג ל-HMAC-SHA256 אמיתי דרך `expo-crypto` ברגע שמנגנון הסוד מוכן
 
@@ -173,7 +173,7 @@ import hmac, hashlib
 SHARED_SECRET = settings.trip_signing_secret  # env var, Vault/KeyVault
 
 def _verify_signature(digest: dict, signature: str | None) -> None:
-    # ספרינט נוכחי: קבל ph: prefix (FNV-1a placeholder מהלקוח) — אל תדחה
+    # ספרינט נוכחי: קבל ph: prefix (HMAC-SHA256 מהלקוח, bypass זמני) — אל תדחה
     if not signature or signature.startswith("ph:"):
         return
     canonical = json.dumps(digest, sort_keys=True)
@@ -346,14 +346,14 @@ sdk.onUpdate = (data: TripData) => {
 
 ---
 
-### 4.4 Dan — CTO (בוצע בענף זה)
+### 4.4 Dan — CTO (ממוזג ל-main ✅)
 
 #### [DAN-P0] שכבת Telemetry Digest + Payload Signing ✅
 
-**מה:** הוטמע ב-`AppContext.tsx` ו-`sync/types.ts` בענף זה.
+**מה:** הוטמע ב-`AppContext.tsx` ו-`sync/types.ts` — ממוזג ל-`main` בקומיט `a66fb42`.
 
 - `buildTelemetryDigest()` — מחשב snapshot נקי של מטריקות הנסיעה
-- `signTelemetryDigest()` — FNV-1a placeholder חד-כיווני (Phase 2: HMAC-SHA256 אמיתי)
+- `signTelemetryDigest()` — HMAC-SHA256 מלא (FIPS 198-1 / FIPS 180-4, pure-JS, ללא תלויות חיצוניות)
 - `TelemetryDigest` interface — מוסיף לסכמת `ValidTripPayload` כשדות אופציונליים
 - **לא נגעו** בשום קובץ תחת `mobile/src/lib/driving-sdk/`
 
@@ -368,10 +368,11 @@ sdk.onUpdate = (data: TripData) => {
   ספרינט נוכחי  [Phase 1 + Phase 2 — ממוזגים]
 ══════════════════════════════════════════════════════════════
 
-  Dan (בוצע ✅)
-    ✅ Client FNV-1a digest + payloadSignature ('ph:' prefix)
-    ✅ TelemetryDigest interface + ValidTripPayload fields
-    ✅ 125 tests green, branch pushed
+  Dan (בוצע ✅ — ממוזג ל-main)
+    ✅ Client HMAC-SHA256 digest + payloadSignature ('ph:' prefix לביפאס ספרינט נוכחי)
+    ✅ TelemetryDigest interface (11 שדות per RFC-001 §3.1) + ValidTripPayload fields
+    ✅ try/catch סביב digest pipeline — signing failure לא קורס את processEndTrip
+    ✅ 125 tests green, merged to main @ a66fb42
 
   Naveh (🔴 פתוח — ספרינט נוכחי)
     ○ Alembic migration: telemetry_digest (JSONB) +
