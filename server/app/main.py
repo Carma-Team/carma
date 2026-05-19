@@ -21,6 +21,7 @@ from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
 from app.routers import (
     auth,
+    fraud,
     health,
     leaderboard,
     notifications,
@@ -70,6 +71,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(users.stats_router)
 app.include_router(trips.router)
+app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(leaderboard.router)

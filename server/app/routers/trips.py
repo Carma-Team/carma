@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 
 from app.core.deps import CurrentUser, DbSession
 from app.schemas.trip import SaveTripIn, TripList, TripOut, TripSingle
@@ -15,10 +15,19 @@ async def list_trips(user: CurrentUser, db: DbSession) -> TripList:
 
 
 @router.post(
-    "", response_model=TripOut, response_model_by_alias=True, summary="Persist a completed trip from the mobile app"
+    "",
+    response_model=TripOut,
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Persist a completed trip from the mobile app",
 )
-async def save_trip(dto: SaveTripIn, user: CurrentUser, db: DbSession) -> TripOut:
-    return await trips_service.save(db, user, dto)
+async def save_trip(
+    dto: SaveTripIn,
+    user: CurrentUser,
+    db: DbSession,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+) -> TripOut:
+    return await trips_service.save(db, user, dto, idempotency_key=idempotency_key)
 
 
 @router.get("/{trip_id}", response_model=TripSingle, response_model_by_alias=True, summary="Get a single trip by id")

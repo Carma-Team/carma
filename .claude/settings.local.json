@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Administrator\\\\Desktop\\\\Dan\\\\Projects\\\\carma\\\\server\" -Recurse -Depth 3 | Where-Object { -not $_.FullName.Contains\\('__pycache__'\\) -and -not $_.FullName.Contains\\('.pytest_cache'\\) } | Format-Table @{L='Path';E={$_.FullName.Replace\\('C:\\\\Users\\\\Administrator\\\\Desktop\\\\Dan\\\\Projects\\\\carma\\\\server\\\\',''\\).Replace\\('C:\\\\Users\\\\Administrator\\\\Desktop\\\\Dan\\\\Projects\\\\carma\\\\server',''\\)}}, PSIsContainer -AutoSize)",
+      "Bash(alembic revision *)",
+      "Bash(python -m alembic revision --autogenerate -m \"add_idempotency_key_to_trips_add_fraud_reports\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(pip show *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Administrator\\\\Desktop\\\\Dan\\\\Projects\\\\carma\\\\server\" -Name | Where-Object { $_ -match \"venv|\\\\.venv|env\" })",
+      "PowerShell(py *)",
+      "PowerShell(alembic revision *)",
+      "PowerShell(ruff check *)",
+      "Bash(git add *)"
+    ]
+  }
+}

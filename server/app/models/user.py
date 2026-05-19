@@ -12,6 +12,7 @@ from app.models.enums import Language, UserRole
 
 if TYPE_CHECKING:
     from app.models.business import Business
+    from app.models.fraud import FraudReport
     from app.models.redemption import Redemption
     from app.models.trip import Trip
 
@@ -60,6 +61,7 @@ class User(Base, TimestampMixin):
 
     trips: Mapped[list[Trip]] = relationship(back_populates="user", cascade="all, delete-orphan")
     redemptions: Mapped[list[Redemption]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    fraud_reports: Mapped[list[FraudReport]] = relationship(back_populates="user", cascade="all, delete-orphan")
     business: Mapped[Business | None] = relationship(back_populates="owner", uselist=False)
 
     __table_args__ = (

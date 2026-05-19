@@ -50,10 +50,13 @@ class Trip(Base):
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+
     user: Mapped[User] = relationship(back_populates="trips")
     events: Mapped[list[Event]] = relationship(back_populates="trip", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_trips_user_start", "user_id", "start_time"),
         Index("ix_trips_status", "status"),
+        Index("ix_trips_idempotency_key", "idempotency_key"),
     )

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,7 +27,18 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     return trip
 
 
-async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
+async def save(
+    db: AsyncSession,
+    user: User,
+    dto: SaveTripIn,
+    idempotency_key: str | None = None,
+) -> TripOut:
+    # Fast-path deduplication: return the already-committed trip if key is known.
+    if idempotency_key:
+        existing = await db.scalar(select(Trip).where(Trip.idempotency_key == idempotency_key))
+        if existing:
+            return TripOut.from_orm_trip(existing)
+
     start = dto.start_time or datetime.now(UTC)
     end = dto.end_time
     duration = dto.duration_seconds
@@ -37,6 +49,7 @@ async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
 
     trip = Trip(
         user_id=user.id,
+        idempotency_key=idempotency_key,
         start_time=start,
         end_time=end,
         duration_seconds=duration or 0,
@@ -60,8 +73,18 @@ async def save(db: AsyncSession, user: User, dto: SaveTripIn) -> TripOut:
         user.total_points += trip.points
         user.total_distance += trip.distance_km
 
-    await db.commit()
-    await db.refresh(trip)
+    try:
+        await db.commit()
+        await db.refresh(trip)
+    except IntegrityError as exc:
+        # Race condition: a concurrent request with the same key already committed.
+        await db.rollback()
+        if idempotency_key:
+            existing = await db.scalar(select(Trip).where(Trip.idempotency_key == idempotency_key))
+            if existing:
+                return TripOut.from_orm_trip(existing)
+        raise HTTPException(status.HTTP_409_CONFLICT, "Duplicate trip") from exc
+
     audit(
         "trips.saved",
         user_id=user.id,

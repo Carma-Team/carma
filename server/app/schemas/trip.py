@@ -55,6 +55,7 @@ class TripOut(CamelModel):
     end_location: str | None
     ai_insight: str | None
     status: str
+    idempotency_key: str | None = None
 
     @classmethod
     def from_orm_trip(cls, trip: Any) -> TripOut:
@@ -77,6 +78,7 @@ class TripOut(CamelModel):
                 "end_location": trip.end_location,
                 "ai_insight": trip.ai_insight,
                 "status": trip.status.value.lower(),
+                "idempotency_key": trip.idempotency_key,
             }
         )
 

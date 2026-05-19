@@ -9,6 +9,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.event import Event
+from app.models.fraud import FraudReport
 from app.models.level import Level
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
@@ -22,6 +23,7 @@ __all__ = [
     "BusinessCategory",
     "Event",
     "EventType",
+    "FraudReport",
     "Language",
     "Level",
     "OtpCode",
