@@ -19,7 +19,7 @@ class FraudReport(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     trip_duration_seconds: Mapped[int | None] = mapped_column(Integer)
     distance_km: Mapped[float | None] = mapped_column(Float)

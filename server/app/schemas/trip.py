@@ -21,6 +21,10 @@ class SaveTripIn(CamelModel):
     aggressive_accels: int | None = None
     sharp_turns: int | None = None
     phone_seconds: int | None = None
+    risk_multiplier: float | None = Field(
+        default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
+    )
+    penalties: int | None = None
     events: list[dict[str, Any]] | None = Field(
         default=None, validation_alias=AliasChoices("events", "eventsArray", "events_array")
     )

@@ -56,6 +56,7 @@ async def save(
         distance_km=distance,
         avg_score=avg_score,
         points=dto.points or 0,
+        risk_multiplier=dto.risk_multiplier if dto.risk_multiplier is not None else 1.0,
         hard_brakes=dto.hard_brakes or 0,
         aggressive_accels=dto.aggressive_accels or 0,
         sharp_turns=dto.sharp_turns or 0,
