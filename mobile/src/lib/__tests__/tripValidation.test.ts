@@ -291,6 +291,31 @@ describe('Rule 3 — FraudDetector (train/bus detection)', () => {
     m.stop();
   });
 
+  // Highway false positive: Signals A+B fire (score=0.75 ≥ threshold) but C does not.
+  // A car with cruise control on a straight motorway can satisfy A (constant high speed)
+  // and B (smooth road, no lateral force) while still producing measurable yaw from
+  // micro-steering corrections that exceeds the rail-travel C threshold.
+  // Expected: trip CONFIRMS — score alone is insufficient without the B+C rail fingerprint.
+  test('highway false positive: A+B signals (score=0.75) without C do not block trip', () => {
+    const m = new TripValidationManager();
+    const confirmed = jest.fn();
+    const fraudSuspected = jest.fn();
+    m.onTripConfirmed = confirmed;
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    // Signal A ✓: constant 80 km/h → variance ≈ 0 << 8 km/h², avg = 80 > 60 km/h
+    // Signal B ✓: accelX = 0.01g << 0.12g threshold (smooth road, no lane changes)
+    // Signal C ✗: yaw alternates ±0.2 rad/s → variance = 0.04 >> 0.02 rad²/s² (micro-steering)
+    // score = 0.40 + 0.35 + 0 = 0.75 ≥ 0.70 — old code would have rejected; new code must confirm.
+    advanceFraudTicks(m, 30, 80, 0.01, (i) => (i % 2 === 0 ? 0.2 : -0.2));
+
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    expect(confirmed).toHaveBeenCalledTimes(1);
+    expect(fraudSuspected).not.toHaveBeenCalled();
+    m.stop();
+  });
+
   // Speed drop mid-PRE_TRIP flushes the fraud window; fresh 30 samples needed to re-trigger
   test('fraud window resets after speed drop — requires 30 fresh samples', () => {
     const m = new TripValidationManager();
