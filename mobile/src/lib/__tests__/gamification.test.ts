@@ -5,99 +5,138 @@ import {
   GAMIFICATION_LEVELS,
 } from '@/lib/driving-sdk/utils/gamification'
 
+// Official 10-level map (minPoints):
+// L1=0, L2=1000, L3=2500, L4=4500, L5=6500,
+// L6=8500, L7=10500, L8=13000, L9=16000, L10=20000
+
 // ─── calculateLevel ───────────────────────────────────────────────────────────
 
 describe('calculateLevel', () => {
-  it('returns level 1 at 0 points', () => {
+  it('returns level 1 at 0 pts', () => {
     expect(calculateLevel(0).level).toBe(1)
+    expect(calculateLevel(0).label).toBe('Newbie / Beginner')
   })
 
-  it('returns level 1 at the ceiling (999 pts)', () => {
+  it('returns level 1 at its ceiling (999 pts)', () => {
     expect(calculateLevel(999).level).toBe(1)
   })
 
-  it('returns level 2 at the floor (1000 pts)', () => {
+  it('returns level 2 at its floor (1000 pts)', () => {
     expect(calculateLevel(1000).level).toBe(2)
+    expect(calculateLevel(1000).label).toBe('Novice Driver')
   })
 
-  it('returns level 2 at mid-range (1750 pts)', () => {
-    expect(calculateLevel(1750).level).toBe(2)
-  })
-
-  it('returns level 2 at ceiling (2499 pts)', () => {
+  it('returns level 2 at its ceiling (2499 pts)', () => {
     expect(calculateLevel(2499).level).toBe(2)
   })
 
-  it('returns level 3 at the floor (2500 pts)', () => {
+  it('returns level 3 at its floor (2500 pts)', () => {
     expect(calculateLevel(2500).level).toBe(3)
+    expect(calculateLevel(2500).label).toBe('Safe Driver')
   })
 
-  it('returns level 3 and sets unlocksFeature to Tier 1 Rewards', () => {
-    const l = calculateLevel(3000)
-    expect(l.level).toBe(3)
-    expect(l.unlocksFeature).toBe('Tier 1 Rewards')
+  it('returns level 3 at its ceiling (4499 pts)', () => {
+    expect(calculateLevel(4499).level).toBe(3)
   })
 
-  it('returns level 4 at the floor (5000 pts)', () => {
-    expect(calculateLevel(5000).level).toBe(4)
+  it('returns level 4 at its floor (4500 pts)', () => {
+    expect(calculateLevel(4500).level).toBe(4)
+    expect(calculateLevel(4500).label).toBe('Consistent Driver')
   })
 
-  it('returns level 5 at the floor (8000 pts)', () => {
-    expect(calculateLevel(8000).level).toBe(5)
+  it('returns level 4 at its ceiling (6499 pts)', () => {
+    expect(calculateLevel(6499).level).toBe(4)
   })
 
-  it('returns level 5 and sets unlocksFeature to VIP Marketplace', () => {
-    const l = calculateLevel(10000)
-    expect(l.level).toBe(5)
-    expect(l.unlocksFeature).toBe('VIP Marketplace')
+  it('returns level 5 at its floor (6500 pts)', () => {
+    expect(calculateLevel(6500).level).toBe(5)
+    expect(calculateLevel(6500).label).toBe('Pro Driver')
   })
 
-  it('returns level 5 at its ceiling (11999 pts)', () => {
-    expect(calculateLevel(11999).level).toBe(5)
+  it('returns level 5 at its ceiling (8499 pts)', () => {
+    expect(calculateLevel(8499).level).toBe(5)
   })
 
-  it('returns level 10 (max) at 12000 pts', () => {
-    expect(calculateLevel(12000).level).toBe(10)
+  it('returns level 6 at its floor (8500 pts)', () => {
+    expect(calculateLevel(8500).level).toBe(6)
+    expect(calculateLevel(8500).label).toBe('Expert Driver')
   })
 
-  it('returns level 10 for arbitrarily large point totals', () => {
+  it('returns level 6 at its ceiling (10499 pts)', () => {
+    expect(calculateLevel(10499).level).toBe(6)
+  })
+
+  it('returns level 7 at its floor (10500 pts)', () => {
+    expect(calculateLevel(10500).level).toBe(7)
+    expect(calculateLevel(10500).label).toBe('Master Driver')
+  })
+
+  it('returns level 7 at its ceiling (12999 pts)', () => {
+    expect(calculateLevel(12999).level).toBe(7)
+  })
+
+  it('returns level 8 at its floor (13000 pts)', () => {
+    expect(calculateLevel(13000).level).toBe(8)
+    expect(calculateLevel(13000).label).toBe('Elite Driver')
+  })
+
+  it('returns level 8 at its ceiling (15999 pts)', () => {
+    expect(calculateLevel(15999).level).toBe(8)
+  })
+
+  it('returns level 9 at its floor (16000 pts)', () => {
+    expect(calculateLevel(16000).level).toBe(9)
+    expect(calculateLevel(16000).label).toBe('Champion Driver')
+  })
+
+  it('returns level 9 at its ceiling (19999 pts)', () => {
+    expect(calculateLevel(19999).level).toBe(9)
+  })
+
+  it('returns level 10 at its floor (20000 pts)', () => {
+    expect(calculateLevel(20000).level).toBe(10)
+    expect(calculateLevel(20000).label).toBe('Model Driver')
+  })
+
+  it('returns level 10 for arbitrarily large totals', () => {
     expect(calculateLevel(999_999).level).toBe(10)
   })
 
-  it('clamps negative input to level 1 (no crash, no NaN)', () => {
-    const l = calculateLevel(-100)
-    expect(l.level).toBe(1)
+  it('clamps negative input to level 1', () => {
+    expect(calculateLevel(-1).level).toBe(1)
+    expect(calculateLevel(-9999).level).toBe(1)
   })
 
-  it('level 10 has 1.5× multiplier', () => {
-    expect(calculateLevel(12000).multiplier).toBe(1.5)
+  it('level 10 maxPoints is Infinity', () => {
+    expect(calculateLevel(20000).maxPoints).toBe(Infinity)
   })
 
-  it('level 1 has 1.0× multiplier', () => {
-    expect(calculateLevel(0).multiplier).toBe(1.0)
-  })
-
-  it('multipliers increase monotonically through all levels', () => {
+  it('multipliers increase monotonically across all 10 levels', () => {
     for (let i = 1; i < GAMIFICATION_LEVELS.length; i++) {
       expect(GAMIFICATION_LEVELS[i].multiplier).toBeGreaterThan(
         GAMIFICATION_LEVELS[i - 1].multiplier
       )
     }
   })
+
+  it('has exactly 10 levels', () => {
+    expect(GAMIFICATION_LEVELS.length).toBe(10)
+  })
+
+  it('level 1 multiplier is 1.0', () => {
+    expect(calculateLevel(0).multiplier).toBe(1.0)
+  })
+
+  it('level 10 multiplier is 1.5', () => {
+    expect(calculateLevel(20000).multiplier).toBe(1.5)
+  })
 })
 
 // ─── getProgressPercentage ────────────────────────────────────────────────────
 
 describe('getProgressPercentage', () => {
-  it('returns 0 at 0 points (start of level 1)', () => {
+  it('returns 0% at the start of level 1 (0 pts)', () => {
     expect(getProgressPercentage(0)).toBe(0)
-  })
-
-  it('returns ~50% at the midpoint of level 1 (~500 pts)', () => {
-    // Level 1: 0–999, midpoint ≈ 499, progress = 499/999 ≈ 50%
-    const pct = getProgressPercentage(499)
-    expect(pct).toBeGreaterThanOrEqual(49)
-    expect(pct).toBeLessThanOrEqual(51)
   })
 
   it('returns 100% at the ceiling of level 1 (999 pts)', () => {
@@ -108,8 +147,23 @@ describe('getProgressPercentage', () => {
     expect(getProgressPercentage(1000)).toBe(0)
   })
 
-  it('returns 100% at max level (level 10)', () => {
-    expect(getProgressPercentage(12000)).toBe(100)
+  it('returns ~50% at the midpoint of level 2 (~1750 pts)', () => {
+    // Level 2: 1000–2499, range=1499, midpoint≈1749
+    const pct = getProgressPercentage(1749)
+    expect(pct).toBeGreaterThanOrEqual(49)
+    expect(pct).toBeLessThanOrEqual(51)
+  })
+
+  it('returns 0% at the floor of level 4 (4500 pts)', () => {
+    expect(getProgressPercentage(4500)).toBe(0)
+  })
+
+  it('returns 0% at the floor of level 5 (6500 pts)', () => {
+    expect(getProgressPercentage(6500)).toBe(0)
+  })
+
+  it('returns 100% at any level 10 value (max level, no ceiling)', () => {
+    expect(getProgressPercentage(20000)).toBe(100)
     expect(getProgressPercentage(50000)).toBe(100)
   })
 
@@ -117,19 +171,25 @@ describe('getProgressPercentage', () => {
     expect(getProgressPercentage(-500)).toBe(0)
   })
 
-  it('never exceeds 100', () => {
-    const extremes = [0, 999, 1000, 2499, 2500, 4999, 5000, 7999, 8000, 11999, 12000, 99999]
-    extremes.forEach(pts => {
-      expect(getProgressPercentage(pts)).toBeLessThanOrEqual(100)
+  it('never returns a value outside [0, 100]', () => {
+    const checkpoints = [
+      0, 999, 1000, 2499, 2500, 4499, 4500, 6499, 6500, 8499,
+      8500, 10499, 10500, 12999, 13000, 15999, 16000, 19999, 20000, 99999,
+    ]
+    checkpoints.forEach(pts => {
+      const result = getProgressPercentage(pts)
+      expect(result).toBeGreaterThanOrEqual(0)
+      expect(result).toBeLessThanOrEqual(100)
     })
   })
 
-  it('returns a non-NaN integer for all boundary values', () => {
-    const boundaries = GAMIFICATION_LEVELS.flatMap(l => [l.minPoints, l.maxPoints === Infinity ? 99999 : l.maxPoints])
-    boundaries.forEach(pts => {
-      const result = getProgressPercentage(pts)
-      expect(Number.isNaN(result)).toBe(false)
-      expect(Number.isInteger(result)).toBe(true)
+  it('returns non-NaN integers for all level boundary values', () => {
+    GAMIFICATION_LEVELS.forEach(l => {
+      [l.minPoints, l.maxPoints === Infinity ? 99999 : l.maxPoints].forEach(pts => {
+        const result = getProgressPercentage(pts)
+        expect(Number.isNaN(result)).toBe(false)
+        expect(Number.isInteger(result)).toBe(true)
+      })
     })
   })
 })
@@ -137,56 +197,91 @@ describe('getProgressPercentage', () => {
 // ─── detectLevelUp ────────────────────────────────────────────────────────────
 
 describe('detectLevelUp', () => {
-  it('returns null when points stay within the same level', () => {
-    expect(detectLevelUp(0, 500)).toBeNull()
-    expect(detectLevelUp(500, 999)).toBeNull()
-    expect(detectLevelUp(1000, 2000)).toBeNull()
+  it('returns null when points stay within level 1', () => {
+    expect(detectLevelUp(0, 999)).toBeNull()
   })
 
-  it('detects level up from 1 → 2 at the boundary', () => {
-    const event = detectLevelUp(999, 1000)
-    expect(event).not.toBeNull()
-    expect(event!.from).toBe(1)
-    expect(event!.to).toBe(2)
-    expect(event!.newMultiplier).toBe(1.05)
-    expect(event!.unlocksFeature).toBeUndefined()
+  it('returns null when both values are at level 10', () => {
+    expect(detectLevelUp(20000, 99999)).toBeNull()
   })
 
-  it('detects level up from 2 → 3 (unlocks Tier 1 Rewards)', () => {
-    const event = detectLevelUp(2499, 2500)
-    expect(event!.from).toBe(2)
-    expect(event!.to).toBe(3)
-    expect(event!.unlocksFeature).toBe('Tier 1 Rewards')
+  it('returns null when values are in the same mid-range level', () => {
+    expect(detectLevelUp(8500, 10000)).toBeNull() // both level 6
   })
 
-  it('detects level up from 4 → 5 (unlocks VIP Marketplace)', () => {
-    const event = detectLevelUp(7999, 8000)
-    expect(event!.from).toBe(4)
-    expect(event!.to).toBe(5)
-    expect(event!.unlocksFeature).toBe('VIP Marketplace')
-    expect(event!.newMultiplier).toBe(1.20)
+  it('detects 1 → 2 at the exact boundary (999 → 1000)', () => {
+    const evt = detectLevelUp(999, 1000)
+    expect(evt).not.toBeNull()
+    expect(evt!.from).toBe(1)
+    expect(evt!.to).toBe(2)
+    expect(evt!.newMultiplier).toBe(1.05)
   })
 
-  it('detects level up from 5 → 10 (max tier)', () => {
-    const event = detectLevelUp(11999, 12000)
-    expect(event!.from).toBe(5)
-    expect(event!.to).toBe(10)
-    expect(event!.newMultiplier).toBe(1.50)
+  it('detects 2 → 3 at the exact boundary (2499 → 2500)', () => {
+    const evt = detectLevelUp(2499, 2500)
+    expect(evt!.from).toBe(2)
+    expect(evt!.to).toBe(3)
+    expect(evt!.newMultiplier).toBe(1.10)
   })
 
-  it('returns null when both values are at max level', () => {
-    expect(detectLevelUp(12000, 99999)).toBeNull()
+  it('detects 3 → 4 at the exact boundary (4499 → 4500)', () => {
+    const evt = detectLevelUp(4499, 4500)
+    expect(evt!.from).toBe(3)
+    expect(evt!.to).toBe(4)
+    expect(evt!.newMultiplier).toBe(1.15)
+  })
+
+  it('detects 4 → 5 at the exact boundary (6499 → 6500)', () => {
+    const evt = detectLevelUp(6499, 6500)
+    expect(evt!.from).toBe(4)
+    expect(evt!.to).toBe(5)
+    expect(evt!.newMultiplier).toBe(1.20)
+  })
+
+  it('detects 5 → 6 at the exact boundary (8499 → 8500)', () => {
+    const evt = detectLevelUp(8499, 8500)
+    expect(evt!.from).toBe(5)
+    expect(evt!.to).toBe(6)
+    expect(evt!.newMultiplier).toBe(1.25)
+  })
+
+  it('detects 6 → 7 at the exact boundary (10499 → 10500)', () => {
+    const evt = detectLevelUp(10499, 10500)
+    expect(evt!.from).toBe(6)
+    expect(evt!.to).toBe(7)
+    expect(evt!.newMultiplier).toBe(1.30)
+  })
+
+  it('detects 7 → 8 at the exact boundary (12999 → 13000)', () => {
+    const evt = detectLevelUp(12999, 13000)
+    expect(evt!.from).toBe(7)
+    expect(evt!.to).toBe(8)
+    expect(evt!.newMultiplier).toBe(1.35)
+  })
+
+  it('detects 8 → 9 at the exact boundary (15999 → 16000)', () => {
+    const evt = detectLevelUp(15999, 16000)
+    expect(evt!.from).toBe(8)
+    expect(evt!.to).toBe(9)
+    expect(evt!.newMultiplier).toBe(1.40)
+  })
+
+  it('detects 9 → 10 at the exact boundary (19999 → 20000)', () => {
+    const evt = detectLevelUp(19999, 20000)
+    expect(evt!.from).toBe(9)
+    expect(evt!.to).toBe(10)
+    expect(evt!.newMultiplier).toBe(1.50)
+  })
+
+  it('detects a multi-tier jump (level 1 → level 7 in one trip)', () => {
+    const evt = detectLevelUp(0, 10500)
+    expect(evt!.from).toBe(1)
+    expect(evt!.to).toBe(7)
   })
 
   it('handles negative previousPoints safely (clamps to level 1)', () => {
-    const event = detectLevelUp(-500, 1000)
-    expect(event!.from).toBe(1)
-    expect(event!.to).toBe(2)
-  })
-
-  it('detects a multi-tier jump (level 1 → level 5 in one trip)', () => {
-    const event = detectLevelUp(0, 8000)
-    expect(event!.from).toBe(1)
-    expect(event!.to).toBe(5)
+    const evt = detectLevelUp(-500, 1000)
+    expect(evt!.from).toBe(1)
+    expect(evt!.to).toBe(2)
   })
 })

@@ -2,8 +2,8 @@
  * Gamification Engine — Level Progression & Point Multipliers
  *
  * Pure math module with no external dependencies.
- * Level numbers are prestige labels: 1–5 are regular tiers,
- * 10 is the "Model Driver" max tier (6–9 intentionally skipped by design).
+ * Static 10-level map — do NOT derive bounds via interpolation.
+ * maxPoints is computed automatically as next level's minPoints - 1.
  */
 
 export interface GamificationLevel {
@@ -12,17 +12,29 @@ export interface GamificationLevel {
   maxPoints: number;
   multiplier: number;
   label: string;
-  unlocksFeature?: string;
 }
 
-export const GAMIFICATION_LEVELS: readonly GamificationLevel[] = [
-  { level: 1,  minPoints: 0,     maxPoints: 999,      multiplier: 1.00, label: 'Beginner' },
-  { level: 2,  minPoints: 1000,  maxPoints: 2499,     multiplier: 1.05, label: 'Learner' },
-  { level: 3,  minPoints: 2500,  maxPoints: 4999,     multiplier: 1.10, label: 'Careful',     unlocksFeature: 'Tier 1 Rewards' },
-  { level: 4,  minPoints: 5000,  maxPoints: 7999,     multiplier: 1.15, label: 'Reliable' },
-  { level: 5,  minPoints: 8000,  maxPoints: 11999,    multiplier: 1.20, label: 'Experienced', unlocksFeature: 'VIP Marketplace' },
-  { level: 10, minPoints: 12000, maxPoints: Infinity,  multiplier: 1.50, label: 'Model Driver' },
-];
+const LEVEL_DEFINITIONS = [
+  { level: 1,  label: 'Newbie / Beginner', minPoints: 0,     multiplier: 1.00 },
+  { level: 2,  label: 'Novice Driver',     minPoints: 1000,  multiplier: 1.05 },
+  { level: 3,  label: 'Safe Driver',       minPoints: 2500,  multiplier: 1.10 },
+  { level: 4,  label: 'Consistent Driver', minPoints: 4500,  multiplier: 1.15 },
+  { level: 5,  label: 'Pro Driver',        minPoints: 6500,  multiplier: 1.20 },
+  { level: 6,  label: 'Expert Driver',     minPoints: 8500,  multiplier: 1.25 },
+  { level: 7,  label: 'Master Driver',     minPoints: 10500, multiplier: 1.30 },
+  { level: 8,  label: 'Elite Driver',      minPoints: 13000, multiplier: 1.35 },
+  { level: 9,  label: 'Champion Driver',   minPoints: 16000, multiplier: 1.40 },
+  { level: 10, label: 'Model Driver',      minPoints: 20000, multiplier: 1.50 },
+] as const;
+
+export const GAMIFICATION_LEVELS: readonly GamificationLevel[] = LEVEL_DEFINITIONS.map(
+  (def, i) => ({
+    ...def,
+    maxPoints: i < LEVEL_DEFINITIONS.length - 1
+      ? LEVEL_DEFINITIONS[i + 1].minPoints - 1
+      : Infinity,
+  })
+);
 
 /**
  * Returns the GamificationLevel tier for a given points total.
@@ -40,7 +52,7 @@ export function calculateLevel(points: number): GamificationLevel {
 
 /**
  * Returns progress within the current level as a percentage [0, 100].
- * Returns 100 at the max level (Model Driver / Level 10).
+ * Returns 100 at Level 10 (Model Driver — no ceiling).
  * Negative input is clamped to 0.
  */
 export function getProgressPercentage(points: number): number {
@@ -56,12 +68,11 @@ export interface LevelUpEvent {
   from: number;
   to: number;
   newMultiplier: number;
-  unlocksFeature?: string;
 }
 
 /**
- * Compares two point totals and returns a LevelUpEvent if a tier boundary
- * was crossed, or null if the level is unchanged.
+ * Returns a LevelUpEvent if a tier boundary was crossed between two point
+ * totals, or null if both totals fall within the same tier.
  */
 export function detectLevelUp(previousPoints: number, newPoints: number): LevelUpEvent | null {
   const prevLevel = calculateLevel(previousPoints);
@@ -71,6 +82,5 @@ export function detectLevelUp(previousPoints: number, newPoints: number): LevelU
     from: prevLevel.level,
     to: newLevel.level,
     newMultiplier: newLevel.multiplier,
-    unlocksFeature: newLevel.unlocksFeature,
   };
 }
