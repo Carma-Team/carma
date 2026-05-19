@@ -1,9 +1,0 @@
-{
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/rewards/route": "app/api/rewards/route.js",
-  "/(app)/dashboard/page": "app/(app)/dashboard/page.js",
-  "/(app)/roadmap/page": "app/(app)/roadmap/page.js",
-  "/(app)/trip/[id]/page": "app/(app)/trip/[id]/page.js",
-  "/(app)/trip/active/page": "app/(app)/trip/active/page.js",
-  "/(app)/marketplace/page": "app/(app)/marketplace/page.js"
-}
