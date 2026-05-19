@@ -10,13 +10,14 @@
  */
 import { request } from './client';
 import { USE_REAL_SERVER } from '@/constants/serverConfig';
+import { TransportMode } from '@/lib/driving-sdk/types';
 
 // ─── Mobile SDK event shape (emitted by CarmaDrivingSDK.onFraudDetected) ─────
 
 export interface FraudEventPayload {
   userId: string;
   timestamp: string;
-  detectedMode: 'TRAIN' | 'BUS' | 'UNKNOWN';
+  detectedMode: TransportMode;
   fraudScore: number;
   telemetrySummary: {
     avgSpeed: number;

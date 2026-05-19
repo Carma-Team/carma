@@ -33,6 +33,8 @@ export class CarmaDrivingSDK {
   private validationMaxSpeed  = 0;
   private currentTripData: TripData | null = null;
   private timer: any = null;
+  // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
+  private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
 
   // Callbacks
   public onTripStart?: (tripId: string) => void;
@@ -119,6 +121,7 @@ export class CarmaDrivingSDK {
     if (this.isTripActive) return 'ALREADY_ACTIVE';
 
     this.isTripActive = true;
+    this.lastEventTime = {};
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -195,12 +198,13 @@ export class CarmaDrivingSDK {
       return;
     }
 
-    // Cooldown logic (only for physical sensors, not for phone usage)
+    // Per-type cooldown: each event type has an independent 3s suppression window.
+    // Replaces the old global cooldown that incorrectly silenced e.g. a SHARP_TURN
+    // occurring within 3s of a HARD_BRAKE (two distinct concurrent physical events).
     if (event.type !== DrivingEventType.PHONE_USAGE) {
-      const lastEvent = this.currentTripData.events[this.currentTripData.events.length - 1];
-      if (lastEvent && (event.timestamp.getTime() - lastEvent.timestamp.getTime() < 3000)) {
-        return;
-      }
+      const last = this.lastEventTime[event.type] ?? 0;
+      if (event.timestamp.getTime() - last < 3000) return;
+      this.lastEventTime[event.type] = event.timestamp.getTime();
     }
 
     console.log(`[SDK] Event Recorded: ${event.type}`);

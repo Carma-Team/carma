@@ -12,6 +12,7 @@ export enum TransportMode {
   UNKNOWN = 'UNKNOWN',  // not yet classified (Phase 2 populates this)
   CAR     = 'CAR',
   TRAIN   = 'TRAIN',
+  BUS     = 'BUS',      // Phase 2 classifier (reserved — FraudDetector emits UNKNOWN until implemented)
 }
 
 // Snapshot fed into TripValidationManager each tick.
