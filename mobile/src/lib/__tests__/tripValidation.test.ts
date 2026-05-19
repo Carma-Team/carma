@@ -1,4 +1,4 @@
-import { TripValidationManager } from '@/lib/driving-sdk/TripValidationManager';
+import { TripValidationManager } from '@/lib/TripValidationManager';
 import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -6,10 +6,9 @@ A React Native / Expo app that rewards safe driving. Drivers earn points based o
 
 ## Prerequisites
 
-- Node.js 18+
-- Expo CLI (`npm install -g expo-cli`)
+- Node.js 20+
 - Expo Go on your physical device
-- `carma-local-server` running on port 3000 (see sibling folder)
+- `carma-local-server` running on port 3000 (see `mock-server/local-server/` in the monorepo root)
 
 ---
 
@@ -17,12 +16,13 @@ A React Native / Expo app that rewards safe driving. Drivers earn points based o
 
 ```bash
 # Terminal 1 — local dev server (must be running first)
-cd ../carma-local-server
-node server.js
+cd ../mock-server/local-server
+npm run dev
 
-# Terminal 2 — Expo
-npm install
-npx expo start --tunnel
+# Terminal 2 — Expo (from monorepo root)
+npm run mobile:start
+# or directly:
+cd mobile && npm start
 ```
 
 Open Expo Go on your phone and scan the QR code.
@@ -30,75 +30,44 @@ All `/api/*` requests are proxied through Metro to the local server — no manua
 
 ---
 
-## Project Structure
+## Directory Structure
+
+For the full authoritative guide to every folder — what belongs where and what is explicitly forbidden in each layer — see **[STRUCTURE.md](./STRUCTURE.md)**.
+
+Quick map:
 
 ```
-carma-app/
+mobile/
 ├── src/
-│   ├── app/                    # File-based routing (Expo Router)
-│   │   ├── _layout.tsx         # Root layout — wraps everything in AppProvider
-│   │   ├── login.tsx           # Login screen route
-│   │   ├── register.tsx        # Registration screen route
-│   │   ├── (tabs)/             # Bottom-tab navigator
-│   │   │   ├── _layout.tsx     # Tab bar definition
-│   │   │   ├── (home)/         # Home tab — dashboard, trip detail, settings
-│   │   │   ├── leaderboard.tsx
-│   │   │   ├── marketplace.tsx
-│   │   │   ├── profile.tsx
-│   │   │   └── roadmap.tsx
-│   │   └── (business)/         # Business dashboard (reward management)
-│   │
-│   ├── screens/                # Full-page screen components
-│   │   ├── auth/               # LoginScreen, RegisterScreen
-│   │   └── app/                # DashboardScreen, ActiveTripScreen, MarketplaceScreen, etc.
-│   │
-│   ├── components/             # Reusable UI components, grouped by domain
-│   │   ├── ui/                 # Generic: Button, Card, Modal, Toast, Badge, Progress
-│   │   ├── dashboard/          # DashboardHeader, RecentTripsSection
-│   │   ├── driving/            # ActiveTripHeader, TripCard, TripSummaryModal, etc.
-│   │   ├── gamification/       # DashboardHero, LevelBadge, RoadmapHero, RoadmapLevelItem
-│   │   ├── marketplace/        # RewardCard, VoucherCard, CategoryFilter, RedeemConfirmSheet
-│   │   └── social/             # LeaderboardList, ProfileHeader, ScoreChart, AchievementsTab
-│   │
-│   ├── context/
-│   │   └── AppContext.tsx       # Global state: user, trip, toasts, language, SDK listeners
-│   │
-│   ├── services/api/           # HTTP layer — one file per resource
-│   │   ├── client.ts           # Core fetch wrapper (auth token, error handling)
-│   │   ├── auth.api.ts         # /api/auth/login, /register, /me
-│   │   ├── trips.api.ts        # /api/trips
-│   │   ├── rewards.api.ts      # /api/rewards, /redeem
-│   │   ├── user.api.ts         # /api/users/me, /stats
-│   │   ├── leaderboard.api.ts  # /api/leaderboard
-│   │   ├── levels.api.ts       # /api/levels
-│   │   ├── business.api.ts     # /api/business/rewards (CRUD)
-│   │   └── notifications.api.ts
-│   │
-│   ├── lib/
-│   │   ├── driving-sdk/        # Driving sensor + Bluetooth SDK (see its own README)
-│   │   ├── constants.ts        # Level config — loaded from server at startup via setLevels()
-│   │   ├── scoring.ts          # Trip score calculation helpers
-│   │   └── utils.ts            # General utilities
-│   │
-│   ├── hooks/
-│   │   ├── useTrip.ts          # Trip state helpers
-│   │   ├── useDriveMode.ts     # Drive-mode activation logic
-│   │   └── useTranslation.ts   # i18n hook (returns strings for current language)
-│   │
-│   ├── constants/
-│   │   ├── serverConfig.ts     # Derives Metro server origin at runtime (tunnel-aware)
-│   │   ├── theme.ts            # Colors, spacing, typography
-│   │   └── index.ts            # Re-exports
-│   │
-│   ├── i18n/
-│   │   ├── he.ts               # Hebrew strings
-│   │   └── en.ts               # English strings
-│   │
-│   └── types/
-│       └── index.ts            # Shared TypeScript types (AppUser, Trip, Reward, etc.)
-│
-├── metro.config.js             # Adds /api/* proxy middleware → localhost:3000
-├── app.json                    # Expo app config
+│   ├── app/              # Expo Router — file-system routes and layouts
+│   ├── components/       # React Native UI components, grouped by domain
+│   │   ├── ui/           # Generic: Button, Card, Modal, Toast, Badge, Progress
+│   │   ├── dashboard/    # Home screen widgets
+│   │   ├── driving/      # Active-trip UI (speed gauge, event indicators)
+│   │   ├── gamification/ # Level badge, roadmap, progress bar
+│   │   ├── marketplace/  # Reward tiles, redemption flow
+│   │   └── social/       # Leaderboard, profile header, score chart
+│   ├── constants/        # Theme, server config, level helpers
+│   ├── context/          # AppContext — global state + SDK wiring
+│   ├── hooks/            # Custom React hooks (useTrip, useDriveMode, useTranslation)
+│   ├── i18n/             # Hebrew / English translation strings
+│   ├── lib/              # Pure business logic (no React)
+│   │   ├── driving-sdk/        # Sensor + Bluetooth SDK — see its own README
+│   │   ├── FraudDetector.ts    # Transport-mode classifier (CARMA-specific thresholds)
+│   │   ├── TripValidationManager.ts  # Trip lifecycle rules (30 s start, 3 min end)
+│   │   ├── gamification.ts     # Level progression engine (10-tier map + multipliers)
+│   │   ├── scoring.ts          # Trip score formula
+│   │   ├── constants.ts        # Runtime level config (loaded from server via setLevels)
+│   │   └── utils.ts            # Pure utility helpers
+│   ├── screens/          # Full-screen views (auth/ and app/)
+│   ├── services/         # Server communication
+│   │   ├── api/          # One file per backend resource + Axios client
+│   │   └── sync/         # Offline-first sync queue (SyncManager)
+│   └── types/            # Shared TypeScript types — generated from server OpenAPI schema
+├── STRUCTURE.md          # Authoritative directory ownership guide
+├── assets/               # Static images and fonts
+├── metro.config.js       # /api/* proxy → localhost:3000
+├── app.json              # Expo app config
 ├── tsconfig.json
 └── package.json
 ```
@@ -111,10 +80,16 @@ carma-app/
 All HTTP requests go through `src/services/api/client.ts`, which attaches the JWT token from AsyncStorage. In development, `serverConfig.ts` detects the Expo tunnel URL at runtime and sends `/api/*` calls to the Metro server. `metro.config.js` intercepts those calls and proxies them to the local Express server on port 3000.
 
 ### Global State
-`AppContext.tsx` manages user session, active trip, toasts, and language. It also initialises the driving SDK listeners and syncs data with the server on startup.
+`AppContext.tsx` manages user session, active trip, toasts, and language. It also initialises the `CarmaDrivingSDK` listeners and syncs data with the server on startup. Server calls triggered by SDK events (e.g. saving a trip, reporting fraud) live here.
 
 ### Routing
 Expo Router uses the file system under `src/app/`. Route files import their corresponding screen from `src/screens/` and pass props down. Layouts (`_layout.tsx`) handle tab bars and auth guards.
 
+### Driving SDK
+`lib/driving-sdk/` is a **generic sensor-wrapper library** (GPS, IMU, Bluetooth). It emits raw events — the application layer in `lib/` decides what to do with them. See `lib/driving-sdk/README.md` for its scope boundaries and what must not be placed inside it.
+
 ### Levels
-Level thresholds and metadata are fetched from `/api/levels` at startup and stored in a mutable module variable via `setLevels()` in `lib/constants.ts`. All level calculations use that runtime value, not hardcoded data.
+Level thresholds and metadata are fetched from `/api/levels` at startup and stored in a mutable module variable via `setLevels()` in `lib/constants.ts`. All level calculations use that runtime value. The progression logic (tier boundaries, multipliers) lives in `lib/gamification.ts`.
+
+### Types
+Types in `src/types/` are generated from the FastAPI OpenAPI schema via `npm run gen:api`. Do not edit them manually — run `gen:api` after any server schema change and commit the result.

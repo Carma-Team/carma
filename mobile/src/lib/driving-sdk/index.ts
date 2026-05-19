@@ -16,9 +16,9 @@
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
-import { TripValidationManager } from '@/lib/driving-sdk/TripValidationManager';
+import { TripValidationManager } from '@/lib/TripValidationManager';
 import { DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent } from '@/lib/driving-sdk/types';
-import type { FraudEvaluation } from '@/lib/driving-sdk/FraudDetector';
+import type { FraudEvaluation } from '@/lib/FraudDetector';
 
 export class CarmaDrivingSDK {
   private config: SDKConfig;

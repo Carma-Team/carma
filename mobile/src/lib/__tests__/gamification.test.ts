@@ -3,7 +3,7 @@ import {
   detectLevelUp,
   getProgressPercentage,
   GAMIFICATION_LEVELS,
-} from '@/lib/driving-sdk/utils/gamification'
+} from '@/lib/gamification'
 
 // Official 10-level map (minPoints):
 // L1=0, L2=1000, L3=2500, L4=4500, L5=6500,

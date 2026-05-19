@@ -63,6 +63,17 @@ carma/
 2. **Shared Types:** Use `openapi-typescript` (`gen:api` script in mobile) to regenerate types from the FastAPI OpenAPI schema after any server schema change.
 3. **No Stubs:** Implement full, functional, production-ready code. Never commit empty code blocks or unhandled `// TODO` stubs.
 
+### Mobile Directory Ownership
+
+The `mobile/` workspace has a strict layer separation documented in **`mobile/STRUCTURE.md`**.
+Read it before adding or moving any file under `mobile/src/`.
+
+Critical boundary — `mobile/src/lib/driving-sdk/`:
+- This is a **generic sensor-wrapper SDK** (GPS, IMU, Bluetooth). It will be extracted into a standalone npm package.
+- It must contain **only** hardware-abstraction code: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `CarmaDrivingSDK` (orchestrator), and `types.ts`.
+- **Never add** CARMA-specific logic here: trip validation rules, fraud detection thresholds, gamification levels, scoring formulas, or any business constants.
+- CARMA-specific logic that consumes SDK events belongs in `mobile/src/lib/` (directly, not inside `driving-sdk/`): see `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+
 ### Dan's Developer Persona (Active when user is Dan)
 
 1. **Full CTO Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
