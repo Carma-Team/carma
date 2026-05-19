@@ -35,6 +35,7 @@ export interface DrivingEvent {
   type: DrivingEventType;
   timestamp: Date;
   severity: number; // 0.0 to 1.0
+  speedKmh?: number; // vehicle speed at the moment the event fired — stamped by CarmaDrivingSDK
   location?: {
     latitude: number;
     longitude: number;

@@ -37,6 +37,8 @@ export class CarmaDrivingSDK {
   private tripStartMs = 0;
   // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
   private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
+  // Latest GPS speed tick — stamped onto every DrivingEvent for kinetic penalty scaling
+  private currentSpeedKmh = 0;
 
   // Callbacks
   public onTripStart?: (tripId: string) => void;
@@ -223,6 +225,7 @@ export class CarmaDrivingSDK {
     }
 
     console.log(`[SDK] Event Recorded: ${event.type}`);
+    event.speedKmh = this.currentSpeedKmh;
     this.currentTripData.events.push(event);
 
     if (this.onEventDetected) this.onEventDetected(event);
@@ -240,6 +243,7 @@ export class CarmaDrivingSDK {
   private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; accelX: number; gyroZ: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
+    this.currentSpeedKmh = update.currentSpeed;
 
     // Always feed sensor data to TripValidationManager (works in both phases)
     this.validationManager.updateSample({
