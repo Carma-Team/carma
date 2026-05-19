@@ -19,26 +19,6 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    # ── PostgreSQL enum types ────────────────────────────────────────────────
-    op.execute(sa.text("CREATE TYPE IF NOT EXISTS user_role AS ENUM ('DRIVER', 'BUSINESS', 'ADMIN')"))
-    op.execute(sa.text("CREATE TYPE IF NOT EXISTS language AS ENUM ('HE', 'EN')"))
-    op.execute(sa.text("CREATE TYPE IF NOT EXISTS trip_status AS ENUM ('ACTIVE', 'COMPLETED', 'DISCARDED')"))
-    op.execute(
-        sa.text(
-            "CREATE TYPE IF NOT EXISTS event_type AS ENUM "
-            "('HARD_BRAKE', 'AGGRESSIVE_ACCEL', 'SHARP_TURN', 'SWERVE', 'PHONE_USE', 'SPEEDING')"
-        )
-    )
-    op.execute(
-        sa.text("CREATE TYPE IF NOT EXISTS redemption_status AS ENUM ('PENDING', 'USED', 'EXPIRED', 'CANCELLED')")
-    )
-    op.execute(
-        sa.text(
-            "CREATE TYPE IF NOT EXISTS business_category AS ENUM "
-            "('FUEL', 'FOOD', 'ECO', 'ENTERTAINMENT', 'SHOPPING', 'OTHER')"
-        )
-    )
-
     # ── levels ───────────────────────────────────────────────────────────────
     op.create_table(
         "levels",
@@ -74,7 +54,7 @@ def upgrade() -> None:
     op.create_index("ix_otp_codes_phone_purpose_consumed", "otp_codes", ["phone", "purpose", "consumed_at"])
     op.create_index("ix_otp_codes_expires_at", "otp_codes", ["expires_at"])
 
-    # ── users ────────────────────────────────────────────────────────────────
+    # ── users — first use of user_role and language enums (create_type=True) ─
     op.create_table(
         "users",
         sa.Column("id", sa.String(32), nullable=False),
@@ -82,8 +62,8 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(255), nullable=True),
         sa.Column("phone", sa.String(32), nullable=True),
         sa.Column("name", sa.String(120), nullable=True),
-        sa.Column("role", sa.Enum(name="user_role", create_type=False), nullable=False),
-        sa.Column("language", sa.Enum(name="language", create_type=False), nullable=False),
+        sa.Column("role", sa.Enum("DRIVER", "BUSINESS", "ADMIN", name="user_role"), nullable=False),
+        sa.Column("language", sa.Enum("HE", "EN", name="language"), nullable=False),
         sa.Column("avatar_url", sa.String(500), nullable=True),
         sa.Column("age", sa.Integer(), nullable=True),
         sa.Column("city", sa.String(80), nullable=True),
@@ -124,13 +104,17 @@ def upgrade() -> None:
     op.create_index("ix_users_email", "users", ["email"])
     op.create_index("ix_users_role", "users", ["role"])
 
-    # ── businesses ───────────────────────────────────────────────────────────
+    # ── businesses — first use of business_category enum ─────────────────────
     op.create_table(
         "businesses",
         sa.Column("id", sa.String(32), nullable=False),
         sa.Column("owner_user_id", sa.String(32), nullable=True),
         sa.Column("name", sa.String(120), nullable=False),
-        sa.Column("category", sa.Enum(name="business_category", create_type=False), nullable=False),
+        sa.Column(
+            "category",
+            sa.Enum("FUEL", "FOOD", "ECO", "ENTERTAINMENT", "SHOPPING", "OTHER", name="business_category"),
+            nullable=False,
+        ),
         sa.Column("location_lat", sa.Float(), nullable=False),
         sa.Column("location_lng", sa.Float(), nullable=False),
         sa.Column("address", sa.String(200), nullable=True),
@@ -148,7 +132,7 @@ def upgrade() -> None:
     op.create_index("ix_businesses_category", "businesses", ["category"])
     op.create_index("ix_businesses_location", "businesses", ["location_lat", "location_lng"])
 
-    # ── rewards ──────────────────────────────────────────────────────────────
+    # ── rewards — reuses business_category (create_type=False) ───────────────
     op.create_table(
         "rewards",
         sa.Column("id", sa.String(32), nullable=False),
@@ -157,7 +141,11 @@ def upgrade() -> None:
         sa.Column("title_en", sa.String(120), nullable=True),
         sa.Column("description_he", sa.String(500), nullable=False),
         sa.Column("description_en", sa.String(500), nullable=True),
-        sa.Column("category", sa.Enum(name="business_category", create_type=False), nullable=False),
+        sa.Column(
+            "category",
+            sa.Enum(name="business_category", create_type=False),
+            nullable=False,
+        ),
         sa.Column("cost_points", sa.Integer(), nullable=False),
         sa.Column("image_emoji", sa.String(10), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
@@ -175,7 +163,7 @@ def upgrade() -> None:
     op.create_index("ix_rewards_business_active", "rewards", ["business_id", "is_active"])
     op.create_index("ix_rewards_category", "rewards", ["category"])
 
-    # ── trips ────────────────────────────────────────────────────────────────
+    # ── trips — first use of trip_status enum ────────────────────────────────
     op.create_table(
         "trips",
         sa.Column("id", sa.String(32), nullable=False),
@@ -191,7 +179,11 @@ def upgrade() -> None:
         sa.Column("avg_score", sa.Float(), nullable=True),
         sa.Column("points", sa.Integer(), nullable=False),
         sa.Column("risk_multiplier", sa.Float(), nullable=False),
-        sa.Column("status", sa.Enum(name="trip_status", create_type=False), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("ACTIVE", "COMPLETED", "DISCARDED", name="trip_status"),
+            nullable=False,
+        ),
         sa.Column("hard_brakes", sa.Integer(), nullable=False),
         sa.Column("aggressive_accels", sa.Integer(), nullable=False),
         sa.Column("sharp_turns", sa.Integer(), nullable=False),
@@ -212,12 +204,24 @@ def upgrade() -> None:
     op.create_index("ix_trips_user_start", "trips", ["user_id", "start_time"])
     op.create_index("ix_trips_status", "trips", ["status"])
 
-    # ── events ───────────────────────────────────────────────────────────────
+    # ── events — first use of event_type enum ────────────────────────────────
     op.create_table(
         "events",
         sa.Column("id", sa.String(32), nullable=False),
         sa.Column("trip_id", sa.String(32), nullable=False),
-        sa.Column("type", sa.Enum(name="event_type", create_type=False), nullable=False),
+        sa.Column(
+            "type",
+            sa.Enum(
+                "HARD_BRAKE",
+                "AGGRESSIVE_ACCEL",
+                "SHARP_TURN",
+                "SWERVE",
+                "PHONE_USE",
+                "SPEEDING",
+                name="event_type",
+            ),
+            nullable=False,
+        ),
         sa.Column("severity", sa.Float(), nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("lat", sa.Float(), nullable=True),
@@ -229,7 +233,7 @@ def upgrade() -> None:
     op.create_index("ix_events_trip_timestamp", "events", ["trip_id", "timestamp"])
     op.create_index("ix_events_type", "events", ["type"])
 
-    # ── redemptions ──────────────────────────────────────────────────────────
+    # ── redemptions — first use of redemption_status enum ────────────────────
     op.create_table(
         "redemptions",
         sa.Column("id", sa.String(32), nullable=False),
@@ -237,7 +241,11 @@ def upgrade() -> None:
         sa.Column("reward_id", sa.String(32), nullable=False),
         sa.Column("qr_code", sa.String(64), nullable=False),
         sa.Column("qr_data", sa.String(64), nullable=True),
-        sa.Column("status", sa.Enum(name="redemption_status", create_type=False), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("PENDING", "USED", "EXPIRED", "CANCELLED", name="redemption_status"),
+            nullable=False,
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
