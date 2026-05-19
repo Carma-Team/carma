@@ -20,7 +20,6 @@ This directory is maintained as a self-contained unit and will be extracted into
 
 - `BluetoothManager.ts` — currently a mock that returns hardcoded devices. Production implementation will use `react-native-ble-plx` with real scanning and bonding.
 - `sensors/SensorManager.ts` — background mode (foreground service / task) not yet implemented; the sensor loop pauses when the app is backgrounded on Android.
-- `onFraudDetected` callback on `CarmaDrivingSDK` — wired up but the underlying detection logic (`TripValidationManager`) currently lives in the wrong location (see below).
 
 ---
 
@@ -28,14 +27,14 @@ This directory is maintained as a self-contained unit and will be extracted into
 
 **Any file that encodes a decision specific to the CARMA application.**
 
-Concrete examples that must live in `mobile/src/lib/` (the application's own logic layer), not here:
+Concrete examples that live in `mobile/src/lib/` (the application's own logic layer), not here:
 
-| What it is | Why it does not belong here |
-|---|---|
-| Trip start/end rules (e.g. "30 s above 10 km/h = trip confirmed") | These are product decisions. A developer using this SDK to build a different app would need completely different rules. |
-| Fraud / transport-mode detection with hard-coded thresholds (speed variance, lateral-accel limits, yaw variance, scoring weights) | The thresholds are CARMA-specific constants derived from product requirements (Appendix E). They are not sensor primitives. |
-| Gamification levels, point thresholds, multipliers | Entirely unrelated to device sensors or Bluetooth. Pure application business logic. |
-| Scoring formulas | Same reason — application-layer concern. |
+| What it is | Correct location | Why it does not belong here |
+|---|---|---|
+| Trip start/end rules (e.g. "30 s above 10 km/h = trip confirmed") | `mobile/src/lib/TripValidationManager.ts` | These are product decisions. A developer using this SDK to build a different app would need completely different rules. |
+| Fraud / transport-mode detection with hard-coded thresholds (speed variance, lateral-accel limits, yaw variance, scoring weights) | `mobile/src/lib/FraudDetector.ts` | The thresholds are CARMA-specific constants derived from product requirements (Appendix E). They are not sensor primitives. |
+| Gamification levels, point thresholds, multipliers | `mobile/src/lib/gamification.ts` | Entirely unrelated to device sensors or Bluetooth. Pure application business logic. |
+| Scoring formulas | `mobile/src/lib/scoring.ts` | Application-layer concern. |
 
 **Rule of thumb:** if removing the file from this directory and importing it from `@/lib/` instead requires zero changes to the SDK's public API (`CarmaDrivingSDK`, its callbacks, and `types.ts`), then the file does not belong here.
 
