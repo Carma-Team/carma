@@ -110,7 +110,7 @@ export class SensorManager {
     this.lastLocation = loc;
     this.onUpdate({
       distanceKm: distance,
-      currentSpeed: (loc.coords.speed || 0) * 3.6,
+      currentSpeed: Math.max(0, loc.coords.speed ?? 0) * 3.6,
       accelX: this.latestAccelX,
       gyroZ: this.latestGyroZ,
     });

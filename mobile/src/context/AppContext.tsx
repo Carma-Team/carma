@@ -287,7 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       fraudApi.syncInvalidTrip({
         userId: user?.id ?? 'anonymous',
         timestamp: new Date().toISOString(),
-        detectedMode: event.mode as 'TRAIN' | 'BUS' | 'UNKNOWN',
+        detectedMode: event.mode,
         fraudScore: event.confidence,
         telemetrySummary: {
           avgSpeed: event.telemetry.avgSpeedKmh,
@@ -395,7 +395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loginUser = useCallback(async (data: AuthResponse) => {
     await AsyncStorage.setItem('carma_token', data.token);
     await setUser(data.user);
-  }, []);
+  }, [setUser]);
 
   const setUser = useCallback(async (u: AppUser | null) => {
     if (!u) {
@@ -418,7 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (cached) setRecentTrips(JSON.parse(cached));
       }
     }
-  }, [user]);
+  }, []);
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
