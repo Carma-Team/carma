@@ -75,8 +75,21 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Mypy
         run: mypy app
-      - name: Apply migrations
+      - name: Apply DB migrations
         run: alembic upgrade head
+      - name: Verify schema is at latest revision
+        # Fails loudly if alembic upgrade head silently left the DB behind —
+        # e.g., a migration file with a dependency cycle, a broken downgrade step
+        # that never ran, or a mis-ordered revision chain.
+        run: |
+          CURRENT=$(alembic current 2>&1)
+          echo "alembic current: $CURRENT"
+          if ! echo "$CURRENT" | grep -q "(head)"; then
+            echo "::error::DB schema is not at head after alembic upgrade head."
+            echo "::error::Check migration chain: alembic history --verbose"
+            exit 1
+          fi
+          echo "Migration sanity check passed — schema is at head."
       - name: Pytest
         run: pytest
 

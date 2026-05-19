@@ -128,8 +128,17 @@ export const SyncManager = {
         remaining.push(...items.slice(haltedAt + 1));
       }
 
-      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
-      console.log(`[SyncManager] Flush complete — ${remaining.length} item(s) remaining`);
+      // Re-read AsyncStorage to pick up items enqueued concurrently during this flush.
+      // Without this, the write-back would silently discard any trip that was enqueued
+      // while a slow tripsApi.save() was in flight (D-SYNC-1 race condition).
+      const originalIds = new Set(items.map(i => i.id));
+      const freshRaw = await AsyncStorage.getItem(QUEUE_KEY);
+      const freshItems: SyncQueueItem[] = freshRaw ? JSON.parse(freshRaw) : [];
+      const addedDuringFlush = freshItems.filter(i => !originalIds.has(i.id));
+
+      const finalQueue = [...remaining, ...addedDuringFlush];
+      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(finalQueue));
+      console.log(`[SyncManager] Flush complete — ${finalQueue.length} item(s) remaining`);
 
     } finally {
       isFlushing = false;

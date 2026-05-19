@@ -186,3 +186,76 @@ describe('flushQueue', () => {
     expect(onSynced).toHaveBeenCalledWith('trip_cb', serverTrip);
   });
 });
+
+// ─── Concurrency Safety ───────────────────────────────────────────────────────
+//
+// These tests probe the two concurrency boundaries in SyncManager:
+//
+// 1. flushQueue + flushQueue — the module-level isFlushing mutex must block
+//    the second caller for the entire duration of an async save, not just
+//    synchronously at the entry point.
+//
+// 2. enqueue + flushQueue — a trip enqueued WHILE a flush is suspended at a
+//    slow network save must survive the flush's write-back (D-SYNC-1 fix).
+//    The re-read-after-flush logic merges newly arrived items before writing.
+
+describe('concurrency safety', () => {
+
+  test('isFlushing mutex holds across an async save delay — second caller returns immediately', async () => {
+    let resolveSlowSave!: (v: Trip) => void;
+    const slowSave = new Promise<Trip>(res => { resolveSlowSave = res; });
+    mockSave.mockReturnValueOnce(slowSave);
+
+    await SyncManager.enqueue(makePayload('trip_slow'));
+
+    // Start flush1 — it suspends inside the event loop at the pending save.
+    // isFlushing is set to true synchronously before the first await, so flush2
+    // hits the guard and returns immediately without calling tripsApi.save.
+    const flush1 = SyncManager.flushQueue();
+    let flush2Resolved = false;
+    const flush2 = SyncManager.flushQueue().then(() => { flush2Resolved = true; });
+
+    // flush2 must resolve as a no-op before flush1 completes (no save call needed)
+    await flush2;
+    expect(flush2Resolved).toBe(true);
+    expect(mockSave).toHaveBeenCalledTimes(1); // only flush1's save is in flight
+
+    // Let flush1 finish
+    resolveSlowSave(makeServerTrip('trip_slow'));
+    await flush1;
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+
+  test('item enqueued while a flush is suspended is preserved after the flush write-back', async () => {
+    // Scenario (D-SYNC-1): processEndTrip finishes a new trip while a previous
+    // offline trip is mid-sync. Without the re-read-after-flush fix, the flush's
+    // write-back would overwrite the newly enqueued item and silently lose it.
+    let resolveFirstSave!: (v: Trip) => void;
+    const firstSave = new Promise<Trip>(res => { resolveFirstSave = res; });
+    mockSave
+      .mockReturnValueOnce(firstSave)                           // flush1 save — controlled
+      .mockResolvedValueOnce(makeServerTrip('trip_mid_flush')); // flush2 save — immediate
+
+    await SyncManager.enqueue(makePayload('trip_before'));
+
+    // Flush1 starts and suspends at the save for trip_before
+    const flush1 = SyncManager.flushQueue();
+
+    // Enqueue a second trip while flush1 is suspended (simulates a concurrent trip end)
+    await SyncManager.enqueue(makePayload('trip_mid_flush'));
+
+    // Complete flush1 — re-read logic must preserve trip_mid_flush
+    resolveFirstSave(makeServerTrip('trip_before'));
+    await flush1;
+
+    // trip_mid_flush must survive the write-back
+    expect(await SyncManager.getQueueLength()).toBe(1);
+
+    // A second flush drains the preserved item
+    await SyncManager.flushQueue();
+    expect(mockSave).toHaveBeenCalledTimes(2);
+    expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+});

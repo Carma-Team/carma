@@ -285,3 +285,76 @@ describe('detectLevelUp', () => {
     expect(evt!.to).toBe(2)
   })
 })
+
+// ─── Multi-Level Leap: Level 1 → Level 4 single-sync scenario ────────────────
+//
+// Mirrors the AppContext processEndTrip + SyncManager.onTripSynced flow:
+// A brand-new user (0 pts, L1, ×1.00) earns a large offline trip that arrives
+// in a single server sync.  The accumulated total lands cleanly in Level 4.
+// Tests cover level detection, level-up event shape, progress %, the AsyncStorage
+// JSON round-trip that loadInitialData uses on cold-start rehydration, and the
+// multiplier benefit visible on the next trip after the jump.
+
+describe('multi-level leap — Level 1 → Level 4 single-sync scenario', () => {
+  const PREV_TOTAL = 0          // fresh user — Level 1 (×1.00)
+  const TRIP_RAW   = 4600       // raw points from calculateScore()
+  const L1_MULT    = calculateLevel(PREV_TOTAL).multiplier  // 1.00
+  const EARNED     = Math.round(TRIP_RAW * L1_MULT)         // 4600
+  const NEW_TOTAL  = PREV_TOTAL + EARNED                     // 4600 → inside L4 (4500–6499)
+
+  it('calculateLevel resolves Level 4 at the post-sync total', () => {
+    const level = calculateLevel(NEW_TOTAL)
+    expect(level.level).toBe(4)
+    expect(level.label).toBe('Consistent Driver')
+    expect(level.multiplier).toBe(1.15)
+    expect(level.minPoints).toBe(4500)
+    expect(level.maxPoints).toBe(6499)
+  })
+
+  it('detectLevelUp emits from=1, to=4, newMultiplier=1.15', () => {
+    const evt = detectLevelUp(PREV_TOTAL, NEW_TOTAL)
+    expect(evt).not.toBeNull()
+    expect(evt!.from).toBe(1)
+    expect(evt!.to).toBe(4)
+    expect(evt!.newMultiplier).toBeCloseTo(1.15)
+  })
+
+  it('getProgressPercentage places 4600 pts ~5% into the Level 4 range', () => {
+    // L4 range: 4500–6499 (width=1999). 4600 is 100 pts in → ~5 %.
+    const pct = getProgressPercentage(NEW_TOTAL)
+    expect(pct).toBeGreaterThanOrEqual(4)
+    expect(pct).toBeLessThanOrEqual(6)
+  })
+
+  it('AsyncStorage round-trip: JSON-serialised user rehydrates to Level 4 via calculateLevel', () => {
+    // AppContext writes `{ totalPoints, level: calculateLevel(totalPoints) }` to AsyncStorage.
+    // On cold-start, loadInitialData re-derives the level from totalPoints (not the stored object).
+    // Both paths must converge on Level 4.
+    const storedUser = { id: 'u1', totalPoints: NEW_TOTAL, level: calculateLevel(NEW_TOTAL) }
+    const rehydrated  = calculateLevel((JSON.parse(JSON.stringify(storedUser)) as typeof storedUser).totalPoints)
+    expect(rehydrated.level).toBe(4)
+    expect(rehydrated.multiplier).toBe(1.15)
+    expect(rehydrated.label).toBe('Consistent Driver')
+  })
+
+  it('next trip at Level 4 earns 15 % more than an equivalent trip at Level 1', () => {
+    const rawPoints  = 200
+    const earnedAtL1 = Math.round(rawPoints * calculateLevel(PREV_TOTAL).multiplier) // 200
+    const earnedAtL4 = Math.round(rawPoints * calculateLevel(NEW_TOTAL).multiplier)  // 230
+    expect(earnedAtL1).toBe(200)
+    expect(earnedAtL4).toBe(230)
+    expect(earnedAtL4 - earnedAtL1).toBe(30) // exactly 15 % of 200
+  })
+
+  it('all boundary points between L1 and the final total fall within their declared level range', () => {
+    // Verifies no off-by-one across the 3 tier boundaries crossed during the jump.
+    const checkpoints = [0, 999, 1000, 2499, 2500, 4499, NEW_TOTAL]
+    checkpoints.forEach(pts => {
+      const level = calculateLevel(pts)
+      expect(pts).toBeGreaterThanOrEqual(level.minPoints)
+      if (level.maxPoints !== Infinity) {
+        expect(pts).toBeLessThanOrEqual(level.maxPoints)
+      }
+    })
+  })
+})
