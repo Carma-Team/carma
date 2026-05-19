@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import AliasChoices, Field, model_validator
@@ -31,7 +31,7 @@ class SaveTripIn(CamelModel):
     @model_validator(mode="after")
     def _defaults(self) -> SaveTripIn:
         if self.start_time is None:
-            self.start_time = datetime.utcnow()
+            self.start_time = datetime.now(UTC)
         return self
 
 

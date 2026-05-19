@@ -58,5 +58,4 @@ class Trip(Base):
     __table_args__ = (
         Index("ix_trips_user_start", "user_id", "start_time"),
         Index("ix_trips_status", "status"),
-        Index("ix_trips_idempotency_key", "idempotency_key"),
     )
