@@ -28,9 +28,7 @@ class FraudReport(Base):
     anomaly_flags: Mapped[list[str] | None] = mapped_column(JSONB)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
-    reported_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user: Mapped[User] = relationship(back_populates="fraud_reports")
 

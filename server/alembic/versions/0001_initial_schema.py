@@ -20,21 +20,21 @@ depends_on: str | None = None
 
 def upgrade() -> None:
     # ── PostgreSQL enum types ────────────────────────────────────────────────
-    op.execute(sa.text("CREATE TYPE user_role AS ENUM ('DRIVER', 'BUSINESS', 'ADMIN')"))
-    op.execute(sa.text("CREATE TYPE language AS ENUM ('HE', 'EN')"))
-    op.execute(sa.text("CREATE TYPE trip_status AS ENUM ('ACTIVE', 'COMPLETED', 'DISCARDED')"))
+    op.execute(sa.text("CREATE TYPE IF NOT EXISTS user_role AS ENUM ('DRIVER', 'BUSINESS', 'ADMIN')"))
+    op.execute(sa.text("CREATE TYPE IF NOT EXISTS language AS ENUM ('HE', 'EN')"))
+    op.execute(sa.text("CREATE TYPE IF NOT EXISTS trip_status AS ENUM ('ACTIVE', 'COMPLETED', 'DISCARDED')"))
     op.execute(
         sa.text(
-            "CREATE TYPE event_type AS ENUM "
+            "CREATE TYPE IF NOT EXISTS event_type AS ENUM "
             "('HARD_BRAKE', 'AGGRESSIVE_ACCEL', 'SHARP_TURN', 'SWERVE', 'PHONE_USE', 'SPEEDING')"
         )
     )
     op.execute(
-        sa.text("CREATE TYPE redemption_status AS ENUM ('PENDING', 'USED', 'EXPIRED', 'CANCELLED')")
+        sa.text("CREATE TYPE IF NOT EXISTS redemption_status AS ENUM ('PENDING', 'USED', 'EXPIRED', 'CANCELLED')")
     )
     op.execute(
         sa.text(
-            "CREATE TYPE business_category AS ENUM "
+            "CREATE TYPE IF NOT EXISTS business_category AS ENUM "
             "('FUEL', 'FOOD', 'ECO', 'ENTERTAINMENT', 'SHOPPING', 'OTHER')"
         )
     )
