@@ -247,7 +247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user]);
+  }, [user, userLevelState]);
 
   useEffect(() => {
     sdk.onUpdate = (data: TripData) => {
