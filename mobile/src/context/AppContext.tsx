@@ -31,7 +31,7 @@ import { levelsApi } from '@/services/api/levels.api'
 import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { SyncManager } from '@/services/sync/SyncManager'
-import type { ValidTripPayload } from '@/services/sync/types'
+import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
 import { calculateLevel, detectLevelUp } from '@/lib/gamification'
 import type { GamificationLevel } from '@/lib/gamification'
 
@@ -63,6 +63,57 @@ const INITIAL_TRIP_STATE: TripState = {
   phoneWeightedSeconds: 0,
   eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, PHONE_TOUCH: 0 },
 };
+
+// ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
+// Phase 1 placeholder: FNV-1a hash produces a deterministic 32-char hex digest.
+// Phase 2: replace signTelemetryDigest with expo-crypto HMAC-SHA256 once the
+// server-side key management strategy is finalised (RFC-001 §4.3 / §5 Phase 2).
+
+const DIGEST_SIGNING_SECRET = '__CARMA_PH_SECRET_V1__';
+
+function fnv1a32(data: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+function buildTelemetryDigest(
+  state: TripState,
+  avgScore: number,
+  rawPoints: number,
+  riskMultiplier: number,
+  startTime: string,
+  endTime: string,
+): TelemetryDigest {
+  return {
+    avgScore:         Math.round(avgScore * 10) / 10,
+    points:           Math.round(rawPoints),
+    distanceKm:       Math.round(state.distanceKm * 1000) / 1000,
+    durationSeconds:  state.durationSeconds,
+    hardBrakes:       state.eventCounts.HARD_BRAKE,
+    aggressiveAccels: state.eventCounts.AGGRESSIVE_ACCEL,
+    sharpTurns:       state.eventCounts.SHARP_TURN,
+    phoneSeconds:     Math.round(state.phoneSeconds),
+    riskMultiplier,
+    startTime,
+    endTime,
+  };
+}
+
+function signTelemetryDigest(digest: TelemetryDigest): string {
+  // Canonical serialisation: sorted keys ensure same string regardless of insertion order.
+  const canonical = JSON.stringify(digest, Object.keys(digest).sort() as (keyof TelemetryDigest)[]);
+  const seeded    = DIGEST_SIGNING_SECRET + ':' + canonical;
+  const h1 = fnv1a32(seeded).toString(16).padStart(8, '0');
+  const h2 = fnv1a32(h1 + canonical).toString(16).padStart(8, '0');
+  const h3 = fnv1a32(canonical + h1).toString(16).padStart(8, '0');
+  const h4 = fnv1a32(h2 + h3 + DIGEST_SIGNING_SECRET).toString(16).padStart(8, '0');
+  // 'ph:' prefix signals Phase 1 — server must accept (not reject) during rollout.
+  return `ph:${h1}${h2}${h3}${h4}`;
+}
 
 // ─── Kinetic Phone Penalty ────────────────────────────────────────────────────
 // k(v) = clamp(v / 60, 0.20, 2.00)
@@ -184,6 +235,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
     const endTime = new Date().toISOString();
 
+    // RFC-001: build and sign the telemetry digest before assembling the payload.
+    // rawPoints is the pre-multiplier value the server will re-derive independently.
+    const telemetryDigest  = buildTelemetryDigest(
+      finalState,
+      score,
+      scoringResult.points,
+      scoringResult.riskMultiplier,
+      tripStartTime,
+      endTime,
+    );
+    const payloadSignature = signTelemetryDigest(telemetryDigest);
+
     const validTripPayload: ValidTripPayload = {
       localTripId: finalState.sessionId,
       startTime: tripStartTime,
@@ -198,6 +261,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       phoneSeconds: Math.round(finalState.phoneSeconds),
       riskMultiplier: scoringResult.riskMultiplier,
       penalties: scoringResult.penalties,
+      telemetryDigest,
+      payloadSignature,
     };
 
     let savedTrip: Trip | null = null;

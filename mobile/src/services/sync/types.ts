@@ -1,3 +1,22 @@
+// ─── Telemetry Digest ─────────────────────────────────────────────────────────
+// Clean snapshot of trip metrics sent alongside every ValidTripPayload.
+// The server stores this for audit and uses it to verify the client score (RFC-001).
+// All fields are plain scalars so the digest is deterministically JSON-serialisable.
+
+export interface TelemetryDigest {
+  avgScore:         number;  // client-computed score 0–100 (1 decimal)
+  points:           number;  // raw points before level multiplier
+  distanceKm:       number;  // km, 3 decimal places
+  durationSeconds:  number;
+  hardBrakes:       number;
+  aggressiveAccels: number;
+  sharpTurns:       number;
+  phoneSeconds:     number;  // raw (unweighted) phone usage seconds
+  riskMultiplier:   number;  // time-of-day multiplier applied to points
+  startTime:        string;  // ISO 8601 UTC
+  endTime:          string;  // ISO 8601 UTC
+}
+
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────
 // Canonical payload for POST /api/trips. `localTripId` is generated on the
 // client at trip-start and sent as the `Idempotency-Key` header; Sean's server
@@ -17,6 +36,11 @@ export interface ValidTripPayload {
   phoneSeconds: number;
   riskMultiplier: number;
   penalties: number;
+  // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
+  // Server stores telemetryDigest for audit and uses it to detect score spoofing.
+  // payloadSignature is an HMAC-SHA256 of the digest (FNV-1a placeholder in Phase 1).
+  telemetryDigest?:   TelemetryDigest;
+  payloadSignature?:  string;
 }
 
 // ─── Queue Item ───────────────────────────────────────────────────────────────
