@@ -159,7 +159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     const score = scoringResult.score;
-    const earnedPoints = Math.round(scoringResult.points);
+    const earnedPoints = Math.round(scoringResult.points * userLevelState.multiplier);
     const tripStartTime = finalState.startTime?.toISOString()
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
     const endTime = new Date().toISOString();
@@ -310,6 +310,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
         return updated;
       });
+      // Re-fetch authoritative user totals so points/level reflect the committed trip.
+      // Handles the app-restart-then-sync case where loadInitialData ran before the
+      // queue was flushed and therefore fetched stale server totals.
+      authApi.me().then(freshUser => {
+        setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
+        setUserLevelState(calculateLevel(freshUser.totalPoints || 0));
+        AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
+      }).catch(() => {});
     };
   }, []);
 
@@ -397,6 +405,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem('carma_token');
     } else {
       setUserState(u);
+      setUserLevelState(calculateLevel(u.totalPoints || 0));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
 
       // Load trips immediately on login to sync with the new user context

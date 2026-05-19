@@ -3,59 +3,81 @@
  * @module services/api/fraud
  *
  * @description
- * `syncInvalidTrip` — שולח DTO מלא לשרת נווה לצורך ניתוח מטריקות הונאה ושמירת DB.
- * בmock mode (USE_REAL_SERVER=false): ממיר ל-JSON מעוצב + מחזיר token מדומה.
+ * `syncInvalidTrip` — ממיר את ה-SDK FraudDetectedEvent לפורמט השרת ושולח ל-backend.
+ * בmock mode (USE_REAL_SERVER=false): ממיר ל-JSON מעוצב + מחזיר DTO מדומה.
  *
- * @server
- * - POST /api/fraud/trips — TODO: Sean to implement (see InvalidTripPayload for DB schema)
+ * @server POST /api/fraud — live (server/app/routers/fraud.py)
  */
 import { request } from './client';
 import { USE_REAL_SERVER } from '@/constants/serverConfig';
 
-// ─── DTO (matches Sean's future DB schema) ───────────────────────────────────
+// ─── Mobile SDK event shape (emitted by CarmaDrivingSDK.onFraudDetected) ─────
 
-export interface InvalidTripPayload {
-  userId: string;                        // driver identifier for auditing
-  timestamp: string;                     // ISO — when fraud was detected
-  detectedMode: 'TRAIN' | 'BUS' | 'UNKNOWN'; // classified transport type
-  fraudScore: number;                    // 0–1 composite score from FraudDetector
+export interface FraudEventPayload {
+  userId: string;
+  timestamp: string;
+  detectedMode: 'TRAIN' | 'BUS' | 'UNKNOWN';
+  fraudScore: number;
   telemetrySummary: {
-    avgSpeed: number;                    // km/h — average over detection window
-    maxLateralAccel: number;             // g-units — peak gravity-removed lateral force
-    gyroVariance: number;                // rad²/s² — yaw rate variance
+    avgSpeed: number;
+    maxLateralAccel: number;
+    gyroVariance: number;
   };
-  durationMs: number;                    // how long the session ran before rejection
-  maxSpeedKmh: number;                   // peak speed seen during the session
+  durationMs: number;
+  maxSpeedKmh: number;
 }
 
-export interface SyncInvalidTripResponse {
-  token: string;                         // server-assigned audit record ID
+// ─── Server response (FraudReportOut — camelCase per CamelModel) ──────────────
+
+export interface FraudReportOut {
+  id: string;
+  userId: string;
+  reportedAt: string;
+  anomalyFlags: string[];
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 export const fraudApi = {
-  syncInvalidTrip: async (payload: InvalidTripPayload): Promise<SyncInvalidTripResponse> => {
+  syncInvalidTrip: async (payload: FraudEventPayload): Promise<FraudReportOut> => {
     if (!USE_REAL_SERVER) {
-      // Dev mode: log the full DTO and resolve immediately — no network call
       console.group('[fraud.api] INVALID TRIP DETECTED');
       console.log('Mode:', payload.detectedMode, `| Score: ${(payload.fraudScore * 100).toFixed(0)}%`);
       console.log('Telemetry:', JSON.stringify(payload.telemetrySummary, null, 2));
       console.log('Full payload:', JSON.stringify(payload, null, 2));
       console.groupEnd();
-      return { token: `dev_fraud_${Date.now()}` };
+      return {
+        id: `dev_fraud_${Date.now()}`,
+        userId: payload.userId,
+        reportedAt: payload.timestamp,
+        anomalyFlags: [`TRANSPORT_MODE_${payload.detectedMode}`],
+      };
     }
 
+    // Map SDK event to server's InvalidTripPayload schema
+    const serverPayload = {
+      idempotencyKey: `fraud_${payload.userId}_${payload.timestamp}`,
+      tripDurationSeconds: Math.round(payload.durationMs / 1000),
+      anomalyFlags: [
+        `TRANSPORT_MODE_${payload.detectedMode}`,
+        ...(payload.fraudScore > 0.8 ? ['HIGH_CONFIDENCE_FRAUD'] : []),
+      ],
+      rawPayload: {
+        fraudScore: payload.fraudScore,
+        maxSpeedKmh: payload.maxSpeedKmh,
+        telemetrySummary: payload.telemetrySummary,
+        timestamp: payload.timestamp,
+      },
+    };
+
     try {
-      // TODO: Sean to implement POST /api/fraud/trips on the server
-      return await request<SyncInvalidTripResponse>('/api/fraud/trips', {
+      return await request<FraudReportOut>('/api/fraud', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(serverPayload),
       });
     } catch {
-      // Non-blocking — fraud sync failure must never interrupt the user flow
-      console.warn('[fraud.api] syncInvalidTrip failed silently (server not ready yet)');
-      return { token: 'failed' };
+      console.warn('[fraud.api] syncInvalidTrip failed silently');
+      return { id: 'failed', userId: payload.userId, reportedAt: payload.timestamp, anomalyFlags: [] };
     }
   },
 };
