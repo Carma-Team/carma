@@ -105,7 +105,7 @@ export class TripValidationManager {
             // Rule 3: evaluate fraud BEFORE confirming the trip.
             // At this point the window has exactly MIN_SAMPLES_TO_EVALUATE (30) samples.
             const fraud = this.fraudDetector.evaluate();
-            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD) {
+            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD && fraud.mode !== TransportMode.UNKNOWN) {
               console.log(`[Validation] Rule 3 — ${fraud.mode} detected (score=${fraud.score.toFixed(2)}) — trip rejected`);
               this.continuousAboveThresholdMs = 0;
               this.fraudDetector.reset();
@@ -146,7 +146,7 @@ export class TripValidationManager {
           if (!this.fraudSuspectedFired) {
             this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
             const fraud = this.fraudDetector.evaluate();
-            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD) {
+            if (fraud.isReady && fraud.score >= FRAUD_SCORE_THRESHOLD && fraud.mode !== TransportMode.UNKNOWN) {
               this.fraudSuspectedFired = true;
               console.log(`[Validation] Rule 3 (mid-trip) — ${fraud.mode} detected (score=${fraud.score.toFixed(2)})`);
               this.onFraudSuspected?.(fraud);

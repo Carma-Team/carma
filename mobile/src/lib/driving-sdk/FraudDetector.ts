@@ -111,7 +111,13 @@ export class FraudDetector {
     const signalC = yawVariance < YAW_VARIANCE_THRESHOLD;
 
     const score = (signalA ? WEIGHT_A : 0) + (signalB ? WEIGHT_B : 0) + (signalC ? WEIGHT_C : 0);
-    const mode  = score >= FRAUD_SCORE_THRESHOLD ? TransportMode.TRAIN : TransportMode.UNKNOWN;
+    // Signals B (near-zero lateral accel) and C (near-zero yaw) are the physical fingerprint
+    // of rail travel — rails prevent sway and the track eliminates steering. A car on a straight
+    // motorway with cruise control can satisfy Signal A+B (score=0.75 ≥ threshold) while still
+    // producing measurable yaw from micro-steering corrections (C absent). Requiring BOTH B and C
+    // prevents this highway false positive without reducing true-train detection sensitivity.
+    const mode  = score >= FRAUD_SCORE_THRESHOLD && signalB && signalC
+      ? TransportMode.TRAIN : TransportMode.UNKNOWN;
 
     return {
       score, isReady: true, mode,
