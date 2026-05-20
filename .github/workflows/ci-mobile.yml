@@ -16,10 +16,6 @@ on:
       - '.github/workflows/ci-mobile.yml'
   workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: ./mobile
-
 jobs:
   install-typecheck:
     runs-on: ubuntu-latest
@@ -30,9 +26,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - name: TypeScript (no emit)
+        working-directory: ./mobile
         run: npx tsc --noEmit
 
   test:
@@ -46,9 +43,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - name: Run tests
+        working-directory: ./mobile
         run: npm test --if-present -- --ci --passWithNoTests
 
   # ── API Contract Drift Check ──────────────────────────────────────────────────
@@ -114,9 +112,8 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install mobile deps
-        working-directory: ./mobile
         run: npm ci
       - name: Snapshot committed generated types (pre-generation baseline)
         working-directory: ./mobile
