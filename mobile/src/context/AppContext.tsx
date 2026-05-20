@@ -587,11 +587,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return tripRef.current;
   }, [sdk]);
 
-  const loginUser = useCallback(async (data: AuthResponse) => {
-    await AsyncStorage.setItem('carma_token', data.token);
-    await setUser(data.user);
-  }, [setUser]);
-
   const setUser = useCallback(async (u: AppUser | null) => {
     if (!u) {
       setUserState(null);
@@ -614,6 +609,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, []);
+
+  const loginUser = useCallback(async (data: AuthResponse) => {
+    await AsyncStorage.setItem('carma_token', data.token);
+    await setUser(data.user);
+  }, [setUser]);
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
