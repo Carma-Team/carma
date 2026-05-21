@@ -1,20 +1,20 @@
 // ─── Telemetry Digest ─────────────────────────────────────────────────────────
-// Clean snapshot of trip metrics sent alongside every ValidTripPayload.
-// The server stores this for audit and uses it to verify the client score (RFC-001).
+// Raw sensor snapshot sent alongside every ValidTripPayload for server-side audit.
+// avgScore and points are intentionally absent — the FastAPI server is the sole
+// scoring oracle (RFC-001 v1.5). timestamp enables server-side replay detection.
 // All fields are plain scalars so the digest is deterministically JSON-serialisable.
 
 export interface TelemetryDigest {
-  avgScore:         number;  // client-computed score 0–100 (1 decimal)
-  points:           number;  // raw points before level multiplier
   distanceKm:       number;  // km, 3 decimal places
   durationSeconds:  number;
   hardBrakes:       number;
   aggressiveAccels: number;
   sharpTurns:       number;
   phoneSeconds:     number;  // raw (unweighted) phone usage seconds
-  riskMultiplier:   number;  // time-of-day multiplier applied to points
+  riskMultiplier:   number;  // time-of-day multiplier (client-derived, server recomputes)
   startTime:        string;  // ISO 8601 UTC
   endTime:          string;  // ISO 8601 UTC
+  timestamp:        number;  // ms Unix epoch — Date.now() at signing time (replay guard)
 }
 
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────

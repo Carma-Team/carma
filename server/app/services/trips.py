@@ -15,19 +15,16 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
+from app.services.scoring import calculate_score
 
-_MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
+_DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
 
 def _validate_plausibility(dto: SaveTripIn) -> None:
-    if dto.avg_score is not None and not (0.0 <= dto.avg_score <= 100.0):
-        raise HTTPException(422, f"avg_score={dto.avg_score} — must be in [0, 100]")
-    if dto.points is not None and dto.points > _MAX_POINTS_PER_TRIP:
-        raise HTTPException(422, f"points={dto.points} — implausible (max {_MAX_POINTS_PER_TRIP})")
     if dto.distance_km is not None and dto.distance_km > _MAX_DISTANCE_KM:
         raise HTTPException(422, f"distance_km={dto.distance_km} — implausible")
     if dto.hard_brakes is not None and dto.hard_brakes > _MAX_HARD_BRAKES:
@@ -42,6 +39,22 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
             raise HTTPException(422, f"avg_speed={avg_speed:.1f} km/h — implausible")
 
 
+def _check_timestamp_drift(digest: dict | None) -> None:
+    if not digest:
+        return
+    ts = digest.get("timestamp")
+    if ts is None:
+        return
+    try:
+        client_ms = int(ts)
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Invalid timestamp in telemetryDigest")
+    server_ms = int(datetime.now(UTC).timestamp() * 1000)
+    if abs(server_ms - client_ms) > _DRIFT_WINDOW_MS:
+        audit("trips.timestamp.stale", drift_ms=server_ms - client_ms)
+        raise HTTPException(401, "Stale timestamp — possible replay attack")
+
+
 def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
     if not signature:
         return
@@ -54,7 +67,7 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
     expected = _hmac.new(
-        secret.encode(), f"{secret}:{canonical}".encode(), hashlib.sha256
+        secret.encode(), canonical.encode(), hashlib.sha256
     ).hexdigest()
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
@@ -87,7 +100,9 @@ async def save(
         if existing:
             return TripOut.from_orm_trip(existing)
 
+    # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
+    _check_timestamp_drift(dto.telemetry_digest)
     _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
 
     start = dto.start_time or datetime.now(UTC)
@@ -96,7 +111,17 @@ async def save(
     if duration is None and end is not None:
         duration = max(0, int((end - start).total_seconds()))
     distance = dto.distance_km or 0.0
-    avg_score = dto.avg_score
+
+    # Server is sole scoring oracle — client-sent avg_score and points are ignored
+    avg_score, points_raw, risk_multiplier = calculate_score(
+        hard_brakes=dto.hard_brakes or 0,
+        aggressive_accels=dto.aggressive_accels or 0,
+        sharp_turns=dto.sharp_turns or 0,
+        phone_seconds=dto.phone_seconds or 0,
+        duration_seconds=duration or 0,
+        distance_km=distance,
+        start_time=start,
+    )
 
     trip = Trip(
         user_id=user.id,
@@ -106,8 +131,8 @@ async def save(
         duration_seconds=duration or 0,
         distance_km=distance,
         avg_score=avg_score,
-        points=dto.points or 0,
-        risk_multiplier=dto.risk_multiplier if dto.risk_multiplier is not None else 1.0,
+        points=round(points_raw),
+        risk_multiplier=risk_multiplier,
         hard_brakes=dto.hard_brakes or 0,
         aggressive_accels=dto.aggressive_accels or 0,
         sharp_turns=dto.sharp_turns or 0,

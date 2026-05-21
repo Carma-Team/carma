@@ -811,14 +811,16 @@ Use these as the acceptance test for `scoring.py`:
 
 | # | hardBrakes | aggrAccels | sharpTurns | phoneSec | durSec | distKm | startTime (UTC) | Expected score | Expected points |
 |---|-----------|-----------|-----------|---------|--------|--------|-----------------|---------------|-----------------|
-| 1 | 0 | 0 | 0 | 0 | 1800 | 15.0 | Tue 14:00 | 100.0 | 91.5 |
-| 2 | 3 | 2 | 1 | 60 | 600 | 5.0 | Mon 10:00 | 73.0 | 41.9 |
-| 3 | 10 | 5 | 3 | 300 | 900 | 8.0 | Fri 23:30 | 0.0 | 0.0 |
-| 4 | 1 | 0 | 0 | 0 | 3600 | 50.0 | Thu 23:00 | 95.0 | 153.0 |
-| 5 | 0 | 0 | 0 | 120 | 1200 | 12.0 | Sat 01:00 | 96.0 | 149.0 |
+| 1 | 0 | 0 | 0 | 0 | 1800 | 15.0 | Tue 14:00 | 100.0 | 115.6 |
+| 2 | 3 | 2 | 1 | 60 | 600 | 5.0 | Mon 10:00 | 73.0 | 54.5 |
+| 3 | 10 | 5 | 3 | **900** | 900 | 8.0 | Fri 23:30 | 0.0 | 0.0 |
+| 4 | 1 | 0 | 0 | 0 | 3600 | 50.0 | Thu 23:00 | 95.0 | 311.5 |
+| 5 | 0 | 0 | 0 | 120 | 1200 | 12.0 | Sat 01:00 | 96.0 | 205.4 |
 
 > Vector 3 demonstrates score flooring: penalties > 100 → score = 0 → points = 0.
+> phoneSec=900 (full-session phone use) pushes penalties to 111, breaching the floor.
 > Vector 4/5 demonstrate the ×2.0 weekend-night multiplier.
+> Points are verified by `server/tests/test_scoring.py` (14/14 green).
 
 ### 8.4 `TripOut` Response — Score Fields
 
