@@ -1,7 +1,9 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
-**מסמך:** RFC-001 | **גרסה:** 1.3 | **תאריך:** 2026-05-20
+**מסמך:** RFC-001 | **גרסה:** 1.4 | **תאריך:** 2026-05-21
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
 **סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
+
+> **v1.4 Amendment:** Time-Based Nonce + HMAC-SHA256 replay protection added — see §7.
 
 ---
 
@@ -88,25 +90,31 @@ export interface TelemetryDigest {
   riskMultiplier:   number;  // מכפיל סיכון (שעה/יום)
   startTime:        string;  // ISO 8601 UTC
   endTime:          string;  // ISO 8601 UTC
+  timestamp:        number;  // [v1.4] millisecond Unix epoch — Date.now() at signing time
 }
 ```
 
 ### 3.2 פרוטוקול חתימה
 
 ```
-canonical_json  = JSON.stringify(digest, sorted_keys)
-hmac_input      = APP_SECRET + ":" + canonical_json
-signature       = HMAC-SHA256(hmac_input)
+# [v1.4] — timestamp is a field inside digest; canonical JSON includes it naturally.
+
+canonical_json  = JSON.stringify(digest, sorted_keys)   // digest contains timestamp
+signature       = HMAC-SHA256(key=APP_SECRET, msg=canonical_json)
 header          = "Idempotency-Key: <localTripId>"
-body.payloadSignature = "ph:<32-char-hex>"  // placeholder עד להטמעת expo-crypto
+body.payloadSignature = "<64-char-hex>"    // ph: prefix active during current sprint
 ```
+
+**[v1.4] Server verification sequence:**
+1. Parse `digest.timestamp` → reject with **HTTP 401** if `|server_now_ms − timestamp| > 300 000 ms`
+2. Recompute `HMAC-SHA256(secret, canonical_json(digest))` → reject with **HTTP 403** if hash mismatch
 
 **ספרינט נוכחי — Phase 1+2 ממוזגים:**
 - HMAC-SHA256 פעיל בלקוח (`ph:` prefix לביפאס ספרינט נוכחי) — שרת מקבל ומאגר ל-DB
-- Sean מיישם `_verify_signature()` עם bypass זמני ל-`ph:` בלבד
-- Dan משדרג ל-HMAC-SHA256 אמיתי דרך `expo-crypto` ברגע שמנגנון הסוד מוכן
+- Sean מיישם `_verify_signature()` ו-`_check_timestamp_drift()` עם bypass זמני ל-`ph:` בלבד
+- Dan משדרג ל-HMAC-SHA256 אמיתי דרך `@noble/hashes` ברגע שמנגנון הסוד מוכן
 
-**Sprint+1:** `expo-crypto.digestStringAsync(CryptoAlgorithm.HMAC_SHA256, ...)` עם מפתח מנוהל דרך App Attestation (iOS) / Play Integrity (Android) — הסרת ה-`ph:` bypass לחלוטין.
+**Sprint+1:** הסרת `ph:` bypass לחלוטין — כל חתימה חייבת לעבור drift check ו-HMAC verify. אכיפה דרך App Attestation (iOS) / Play Integrity (Android).
 
 ---
 
@@ -420,4 +428,175 @@ sdk.onUpdate = (data: TripData) => {
 
 ---
 
-*RFC-001 v1.1 | CTO Signature: Dan Ofri | 2026-05-20 | Crash-Program Revision*
+---
+
+## 7. Cryptographic Upgrade — Time-Based Replay Protection (v1.4)
+
+> This section is the authoritative English specification for the replay-protection layer
+> added in v1.4. All implementation work in §4.1 (Sean) and Layer 2 (Dan/Mai) must
+> conform exactly to this contract.
+
+### 7.1 Threat Model
+
+The `ph:` bypass introduced in Sprint 1 was an intentional placeholder. Two attack vectors
+remain open until this section is fully implemented:
+
+| Attack | Vector | Mitigation |
+|--------|--------|------------|
+| **Replay attack** | Attacker captures a valid signed request and resubmits it later with a different `idempotency_key` to earn duplicate points | Timestamp drift window (§7.3) |
+| **Data tampering** | Attacker intercepts a request in transit and modifies `points` or `distanceKm` without re-signing | HMAC integrity check (§7.4) |
+
+### 7.2 Payload Mutation — Timestamp Injection
+
+Before the signing step, the mobile client **must** append a `timestamp` field to the
+`TelemetryDigest` object:
+
+```typescript
+// mobile/src/context/AppContext.tsx — buildTelemetryDigest()
+const digest: TelemetryDigest = {
+  avgScore,
+  points,
+  distanceKm,
+  durationSeconds,
+  hardBrakes,
+  aggressiveAccels,
+  sharpTurns,
+  phoneSeconds,
+  riskMultiplier,
+  startTime: startTime.toISOString(),
+  endTime:   endTime.toISOString(),
+  timestamp: Date.now(),            // millisecond Unix epoch — injected last
+};
+```
+
+`Date.now()` is injected **after** all trip metrics are finalized and **before** the HMAC
+is computed. The timestamp becomes part of the signed payload — any server that replays
+the request after the drift window will be rejected without needing to track nonces.
+
+### 7.3 Drift Control — Replay Attack Mitigation (HTTP 401)
+
+```python
+# server/app/services/trips.py
+import time
+
+_REPLAY_WINDOW_MS = 5 * 60 * 1000  # ±5 minutes in milliseconds
+
+def _check_timestamp_drift(digest: dict | None) -> None:
+    """Rejects payloads whose embedded timestamp falls outside the ±5-minute window.
+
+    This makes captured requests non-replayable after 5 minutes regardless of whether
+    the idempotency key has been seen before.
+    """
+    if digest is None:
+        return
+    ts = digest.get("timestamp")
+    if ts is None:
+        return  # unsigned legacy payload — plausibility gate is the only backstop
+    now_ms = int(time.time() * 1000)
+    drift = abs(now_ms - int(ts))
+    if drift > _REPLAY_WINDOW_MS:
+        audit("trips.signature.replay", ts=ts, now_ms=now_ms, drift_ms=drift)
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            f"Timestamp outside ±5-minute window (drift={drift // 1000}s) — replay rejected",
+        )
+```
+
+**Call site in `save()`** — drift check must precede HMAC verification:
+
+```python
+_validate_plausibility(dto)
+_check_timestamp_drift(dto.telemetry_digest)    # 401 — stale / replayed
+_verify_signature(                               # 403 — tampered / forged
+    dto.telemetry_digest,
+    dto.payload_signature,
+    settings.trip_signing_secret,
+)
+```
+
+### 7.4 Integrity Check — Tamper / Forgery Mitigation (HTTP 403)
+
+The canonical string for HMAC computation is the **stable JSON serialisation of the entire
+`TelemetryDigest` object** (including the embedded `timestamp`). The shared secret is the
+HMAC *key*, not part of the message.
+
+```python
+# server/app/services/trips.py — updated _verify_signature()
+def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
+    if not signature:
+        return
+    if signature.startswith("ph:"):
+        audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
+        return
+    if not secret:
+        return
+    if digest is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "payloadSignature present but telemetryDigest is absent",
+        )
+    canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
+    expected = _hmac.new(
+        secret.encode(),
+        canonical.encode(),      # message = canonical JSON of digest (timestamp included)
+        hashlib.sha256,
+    ).hexdigest()
+    if not _hmac.compare_digest(expected, signature):
+        audit("trips.signature.rejected", reason="hmac-mismatch")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid payload signature")
+```
+
+> **Breaking change from v1.3:** The v1.3 prototype used `f"{secret}:{canonical}"` as the
+> HMAC message — prepending the secret to the message string. v1.4 uses `canonical` alone
+> as the message, with `secret` passed exclusively as the HMAC *key*. Both client and
+> server implementations must adopt the same convention simultaneously during the Sprint+1
+> cut-over.
+
+### 7.5 Client-Side HMAC (Sprint+1 — removes `ph:` placeholder)
+
+```typescript
+// mobile/src/context/AppContext.tsx — signTelemetryDigest()
+import { hmac } from "@noble/hashes/hmac";
+import { sha256 } from "@noble/hashes/sha2";
+import { utf8ToBytes, bytesToHex } from "@noble/hashes/utils";
+
+function signTelemetryDigest(digest: TelemetryDigest, secret: string): string {
+  const canonical = stableStringify(digest);   // JSON.stringify with sorted keys
+  const mac = hmac(sha256, utf8ToBytes(secret), utf8ToBytes(canonical));
+  return bytesToHex(mac);
+}
+```
+
+`@noble/hashes` is a zero-dependency, audited pure-TypeScript cryptography library
+(MIT license, ~8 kB gzip). It is the only approved HMAC library for the mobile client.
+Do **not** use `crypto-js` (outdated, slow) or attempt to call a native module from inside
+`driving-sdk/`.
+
+### 7.6 Error Response Contract
+
+| Condition | HTTP Status | Body |
+|-----------|-------------|------|
+| `timestamp` absent (unsigned payload) | `200` / proceeds normally | — |
+| `|drift| > 300 000 ms` | `401 Unauthorized` | `"Timestamp outside ±5-minute window"` |
+| HMAC mismatch | `403 Forbidden` | `"Invalid payload signature"` |
+| `payloadSignature` present, `telemetryDigest` absent | `403 Forbidden` | `"payloadSignature present but telemetryDigest is absent"` |
+| `ph:` prefix (sprint placeholder) | `200` / proceeds | audit log entry |
+
+### 7.7 Definition of Done — Sprint+1 Gate
+
+All of the following must pass before `ph:` bypass is removed from production:
+
+```
+☐  _check_timestamp_drift: unit test — drift = 299 999 ms → pass
+☐  _check_timestamp_drift: unit test — drift = 300 001 ms → HTTP 401
+☐  _verify_signature: unit test    — correct HMAC         → pass
+☐  _verify_signature: unit test    — flipped bit in digest → HTTP 403
+☐  Mobile: timestamp field present in every POST /api/trips payload (log audit)
+☐  Mobile: HMAC computed with @noble/hashes, not crypto-js or ph: prefix
+☐  npm test inside ./mobile → 125/125 PASS
+☐  No files modified under mobile/src/lib/driving-sdk/
+```
+
+---
+
+*RFC-001 v1.4 | CTO Signature: Dan Ofri | 2026-05-21 | Time-Based Replay Protection Amendment*
