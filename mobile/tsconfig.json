@@ -3,8 +3,6 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "strict": true,
-    // TODO: [MAI-TS] Remove this bypass and fix the 20+ UI component compilation errors identified in the audit.
-    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": [

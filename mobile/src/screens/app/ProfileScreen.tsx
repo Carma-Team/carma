@@ -49,7 +49,7 @@ export default function ProfileScreen() {
     }
     if ((section === 'trips' || section === 'chart') && trips.length === 0) {
       setLoading(true)
-      tripsApi.list(20)
+      tripsApi.list()
         .then(d => setTrips(d.trips))
         .catch(err => console.error('Trips error:', err))
         .finally(() => setLoading(false))

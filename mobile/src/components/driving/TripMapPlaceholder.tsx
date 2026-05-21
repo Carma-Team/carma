@@ -22,5 +22,5 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   icon: { fontSize: 30 },
-  text: { color: COLORS.textMuted, marginTop: 10, ...TYPOGRAPHY.caption },
+  text: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginTop: 10 },
 });

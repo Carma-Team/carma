@@ -32,7 +32,7 @@ export function VoucherList({ vouchers, onVoucherPress, lang }: VoucherListProps
               <Text style={styles.emoji}>{v.reward?.imageEmoji ?? '🎁'}</Text>
               <View style={styles.info}>
                 <Text style={styles.voucherTitle}>
-                  {lang === 'he' ? v.reward?.title : (v.reward?.titleEn || v.reward?.title)}
+                  {lang === 'he' ? v.reward?.titleHe : (v.reward?.titleEn || v.reward?.titleHe)}
                 </Text>
                 <Text style={styles.voucherCode}>{v.code}</Text>
               </View>

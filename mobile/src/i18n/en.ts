@@ -82,7 +82,6 @@ const en = {
     notificationsSubtitle: 'Updates about rewards, scores, and system alerts will appear here.',
     totalDistance2: 'Total Distance',
     driveMode: 'Automatic Drive Mode',
-    settings: 'Settings',
     driveModeDesc: 'The app will automatically start and end trips when connected to the configured Bluetooth device.',
     active: 'Active',
     inactive: 'Inactive',

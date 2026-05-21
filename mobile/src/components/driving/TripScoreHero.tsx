@@ -6,11 +6,12 @@ import { SPACING } from '@/constants/theme';
 import { scoreToGrade, scoreToColor } from '@/lib/scoring';
 import { formatDate, scoreToEmoji } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { Language } from '@/types';
 
 interface TripScoreHeroProps {
   score: number;
   date: string | Date;
-  lang: string;
+  lang: Language;
 }
 
 export function TripScoreHero({ score, date, lang }: TripScoreHeroProps) {
@@ -24,7 +25,7 @@ export function TripScoreHero({ score, date, lang }: TripScoreHeroProps) {
       <Text style={styles.heroEmoji}>{scoreToEmoji(score)}</Text>
       <Text style={[styles.heroScore, { color }]}>{Math.round(score)}</Text>
       <Badge variant={badgeVariant}>{t(`trip.status.${grade}`)}</Badge>
-      <Text style={styles.heroDate}>{formatDate(date, lang)}</Text>
+      <Text style={styles.heroDate}>{formatDate(typeof date === 'string' ? date : date.toISOString(), lang)}</Text>
     </Card>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Card } from './Card';
 import { COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 
@@ -35,8 +35,8 @@ export function StatsGrid({ items, columns = 2, variant = 'default' }: StatsGrid
               minWidth: isCompact ? 0 : itemWidth,
               flex: isCompact ? 1 : 0,
               marginBottom: isCompact ? 0 : SPACING.sm
-            },
-            isCompact && styles.compactCard
+            } as ViewStyle,
+            isCompact ? styles.compactCard : undefined
           ]}
         >
           <Text style={[COMMON_STYLES.statEmoji, isCompact && styles.compactEmoji]}>
