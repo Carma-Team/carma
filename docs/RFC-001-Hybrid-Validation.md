@@ -1,5 +1,5 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
-**מסמך:** RFC-001 | **גרסה:** 1.2 | **תאריך:** 2026-05-20
+**מסמך:** RFC-001 | **גרסה:** 1.3 | **תאריך:** 2026-05-20
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
 **סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
 
@@ -36,11 +36,11 @@
  │  FASTAPI SERVER ("The Supreme Judge")                           │
  │                                                                 │
  │  1. אימות חתימה (HMAC verify) — reject אם לא תואם             │
- │  2. חישוב ציון עצמאי (Python mirror של scoring.ts)             │
- │  3. השוואת server_score vs client_score — reject אם ∆ > 5      │
- │  4. sanity checks: distance/speed/duration plausibility         │
- │  5. atomic UPDATE points — מניעת Lost Update                    │
- │  6. שמירת telemetryDigest ל-DB לצורך audit                     │
+ │  2. sanity checks: distance/speed/duration plausibility         │
+ │  3. atomic UPDATE points — מניעת Lost Update                    │
+ │  4. שמירת telemetryDigest ל-DB לצורך audit                     │
+ │                                                                 │
+ │  ⚠️  השוואת ניקוד לקוח/שרת — נדחתה (ראה §2.3)               │
  └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -49,10 +49,24 @@
 | היבט | לקוח | שרת |
 |------|------|------|
 | **מטרה** | UX מיידי, אנימציות, עדכון UI בזמן אמת | אמת יחיד, הגנת נתונים |
-| **ניקוד** | מחשב לצורך תצוגה | מחשב מחדש לצורך שמירה |
-| **הונאה** | מסנן עם FraudDetector (Train/Bus) | מאמת telemetry plausibility |
+| **ניקוד** | מחשב לצורך תצוגה — הציון שנשלח נשמר כפי שהוא | אינו מחשב מחדש ואינו משווה (ראה §2.3) |
+| **הונאה** | מסנן עם FraudDetector (Train/Bus) | מאמת plausibility: מרחק, מהירות, משך, נקודות |
 | **נקודות** | מעדכן state מקומי | מעדכן DB באופן אטומי |
 | **חתימה** | מייצר HMAC-SHA256 | מאמת HMAC-SHA256 |
+
+### 2.3 החלטת CTO — דחיית השוואת ניקוד לקוח/שרת
+
+**תאריך:** 2026-05-20 | **מחליט:** Dan Ofri (CTO)
+
+**מה נדחה:** חישוב ניקוד עצמאי בשרת (`_server_calculate_score`) והשוואתו לניקוד הלקוח עם דחיית בקשה אם הפער גדול מ-7 נקודות.
+
+**הנימוק:** כל שינוי עתידי בנוסחת הניקוד יגרור סנכרון כפוי בין כל גרסאות האפליקציה הפעילות בחנות לבין השרת. גרסה ישנה שעדיין מותקנת תחשב לפי הנוסחה הישנה, תישלח לשרת שמחשב לפי הנוסחה החדשה, והפער יגרור שגיאת 422 על נסיעות לגיטימיות לחלוטין. המורכבות התפעולית אינה מצדיקה את שכבת ההגנה הנוספת בשלב זה.
+
+**מה נשאר בתוקף:**
+- בדיקות plausibility גולמיות (מרחק, מהירות, משך, נקודות) — חוסמות זיופים גסים
+- אימות חתימת HMAC-SHA256 — יחסום מניפולציה עדינה ברגע שיממומש במלואו
+
+**תנאי לחזרה לדיון:** כאשר הנוסחה יציבה ויש אסטרטגיית ניהול גרסאות (versioning) מוגדרת לאפליקציה.
 
 ---
 
@@ -129,38 +143,9 @@ def _validate_trip_plausibility(dto: SaveTripIn) -> None:
             raise HTTPException(422, f"avg_speed implausible ({avg_speed:.0f} km/h)")
 ```
 
-#### [SEAN-P0 | ספרינט נוכחי] חישוב ציון עצמאי בצד-שרת
+#### ~~[SEAN-P0] חישוב ציון עצמאי בצד-שרת~~ — נדחה (ראה §2.3)
 
-**מה:** מרר את נוסחת הניקוד של `scoring.ts` ב-Python ב-`server/app/services/trips.py`. השוה בין ציון הלקוח לציון השרת.
-
-```python
-def _server_calculate_score(dto: SaveTripIn) -> float:
-    dur = max(dto.duration_seconds or 1, 1)
-    phone_w = dto.phone_seconds or 0  # ספרינט נוכחי: phone_weighted_seconds יתווסף ע"י Naveh
-    penalties = (
-        (dto.hard_brakes or 0) * 5 +
-        (dto.aggressive_accels or 0) * 3 +
-        (dto.sharp_turns or 0) * 2 +
-        (phone_w / dur) * 40
-    )
-    return max(0.0, min(100.0, 100.0 - penalties))
-
-# בתוך save():
-server_score = _server_calculate_score(dto)
-if dto.avg_score is not None:
-    delta = abs(server_score - dto.avg_score)
-    if delta > 5.0:  # סבלנות 5 נקודות לעיגולים/פרמטרים שחסרים בשרת
-        audit("trips.score_mismatch", user_id=user.id,
-              client=dto.avg_score, server=server_score, delta=delta)
-        raise HTTPException(422, f"Score mismatch: client={dto.avg_score}, server={server_score:.1f}")
-trip.avg_score = round(server_score, 1)  # שרת קובע — לא הלקוח
-```
-
-> **⚠️ 422 Edge-Case Guard — טיפול בחוסר עקביות זמני:**
-> שני תרחישים לגיטימיים יכולים לגרום ל-delta > 5 מבלי שמדובר בזיוף:
-> 1. **Clock drift / timezone offset:** `startTime` של הלקוח מחושב ב-Local Time; `getRiskMultiplier()` מבוסס על `getHours()` מקומי. אם השרת נמצא ב-UTC ולא ממיר נכון — מכפיל הסיכון שונה → delta בנקודות. **Sean: וודא שהשרת מחשב `riskMultiplier` לפי `startTime` של הלקוח ב-UTC, לא שעון השרת.**
-> 2. **Rounding cascade:** `phoneWeightedSeconds` הוא float שעובר `Math.round()` ושוב `round()` בשרת. הפרש של ±0.5 שניות מכפיל ב-`40/duration` יכול לתת delta של עד 3 נקודות על נסיעות קצרות. **Sean: שמור delta threshold ב-7.0 (לא 5.0) עד שנוסיף `phone_weighted_seconds` שדה נפרד.**
-> 3. **Stale SyncManager retry:** נסיעה שנדחתה ב-422 **חייבת להיות מסומנת permanent failure** (`PERMANENT_FAILURE_STATUSES`) ולא לחזור לתור. מאי מטפלת ב-UI, Sean מחזיר error code ייחודי (e.g., `422 SCORE_MISMATCH`) כדי לאפשר הבחנה.
+> החלטת CTO מ-2026-05-20: השוואת ניקוד לקוח/שרת נדחית עקב מורכבות ניהול גרסאות. השרת שומר את הציון שהלקוח שלח כפי שהוא. אין לממש `_server_calculate_score` או `SCORE_MISMATCH` enforcement.
 
 #### [SEAN-P0 | ספרינט נוכחי] אימות חתימת HMAC-SHA256
 
@@ -383,11 +368,11 @@ sdk.onUpdate = (data: TripData) => {
 
   Sean (🔴 פתוח — ספרינט נוכחי)
     ○ _validate_trip_plausibility() — sanity checks לפני DB write
-    ○ _server_calculate_score() — Python mirror של scoring.ts
-    ○ Score mismatch enforcement (delta > 7.0 → 422 SCORE_MISMATCH)
     ○ _verify_signature() + ph: bypass (תואם לפלייסהולדר הלקוח)
     ○ bulk insert אירועים ל-events table
     ○ TRIP_SIGNING_SECRET → Azure Key Vault + .env.example
+    ✗ _server_calculate_score() — נדחה (ראה §2.3)
+    ✗ Score mismatch enforcement — נדחה (ראה §2.3)
 
   Mai (🟡 פתוח — ספרינט נוכחי)
     ○ 422 SCORE_MISMATCH → toast "נסיעה נדחתה" (לא retry)
@@ -418,9 +403,8 @@ sdk.onUpdate = (data: TripData) => {
 |-----------|---------|-------|
 | Naveh | Migration הורץ ב-staging, `alembic current` = head | `alembic history` |
 | Sean | POST `/api/trips` עם `avg_score=150` מחזיר 422 | curl test |
-| Sean | POST עם delta=10 מחזיר 422 SCORE_MISMATCH | integration test |
+| Sean | POST עם `distance_km=5000` מחזיר 422 | curl test |
 | Sean | POST עם `ph:` signature עובר ✓ | integration test |
-| Mai | נסיעה שנדחית ב-422 לא נכנסת לתור SyncManager | E2E test |
 | Dan | `payloadSignature` שנשלח ≠ `undefined` בכל POST | log audit |
 
 ---
@@ -431,7 +415,7 @@ sdk.onUpdate = (data: TripData) => {
 2. **No Breaking Schema Changes:** שדות `telemetryDigest` ו-`payloadSignature` הם אופציונליים לאורך כל ספרינט הנוכחי — אין שבירת תאימות לאחור עם גרסאות app ישנות שעדיין ב-store.
 3. **125 Tests Must Stay Green:** כל שינוי ב-`ValidTripPayload` שומר תאימות מלאה עם `makePayload()` בבדיקות — הוספת שדות אופציונליים בלבד.
 4. **Idempotency is Sacred:** ה-Idempotency-Key protocol אינו משתנה — retry בטוח נשמר גם אחרי 422.
-5. **422 לעולם לא גורם לאובדן נסיעה:** נסיעה שנדחית ב-`SCORE_MISMATCH` **אינה** נכנסת לתור SyncManager. היא נרשמת ל-audit log עם `trip_id`, מוצגת למשתמש (Mai), ונידונה ידנית ע"י Support — לא נשלחת שוב.
+5. **422 לעולם לא גורם לאובדן נסיעה:** נסיעה שנדחית ב-422 (plausibility או חתימה לא תקפה) אינה נכנסת לתור SyncManager. היא נרשמת ל-audit log עם `trip_id` ומוצגת למשתמש — לא נשלחת שוב.
 6. **Permanent 422 ≠ Network Error:** `SyncManager.PERMANENT_FAILURE_STATUSES` כבר מכיל `422` — הגדרה זו נשמרת ונאכפת.
 
 ---
