@@ -3,11 +3,11 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { formatDate } from '@/lib/utils';
-import type { Trip } from '@/types';
+import type { Trip, Language } from '@/types';
 
 interface ScoreChartProps {
   trips: Trip[];
-  lang: string;
+  lang: Language;
 }
 
 export function ScoreChart({ trips, lang }: ScoreChartProps) {
@@ -29,8 +29,8 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
 
           <View style={styles.barsContainer}>
             {trips.slice(0, 7).reverse().map((trip) => {
-              const score = trip.avg_score || trip.score || 0;
-              const dateStr = trip.start_time || trip.date;
+              const score = trip.avgScore || trip.score || 0;
+              const dateStr = trip.startTime;
               const formatted = dateStr ? formatDate(dateStr, lang) : '--/--';
               return (
                 <View key={trip.id} style={styles.barWrapper}>

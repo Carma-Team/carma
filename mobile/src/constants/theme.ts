@@ -2,6 +2,8 @@
  * ─── Design Tokens (Centralized Theme) ───────────────────────────────────────
  * שינוי כאן ישפיע על כל האפליקציה: צבעים, ריווחים וטיפוגרפיה.
  */
+import type { ViewStyle } from 'react-native';
+
 export const COLORS = {
   dark:       '#0a0f1e', // רקע ראשי
   card:       '#111827', // רקע כרטיסים/אלמנטים
@@ -85,7 +87,7 @@ export const COMMON_STYLES = {
   },
   statCard: {
     flex: 1,
-    minWidth: '45%',
+    minWidth: '45%' as ViewStyle['minWidth'],
     alignItems: 'center' as const,
     padding: SPACING.md,
     minHeight: 110,

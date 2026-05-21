@@ -30,9 +30,7 @@ jobs:
       - run: npm ci
       - name: TypeScript (no emit)
         working-directory: ./mobile
-        # Non-blocking: tsc errors are printed for visibility but do not fail the build.
-        # TODO: [MAI-TS] Remove '|| true' once the 20+ UI component errors are fixed.
-        run: npx tsc --noEmit || true
+        run: npx tsc --noEmit
 
   test:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || github.event_name == 'push' }}
