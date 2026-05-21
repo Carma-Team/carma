@@ -31,6 +31,7 @@ class Settings(BaseSettings):
 
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
+    trip_signing_secret: str = Field(default="", min_length=0)
 
     @field_validator("cors_origins")
     @classmethod

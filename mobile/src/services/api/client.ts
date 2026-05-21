@@ -15,7 +15,7 @@
  * לטלפון אמיתי: שנה LOCAL_SERVER_URL ב-serverConfig.ts ל-IP של המחשב
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { USE_REAL_SERVER, LOCAL_SERVER_URL } from '@/constants/serverConfig';
+import { USE_REAL_SERVER, LOCAL_SERVER_URL, STAGING_SERVER_URL } from '@/constants/serverConfig';
 
 // Carries the HTTP status so callers (e.g. SyncManager) can distinguish 4xx from network errors
 export class ApiError extends Error {
@@ -25,8 +25,7 @@ export class ApiError extends Error {
   }
 }
 
-const REAL_SERVER_URL = 'https://carma-api.example.com'; // TODO: עדכן לכתובת השרת של נווה
-const BASE_URL = USE_REAL_SERVER ? REAL_SERVER_URL : LOCAL_SERVER_URL;
+const BASE_URL = USE_REAL_SERVER ? STAGING_SERVER_URL : LOCAL_SERVER_URL;
 
 async function getAuthToken(): Promise<string | null> {
   return AsyncStorage.getItem('carma_token');

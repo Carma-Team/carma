@@ -1,16 +1,19 @@
 /**
  * SERVER CONFIGURATION
  * --------------------
- * In tunnel mode (npx expo start --tunnel), the app sends /api/* requests to
- * the Metro server tunnel URL. Metro's proxy middleware (metro.config.js)
- * forwards those requests to localhost:3000 on the computer.
+ * USE_REAL_SERVER = false → Metro proxy → local mock server (port 3000)
+ * USE_REAL_SERVER = true  → STAGING_SERVER_URL (set to local FastAPI IP for demo)
  *
- * USE_REAL_SERVER = true  → Nave's real server
- * USE_REAL_SERVER = false → Metro proxy → local server (must be running on port 3000)
+ * DEMO DAY SETUP:
+ *   1. Set USE_REAL_SERVER = true
+ *   2. Set STAGING_SERVER_URL to the local FastAPI server IP, e.g. 'http://192.168.1.100:3000'
  */
 import Constants from 'expo-constants';
 
 export const USE_REAL_SERVER = false;
+
+// Local FastAPI server for demo — update this IP to Sean/Naveh's machine before demo day
+export const STAGING_SERVER_URL = 'http://192.168.1.100:3000';
 
 function getMetroOrigin(): string {
   // manifest2.launchAsset.url is the bundle URL in Expo Go SDK 46+

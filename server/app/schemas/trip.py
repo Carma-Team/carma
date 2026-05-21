@@ -24,6 +24,14 @@ class SaveTripIn(CamelModel):
     risk_multiplier: float | None = Field(
         default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
     )
+    telemetry_digest: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("telemetryDigest", "telemetry_digest"),
+    )
+    payload_signature: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("payloadSignature", "payload_signature"),
+    )
     penalties: int | None = None
     events: list[dict[str, Any]] | None = Field(
         default=None, validation_alias=AliasChoices("events", "eventsArray", "events_array")
