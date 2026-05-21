@@ -43,15 +43,16 @@ class TestGetRiskMultiplier:
 
 # ─── calculate_score parity vectors ──────────────────────────────────────────
 # Inputs and expected outputs must match mobile/src/lib/scoring.ts exactly.
-# Vector 3 uses phone_seconds=900 (full-session phone use) to demonstrate the
-# score=0 floor; the RFC §8.3 table phoneSec column had a transcription error.
+# v1.7: phone_seconds replaced by touch_epochs (×4 pts each) +
+#        screen_interaction_seconds (proportional, up to 40 pts).
 
 class TestCalculateScoreParity:
     def test_vector1_perfect_score_daytime_15km(self):
-        """0 events, 1800s, 15km, Tue 14:00 → rm=1.0, score=100.0, points=115.6"""
+        """0 events, TE=0, SIS=0, 1800s, 15km, Tue 14:00 → rm=1.0, score=100.0, points=115.6"""
         score, points, rm = calculate_score(
             hard_brakes=0, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=0, duration_seconds=1800, distance_km=15.0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=1800, distance_km=15.0,
             start_time=_dt(2026, 1, 6, 14),  # Tue 14:00
         )
         assert rm == 1.0
@@ -59,22 +60,24 @@ class TestCalculateScoreParity:
         assert points == 115.6
 
     def test_vector2_mixed_penalties_daytime_5km(self):
-        """3 HB, 2 AA, 1 ST, 60 phone/600s, 5km, Mon 10:00 → score=73.0, points=54.5
-        Note: 73 × ln(6)/ln(11) × 1.0 = 54.550… → IEEE 754 rounds to 54.5."""
+        """3 HB, 2 AA, 1 ST, TE=3, SIS=30/600s, 5km, Mon 10:00 → score=63.0, points=47.1
+        penalties = (3×5)+(2×3)+(1×2)+(3×4)+(30/600)×40 = 15+6+2+12+2 = 37"""
         score, points, rm = calculate_score(
             hard_brakes=3, aggressive_accels=2, sharp_turns=1,
-            phone_seconds=60, duration_seconds=600, distance_km=5.0,
+            touch_epochs=3, screen_interaction_seconds=30,
+            duration_seconds=600, distance_km=5.0,
             start_time=_dt(2026, 1, 5, 10),  # Mon 10:00
         )
         assert rm == 1.0
-        assert score == 73.0
-        assert points == 54.5
+        assert score == 63.0
+        assert points == 47.1
 
     def test_vector3_score_floor_weekend_night(self):
-        """10 HB, 5 AA, 3 ST, 900 phone/900s, 8km, Fri 23:30 → penalties>100 → score=0"""
+        """10 HB, 5 AA, 3 ST, TE=5, SIS=900/900s, 8km, Fri 23:30 → penalties>100 → score=0"""
         score, points, rm = calculate_score(
             hard_brakes=10, aggressive_accels=5, sharp_turns=3,
-            phone_seconds=900, duration_seconds=900, distance_km=8.0,
+            touch_epochs=5, screen_interaction_seconds=900,
+            duration_seconds=900, distance_km=8.0,
             start_time=_dt(2026, 1, 9, 23, 30),  # Fri 23:30
         )
         assert rm == 2.0
@@ -82,26 +85,29 @@ class TestCalculateScoreParity:
         assert points == 0.0
 
     def test_vector4_light_penalty_thu_night_50km(self):
-        """1 HB, 50km, Thu 23:00 → rm=2.0, score=95.0, points=311.5"""
+        """1 HB, TE=0, SIS=0, 50km, Thu 23:00 → rm=2.0, score=95.0, points=311.5"""
         score, points, rm = calculate_score(
             hard_brakes=1, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=0, duration_seconds=3600, distance_km=50.0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=3600, distance_km=50.0,
             start_time=_dt(2026, 1, 8, 23),  # Thu 23:00
         )
         assert rm == 2.0
         assert score == 95.0
         assert points == 311.5
 
-    def test_vector5_phone_penalty_sat_night_12km(self):
-        """0 events, 120 phone/1200s, 12km, Sat 01:00 → rm=2.0, score=96.0, points=205.4"""
+    def test_vector5_interaction_penalty_sat_night_12km(self):
+        """0 events, TE=5, SIS=60/1200s, 12km, Sat 01:00 → rm=2.0, score=78.0, points=166.9
+        penalties = (5×4)+(60/1200)×40 = 20+2 = 22"""
         score, points, rm = calculate_score(
             hard_brakes=0, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=120, duration_seconds=1200, distance_km=12.0,
+            touch_epochs=5, screen_interaction_seconds=60,
+            duration_seconds=1200, distance_km=12.0,
             start_time=_dt(2026, 1, 10, 1),  # Sat 01:00
         )
         assert rm == 2.0
-        assert score == 96.0
-        assert points == 205.4
+        assert score == 78.0
+        assert points == 166.9
 
 
 # ─── edge cases ───────────────────────────────────────────────────────────────
@@ -110,7 +116,8 @@ class TestCalculateScoreEdgeCases:
     def test_zero_duration_no_division_error(self):
         score, points, rm = calculate_score(
             hard_brakes=0, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=0, duration_seconds=0, distance_km=5.0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=0, distance_km=5.0,
             start_time=_dt(2026, 1, 6, 12),
         )
         assert score == 100.0
@@ -119,7 +126,8 @@ class TestCalculateScoreEdgeCases:
     def test_zero_distance_gives_zero_points(self):
         score, points, rm = calculate_score(
             hard_brakes=0, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=0, duration_seconds=600, distance_km=0.0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=600, distance_km=0.0,
             start_time=_dt(2026, 1, 6, 12),
         )
         assert score == 100.0
@@ -128,7 +136,18 @@ class TestCalculateScoreEdgeCases:
     def test_score_clamped_to_100_max(self):
         score, _, _ = calculate_score(
             hard_brakes=0, aggressive_accels=0, sharp_turns=0,
-            phone_seconds=0, duration_seconds=600, distance_km=5.0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=600, distance_km=5.0,
             start_time=_dt(2026, 1, 6, 12),
         )
         assert score <= 100.0
+
+    def test_waze_false_positive_guard(self):
+        """Mounted phone (Waze) with TE=0, SIS=0 must score 100 regardless of duration."""
+        score, _, _ = calculate_score(
+            hard_brakes=0, aggressive_accels=0, sharp_turns=0,
+            touch_epochs=0, screen_interaction_seconds=0,
+            duration_seconds=900, distance_km=10.0,
+            start_time=_dt(2026, 1, 6, 12),
+        )
+        assert score == 100.0

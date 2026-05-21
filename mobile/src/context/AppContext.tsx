@@ -43,8 +43,8 @@ export interface TripState {
   durationSeconds: number;
   distanceKm: number;
   currentSpeedKmH: number;
-  phoneSeconds: number;
-  phoneWeightedSeconds: number; // Σ k(v_i) — fed to calculateScore instead of raw phoneSeconds
+  touchEpochs: number;              // v1.7 — glass-tap proxy count from IMU
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
   eventCounts: {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
@@ -60,8 +60,8 @@ const INITIAL_TRIP_STATE: TripState = {
   durationSeconds: 0,
   distanceKm: 0,
   currentSpeedKmH: 0,
-  phoneSeconds: 0,
-  phoneWeightedSeconds: 0,
+  touchEpochs: 0,
+  screenInteractionSeconds: 0,
   eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, PHONE_TOUCH: 0 },
 };
 
@@ -178,8 +178,8 @@ function _hmacSha256Hex(key: string, message: string): string {
 }
 
 // ─── TelemetryDigest builder ──────────────────────────────────────────────────
-// Produces the raw-sensor canonical snapshot defined in RFC-001 v1.5 §3.1.
-// avgScore and points are absent — the server is the sole scoring oracle.
+// Produces the raw-sensor canonical snapshot defined in RFC-001 v1.7 §3.1.
+// avgScore, points, and phoneSeconds are absent — server is the sole scoring oracle.
 // timestamp is injected at call time to enable server-side replay detection.
 
 function buildTelemetryDigest(
@@ -188,16 +188,17 @@ function buildTelemetryDigest(
   endTime: string,
 ): TelemetryDigest {
   return {
-    distanceKm:       Math.round(state.distanceKm * 1000) / 1000,
-    durationSeconds:  state.durationSeconds,
-    hardBrakes:       state.eventCounts.HARD_BRAKE,
-    aggressiveAccels: state.eventCounts.AGGRESSIVE_ACCEL,
-    sharpTurns:       state.eventCounts.SHARP_TURN,
-    phoneSeconds:     Math.round(state.phoneSeconds),
-    riskMultiplier:   getRiskMultiplier(new Date(startTime)),
+    distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
+    durationSeconds:          state.durationSeconds,
+    hardBrakes:               state.eventCounts.HARD_BRAKE,
+    aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
+    sharpTurns:               state.eventCounts.SHARP_TURN,
+    touchEpochs:              state.touchEpochs,
+    screenInteractionSeconds: state.screenInteractionSeconds,
+    riskMultiplier:           getRiskMultiplier(new Date(startTime)),
     startTime,
     endTime,
-    timestamp:        Date.now(),
+    timestamp:                Date.now(),
   };
 }
 
@@ -210,22 +211,6 @@ function signTelemetryDigest(digest: TelemetryDigest): string {
   return `ph:${hmac}`;
 }
 
-// ─── Kinetic Phone Penalty ────────────────────────────────────────────────────
-// k(v) = clamp(v / 60, 0.20, 2.00)
-// At 5 km/h → 0.20× (crawling floor); at 60 km/h → 1.0× (reference); at 120 km/h → 2.0× (cap)
-const K_PHONE_V_REF = 60   // km/h — multiplier equals 1.0 at this speed
-const K_PHONE_MIN   = 0.20 // crawling-traffic floor
-const K_PHONE_MAX   = 2.00 // highway cap
-
-function computePhoneWeightedSeconds(tripData: TripData): number {
-  const phoneEvents = tripData.events.filter(e => e.type === DrivingEventType.PHONE_USAGE)
-  if (phoneEvents.length === 0 || tripData.phoneSeconds === 0) return tripData.phoneSeconds
-  const avgK = phoneEvents.reduce((sum, ev) => {
-    const k = Math.min(K_PHONE_MAX, Math.max(K_PHONE_MIN, (ev.speedKmh ?? K_PHONE_V_REF) / K_PHONE_V_REF))
-    return sum + k
-  }, 0) / phoneEvents.length
-  return tripData.phoneSeconds * avgK
-}
 
 interface AppContextValue {
   user: AppUser | null
@@ -339,7 +324,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      phoneSeconds: Math.round(finalState.phoneSeconds),
+      touchEpochs: finalState.touchEpochs,
+      screenInteractionSeconds: finalState.screenInteractionSeconds,
       riskMultiplier: 1.0,  // server computes — placeholder only
       penalties: 0,         // server computes — placeholder only
       telemetryDigest,
@@ -395,7 +381,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          phoneSeconds: Math.round(finalState.phoneSeconds),
+          touchEpochs: finalState.touchEpochs,
+          screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
           status: 'completed',
         };
@@ -446,14 +433,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     sdk.onUpdate = (data: TripData) => {
-      const phoneWeightedSeconds = computePhoneWeightedSeconds(data)
       setTripState(prev => ({
         ...prev,
         isActive: true,
         durationSeconds: data.durationSeconds,
         distanceKm: data.distanceKm,
-        phoneSeconds: data.phoneSeconds,
-        phoneWeightedSeconds,
+        touchEpochs: data.touchEpochs,
+        screenInteractionSeconds: data.screenInteractionSeconds,
         eventCounts: {
           HARD_BRAKE: data.events.filter(e => e.type === DrivingEventType.HARD_BRAKE).length,
           AGGRESSIVE_ACCEL: data.events.filter(e => e.type === DrivingEventType.AGGRESSIVE_ACCEL).length,

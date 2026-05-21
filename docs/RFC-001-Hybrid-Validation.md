@@ -1,5 +1,5 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
-**מסמך:** RFC-001 | **גרסה:** 1.5 | **תאריך:** 2026-05-21
+**מסמך:** RFC-001 | **גרסה:** 1.7 | **תאריך:** 2026-05-21
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
 **סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
 
@@ -7,6 +7,12 @@
 > **v1.5 Amendment:** Absolute Metrics Decoupling — score and points calculation moved
 > exclusively to the server. The mobile client is a sensor node only. See §2.3 (revised),
 > §3.1 (revised), and §8 (new).
+> **v1.7 Amendment:** Distraction Telemetry Paradigm Shift — `phoneSeconds` (passive
+> AppState-based screen-time) replaced by `touchEpochs` + `screenInteractionSeconds`
+> (IMU-based active-interaction detection). Eliminates Waze/navigation-app false positives.
+> See §2.4 (new CTO decision), §3.1 (revised digest), §4.3 (new MAI SDK task), §8.1
+> (revised formula), §8.3 (revised test vectors). Code implementation deferred to
+> Sprint+1 pending Mai's `PhoneUsageManager` refactor.
 
 ---
 
@@ -103,6 +109,48 @@
 
 ---
 
+### 2.4 החלטת CTO — Distraction Telemetry Paradigm Shift (v1.7)  **[NEW]**
+
+**תאריך:** 2026-05-21 | **מחליט:** Dan Ofri (CTO)
+
+**הבעיה — Waze False Positive:**
+
+ה-`PhoneUsageManager` הנוכחי מבוסס על `AppState.addEventListener('change')`: כאשר CARMA
+עוברת ל-background (למשל — Waze נפתח בחזית), כל זמן הרקע נספר כ-`phone_seconds`. נהג שנוסע
+עם Waze כניווט ו-CARMA ברקע מקבל קנס מלא על "שימוש בטלפון" — למרות שלא נגע בטלפון והוא
+מונח על תושבת. זהו **False Positive** שמהווה פגם UX יסודי שפוגע בנהגים בטוחים.
+
+**הפתרון — מדדי אינטראקציה אקטיביים:**
+
+`phone_seconds` מבוסס-AppState מוחלף בשני מדדים עצמאיים:
+
+| מדד | עקרון מדידה | הגבלת OS |
+|-----|-------------|----------|
+| `touchEpochs` | ספירת אירועי אינטראקציה אקטיביים בתוך CARMA; proxy IMU (ניתוח ויברציה) כשה-app ברקע | זיהוי נגיעות ב-apps אחרים — **בלתי אפשרי** ב-iOS/Android (גבול OS) |
+| `screenInteractionSeconds` | שניות שבהן הטלפון מזוהה כמוחזק ביד ע"י IMU (שונות אקסלרומטר גבוהה מול חתימת תושבת) | **אפשרי** — ניתוח IMU עצמאי מ-foreground app |
+
+**הנימוק:**
+
+מדידת `phone_seconds` כ-"AppState=background" לא מבחינה בין:
+- נהג שהניח את הטלפון על תושבת וניווט עם Waze (לא הפרה)
+- נהג שגלש בטלפון בזמן נסיעה (הפרה)
+
+`screenInteractionSeconds` מבוסס-IMU פותר זאת: שונות אקסלרומטר גבוהה = טלפון ביד
+(רטט אורגני, תנועות יד), שונות נמוכה = טלפון על תושבת (רטט רגיל של כביש). זהו אות
+פיזיקלי אמין שאינו תלוי ב-AppState.
+
+**מה מבוטל:**
+- `phoneSeconds` ב-`TelemetryDigest` — **הוסר** (§3.1)
+- `(phone_seconds / duration) × 40` מנוסחת העונשים — **מוחלף** (§8.1)
+
+**מה נדחה לSpring+1:**
+- עדכון `PhoneUsageManager` ב-SDK — **Mai** (§4.3 — MAI-SDK-v1.7)
+- עדכון `scoring.py` עם פרמטרים חדשים — **Dan**
+- עדכון `TelemetryDigest` TypeScript interface — **Dan**
+- עד שה-SDK מספק את המדדים החדשים, `scoring.py` ממשיך להשתמש ב-`phone_seconds` כ-deprecated fallback
+
+---
+
 ## 3. מפרט הטכני — TelemetryDigest
 
 ### 3.1 מבנה הנתונים
@@ -116,16 +164,29 @@ export interface TelemetryDigest {
   hardBrakes:       number;  // count of IMU hard-braking events
   aggressiveAccels: number;  // count of IMU aggressive-acceleration events
   sharpTurns:       number;  // count of IMU sharp-turn events
-  phoneSeconds:     number;  // seconds with phone screen active during trip (rounded)
-  riskMultiplier:   number;  // time-of-day/day-of-week factor sent for audit; server recomputes
-  startTime:        string;  // ISO 8601 UTC — server uses this to derive riskMultiplier
-  endTime:          string;  // ISO 8601 UTC
+  // ── Active interaction metrics (v1.7 — replaces phoneSeconds) ────────────────
+  touchEpochs:               number;  // count of discrete active-interaction epochs while CARMA
+                                      // is in foreground + IMU vibration proxy when backgrounded.
+                                      // Note: cross-app touch detection is OS-restricted on
+                                      // iOS/Android — touch events from Waze/Maps cannot be
+                                      // intercepted from the background.
+  screenInteractionSeconds:  number;  // seconds of confirmed hand-held phone usage derived from
+                                      // IMU accelerometer-variance signature.
+                                      // High variance = hand-held; low variance = vehicle-mounted.
+                                      // Immune to Waze/navigation-app false positives.
+  riskMultiplier:            number;  // time-of-day/day-of-week factor sent for audit; server recomputes
+  startTime:                 string;  // ISO 8601 UTC — server uses this to derive riskMultiplier
+  endTime:                   string;  // ISO 8601 UTC
   // ── Cryptographic nonce (v1.4) ────────────────────────────────────────────
-  timestamp:        number;  // millisecond Unix epoch — Date.now() at signing time
+  timestamp:                 number;  // millisecond Unix epoch — Date.now() at signing time
 
   // REMOVED in v1.5 — now exclusively server-computed:
   // avgScore ← server/app/services/scoring.py:calculate_score()
   // points   ← server/app/services/scoring.py:calculate_score()
+  //
+  // REMOVED in v1.7 — replaced by touchEpochs + screenInteractionSeconds:
+  // phoneSeconds ← scoring.py retains phone_seconds as deprecated fallback until Sprint+1
+  //                pending Mai's PhoneUsageManager refactor (§4.3 MAI-SDK-v1.7)
 }
 ```
 
@@ -451,6 +512,40 @@ try {
 } catch (e) { ... }
 ```
 
+#### [MAI-SDK-v1.7 | Sprint+1] PhoneUsageManager Refactor — IMU-Based Active Interaction Detection  **[v1.7 NEW]**
+
+**מה:** החלף את מנגנון `AppState.addEventListener` ב-`PhoneUsageManager.ts` בשני מדדים חדשים
+שפותרים את ה-Waze false-positive (§2.4):
+
+**מדד 1 — `touchEpochs`:**
+ספירת אירועי נגיעה אקטיביים בתוך CARMA בחזית + אנליזה של ויברציית IMU כשה-app ברקע
+(proxy בלבד — זיהוי נגיעות ב-apps אחרים הוא **בלתי אפשרי** ב-iOS/Android ברמת OS).
+
+**מדד 2 — `screenInteractionSeconds`:**
+שניות שבהן הטלפון מזוהה כמוחזק ביד לפי חתימת אקסלרומטר:
+- Sample window: 500 ms
+- Accumulate when `accelerometerVariance > HANDHELD_THRESHOLD` (threshold TBD empirically — Dan מאשר לפני merge)
+- גבוהה = ביד; נמוכה = על תושבת / מונח בשקית
+
+**עדכוני SDK נדרשים:**
+
+```typescript
+// mobile/src/lib/driving-sdk/types.ts — הוסף ל-TripData:
+touchEpochs:              number;   // v1.7
+screenInteractionSeconds: number;   // v1.7
+// phoneSeconds: number  ← deprecated, הסר לאחר Sprint+1
+```
+
+**גבולות SDK:**
+- שינויים ב-`PhoneUsageManager.ts` — מותר (חלק ממנוע הסנסורים)
+- הוספת שדות ל-`TripData` בתוך `driving-sdk/types.ts` — מותר
+- לוגיקה עסקית של CARMA (סף עונשים, מקדמים, fraud rules) — **אסור** בתוך `driving-sdk/`
+
+**תנאי כניסה לSpring+1:** Dan מאשר calibration של `HANDHELD_THRESHOLD` ממדידות ניסיוניות
+(נסיעות בדיקה — טלפון ביד מול טלפון על תושבת) לפני merge.
+
+---
+
 #### [MAI-P0b] גשר `currentSpeedKmH` — עדכון State מ-SDK
 
 **מה:** `sdk.onUpdate` ב-`AppContext.tsx` מקבל `data: TripData` מ-`CarmaDrivingSDK` אבל **אינו מעדכן** את `tripState.currentSpeedKmH`. כתוצאה, כל ממשק שמציג מהירות נוכחית מקבל `0 km/h` תמידית.
@@ -540,15 +635,23 @@ try {
   Dan
     ○ שדרוג ל-expo-crypto HMAC-SHA256 אמיתי
     ○ App Attestation (iOS) / Play Integrity (Android)
+    ○ [v1.7] עדכון TelemetryDigest TypeScript: touchEpochs + screenInteractionSeconds (phoneSeconds הוסר)
+    ○ [v1.7] עדכון AppContext.buildTelemetryDigest() לשדות החדשים
+    ○ [v1.7] עדכון scoring.py: phone_seconds → touch_epochs + screen_interaction_seconds
+    ○ [v1.7] עדכון test_scoring.py: 5 וקטורי בדיקה חדשים לנוסחה v1.7
 
   Sean
     ○ הסרת ph: bypass — סירוב מוחלט לחתימות לא תקפות
     ○ Rate limiting: מקסימום 20 נסיעות ליום / משתמש
-    ○ Score delta threshold מ-7.0 → 5.0 (phone_weighted_seconds זמין)
 
   Naveh
     ○ Composite index: fraud_reports(user_id, reported_at DESC)
     ○ Active-trip checkpoint table (שחזור ממוות סוללה)
+
+  Mai
+    ○ [v1.7] PhoneUsageManager refactor — IMU-based touchEpochs + screenInteractionSeconds
+    ○ [v1.7] Calibrate HANDHELD_THRESHOLD: נסיעות בדיקה (טלפון ביד מול תושבת)
+    ○ [v1.7] עדכון TripData types ב-driving-sdk עם שדות חדשים
 ══════════════════════════════════════════════════════════════
 ```
 
@@ -599,19 +702,21 @@ Before the signing step, the mobile client **must** append a `timestamp` field t
 `TelemetryDigest` object:
 
 ```typescript
-// mobile/src/context/AppContext.tsx — buildTelemetryDigest()  [v1.5 — no avgScore, no points]
+// mobile/src/context/AppContext.tsx — buildTelemetryDigest()  [v1.7 — no avgScore, no points, no phoneSeconds]
 const digest: TelemetryDigest = {
   distanceKm,
   durationSeconds,
   hardBrakes,
   aggressiveAccels,
   sharpTurns,
-  phoneSeconds,
+  touchEpochs,               // v1.7 — SDK-provided active interaction count
+  screenInteractionSeconds,   // v1.7 — SDK-provided IMU hand-held detection
   riskMultiplier,
   startTime: startTime.toISOString(),
   endTime:   endTime.toISOString(),
-  timestamp: Date.now(),   // millisecond Unix epoch — replay nonce, injected last
+  timestamp: Date.now(),      // millisecond Unix epoch — replay nonce, injected last
   // avgScore and points are NOT included — server computes them from the raw fields above
+  // phoneSeconds REMOVED in v1.7 — see §2.4
 };
 ```
 
@@ -747,6 +852,15 @@ Scoring decoupling (v1.5)
   ☐  Active trip HUD contains no 0–100 score render
   ☐  Trip summary shows server-returned score (not a locally calculated value)
 
+Distraction telemetry v1.7 (Sprint+1 gate — requires Mai's SDK delivery first)
+  ☐  PhoneUsageManager refactored: touchEpochs + screenInteractionSeconds provided by SDK
+  ☐  HANDHELD_THRESHOLD calibrated and approved by Dan from empirical drive tests
+  ☐  TelemetryDigest TypeScript interface updated (phoneSeconds removed, new fields added)
+  ☐  AppContext.buildTelemetryDigest() passes touchEpochs + screenInteractionSeconds
+  ☐  scoring.py calculate_score() updated with touch_epochs + screen_interaction_seconds
+  ☐  test_scoring.py: 5 v1.7 parity vectors pass (replaces phone_seconds vectors)
+  ☐  e2e_v17.py: Scenario covering touchEpochs=5, screenInteractionSec=60 → expected score=78.0
+
 Baseline
   ☐  npm test inside ./mobile → 125/125 PASS
   ☐  npx tsc --noEmit → exit 0
@@ -769,10 +883,11 @@ altered on either side without a versioned RFC amendment.
 ```
 safe_duration   = max(durationSeconds, 1)
 
-penalties       = hardBrakes       × 5
-                + aggressiveAccels × 3
-                + sharpTurns       × 2
-                + (phoneSeconds / safe_duration) × 40
+penalties       = hardBrakes                                × 5
+                + aggressiveAccels                          × 3
+                + sharpTurns                                × 2
+                + touchEpochs                               × 4
+                + (screenInteractionSeconds / safe_duration) × 40
 
 score           = clamp(100 − penalties, 0.0, 100.0)     // [0, 100] inclusive
 
@@ -786,6 +901,12 @@ points          = score × distance_factor × risk_multiplier
 avg_score_stored = round(score × 10) / 10
 points_stored    = round(points × 10) / 10
 ```
+
+> **Sprint+1 implementation note:** The current `scoring.py` uses `phone_seconds` as a
+> deprecated compatibility parameter while `PhoneUsageManager` is being refactored by Mai.
+> The v1.7 formula above (`touch_epochs` + `screen_interaction_seconds`) goes live in Sprint+1
+> simultaneously with the SDK delivery. Until then, `phone_seconds` serves as a
+> structural placeholder — no code changes required on the server side before Sprint+1.
 
 ### 8.2 Risk Multiplier Table
 
@@ -809,18 +930,22 @@ points_stored    = round(points × 10) / 10
 The following inputs must produce identical outputs in both TypeScript and Python.
 Use these as the acceptance test for `scoring.py`:
 
-| # | hardBrakes | aggrAccels | sharpTurns | phoneSec | durSec | distKm | startTime (UTC) | Expected score | Expected points |
-|---|-----------|-----------|-----------|---------|--------|--------|-----------------|---------------|-----------------|
-| 1 | 0 | 0 | 0 | 0 | 1800 | 15.0 | Tue 14:00 | 100.0 | 115.6 |
-| 2 | 3 | 2 | 1 | 60 | 600 | 5.0 | Mon 10:00 | 73.0 | 54.5 |
-| 3 | 10 | 5 | 3 | **900** | 900 | 8.0 | Fri 23:30 | 0.0 | 0.0 |
-| 4 | 1 | 0 | 0 | 0 | 3600 | 50.0 | Thu 23:00 | 95.0 | 311.5 |
-| 5 | 0 | 0 | 0 | 120 | 1200 | 12.0 | Sat 01:00 | 96.0 | 205.4 |
+| # | hardBrakes | aggrAccels | sharpTurns | touchEpochs | screenInteractionSec | durSec | distKm | startTime (UTC) | Expected score | Expected points |
+|---|-----------|-----------|-----------|------------|---------------------|--------|--------|-----------------|---------------|-----------------|
+| 1 | 0 | 0 | 0 | 0 | 0 | 1800 | 15.0 | Tue 14:00 | 100.0 | 115.6 |
+| 2 | 3 | 2 | 1 | 3 | 30 | 600 | 5.0 | Mon 10:00 | 63.0 | 47.1 |
+| 3 | 10 | 5 | 3 | 20 | **900** | 900 | 8.0 | Fri 23:30 | 0.0 | 0.0 |
+| 4 | 1 | 0 | 0 | 0 | 0 | 3600 | 50.0 | Thu 23:00 | 95.0 | 311.5 |
+| 5 | 0 | 0 | 0 | 5 | 60 | 1200 | 12.0 | Sat 01:00 | 78.0 | 166.9 |
 
-> Vector 3 demonstrates score flooring: penalties > 100 → score = 0 → points = 0.
-> phoneSec=900 (full-session phone use) pushes penalties to 111, breaching the floor.
-> Vector 4/5 demonstrate the ×2.0 weekend-night multiplier.
-> Points are verified by `server/tests/test_scoring.py` (14/14 green).
+> Vector 2: penalties = 15+6+2 + (3×4) + (30/600)×40 = 23+12+2 = 37 → score=63.0, points=63.0×0.747×1.0=47.1
+> Vector 3 demonstrates score flooring: penalties = 50+15+6 + (20×4) + (900/900)×40 = 71+80+40 = 191 → score=0.0
+> Vector 4/5 demonstrate the ×2.0 weekend-night multiplier. Vectors 1/4 unchanged (no distraction events).
+> Vector 5: penalties = 0+0+0 + (5×4) + (60/1200)×40 = 0+20+2 = 22 → score=78.0, points=78.0×1.070×2.0=166.9
+>
+> **Sprint+1 note:** These vectors reflect the v1.7 formula target state. The current
+> `server/tests/test_scoring.py` (14/14 green) tests the `phone_seconds` implementation
+> and will be replaced in Sprint+1 when `calculate_score()` is updated with the new parameters.
 
 ### 8.4 `TripOut` Response — Score Fields
 
@@ -854,5 +979,5 @@ of truth — they match what is stored in the DB.
 
 ---
 
-*RFC-001 v1.5 | CTO Signature: Dan Ofri | 2026-05-21*
-*Amendments: v1.4 Time-Based Nonce · v1.5 Absolute Metrics Decoupling*
+*RFC-001 v1.7 | CTO Signature: Dan Ofri | 2026-05-21*
+*Amendments: v1.4 Time-Based Nonce · v1.5 Absolute Metrics Decoupling · v1.7 Distraction Telemetry Paradigm Shift*

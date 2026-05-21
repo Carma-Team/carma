@@ -18,7 +18,8 @@ def calculate_score(
     hard_brakes: int,
     aggressive_accels: int,
     sharp_turns: int,
-    phone_seconds: int,
+    touch_epochs: int,
+    screen_interaction_seconds: int,
     duration_seconds: int,
     distance_km: float,
     start_time: datetime,
@@ -29,7 +30,8 @@ def calculate_score(
         hard_brakes * 5
         + aggressive_accels * 3
         + sharp_turns * 2
-        + (phone_seconds / safe_duration) * 40
+        + touch_epochs * 4
+        + (screen_interaction_seconds / safe_duration) * 40
     )
     score = max(0.0, min(100.0, 100.0 - penalties))
     distance_factor = math.log(distance_km + 1) / math.log(11)

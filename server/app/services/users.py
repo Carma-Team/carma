@@ -54,7 +54,7 @@ async def stats(db: AsyncSession, user_id: str) -> StatsOut:
                 func.coalesce(func.sum(Trip.hard_brakes), 0),
                 func.coalesce(func.sum(Trip.aggressive_accels), 0),
                 func.coalesce(func.sum(Trip.sharp_turns), 0),
-                func.coalesce(func.sum(Trip.phone_seconds), 0),
+                func.coalesce(func.sum(Trip.touch_epochs), 0),
             )
             .select_from(Trip)
             .where(Trip.user_id == user_id, Trip.status == TripStatus.COMPLETED)
@@ -85,7 +85,7 @@ async def stats(db: AsyncSession, user_id: str) -> StatsOut:
                 hard_brakes=int(agg[5] or 0),
                 aggressive_accels=int(agg[6] or 0),
                 sharp_turns=int(agg[7] or 0),
-                phone_seconds=int(agg[8] or 0),
+                touch_epochs=int(agg[8] or 0),
             ),
         )
     )
