@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, StyleSheet, ViewStyle } from 'react-native'
+import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native'
 import { COLORS } from '@/constants/theme'
 
 interface CardProps {
@@ -7,7 +7,7 @@ interface CardProps {
   glass?: boolean
   glow?: boolean
   padding?: 'none' | 'sm' | 'md' | 'lg'
-  style?: ViewStyle
+  style?: StyleProp<ViewStyle>
   onPress?: () => void
 }
 

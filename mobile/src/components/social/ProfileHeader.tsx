@@ -6,17 +6,18 @@ import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { getLevelConfig } from '@/lib/constants';
 import { formatDistance, formatDate } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { Language } from '@/types';
 
 interface ProfileHeaderProps {
   user: {
-    name: string;
+    name?: string;
     city?: string;
     level: number;
     totalPoints: number;
     totalDistance?: number;
     createdAt?: string;
   };
-  lang: string;
+  lang: Language;
 }
 
 export function ProfileHeader({ user, lang }: ProfileHeaderProps) {

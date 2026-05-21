@@ -7,6 +7,7 @@ import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
 import { scoreToColor } from '@/lib/scoring';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { Language } from '@/types';
 
 interface DashboardHeroProps {
   user: {
@@ -15,7 +16,7 @@ interface DashboardHeroProps {
     totalPoints: number;
   };
   avgScore: number | null;
-  lang: string;
+  lang: Language;
 }
 
 export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {

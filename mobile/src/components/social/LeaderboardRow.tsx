@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   rank:             { width: 35, ...TYPOGRAPHY.body, fontWeight: '700', textAlign: 'center' },
   avatar:           { fontSize: 24 },
   info:             { flex: 1 },
-  name:             { color: COLORS.text, ...TYPOGRAPHY.body, fontWeight: '600' },
+  name:             { ...TYPOGRAPHY.body, color: COLORS.text, fontWeight: '600' },
   nameHighlighted:  { color: COLORS.brandLight },
   city:             { color: COLORS.text, fontSize: 12, opacity: 0.7 },
   score:            { color: COLORS.warning, fontWeight: '700', fontSize: 16 },

@@ -52,7 +52,7 @@ export function useDriveMode() {
         Alert.alert('נסיעה הסתיימה', 'המכשיר התנתק מהרכב. הנסיעה נשמרה בהצלחה.');
       }
 
-      lastConnectedId.current = isConnectedToCar ? user.bluetoothDeviceId : null;
+      lastConnectedId.current = isConnectedToCar ? (user.bluetoothDeviceId ?? null) : null;
     };
 
     const interval = setInterval(checkConnection, 5000); // בדיקה כל 5 שניות בסימולציה

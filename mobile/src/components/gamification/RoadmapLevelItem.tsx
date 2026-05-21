@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/Progress';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LevelConfig } from '@/types';
+import type { LevelConfig, Language } from '@/types';
 
 interface RoadmapLevelItemProps {
   lvl: LevelConfig;
@@ -13,7 +13,7 @@ interface RoadmapLevelItemProps {
   totalLevels: number;
   currentLevel: number;
   currentPoints: number;
-  lang: string;
+  lang: Language;
 }
 
 export function RoadmapLevelItem({ lvl, idx, totalLevels, currentLevel, currentPoints, lang }: RoadmapLevelItemProps) {
@@ -45,8 +45,8 @@ export function RoadmapLevelItem({ lvl, idx, totalLevels, currentLevel, currentP
       <Card
         style={[
           styles.levelCard,
-          isCurrent && { borderColor: lvl.color, borderWidth: 2 },
-          isLocked  && { opacity: 0.5 },
+          isCurrent ? { borderColor: lvl.color, borderWidth: 2 } : undefined,
+          isLocked  ? { opacity: 0.5 } : undefined,
         ]}
         padding="sm"
       >
