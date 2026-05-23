@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "carma-app",
-    "slug": "carma-app",
+    "name": "CARMA (tzvaig dev)",
+    "slug": "carma-app-tzvaig",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -9,14 +9,15 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.carma.app",
+      "bundleIdentifier": "com.tzvaig.carma",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CARMA uses your location to track driving safety and distance.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CARMA tracks your trips in the background to reward safe driving.",
         "UIBackgroundModes": [
           "location",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -63,9 +64,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "f45a83b9-40e4-4eb8-a778-a2b468af6547"
+        "projectId": "78f1201a-7951-49fa-8d59-39789cb7e649"
       }
     },
-    "owner": "mayhajbi"
+    "owner": "tzvaig3"
   }
 }
