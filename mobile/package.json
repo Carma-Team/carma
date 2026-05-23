@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "gen:api": "openapi-typescript http://localhost:3000/api/openapi.json -o src/services/api/generated.ts"
+    "gen:api": "openapi-typescript http://localhost:3000/api/openapi.json -o src/services/api/generated.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -18,6 +19,7 @@
     "@types/react": "~19.1.10",
     "expo": "~54.0.34",
     "expo-constants": "~18.0.13",
+    "expo-dev-client": "~6.0.21",
     "expo-font": "~14.0.11",
     "expo-haptics": "~15.0.8",
     "expo-image": "~3.0.11",
