@@ -10,7 +10,7 @@
  */
 import Constants from 'expo-constants';
 
-export const USE_REAL_SERVER = false;
+export const USE_REAL_SERVER = true;
 
 // Local FastAPI server — Dan's machine running docker-compose db + uvicorn on port 3000
 export const STAGING_SERVER_URL = 'http://192.168.1.142:3000';
