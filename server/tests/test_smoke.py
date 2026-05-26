@@ -35,8 +35,6 @@ async def test_login_rejects_invalid_credentials() -> None:
                 json={"email": "nobody@nowhere.com", "password": "wrongpass"},
             )
         except (OSError, ConnectionRefusedError, ExceptionGroup):
-            # DB is offline — connection error escapes Starlette's anyio middleware
-            # before the global exception handler can catch it. Skip gracefully.
             pytest.skip("PostgreSQL not reachable — start Docker DB to run this test")
             return
     assert r.status_code in {401, 500}  # 401 if DB seeded; 500 if schema not migrated
