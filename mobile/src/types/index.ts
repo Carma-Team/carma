@@ -2,6 +2,7 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
 // Matches server's UserOut camelCase wire format
@@ -20,6 +21,7 @@ export interface AppUser {
   totalPoints: number;
   totalDistance: number;
   level: number;
+  isPrivate: boolean;
   driveModeEnabled: boolean;
   bluetoothDeviceId?: string;
   bluetoothDeviceName?: string;
@@ -96,18 +98,36 @@ export interface Voucher {
 // Matches server's LeaderboardOut camelCase wire format
 export type LeaderboardType = 'friends' | 'city' | 'national';
 
+export interface LeaderboardUserSummary {
+  id: string;
+  name?: string;
+  city?: string;
+  level: number;
+  avatarUrl?: string;
+  isPrivate?: boolean;
+}
+
 export interface LeaderboardEntry {
   id: string;
   userId: string;
   rank: number;
   score: number;
-  user: {
-    id: string;
-    name?: string;
-    city?: string;
-    level: number;
-    avatarUrl?: string;
-  };
+  user: LeaderboardUserSummary;
+  followStatus?: FollowStatus;
+}
+
+export interface LeaderboardOut {
+  entries: LeaderboardEntry[];
+  currentUserId: string;
+  myRank?: number | null;
+}
+
+export interface FollowRequest {
+  followerId: string;
+  followerName?: string;
+  followerLevel: number;
+  followerCity?: string;
+  requestedAt: string;
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

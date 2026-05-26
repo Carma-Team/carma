@@ -1,20 +1,33 @@
-/**
- * @fileoverview API לטבלת הדירוג
- * @module services/api/leaderboard
- *
- * @description
- * - `get(type)` — שליפת דירוג לפי סוג: 'national' | 'city' | 'friends'
- *   מחזיר רשימת entries וה-ID של המשתמש הנוכחי (לצביעה)
- *
- * @server
- * - GET /api/leaderboard?type=... — USE_REAL_SERVER=false → mock; true → שרת נווה
- */
 import { request } from './client';
-import type { LeaderboardEntry } from '@/types';
+import type { FollowRequest, FollowStatus, LeaderboardOut } from '@/types';
 
 export const leaderboardApi = {
   get: (type: 'national' | 'city' | 'friends') =>
-    request<{ entries: LeaderboardEntry[]; currentUserId: string }>(
-      `/api/leaderboard?type=${type}`
-    ),
+    request<LeaderboardOut>(`/api/leaderboard?type=${type}`),
+
+  getFollowStatus: (targetId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/follow/${targetId}`),
+
+  follow: (targetId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/follow/${targetId}`, { method: 'POST' }),
+
+  unfollow: (targetId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/follow/${targetId}`, { method: 'DELETE' }),
+
+  // Incoming follow requests (private accounts)
+  listRequests: () =>
+    request<FollowRequest[]>('/api/leaderboard/requests'),
+
+  acceptRequest: (followerId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/requests/${followerId}/accept`, { method: 'POST' }),
+
+  rejectRequest: (followerId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/requests/${followerId}`, { method: 'DELETE' }),
+
+  // Block / Unblock
+  block: (targetId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/block/${targetId}`, { method: 'POST' }),
+
+  unblock: (targetId: string) =>
+    request<{ status: FollowStatus }>(`/api/leaderboard/block/${targetId}`, { method: 'DELETE' }),
 };

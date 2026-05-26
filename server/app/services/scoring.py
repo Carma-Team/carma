@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_TZ_IL = ZoneInfo("Asia/Jerusalem")
 
 
 def get_risk_multiplier(start_time: datetime) -> float:
-    hour = start_time.hour
-    weekday = start_time.weekday()  # Mon=0 … Thu=3, Fri=4, Sat=5, Sun=6
+    local = start_time.astimezone(_TZ_IL) if start_time.tzinfo else start_time.replace(tzinfo=_TZ_IL)
+    hour = local.hour
+    weekday = local.weekday()  # Mon=0 … Thu=3, Fri=4, Sat=5, Sun=6
     is_night = hour >= 23 or hour < 4
     if not is_night:
         return 1.0
@@ -27,14 +31,14 @@ def calculate_score(
     """Returns (score, points, risk_multiplier). Both score and points rounded to 1 decimal."""
     safe_duration = max(duration_seconds, 1)
     penalties = (
-        hard_brakes * 5
-        + aggressive_accels * 3
-        + sharp_turns * 2
-        + touch_epochs * 4
-        + (screen_interaction_seconds / safe_duration) * 40
+        max(0, hard_brakes) * 5
+        + max(0, aggressive_accels) * 3
+        + max(0, sharp_turns) * 2
+        + max(0, touch_epochs) * 4
+        + (max(0, screen_interaction_seconds) / safe_duration) * 40
     )
     score = max(0.0, min(100.0, 100.0 - penalties))
-    distance_factor = math.log(distance_km + 1) / math.log(11)
+    distance_factor = math.log(max(0.0, distance_km) + 1) / math.log(11)
     risk_multiplier = get_risk_multiplier(start_time)
     points = score * distance_factor * risk_multiplier
     return round(score * 10) / 10, round(points * 10) / 10, risk_multiplier

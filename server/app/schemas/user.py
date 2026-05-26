@@ -23,6 +23,7 @@ class UserOut(CamelModel):
     total_points: int
     total_distance: float
     level: int
+    is_private: bool = False
     drive_mode_enabled: bool
     bluetooth_device_id: str | None = None
     bluetooth_device_name: str | None = None
@@ -34,6 +35,7 @@ class UpdateProfileIn(CamelModel):
     language: Language | None = None
     age: int | None = Field(default=None, ge=16, le=120)
     city: str | None = Field(default=None, max_length=80)
+    is_private: bool | None = None
 
 
 class UpdateLocationIn(CamelModel):

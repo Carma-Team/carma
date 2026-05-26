@@ -21,7 +21,10 @@ class SaveTripIn(CamelModel):
     aggressive_accels: int | None = None
     sharp_turns: int | None = None
     touch_epochs: int | None = Field(default=None, validation_alias=AliasChoices("touchEpochs", "touch_epochs"))
-    screen_interaction_seconds: int | None = Field(default=None, validation_alias=AliasChoices("screenInteractionSeconds", "screen_interaction_seconds"))
+    screen_interaction_seconds: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("screenInteractionSeconds", "screen_interaction_seconds"),
+    )
     risk_multiplier: float | None = Field(
         default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
     )

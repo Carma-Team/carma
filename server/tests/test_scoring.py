@@ -4,15 +4,13 @@ Each vector must produce identical outputs to mobile/src/lib/scoring.ts.
 Dates use fixed January-2026 values (Jan 5=Mon … Jan 10=Sat, verified against
 the same anchor used in the TypeScript test suite).
 """
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from app.services.scoring import calculate_score, get_risk_multiplier
 
 
 def _dt(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
-    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
 # ─── get_risk_multiplier ──────────────────────────────────────────────────────
@@ -38,7 +36,7 @@ class TestGetRiskMultiplier:
         assert get_risk_multiplier(_dt(2026, 1, 9, 1)) == 2.0    # Fri 01:00
 
     def test_weekend_night_sat_returns_2_0(self):
-        assert get_risk_multiplier(_dt(2026, 1, 10, 23)) == 2.0  # Sat 23:00
+        assert get_risk_multiplier(_dt(2026, 1, 10, 21)) == 2.0  # Sat 23:00 Israel (21:00 UTC+2)
 
 
 # ─── calculate_score parity vectors ──────────────────────────────────────────
