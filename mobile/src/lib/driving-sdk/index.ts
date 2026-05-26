@@ -69,7 +69,7 @@ export class CarmaDrivingSDK {
 
     this.phoneManager = new PhoneUsageManager(
       (event) => this.handleEvent(event),
-      (totalSeconds) => this.handlePhoneSeconds(totalSeconds)
+      (data) => this.handleInteractionData(data),
     );
 
     this.validationManager = new TripValidationManager();
@@ -146,7 +146,9 @@ export class CarmaDrivingSDK {
       events: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      phoneSeconds: 0,
+      phoneSeconds: 0,           // deprecated v1.7
+      touchEpochs: 0,
+      screenInteractionSeconds: 0,
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -234,9 +236,10 @@ export class CarmaDrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handlePhoneSeconds(totalSeconds: number) {
+  private handleInteractionData(data: { touchEpochs: number; screenInteractionSeconds: number }) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.phoneSeconds = totalSeconds;
+    this.currentTripData.touchEpochs = data.touchEpochs;
+    this.currentTripData.screenInteractionSeconds = data.screenInteractionSeconds;
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 

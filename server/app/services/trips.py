@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-import math
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, select, update
@@ -17,14 +15,14 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
+from app.services.scoring import calculate_score
 
 _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
-_STALE_THRESHOLD_S = 300  # 5 minutes
-_TZ_IL = ZoneInfo("Asia/Jerusalem")
+_DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
 # Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
 # Listed highest-first so the CASE expression short-circuits correctly.
@@ -59,8 +57,10 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         raise HTTPException(422, "aggressive_accels must be >= 0")
     if dto.sharp_turns is not None and dto.sharp_turns < 0:
         raise HTTPException(422, "sharp_turns must be >= 0")
-    if dto.phone_seconds is not None and dto.phone_seconds < 0:
-        raise HTTPException(422, "phone_seconds must be >= 0")
+    if dto.touch_epochs is not None and dto.touch_epochs < 0:
+        raise HTTPException(422, "touch_epochs must be >= 0")
+    if dto.screen_interaction_seconds is not None and dto.screen_interaction_seconds < 0:
+        raise HTTPException(422, "screen_interaction_seconds must be >= 0")
     if dto.risk_multiplier is not None:
         lo, hi = _RISK_MULTIPLIER_RANGE
         if not (lo <= dto.risk_multiplier <= hi):
@@ -79,19 +79,25 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
                 raise HTTPException(422, f"digest avg_speed={digest_speed:.1f} km/h — implausible")
 
 
+def _check_timestamp_drift(digest: dict | None) -> None:
+    if not digest:
+        return
+    ts = digest.get("timestamp")
+    if ts is None:
+        return
+    try:
+        client_ms = int(ts)
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Invalid timestamp in telemetryDigest") from None
+    server_ms = int(datetime.now(UTC).timestamp() * 1000)
+    if abs(server_ms - client_ms) > _DRIFT_WINDOW_MS:
+        audit("trips.timestamp.stale", drift_ms=server_ms - client_ms)
+        raise HTTPException(401, "Stale timestamp — possible replay attack")
+
+
 def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
     if not signature:
         return
-
-    # Replay protection — checked before ph: bypass so it applies to all signatures.
-    if digest is not None:
-        ts_ms = digest.get("timestamp")
-        if ts_ms is not None:
-            age_s = (datetime.now(UTC).timestamp() * 1000 - float(ts_ms)) / 1000
-            if age_s > _STALE_THRESHOLD_S:
-                audit("trips.signature.stale", age_s=round(age_s))
-                raise HTTPException(401, f"Telemetry digest is stale ({int(age_s)}s old — max {_STALE_THRESHOLD_S}s)")
-
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
         return
@@ -101,53 +107,11 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
     expected = _hmac.new(
-        secret.encode(), f"{secret}:{canonical}".encode(), hashlib.sha256
+        secret.encode(), canonical.encode(), hashlib.sha256
     ).hexdigest()
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
-
-
-def _server_score(digest: dict, start: datetime) -> tuple[float, int, float]:
-    """
-    Server-side scoring oracle — mirrors mobile scoring.ts exactly.
-    Returns (avg_score, points, risk_multiplier).
-    Uses phone_seconds as a conservative proxy for phoneWeightedSeconds
-    (server lacks per-frame velocity data for the kinetic-weighted version).
-    """
-    hard_brakes       = max(0, int(digest.get("hardBrakes", 0) or 0))
-    aggressive_accels = max(0, int(digest.get("aggressiveAccels", 0) or 0))
-    sharp_turns       = max(0, int(digest.get("sharpTurns", 0) or 0))
-    phone_seconds     = max(0.0, float(digest.get("phoneSeconds", 0) or 0))
-    duration_seconds  = max(float(digest.get("durationSeconds", 1) or 1), 1.0)
-    distance_km       = max(0.0, float(digest.get("distanceKm", 0.0) or 0.0))
-
-    # Risk multiplier computed from actual start time — not trusted from client.
-    # Convert to Israel local time so the night/weekend check matches the mobile SDK.
-    # Python weekday: Mon=0 … Sun=6; Israeli weekend nights: Thu(3), Fri(4), Sat(5).
-    local = start.astimezone(_TZ_IL)
-    hour = local.hour
-    day  = local.weekday()
-    is_night = hour >= 23 or hour < 4
-    if is_night and day in (3, 4, 5):
-        risk_multiplier = 2.0
-    elif is_night:
-        risk_multiplier = 1.5
-    else:
-        risk_multiplier = 1.0
-
-    penalties = (
-        hard_brakes * 5.0
-        + aggressive_accels * 3.0
-        + sharp_turns * 2.0
-        + (phone_seconds / duration_seconds) * 40.0
-    )
-    score = round(max(0.0, min(100.0, 100.0 - penalties)) * 10) / 10
-
-    distance_factor = math.log(distance_km + 1) / math.log(11) if distance_km > 0 else 0.0
-    points = max(0, round(score * distance_factor * risk_multiplier))
-
-    return score, points, risk_multiplier
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
@@ -176,7 +140,9 @@ async def save(
         if existing:
             return TripOut.from_orm_trip(existing)
 
+    # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
+    _check_timestamp_drift(dto.telemetry_digest)
     _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
 
     start = dto.start_time or datetime.now(UTC)
@@ -187,27 +153,37 @@ async def save(
     if duration is None and end is not None:
         duration = max(0, int((end - start).total_seconds()))
 
-    # Oracle: when a telemetry digest is present, compute score/points/rm server-side
-    # and discard the client-provided values entirely (anti-fraud).
-    # Event counts and distance are sourced from the digest — not the DTO — so the
-    # stored trip record stays consistent with the score that was computed.
+    # Oracle: when a telemetry digest is present, source event counts and distance
+    # from the signed digest — not the client DTO — so stored data is consistent
+    # with the score that was computed (anti-fraud).
     if dto.telemetry_digest:
-        avg_score, computed_points, risk_mult = _server_score(dto.telemetry_digest, start)
         d = dto.telemetry_digest
         scored_hard_brakes       = max(0, int(d.get("hardBrakes", 0) or 0))
         scored_aggressive_accels = max(0, int(d.get("aggressiveAccels", 0) or 0))
         scored_sharp_turns       = max(0, int(d.get("sharpTurns", 0) or 0))
-        scored_phone_seconds     = max(0, int(float(d.get("phoneSeconds", 0) or 0)))
+        scored_touch_epochs      = max(0, int(d.get("touchEpochs", 0) or 0))
+        scored_screen_secs       = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
         distance                 = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
+        digest_duration          = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
     else:
-        avg_score       = dto.avg_score or 0.0
-        computed_points = dto.points or 0
-        risk_mult       = dto.risk_multiplier if dto.risk_multiplier is not None else 1.0
         scored_hard_brakes       = dto.hard_brakes or 0
         scored_aggressive_accels = dto.aggressive_accels or 0
         scored_sharp_turns       = dto.sharp_turns or 0
-        scored_phone_seconds     = dto.phone_seconds or 0
+        scored_touch_epochs      = dto.touch_epochs or 0
+        scored_screen_secs       = dto.screen_interaction_seconds or 0
         distance                 = dto.distance_km or 0.0
+        digest_duration          = duration or 0
+
+    avg_score, points_raw, risk_multiplier = calculate_score(
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
+        duration_seconds=digest_duration,
+        distance_km=distance,
+        start_time=start,
+    )
 
     trip = Trip(
         user_id=user.id,
@@ -217,12 +193,13 @@ async def save(
         duration_seconds=duration or 0,
         distance_km=distance,
         avg_score=avg_score,
-        points=computed_points,
-        risk_multiplier=risk_mult,
+        points=round(points_raw),
+        risk_multiplier=risk_multiplier,
         hard_brakes=scored_hard_brakes,
         aggressive_accels=scored_aggressive_accels,
         sharp_turns=scored_sharp_turns,
-        phone_seconds=scored_phone_seconds,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,

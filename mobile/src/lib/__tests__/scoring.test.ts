@@ -18,8 +18,8 @@ const BASE_INPUT = {
   hardBrakes: 0,
   aggressiveAccels: 0,
   sharpTurns: 0,
-  phoneSeconds: 0,
-  phoneWeightedSeconds: 0, // k=1.0 at reference speed; equals phoneSeconds for no-phone trips
+  touchEpochs: 0,
+  screenInteractionSeconds: 0,
   durationSeconds: 120,
   distanceKm: 5,
   startTime: makeDate('tue', 12), // Tuesday noon — daytime, multiplier 1.0
@@ -100,12 +100,11 @@ describe('calculateScore', () => {
       expect(result.score).toBe(90)
     })
 
-    it('applies phone usage penalty proportionally (phoneWeightedSeconds / duration × 40)', () => {
-      // phoneWeightedSeconds=30 at k=1.0 (reference speed 60 km/h) on 60s trip = 50% → 20 penalty
+    it('applies screen interaction penalty proportionally (SIS / duration × 40)', () => {
+      // screenInteractionSeconds=30 on 60s trip = 50% hand-held → 20 penalty
       const result = calculateScore({
         ...BASE_INPUT,
-        phoneSeconds: 30,
-        phoneWeightedSeconds: 30, // k(60 km/h) = 1.0 — weighted equals raw at reference speed
+        screenInteractionSeconds: 30,
         durationSeconds: 60,
       })
       expect(result.penalties).toBe(20)
@@ -176,12 +175,11 @@ describe('calculateScore', () => {
 
   describe('edge cases', () => {
     it('uses safeDuration=1 when durationSeconds=0 (avoids division by zero)', () => {
-      // With durationSeconds=0 and phoneWeightedSeconds=60: penalty = (60/1)*40 = 2400 → score=0
+      // With durationSeconds=0 and screenInteractionSeconds=60: penalty = (60/1)*40 = 2400 → score=0
       const result = calculateScore({
         ...BASE_INPUT,
         durationSeconds: 0,
-        phoneSeconds: 60,
-        phoneWeightedSeconds: 60, // k=1.0 (reference)
+        screenInteractionSeconds: 60,
       })
       expect(result.score).toBe(0) // clamped, not NaN
       expect(Number.isNaN(result.score)).toBe(false)
@@ -190,7 +188,7 @@ describe('calculateScore', () => {
     it('returns non-NaN for all-zero input', () => {
       const result = calculateScore({
         hardBrakes: 0, aggressiveAccels: 0, sharpTurns: 0,
-        phoneSeconds: 0, phoneWeightedSeconds: 0, durationSeconds: 0, distanceKm: 0,
+        touchEpochs: 0, screenInteractionSeconds: 0, durationSeconds: 0, distanceKm: 0,
         startTime: makeDate('tue', 12),
       })
       expect(result.score).toBe(100)
@@ -199,23 +197,21 @@ describe('calculateScore', () => {
     })
 
     it('rounds score to 1 decimal place', () => {
-      // 1 AA (3) + 1 ST (2) + phoneWeightedSeconds 1/120 × 40 ≈ 5.333 → score ≈ 94.667 → rounded 94.7
+      // 1 AA (3) + 1 ST (2) + SIS 1/120 × 40 ≈ 5.333 → score ≈ 94.667 → rounded 94.7
       const result = calculateScore({
         ...BASE_INPUT,
         aggressiveAccels: 1,
         sharpTurns: 1,
-        phoneSeconds: 1,
-        phoneWeightedSeconds: 1, // k=1.0 (reference speed)
+        screenInteractionSeconds: 1,
         durationSeconds: 120,
       })
       expect(result.score).toBe(Math.round((100 - (3 + 2 + (1 / 120) * 40)) * 10) / 10)
     })
 
-    it('full-phone-session trip: phoneSeconds equals durationSeconds', () => {
+    it('full-session hand-held: screenInteractionSeconds equals durationSeconds', () => {
       const result = calculateScore({
         ...BASE_INPUT,
-        phoneSeconds: 120,
-        phoneWeightedSeconds: 120, // k=1.0 (reference) — full session at reference speed
+        screenInteractionSeconds: 120,
         durationSeconds: 120,
       })
       // penalty = (120/120)*40 = 40 → score = 60
@@ -224,33 +220,33 @@ describe('calculateScore', () => {
   })
 })
 
-// ─── Kinetic Phone Penalty Scaling ───────────────────────────────────────────
+// ─── Active Interaction Penalties ────────────────────────────────────────────
 
-describe('kinetic phone penalty scaling', () => {
-  const phoneBase = { ...BASE_INPUT, phoneSeconds: 30, durationSeconds: 60 }
-
-  it('phone penalty at 120 km/h is 2× that at 60 km/h for same raw duration', () => {
-    // k(60)  = clamp(60/60,  0.20, 2.00) = 1.0 → weighted = 30 × 1.0 = 30
-    // k(120) = clamp(120/60, 0.20, 2.00) = 2.0 → weighted = 30 × 2.0 = 60
-    const atRef     = calculateScore({ ...phoneBase, phoneWeightedSeconds: 30 * 1.0 })
-    const atHighway = calculateScore({ ...phoneBase, phoneWeightedSeconds: 30 * 2.0 })
-    expect(atHighway.penalties).toBeCloseTo(atRef.penalties * 2, 5)
-  })
-
-  it('phone penalty at 5 km/h is floored to K_MIN (0.20×)', () => {
-    // k(5) = clamp(5/60, 0.20, 2.00) = clamp(0.083, 0.20, 2.00) = 0.20
-    // penalty = (30 × 0.20 / 60) × 40 = 4.0
-    const result = calculateScore({ ...phoneBase, phoneWeightedSeconds: 30 * 0.20 })
-    expect(result.penalties).toBeCloseTo(4.0, 5)
-    expect(result.score).toBeCloseTo(96.0, 5)
-  })
-
-  it('neutral k=1.0 fallback: phoneWeightedSeconds equal to phoneSeconds preserves original formula', () => {
-    // Verifies backward compat: when no speed data, avgK defaults to 1.0 → no regression
-    const result = calculateScore({ ...phoneBase, phoneWeightedSeconds: 30 })
-    // (30/60) × 40 = 20 — identical to the old static formula
+describe('active interaction penalties', () => {
+  it('touch epoch penalty: 5 epochs × 4 pts = 20 pts deduction', () => {
+    const result = calculateScore({ ...BASE_INPUT, touchEpochs: 5 })
     expect(result.penalties).toBe(20)
     expect(result.score).toBe(80)
+    expect(result.points).toBe(59.8) // 80 × 0.747 × 1.0
+  })
+
+  it('touch epoch penalty is fixed per epoch (no kinetic/speed weighting)', () => {
+    const base5  = calculateScore({ ...BASE_INPUT, touchEpochs: 5 })
+    const base10 = calculateScore({ ...BASE_INPUT, touchEpochs: 10 })
+    expect(base10.penalties).toBeCloseTo(base5.penalties * 2, 5)
+  })
+
+  it('screen interaction penalty floored at 0 when SIS=0', () => {
+    const result = calculateScore({ ...BASE_INPUT, screenInteractionSeconds: 0 })
+    expect(result.penalties).toBe(0)
+    expect(result.score).toBe(100)
+  })
+
+  it('combined touchEpochs + screenInteractionSeconds accumulate independently', () => {
+    // 3 epochs (3×4=12 pts) + 30s of 60s hand-held ((30/60)×40=20 pts) = 32 pts
+    const result = calculateScore({ ...BASE_INPUT, touchEpochs: 3, screenInteractionSeconds: 30, durationSeconds: 60 })
+    expect(result.penalties).toBe(32)
+    expect(result.score).toBe(68)
   })
 })
 

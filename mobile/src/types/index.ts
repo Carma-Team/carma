@@ -48,7 +48,8 @@ export interface Trip {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  phoneSeconds: number;
+  touchEpochs: number;              // v1.7
+  screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
   startLocation?: string;
   endLocation?: string;
@@ -143,7 +144,7 @@ export interface DrivingStats {
     hardBrakes: number;
     aggressiveAccels: number;
     sharpTurns: number;
-    phoneSeconds: number;
+    touchEpochs: number;
   };
 }
 
@@ -182,8 +183,8 @@ export interface ScoringInput {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  phoneSeconds: number;
-  phoneWeightedSeconds: number; // Σ k(v_i) — kinetic-scaled phone time; k = clamp(v/60, 0.20, 2.00)
+  touchEpochs: number;              // v1.7 — glass-tap proxy count
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
   durationSeconds: number;
   distanceKm: number;
   startTime: Date;

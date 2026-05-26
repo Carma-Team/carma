@@ -24,13 +24,14 @@ export function getRiskMultiplier(startTime: Date): number {
 }
 
 export function calculateScore(input: ScoringInput): ScoringResult {
-  const { hardBrakes, aggressiveAccels, sharpTurns, phoneWeightedSeconds, durationSeconds, distanceKm, startTime } = input
+  const { hardBrakes, aggressiveAccels, sharpTurns, touchEpochs, screenInteractionSeconds, durationSeconds, distanceKm, startTime } = input
   const safeDuration = Math.max(durationSeconds, 1)
   const penalties =
     hardBrakes * 5 +
     aggressiveAccels * 3 +
     sharpTurns * 2 +
-    (phoneWeightedSeconds / safeDuration) * 40
+    touchEpochs * 4 +
+    (screenInteractionSeconds / safeDuration) * 40
 
   const score          = Math.max(0, Math.min(100, 100 - penalties))
   const distanceFactor = Math.log(distanceKm + 1) / Math.log(11)
