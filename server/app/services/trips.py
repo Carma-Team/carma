@@ -31,10 +31,20 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
     # Skip client points check when digest is present — oracle overrides the value anyway.
     if dto.points is not None and dto.telemetry_digest is None and dto.points > _MAX_POINTS_PER_TRIP:
         raise HTTPException(422, f"points={dto.points} — implausible (max {_MAX_POINTS_PER_TRIP})")
+    if dto.distance_km is not None and dto.distance_km < 0:
+        raise HTTPException(422, "distance_km must be >= 0")
     if dto.distance_km is not None and dto.distance_km > _MAX_DISTANCE_KM:
         raise HTTPException(422, f"distance_km={dto.distance_km} — implausible")
+    if dto.hard_brakes is not None and dto.hard_brakes < 0:
+        raise HTTPException(422, "hard_brakes must be >= 0")
     if dto.hard_brakes is not None and dto.hard_brakes > _MAX_HARD_BRAKES:
         raise HTTPException(422, f"hard_brakes={dto.hard_brakes} — implausible")
+    if dto.aggressive_accels is not None and dto.aggressive_accels < 0:
+        raise HTTPException(422, "aggressive_accels must be >= 0")
+    if dto.sharp_turns is not None and dto.sharp_turns < 0:
+        raise HTTPException(422, "sharp_turns must be >= 0")
+    if dto.phone_seconds is not None and dto.phone_seconds < 0:
+        raise HTTPException(422, "phone_seconds must be >= 0")
     if dto.risk_multiplier is not None:
         lo, hi = _RISK_MULTIPLIER_RANGE
         if not (lo <= dto.risk_multiplier <= hi):
@@ -81,12 +91,12 @@ def _server_score(digest: dict, start: datetime) -> tuple[float, int, float]:
     Uses phone_seconds as a conservative proxy for phoneWeightedSeconds
     (server lacks per-frame velocity data for the kinetic-weighted version).
     """
-    hard_brakes       = int(digest.get("hardBrakes", 0) or 0)
-    aggressive_accels = int(digest.get("aggressiveAccels", 0) or 0)
-    sharp_turns       = int(digest.get("sharpTurns", 0) or 0)
-    phone_seconds     = float(digest.get("phoneSeconds", 0) or 0)
+    hard_brakes       = max(0, int(digest.get("hardBrakes", 0) or 0))
+    aggressive_accels = max(0, int(digest.get("aggressiveAccels", 0) or 0))
+    sharp_turns       = max(0, int(digest.get("sharpTurns", 0) or 0))
+    phone_seconds     = max(0.0, float(digest.get("phoneSeconds", 0) or 0))
     duration_seconds  = max(float(digest.get("durationSeconds", 1) or 1), 1.0)
-    distance_km       = float(digest.get("distanceKm", 0.0) or 0.0)
+    distance_km       = max(0.0, float(digest.get("distanceKm", 0.0) or 0.0))
 
     # Risk multiplier computed from actual start time — not trusted from client.
     # Python weekday: Mon=0 … Sun=6; Israeli weekend nights: Thu(3), Fri(4), Sat(5).
