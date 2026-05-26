@@ -1,19 +1,28 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, ActivityIndicator, FlatList, StyleSheet, ViewStyle } from 'react-native';
 import { Card } from '@/components/ui/Card';
 import { LeaderboardRow } from '@/components/social/LeaderboardRow';
-import { COLORS, COMMON_STYLES, TYPOGRAPHY, SPACING } from '@/constants/theme';
+import { COLORS, COMMON_STYLES } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LeaderboardEntry } from '@/types';
+import type { FollowStatus, LeaderboardEntry } from '@/types';
 
 interface LeaderboardListProps {
   entries: LeaderboardEntry[];
   loading: boolean;
   currentUserId: string;
+  showFollowButton?: boolean;
+  onFollow?: (userId: string, currentStatus: FollowStatus) => void;
   style?: ViewStyle;
 }
 
-export function LeaderboardList({ entries, loading, currentUserId, style }: LeaderboardListProps) {
+export function LeaderboardList({
+  entries,
+  loading,
+  currentUserId,
+  showFollowButton = false,
+  onFollow,
+  style,
+}: LeaderboardListProps) {
   const { t } = useTranslation();
 
   if (loading) {
@@ -31,21 +40,29 @@ export function LeaderboardList({ entries, loading, currentUserId, style }: Lead
 
   return (
     <Card padding="none" style={[styles.listCard, style]}>
-      {entries.map((entry, i) => (
-        <View key={entry.id}>
-          {i > 0 && <View style={styles.divider} />}
+      <FlatList
+        data={entries}
+        keyExtractor={e => e.id}
+        scrollEnabled={false}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        removeClippedSubviews
+        ItemSeparatorComponent={() => <View style={styles.divider} />}
+        renderItem={({ item }) => (
           <LeaderboardRow
-            entry={entry}
-            isCurrentUser={entry.userId === currentUserId}
+            entry={item}
+            isCurrentUser={item.userId === currentUserId}
+            showFollowButton={showFollowButton}
+            onFollow={onFollow}
           />
-        </View>
-      ))}
+        )}
+      />
     </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  loader: { marginTop: 40 },
+  loader:   { marginTop: 40 },
   listCard: { overflow: 'hidden' },
-  divider: { height: 1, backgroundColor: COLORS.border },
+  divider:  { height: 1, backgroundColor: COLORS.border },
 });

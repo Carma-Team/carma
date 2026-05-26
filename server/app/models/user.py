@@ -44,6 +44,7 @@ class User(Base, TimestampMixin):
     total_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     drive_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     bluetooth_device_id: Mapped[str | None] = mapped_column(String(120))
     bluetooth_device_name: Mapped[str | None] = mapped_column(String(120))
