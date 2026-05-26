@@ -379,7 +379,7 @@ class TestValidatePlausibility:
         _validate_plausibility(dto)  # must not raise
 
     def test_client_points_skip_when_digest_present(self) -> None:
-        dto = self._make(points=999_999, telemetry_digest={"distanceKm": 5.0})
+        dto = self._make(points=999_999, telemetry_digest={"distanceKm": 5.0, "durationSeconds": 600})
         _validate_plausibility(dto)  # must not raise — oracle overrides
 
     def test_client_points_checked_without_digest(self) -> None:
@@ -402,3 +402,78 @@ class TestValidatePlausibility:
         with pytest.raises(HTTPException) as exc_info:
             _validate_plausibility(dto)
         assert exc_info.value.status_code == 422
+
+
+class TestValidatePlausibilityDigestPhysics:
+    """Digest avg_speed must be checked independently from the DTO values."""
+
+    def _make(self, **kwargs) -> SaveTripIn:
+        return SaveTripIn(**kwargs)
+
+    def test_digest_implausible_speed_rejected(self) -> None:
+        from fastapi import HTTPException
+        # dto fields are fine, but digest claims 999km in 60s
+        dto = self._make(
+            distance_km=10.0, duration_seconds=600,
+            telemetry_digest={"distanceKm": 999.0, "durationSeconds": 60},
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_plausibility(dto)
+        assert exc_info.value.status_code == 422
+
+    def test_digest_plausible_speed_passes(self) -> None:
+        dto = self._make(telemetry_digest={"distanceKm": 10.0, "durationSeconds": 600})
+        _validate_plausibility(dto)  # must not raise
+
+    def test_digest_zero_distance_skips_speed_check(self) -> None:
+        # distanceKm=0 → no speed to compute → must not raise
+        dto = self._make(telemetry_digest={"distanceKm": 0, "durationSeconds": 1})
+        _validate_plausibility(dto)
+
+    def test_digest_missing_distance_skips_speed_check(self) -> None:
+        # No distanceKm in digest → treated as 0 → no check
+        dto = self._make(telemetry_digest={"durationSeconds": 60})
+        _validate_plausibility(dto)
+
+    def test_digest_at_speed_boundary_passes(self) -> None:
+        # Exactly _MAX_AVG_SPEED_KMH (250 km/h) — should pass (not strictly greater)
+        dto = self._make(telemetry_digest={"distanceKm": 250.0, "durationSeconds": 3600})
+        _validate_plausibility(dto)
+
+    def test_digest_one_over_boundary_rejected(self) -> None:
+        from fastapi import HTTPException
+        # 251 km in 3600s = 251 km/h — just over limit
+        dto = self._make(telemetry_digest={"distanceKm": 251.0, "durationSeconds": 3600})
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_plausibility(dto)
+        assert exc_info.value.status_code == 422
+
+
+class TestServerScoreTimezone:
+    """Verify that UTC start times are correctly mapped to Israel local time."""
+
+    def test_utc_21_thursday_is_night_in_israel(self) -> None:
+        # Thu 21:00 UTC = Thu 23:00 Israel (UTC+2 in January) → weekend night → rm=2.0
+        start = datetime(2026, 1, 8, 21, 0, 0, tzinfo=UTC)
+        _, _, rm = _server_score({"distanceKm": 5.0, "durationSeconds": 600}, start)
+        assert rm == 2.0
+
+    def test_utc_21_thursday_local_would_be_daytime(self) -> None:
+        # Confirms the fix: 21:00 UTC IS night in Israel (23:00), not daytime
+        # If server incorrectly used UTC hour directly, rm would be 1.0 (hour=21 is daytime)
+        start = datetime(2026, 1, 8, 21, 0, 0, tzinfo=UTC)
+        _, _, rm = _server_score({"distanceKm": 5.0, "durationSeconds": 600}, start)
+        assert rm != 1.0  # must NOT be daytime
+
+    def test_utc_midnight_friday_is_night_in_israel(self) -> None:
+        # Fri 00:00 UTC = Fri 02:00 Israel → night + Fri → rm=2.0
+        start = datetime(2026, 1, 9, 0, 0, 0, tzinfo=UTC)
+        _, _, rm = _server_score({"distanceKm": 5.0, "durationSeconds": 600}, start)
+        assert rm == 2.0
+
+    def test_utc_22_is_daytime_in_israel(self) -> None:
+        # Thu 22:00 UTC = Fri 00:00 IL → night + Fri → rm=2.0 (NOT daytime!)
+        # Edge: crossing midnight changes the Israel day
+        start = datetime(2026, 1, 8, 22, 0, 0, tzinfo=UTC)
+        _, _, rm = _server_score({"distanceKm": 5.0, "durationSeconds": 600}, start)
+        assert rm == 2.0  # 22:00 UTC → Fri 00:00 IL = night + Fri

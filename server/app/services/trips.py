@@ -69,6 +69,14 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         avg_speed = dto.distance_km / max(dto.duration_seconds / 3600, 0.001)
         if avg_speed > _MAX_AVG_SPEED_KMH:
             raise HTTPException(422, f"avg_speed={avg_speed:.1f} km/h — implausible")
+    # Physics-check the digest too: oracle uses digest values, not dto values.
+    if dto.telemetry_digest is not None:
+        d_km = max(0.0, float(dto.telemetry_digest.get("distanceKm", 0) or 0))
+        d_s  = max(float(dto.telemetry_digest.get("durationSeconds", 1) or 1), 1.0)
+        if d_km > 0:
+            digest_speed = d_km / max(d_s / 3600, 0.001)
+            if digest_speed > _MAX_AVG_SPEED_KMH:
+                raise HTTPException(422, f"digest avg_speed={digest_speed:.1f} km/h — implausible")
 
 
 def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
@@ -172,20 +180,34 @@ async def save(
     _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
 
     start = dto.start_time or datetime.now(UTC)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
     end = dto.end_time
     duration = dto.duration_seconds
     if duration is None and end is not None:
         duration = max(0, int((end - start).total_seconds()))
-    distance = dto.distance_km or 0.0
 
     # Oracle: when a telemetry digest is present, compute score/points/rm server-side
     # and discard the client-provided values entirely (anti-fraud).
+    # Event counts and distance are sourced from the digest — not the DTO — so the
+    # stored trip record stays consistent with the score that was computed.
     if dto.telemetry_digest:
         avg_score, computed_points, risk_mult = _server_score(dto.telemetry_digest, start)
+        d = dto.telemetry_digest
+        scored_hard_brakes       = max(0, int(d.get("hardBrakes", 0) or 0))
+        scored_aggressive_accels = max(0, int(d.get("aggressiveAccels", 0) or 0))
+        scored_sharp_turns       = max(0, int(d.get("sharpTurns", 0) or 0))
+        scored_phone_seconds     = max(0, int(float(d.get("phoneSeconds", 0) or 0)))
+        distance                 = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
     else:
-        avg_score      = dto.avg_score or 0.0
+        avg_score       = dto.avg_score or 0.0
         computed_points = dto.points or 0
-        risk_mult      = dto.risk_multiplier if dto.risk_multiplier is not None else 1.0
+        risk_mult       = dto.risk_multiplier if dto.risk_multiplier is not None else 1.0
+        scored_hard_brakes       = dto.hard_brakes or 0
+        scored_aggressive_accels = dto.aggressive_accels or 0
+        scored_sharp_turns       = dto.sharp_turns or 0
+        scored_phone_seconds     = dto.phone_seconds or 0
+        distance                 = dto.distance_km or 0.0
 
     trip = Trip(
         user_id=user.id,
@@ -197,10 +219,10 @@ async def save(
         avg_score=avg_score,
         points=computed_points,
         risk_multiplier=risk_mult,
-        hard_brakes=dto.hard_brakes or 0,
-        aggressive_accels=dto.aggressive_accels or 0,
-        sharp_turns=dto.sharp_turns or 0,
-        phone_seconds=dto.phone_seconds or 0,
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        phone_seconds=scored_phone_seconds,
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
