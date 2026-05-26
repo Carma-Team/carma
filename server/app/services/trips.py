@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,6 +21,20 @@ _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
+
+# Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
+# Listed highest-first so the CASE expression short-circuits correctly.
+_LEVEL_THRESHOLDS: list[tuple[int, int]] = [
+    (75000, 10),
+    (50000,  9),
+    (32000,  8),
+    (20000,  7),
+    (12000,  6),
+    ( 7000,  5),
+    ( 3500,  4),
+    ( 1500,  3),
+    (  500,  2),
+]
 
 
 def _validate_plausibility(dto: SaveTripIn) -> None:
@@ -123,13 +137,19 @@ async def save(
     db.add(trip)
 
     if trip.points > 0 or trip.distance_km > 0:
+        new_total = User.total_points + trip.points
+        level_expr = case(
+            *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
+            else_=1,
+        )
         await db.execute(
             update(User)
             .where(User.id == user.id)
             .values(
                 points=User.points + trip.points,
-                total_points=User.total_points + trip.points,
+                total_points=new_total,
                 total_distance=User.total_distance + trip.distance_km,
+                level=level_expr,
             )
         )
 
