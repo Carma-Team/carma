@@ -84,20 +84,22 @@ class TestServerScoreBasic:
 
 
 class TestServerScoreRiskMultiplier:
+    # All timestamps expressed in Israel local time (UTC+2 in January).
+    # The server converts to Asia/Jerusalem before extracting hour/weekday.
+
     def test_daytime_risk_1(self) -> None:
-        # Thursday 14:00 UTC — daytime
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-08T14:00:00+00:00",  # Thu
+            iso="2026-01-08T14:00:00+02:00",  # Thu 14:00 IL — daytime
         )
         assert rm == 1.0
 
     def test_thursday_night_risk_2(self) -> None:
-        # Scenario F: Thu 23:00 UTC — Israeli weekend night → rm=2.0
+        # Scenario F: Thu 23:00 IL — Israeli weekend night → rm=2.0
         score, points, rm = _score(
             {"hardBrakes": 0, "aggressiveAccels": 0, "sharpTurns": 0,
              "phoneSeconds": 0, "durationSeconds": 600, "distanceKm": 5.0},
-            iso="2026-01-08T23:00:00+00:00",  # Thu Jan 8
+            iso="2026-01-08T23:00:00+02:00",  # Thu Jan 8 23:00 IL
         )
         assert rm == 2.0
         assert score == 100.0
@@ -107,56 +109,56 @@ class TestServerScoreRiskMultiplier:
     def test_friday_night_risk_2(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-09T01:00:00+00:00",  # Fri Jan 9
+            iso="2026-01-09T01:00:00+02:00",  # Fri Jan 9 01:00 IL
         )
         assert rm == 2.0
 
     def test_saturday_night_risk_2(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-10T02:00:00+00:00",  # Sat Jan 10
+            iso="2026-01-10T02:00:00+02:00",  # Sat Jan 10 02:00 IL
         )
         assert rm == 2.0
 
     def test_sunday_night_risk_1_5(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-11T23:30:00+00:00",  # Sun Jan 11
+            iso="2026-01-11T23:30:00+02:00",  # Sun Jan 11 23:30 IL — night, not weekend
         )
         assert rm == 1.5
 
     def test_wednesday_night_risk_1_5(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-07T00:30:00+00:00",  # Wed Jan 7
+            iso="2026-01-07T00:30:00+02:00",  # Wed Jan 7 00:30 IL — night, not weekend
         )
         assert rm == 1.5
 
     def test_hour_23_is_night(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-08T23:00:00+00:00",  # Thu 23:00
+            iso="2026-01-08T23:00:00+02:00",  # Thu 23:00 IL
         )
         assert rm == 2.0
 
     def test_hour_3_is_night(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-09T03:00:00+00:00",  # Fri 03:00
+            iso="2026-01-09T03:00:00+02:00",  # Fri 03:00 IL
         )
         assert rm == 2.0
 
     def test_hour_4_is_day(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-08T04:00:00+00:00",  # Thu 04:00
+            iso="2026-01-08T04:00:00+02:00",  # Thu 04:00 IL — boundary, no longer night
         )
         assert rm == 1.0
 
     def test_hour_22_is_day(self) -> None:
         _, _, rm = _score(
             {"distanceKm": 5.0, "durationSeconds": 600},
-            iso="2026-01-08T22:00:00+00:00",  # Thu 22:00
+            iso="2026-01-08T22:00:00+02:00",  # Thu 22:00 IL — daytime
         )
         assert rm == 1.0
 

@@ -5,6 +5,7 @@ import hmac as _hmac
 import json
 import math
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, select, update
@@ -23,6 +24,7 @@ _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
 _STALE_THRESHOLD_S = 300  # 5 minutes
+_TZ_IL = ZoneInfo("Asia/Jerusalem")
 
 # Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
 # Listed highest-first so the CASE expression short-circuits correctly.
@@ -113,9 +115,11 @@ def _server_score(digest: dict, start: datetime) -> tuple[float, int, float]:
     distance_km       = max(0.0, float(digest.get("distanceKm", 0.0) or 0.0))
 
     # Risk multiplier computed from actual start time — not trusted from client.
+    # Convert to Israel local time so the night/weekend check matches the mobile SDK.
     # Python weekday: Mon=0 … Sun=6; Israeli weekend nights: Thu(3), Fri(4), Sat(5).
-    hour = start.hour
-    day  = start.weekday()
+    local = start.astimezone(_TZ_IL)
+    hour = local.hour
+    day  = local.weekday()
     is_night = hour >= 23 or hour < 4
     if is_night and day in (3, 4, 5):
         risk_multiplier = 2.0
