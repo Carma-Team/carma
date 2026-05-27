@@ -34,6 +34,4 @@ class UserFriend(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("follower_id", "followee_id", name="uq_user_friends_pair"),
-    )
+    __table_args__ = (UniqueConstraint("follower_id", "followee_id", name="uq_user_friends_pair"),)

@@ -1,7 +1,7 @@
 """add_user_friends
 
 Revision ID: d5e6f7a8b9c0
-Revises: c4d5e6f7a8b9
+Revises: b2d136cfab8a
 Create Date: 2026-05-26 00:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d5e6f7a8b9c0"
-down_revision: str | None = "c4d5e6f7a8b9"
+down_revision: str | None = "b2d136cfab8a"
 branch_labels: str | None = None
 depends_on: str | None = None
 

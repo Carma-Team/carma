@@ -28,14 +28,14 @@ _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 # Listed highest-first so the CASE expression short-circuits correctly.
 _LEVEL_THRESHOLDS: list[tuple[int, int]] = [
     (75000, 10),
-    (50000,  9),
-    (32000,  8),
-    (20000,  7),
-    (12000,  6),
-    ( 7000,  5),
-    ( 3500,  4),
-    ( 1500,  3),
-    (  500,  2),
+    (50000, 9),
+    (32000, 8),
+    (20000, 7),
+    (12000, 6),
+    (7000, 5),
+    (3500, 4),
+    (1500, 3),
+    (500, 2),
 ]
 
 
@@ -72,7 +72,7 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
     # Physics-check the digest too: oracle uses digest values, not dto values.
     if dto.telemetry_digest is not None:
         d_km = max(0.0, float(dto.telemetry_digest.get("distanceKm", 0) or 0))
-        d_s  = max(float(dto.telemetry_digest.get("durationSeconds", 1) or 1), 1.0)
+        d_s = max(float(dto.telemetry_digest.get("durationSeconds", 1) or 1), 1.0)
         if d_km > 0:
             digest_speed = d_km / max(d_s / 3600, 0.001)
             if digest_speed > _MAX_AVG_SPEED_KMH:
@@ -106,9 +106,7 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
-    expected = _hmac.new(
-        secret.encode(), canonical.encode(), hashlib.sha256
-    ).hexdigest()
+    expected = _hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
@@ -158,21 +156,21 @@ async def save(
     # with the score that was computed (anti-fraud).
     if dto.telemetry_digest:
         d = dto.telemetry_digest
-        scored_hard_brakes       = max(0, int(d.get("hardBrakes", 0) or 0))
+        scored_hard_brakes = max(0, int(d.get("hardBrakes", 0) or 0))
         scored_aggressive_accels = max(0, int(d.get("aggressiveAccels", 0) or 0))
-        scored_sharp_turns       = max(0, int(d.get("sharpTurns", 0) or 0))
-        scored_touch_epochs      = max(0, int(d.get("touchEpochs", 0) or 0))
-        scored_screen_secs       = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
-        distance                 = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
-        digest_duration          = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
+        scored_sharp_turns = max(0, int(d.get("sharpTurns", 0) or 0))
+        scored_touch_epochs = max(0, int(d.get("touchEpochs", 0) or 0))
+        scored_screen_secs = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
+        distance = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
+        digest_duration = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
     else:
-        scored_hard_brakes       = dto.hard_brakes or 0
+        scored_hard_brakes = dto.hard_brakes or 0
         scored_aggressive_accels = dto.aggressive_accels or 0
-        scored_sharp_turns       = dto.sharp_turns or 0
-        scored_touch_epochs      = dto.touch_epochs or 0
-        scored_screen_secs       = dto.screen_interaction_seconds or 0
-        distance                 = dto.distance_km or 0.0
-        digest_duration          = duration or 0
+        scored_sharp_turns = dto.sharp_turns or 0
+        scored_touch_epochs = dto.touch_epochs or 0
+        scored_screen_secs = dto.screen_interaction_seconds or 0
+        distance = dto.distance_km or 0.0
+        digest_duration = duration or 0
 
     avg_score, points_raw, risk_multiplier = calculate_score(
         hard_brakes=scored_hard_brakes,

@@ -27,6 +27,7 @@ async def get_leaderboard(
 
 # ── Follow / Unfollow ─────────────────────────────────────────────────────────
 
+
 @router.get(
     "/follow/{target_id}",
     response_model=FollowStatusOut,
@@ -59,6 +60,7 @@ async def unfollow_user(target_id: str, user: CurrentUser, db: DbSession) -> Fol
 
 # ── Incoming follow requests (for private accounts) ───────────────────────────
 
+
 @router.get(
     "/requests",
     response_model=list[FollowRequestOut],
@@ -90,6 +92,7 @@ async def reject_request(follower_id: str, user: CurrentUser, db: DbSession) -> 
 
 
 # ── Block / Unblock ───────────────────────────────────────────────────────────
+
 
 @router.post(
     "/block/{target_id}",

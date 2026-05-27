@@ -54,14 +54,8 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType) -> Leader
     if type_ == "friends":
         # One query covers both accepted-friend filtering AND per-user follow status —
         # eliminating the separate _accepted_followee_ids + _status_map round-trips.
-        edges = (
-            await db.scalars(
-                select(UserFriend).where(UserFriend.follower_id == current.id)
-            )
-        ).all()
-        accepted_ids: set[str] = {
-            e.followee_id for e in edges if e.status == FriendStatus.ACCEPTED
-        }
+        edges = (await db.scalars(select(UserFriend).where(UserFriend.follower_id == current.id))).all()
+        accepted_ids: set[str] = {e.followee_id for e in edges if e.status == FriendStatus.ACCEPTED}
         accepted_ids.add(current.id)
         statuses: dict[str, FollowStatus] = {
             e.followee_id: e.status.value  # type: ignore[misc]
@@ -76,10 +70,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType) -> Leader
             )
         ).all()
     else:
-        stmt = (
-            select(User)
-            .where(User.role == UserRole.DRIVER, User.is_private.is_(False))
-        )
+        stmt = select(User).where(User.role == UserRole.DRIVER, User.is_private.is_(False))
         if type_ == "city" and current.city:
             stmt = stmt.where(User.city == current.city)
         users = (await db.scalars(stmt.order_by(User.total_points.desc(), User.created_at.asc()).limit(100))).all()
@@ -108,7 +99,9 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType) -> Leader
     my_rank: int | None = None
     if not any(u.id == current.id for u in users) and type_ != "friends":
         above = await db.scalar(
-            select(func.count()).select_from(User).where(
+            select(func.count())
+            .select_from(User)
+            .where(
                 User.role == UserRole.DRIVER,
                 User.is_private.is_(False),
                 User.total_points > current.total_points,
@@ -173,10 +166,12 @@ async def get_follow_status(db: AsyncSession, current: User, target_id: str) -> 
 async def incoming_requests(db: AsyncSession, current: User) -> list[FollowRequestOut]:
     edges = (
         await db.scalars(
-            select(UserFriend).where(
+            select(UserFriend)
+            .where(
                 UserFriend.followee_id == current.id,
                 UserFriend.status == FriendStatus.PENDING,
-            ).limit(50)
+            )
+            .limit(50)
         )
     ).all()
     if not edges:

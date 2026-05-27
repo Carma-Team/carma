@@ -97,7 +97,7 @@ export default function BusinessDashboard() {
         {!loading && rewards.length === 0 && (
           <View style={COMMON_STYLES.emptyState}>
             <Text style={COMMON_STYLES.emptyIcon}>🎁</Text>
-            <Text style={COMMON_STYLES.emptyText}>אין הטבות עדיין{'\n'}לחץ על "הוסף הטבה" כדי להתחיל</Text>
+            <Text style={COMMON_STYLES.emptyText}>{'אין הטבות עדיין\nלחץ על "הוסף הטבה" כדי להתחיל'}</Text>
           </View>
         )}
 
