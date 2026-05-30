@@ -67,7 +67,7 @@ export default function TripDetailScreen() {
     { label: t('trip.hardBrakes'),      emoji: '🛑', value: trip.hardBrakes ?? 0,      bad: (trip.hardBrakes ?? 0) > 0 },
     { label: t('trip.aggressiveAccels'),emoji: '🚀', value: trip.aggressiveAccels ?? 0, bad: (trip.aggressiveAccels ?? 0) > 0 },
     { label: t('trip.sharpTurns'),      emoji: '↩️', value: trip.sharpTurns ?? 0,       bad: (trip.sharpTurns ?? 0) > 0 },
-    { label: t('trip.phoneTouches'),    emoji: '📱', value: trip.phoneSeconds ?? 0,      bad: (trip.phoneSeconds ?? 0) > 0 },
+    { label: t('trip.phoneTouches'),    emoji: '📱', value: trip.touchEpochs ?? 0,        bad: (trip.touchEpochs ?? 0) > 0 },
   ];
 
   return (

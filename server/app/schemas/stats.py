@@ -12,7 +12,7 @@ class EventCounts(CamelModel):
     hard_brakes: int
     aggressive_accels: int
     sharp_turns: int
-    phone_seconds: int
+    touch_epochs: int
 
 
 class DrivingStats(CamelModel):

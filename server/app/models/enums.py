@@ -43,3 +43,9 @@ class BusinessCategory(str, enum.Enum):
     ENTERTAINMENT = "ENTERTAINMENT"
     SHOPPING = "SHOPPING"
     OTHER = "OTHER"
+
+
+class FriendStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    BLOCKED = "blocked"

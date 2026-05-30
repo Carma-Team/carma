@@ -2,6 +2,7 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
 // Matches server's UserOut camelCase wire format
@@ -20,6 +21,7 @@ export interface AppUser {
   totalPoints: number;
   totalDistance: number;
   level: number;
+  isPrivate: boolean;
   driveModeEnabled: boolean;
   bluetoothDeviceId?: string;
   bluetoothDeviceName?: string;
@@ -46,7 +48,8 @@ export interface Trip {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  phoneSeconds: number;
+  touchEpochs: number;              // v1.7
+  screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
   startLocation?: string;
   endLocation?: string;
@@ -95,18 +98,36 @@ export interface Voucher {
 // Matches server's LeaderboardOut camelCase wire format
 export type LeaderboardType = 'friends' | 'city' | 'national';
 
+export interface LeaderboardUserSummary {
+  id: string;
+  name?: string;
+  city?: string;
+  level: number;
+  avatarUrl?: string;
+  isPrivate?: boolean;
+}
+
 export interface LeaderboardEntry {
   id: string;
   userId: string;
   rank: number;
   score: number;
-  user: {
-    id: string;
-    name?: string;
-    city?: string;
-    level: number;
-    avatarUrl?: string;
-  };
+  user: LeaderboardUserSummary;
+  followStatus?: FollowStatus;
+}
+
+export interface LeaderboardOut {
+  entries: LeaderboardEntry[];
+  currentUserId: string;
+  myRank?: number | null;
+}
+
+export interface FollowRequest {
+  followerId: string;
+  followerName?: string;
+  followerLevel: number;
+  followerCity?: string;
+  requestedAt: string;
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
@@ -123,7 +144,7 @@ export interface DrivingStats {
     hardBrakes: number;
     aggressiveAccels: number;
     sharpTurns: number;
-    phoneSeconds: number;
+    touchEpochs: number;
   };
 }
 
@@ -162,8 +183,8 @@ export interface ScoringInput {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  phoneSeconds: number;
-  phoneWeightedSeconds: number; // Σ k(v_i) — kinetic-scaled phone time; k = clamp(v/60, 0.20, 2.00)
+  touchEpochs: number;              // v1.7 — glass-tap proxy count
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
   durationSeconds: number;
   distanceKm: number;
   startTime: Date;

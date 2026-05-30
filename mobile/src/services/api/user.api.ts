@@ -20,6 +20,7 @@ export interface UpdateProfilePayload {
   language?: string;
   age?: number;
   city?: string;
+  isPrivate?: boolean;
 }
 
 export const userApi = {

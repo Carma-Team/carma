@@ -57,7 +57,10 @@ export interface TripData {
   events: DrivingEvent[];
   averageSpeed: number;
   maxSpeed: number;
+  /** @deprecated v1.7 — replaced by touchEpochs + screenInteractionSeconds */
   phoneSeconds: number;
+  touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
 }
 
 export type TripUpdateCallback = (data: Partial<TripData>) => void;

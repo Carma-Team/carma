@@ -18,3 +18,4 @@ python-json-logger==2.0.7
 # azure-monitor-opentelemetry, which pins them to a compatible range (~=0.49b0
 # as of 1.6.4). Don't pin them ourselves — would cause a resolver conflict.
 azure-monitor-opentelemetry==1.6.4
+tzdata==2024.2

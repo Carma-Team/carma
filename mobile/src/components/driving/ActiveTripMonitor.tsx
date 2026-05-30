@@ -82,7 +82,7 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
               onPress={() => onDebugAddDistance(10)}
               style={styles.debugBtn}
             >
-              +10 ק"מ
+              {'+10 ק"מ'}
             </Button>
             <Button
               variant="outline"

@@ -1,20 +1,22 @@
 // ─── Telemetry Digest ─────────────────────────────────────────────────────────
-// Clean snapshot of trip metrics sent alongside every ValidTripPayload.
-// The server stores this for audit and uses it to verify the client score (RFC-001).
+// Raw sensor snapshot sent alongside every ValidTripPayload for server-side audit.
+// avgScore and points are intentionally absent — the FastAPI server is the sole
+// scoring oracle (RFC-001 v1.5). timestamp enables server-side replay detection.
+// phoneSeconds REMOVED in v1.7 — replaced by touchEpochs + screenInteractionSeconds.
 // All fields are plain scalars so the digest is deterministically JSON-serialisable.
 
 export interface TelemetryDigest {
-  avgScore:         number;  // client-computed score 0–100 (1 decimal)
-  points:           number;  // raw points before level multiplier
-  distanceKm:       number;  // km, 3 decimal places
-  durationSeconds:  number;
-  hardBrakes:       number;
-  aggressiveAccels: number;
-  sharpTurns:       number;
-  phoneSeconds:     number;  // raw (unweighted) phone usage seconds
-  riskMultiplier:   number;  // time-of-day multiplier applied to points
-  startTime:        string;  // ISO 8601 UTC
-  endTime:          string;  // ISO 8601 UTC
+  distanceKm:               number;  // km, 3 decimal places
+  durationSeconds:          number;
+  hardBrakes:               number;
+  aggressiveAccels:         number;
+  sharpTurns:               number;
+  touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
+  screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds
+  riskMultiplier:           number;  // time-of-day multiplier (client-derived, server recomputes)
+  startTime:                string;  // ISO 8601 UTC
+  endTime:                  string;  // ISO 8601 UTC
+  timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
 }
 
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────
@@ -33,12 +35,11 @@ export interface ValidTripPayload {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  phoneSeconds: number;
+  touchEpochs: number;              // v1.7 — replaces phoneSeconds
+  screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds
   riskMultiplier: number;
   penalties: number;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
-  // Server stores telemetryDigest for audit and uses it to detect score spoofing.
-  // payloadSignature is an HMAC-SHA256 of the digest (FNV-1a placeholder in Phase 1).
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;
 }

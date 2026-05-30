@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,23 +15,52 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
+from app.services.scoring import calculate_score
 
 _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
+_DRIFT_WINDOW_MS = 300_000  # ±5 minutes
+
+# Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
+# Listed highest-first so the CASE expression short-circuits correctly.
+_LEVEL_THRESHOLDS: list[tuple[int, int]] = [
+    (75000, 10),
+    (50000, 9),
+    (32000, 8),
+    (20000, 7),
+    (12000, 6),
+    (7000, 5),
+    (3500, 4),
+    (1500, 3),
+    (500, 2),
+]
 
 
 def _validate_plausibility(dto: SaveTripIn) -> None:
     if dto.avg_score is not None and not (0.0 <= dto.avg_score <= 100.0):
         raise HTTPException(422, f"avg_score={dto.avg_score} — must be in [0, 100]")
-    if dto.points is not None and dto.points > _MAX_POINTS_PER_TRIP:
+    # Skip client points check when digest is present — oracle overrides the value anyway.
+    if dto.points is not None and dto.telemetry_digest is None and dto.points > _MAX_POINTS_PER_TRIP:
         raise HTTPException(422, f"points={dto.points} — implausible (max {_MAX_POINTS_PER_TRIP})")
+    if dto.distance_km is not None and dto.distance_km < 0:
+        raise HTTPException(422, "distance_km must be >= 0")
     if dto.distance_km is not None and dto.distance_km > _MAX_DISTANCE_KM:
         raise HTTPException(422, f"distance_km={dto.distance_km} — implausible")
+    if dto.hard_brakes is not None and dto.hard_brakes < 0:
+        raise HTTPException(422, "hard_brakes must be >= 0")
     if dto.hard_brakes is not None and dto.hard_brakes > _MAX_HARD_BRAKES:
         raise HTTPException(422, f"hard_brakes={dto.hard_brakes} — implausible")
+    if dto.aggressive_accels is not None and dto.aggressive_accels < 0:
+        raise HTTPException(422, "aggressive_accels must be >= 0")
+    if dto.sharp_turns is not None and dto.sharp_turns < 0:
+        raise HTTPException(422, "sharp_turns must be >= 0")
+    if dto.touch_epochs is not None and dto.touch_epochs < 0:
+        raise HTTPException(422, "touch_epochs must be >= 0")
+    if dto.screen_interaction_seconds is not None and dto.screen_interaction_seconds < 0:
+        raise HTTPException(422, "screen_interaction_seconds must be >= 0")
     if dto.risk_multiplier is not None:
         lo, hi = _RISK_MULTIPLIER_RANGE
         if not (lo <= dto.risk_multiplier <= hi):
@@ -40,6 +69,30 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         avg_speed = dto.distance_km / max(dto.duration_seconds / 3600, 0.001)
         if avg_speed > _MAX_AVG_SPEED_KMH:
             raise HTTPException(422, f"avg_speed={avg_speed:.1f} km/h — implausible")
+    # Physics-check the digest too: oracle uses digest values, not dto values.
+    if dto.telemetry_digest is not None:
+        d_km = max(0.0, float(dto.telemetry_digest.get("distanceKm", 0) or 0))
+        d_s = max(float(dto.telemetry_digest.get("durationSeconds", 1) or 1), 1.0)
+        if d_km > 0:
+            digest_speed = d_km / max(d_s / 3600, 0.001)
+            if digest_speed > _MAX_AVG_SPEED_KMH:
+                raise HTTPException(422, f"digest avg_speed={digest_speed:.1f} km/h — implausible")
+
+
+def _check_timestamp_drift(digest: dict | None) -> None:
+    if not digest:
+        return
+    ts = digest.get("timestamp")
+    if ts is None:
+        return
+    try:
+        client_ms = int(ts)
+    except (TypeError, ValueError):
+        raise HTTPException(401, "Invalid timestamp in telemetryDigest") from None
+    server_ms = int(datetime.now(UTC).timestamp() * 1000)
+    if abs(server_ms - client_ms) > _DRIFT_WINDOW_MS:
+        audit("trips.timestamp.stale", drift_ms=server_ms - client_ms)
+        raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
 def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
@@ -53,9 +106,7 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
-    expected = _hmac.new(
-        secret.encode(), f"{secret}:{canonical}".encode(), hashlib.sha256
-    ).hexdigest()
+    expected = _hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
@@ -87,16 +138,50 @@ async def save(
         if existing:
             return TripOut.from_orm_trip(existing)
 
+    # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
+    _check_timestamp_drift(dto.telemetry_digest)
     _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
 
     start = dto.start_time or datetime.now(UTC)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
     end = dto.end_time
     duration = dto.duration_seconds
     if duration is None and end is not None:
         duration = max(0, int((end - start).total_seconds()))
-    distance = dto.distance_km or 0.0
-    avg_score = dto.avg_score
+
+    # Oracle: when a telemetry digest is present, source event counts and distance
+    # from the signed digest — not the client DTO — so stored data is consistent
+    # with the score that was computed (anti-fraud).
+    if dto.telemetry_digest:
+        d = dto.telemetry_digest
+        scored_hard_brakes = max(0, int(d.get("hardBrakes", 0) or 0))
+        scored_aggressive_accels = max(0, int(d.get("aggressiveAccels", 0) or 0))
+        scored_sharp_turns = max(0, int(d.get("sharpTurns", 0) or 0))
+        scored_touch_epochs = max(0, int(d.get("touchEpochs", 0) or 0))
+        scored_screen_secs = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
+        distance = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
+        digest_duration = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
+    else:
+        scored_hard_brakes = dto.hard_brakes or 0
+        scored_aggressive_accels = dto.aggressive_accels or 0
+        scored_sharp_turns = dto.sharp_turns or 0
+        scored_touch_epochs = dto.touch_epochs or 0
+        scored_screen_secs = dto.screen_interaction_seconds or 0
+        distance = dto.distance_km or 0.0
+        digest_duration = duration or 0
+
+    avg_score, points_raw, risk_multiplier = calculate_score(
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
+        duration_seconds=digest_duration,
+        distance_km=distance,
+        start_time=start,
+    )
 
     trip = Trip(
         user_id=user.id,
@@ -106,12 +191,13 @@ async def save(
         duration_seconds=duration or 0,
         distance_km=distance,
         avg_score=avg_score,
-        points=dto.points or 0,
-        risk_multiplier=dto.risk_multiplier if dto.risk_multiplier is not None else 1.0,
-        hard_brakes=dto.hard_brakes or 0,
-        aggressive_accels=dto.aggressive_accels or 0,
-        sharp_turns=dto.sharp_turns or 0,
-        phone_seconds=dto.phone_seconds or 0,
+        points=round(points_raw),
+        risk_multiplier=risk_multiplier,
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
@@ -123,13 +209,19 @@ async def save(
     db.add(trip)
 
     if trip.points > 0 or trip.distance_km > 0:
+        new_total = User.total_points + trip.points
+        level_expr = case(
+            *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
+            else_=1,
+        )
         await db.execute(
             update(User)
             .where(User.id == user.id)
             .values(
                 points=User.points + trip.points,
-                total_points=User.total_points + trip.points,
+                total_points=new_total,
                 total_distance=User.total_distance + trip.distance_km,
+                level=level_expr,
             )
         )
 

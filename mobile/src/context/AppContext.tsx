@@ -20,13 +20,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { InteractionManager, AppState } from 'react-native'
-import { calculateScore } from '@/lib/scoring'
+import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { CarmaDrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
+import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { fraudApi } from '@/services/api/fraud.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
@@ -42,8 +43,8 @@ export interface TripState {
   durationSeconds: number;
   distanceKm: number;
   currentSpeedKmH: number;
-  phoneSeconds: number;
-  phoneWeightedSeconds: number; // Σ k(v_i) — fed to calculateScore instead of raw phoneSeconds
+  touchEpochs: number;              // v1.7 — glass-tap proxy count from IMU
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
   eventCounts: {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
@@ -59,8 +60,8 @@ const INITIAL_TRIP_STATE: TripState = {
   durationSeconds: 0,
   distanceKm: 0,
   currentSpeedKmH: 0,
-  phoneSeconds: 0,
-  phoneWeightedSeconds: 0,
+  touchEpochs: 0,
+  screenInteractionSeconds: 0,
   eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, PHONE_TOUCH: 0 },
 };
 
@@ -177,30 +178,27 @@ function _hmacSha256Hex(key: string, message: string): string {
 }
 
 // ─── TelemetryDigest builder ──────────────────────────────────────────────────
-// Produces the 11-field canonical snapshot defined in RFC-001 §3.1.
-// All numerics are normalised (rounding, precision) so the server can reproduce
-// the same digest deterministically from its own re-calculation.
+// Produces the raw-sensor canonical snapshot defined in RFC-001 v1.7 §3.1.
+// avgScore, points, and phoneSeconds are absent — server is the sole scoring oracle.
+// timestamp is injected at call time to enable server-side replay detection.
 
 function buildTelemetryDigest(
   state: TripState,
-  avgScore: number,
-  rawPoints: number,
-  riskMultiplier: number,
   startTime: string,
   endTime: string,
 ): TelemetryDigest {
   return {
-    avgScore:         Math.round(avgScore * 10) / 10,          // 1 decimal, matches scoring.ts
-    points:           Math.round(rawPoints),                    // integer, pre-multiplier
-    distanceKm:       Math.round(state.distanceKm * 1000) / 1000, // 3 decimal places
-    durationSeconds:  state.durationSeconds,
-    hardBrakes:       state.eventCounts.HARD_BRAKE,
-    aggressiveAccels: state.eventCounts.AGGRESSIVE_ACCEL,
-    sharpTurns:       state.eventCounts.SHARP_TURN,
-    phoneSeconds:     Math.round(state.phoneSeconds),           // integer seconds
-    riskMultiplier,                                             // exact float from scoring.ts
-    startTime,                                                  // ISO 8601 UTC
-    endTime,                                                    // ISO 8601 UTC
+    distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
+    durationSeconds:          state.durationSeconds,
+    hardBrakes:               state.eventCounts.HARD_BRAKE,
+    aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
+    sharpTurns:               state.eventCounts.SHARP_TURN,
+    touchEpochs:              state.touchEpochs,
+    screenInteractionSeconds: state.screenInteractionSeconds,
+    riskMultiplier:           getRiskMultiplier(new Date(startTime)),
+    startTime,
+    endTime,
+    timestamp:                Date.now(),
   };
 }
 
@@ -213,22 +211,6 @@ function signTelemetryDigest(digest: TelemetryDigest): string {
   return `ph:${hmac}`;
 }
 
-// ─── Kinetic Phone Penalty ────────────────────────────────────────────────────
-// k(v) = clamp(v / 60, 0.20, 2.00)
-// At 5 km/h → 0.20× (crawling floor); at 60 km/h → 1.0× (reference); at 120 km/h → 2.0× (cap)
-const K_PHONE_V_REF = 60   // km/h — multiplier equals 1.0 at this speed
-const K_PHONE_MIN   = 0.20 // crawling-traffic floor
-const K_PHONE_MAX   = 2.00 // highway cap
-
-function computePhoneWeightedSeconds(tripData: TripData): number {
-  const phoneEvents = tripData.events.filter(e => e.type === DrivingEventType.PHONE_USAGE)
-  if (phoneEvents.length === 0 || tripData.phoneSeconds === 0) return tripData.phoneSeconds
-  const avgK = phoneEvents.reduce((sum, ev) => {
-    const k = Math.min(K_PHONE_MAX, Math.max(K_PHONE_MIN, (ev.speedKmh ?? K_PHONE_V_REF) / K_PHONE_V_REF))
-    return sum + k
-  }, 0) / phoneEvents.length
-  return tripData.phoneSeconds * avgK
-}
 
 interface AppContextValue {
   user: AppUser | null
@@ -316,37 +298,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return finalState;
     }
 
-    const scoringResult = calculateScore({
-      hardBrakes: finalState.eventCounts.HARD_BRAKE,
-      aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
-      sharpTurns: finalState.eventCounts.SHARP_TURN,
-      phoneSeconds: finalState.phoneSeconds,
-      phoneWeightedSeconds: finalState.phoneWeightedSeconds,
-      durationSeconds: finalState.durationSeconds,
-      distanceKm: finalState.distanceKm,
-      startTime: finalState.startTime ?? new Date(),
-    });
-
-    const score = scoringResult.score;
-    const earnedPoints = Math.round(scoringResult.points * userLevelState.multiplier);
     const tripStartTime = finalState.startTime?.toISOString()
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
     const endTime = new Date().toISOString();
 
-    // RFC-001: build and sign the telemetry digest before assembling the payload.
-    // Wrapped in try/catch: a signing failure must never crash processEndTrip or
-    // block the trip from being saved — the payload is sent unsigned as a fallback.
+    // RFC-001 v1.5: build and sign raw-sensor digest — no score params, server scores authoritatively.
+    // Signing failure must never block the trip from being saved (payload sent unsigned as fallback).
     let telemetryDigest:  TelemetryDigest | undefined;
     let payloadSignature: string | undefined;
     try {
-      telemetryDigest  = buildTelemetryDigest(
-        finalState,
-        score,
-        scoringResult.points,
-        scoringResult.riskMultiplier,
-        tripStartTime,
-        endTime,
-      );
+      telemetryDigest  = buildTelemetryDigest(finalState, tripStartTime, endTime);
       payloadSignature = signTelemetryDigest(telemetryDigest);
     } catch (sigErr) {
       console.error('[AppContext] Digest signing failed — payload sent unsigned', sigErr);
@@ -358,28 +319,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       endTime,
       distanceKm: finalState.distanceKm,
       durationSeconds: finalState.durationSeconds,
-      avgScore: score,
-      points: earnedPoints,
+      avgScore: 0,        // server computes — placeholder only
+      points: 0,          // server computes — placeholder only
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      phoneSeconds: Math.round(finalState.phoneSeconds),
-      riskMultiplier: scoringResult.riskMultiplier,
-      penalties: scoringResult.penalties,
+      touchEpochs: finalState.touchEpochs,
+      screenInteractionSeconds: finalState.screenInteractionSeconds,
+      riskMultiplier: 1.0,  // server computes — placeholder only
+      penalties: 0,         // server computes — placeholder only
       telemetryDigest,
       payloadSignature,
     };
 
     let savedTrip: Trip | null = null;
+    let isPermanentFailure = false;
     try {
       savedTrip = await tripsApi.save(validTripPayload);
     } catch (e) {
-      console.warn('[AppContext] Server unreachable — queuing trip for later sync', e);
-      await SyncManager.enqueue(validTripPayload);
+      const httpStatus = e instanceof ApiError ? e.status : 0;
+      if (httpStatus === 401 || httpStatus === 403 || httpStatus === 422) {
+        // Permanent client error — stale timestamp, tampered payload, physics violation
+        isPermanentFailure = true;
+        addToast({
+          title: httpStatus === 401 ? 'Replay Detected'
+               : httpStatus === 403 ? 'Payload Rejected'
+               : 'Trip Rejected',
+          message: `Trip could not be saved (${httpStatus})`,
+          type: 'error',
+        });
+      } else {
+        console.warn('[AppContext] Server unreachable — queuing trip for later sync', e);
+        await SyncManager.enqueue(validTripPayload);
+      }
     }
 
+    if (isPermanentFailure) {
+      setTripState(INITIAL_TRIP_STATE);
+      return finalState;
+    }
+
+    // Use server-returned score/points as the single source of truth.
+    // Falls back to 0 when offline (SyncManager.onTripSynced will refresh once connectivity returns).
+    const serverScore          = savedTrip?.avgScore      ?? 0;
+    const serverPointsRaw      = savedTrip?.points        ?? 0;
+    const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
+    const earnedPoints         = Math.round(serverPointsRaw * userLevelState.multiplier);
+
     const newTrip: Trip = savedTrip
-      ? { ...savedTrip, score }
+      ? { ...savedTrip, score: savedTrip.avgScore }
       : {
           id: finalState.sessionId,
           userId: user?.id || 'guest',
@@ -387,14 +375,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           endTime,
           distanceKm: finalState.distanceKm,
           durationSeconds: finalState.durationSeconds,
-          avgScore: score,
-          score,
+          avgScore: serverScore,
+          score: serverScore,
           points: earnedPoints,
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          phoneSeconds: Math.round(finalState.phoneSeconds),
-          riskMultiplier: scoringResult.riskMultiplier,
+          touchEpochs: finalState.touchEpochs,
+          screenInteractionSeconds: finalState.screenInteractionSeconds,
+          riskMultiplier: serverRiskMultiplier,
           status: 'completed',
         };
 
@@ -433,25 +422,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLastTripSummary({
       ...finalState,
       id: newTrip.id,
-      score,
+      score: serverScore,
       points: earnedPoints,
-      riskMultiplier: scoringResult.riskMultiplier,
-      penalties: scoringResult.penalties,
+      riskMultiplier: serverRiskMultiplier,
+      penalties: 0,
     });
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, userLevelState]);
+  }, [user, userLevelState, addToast]);
 
   useEffect(() => {
     sdk.onUpdate = (data: TripData) => {
-      const phoneWeightedSeconds = computePhoneWeightedSeconds(data)
       setTripState(prev => ({
         ...prev,
         isActive: true,
         durationSeconds: data.durationSeconds,
         distanceKm: data.distanceKm,
-        phoneSeconds: data.phoneSeconds,
-        phoneWeightedSeconds,
+        touchEpochs: data.touchEpochs,
+        screenInteractionSeconds: data.screenInteractionSeconds,
         eventCounts: {
           HARD_BRAKE: data.events.filter(e => e.type === DrivingEventType.HARD_BRAKE).length,
           AGGRESSIVE_ACCEL: data.events.filter(e => e.type === DrivingEventType.AGGRESSIVE_ACCEL).length,

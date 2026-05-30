@@ -3,6 +3,7 @@ from app.models.business import Business
 from app.models.enums import (
     BusinessCategory,
     EventType,
+    FriendStatus,
     Language,
     RedemptionStatus,
     TripStatus,
@@ -10,6 +11,7 @@ from app.models.enums import (
 )
 from app.models.event import Event
 from app.models.fraud import FraudReport
+from app.models.friendship import UserFriend
 from app.models.level import Level
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
@@ -23,6 +25,7 @@ __all__ = [
     "BusinessCategory",
     "Event",
     "EventType",
+    "FriendStatus",
     "FraudReport",
     "Language",
     "Level",
@@ -33,5 +36,6 @@ __all__ = [
     "Trip",
     "TripStatus",
     "User",
+    "UserFriend",
     "UserRole",
 ]

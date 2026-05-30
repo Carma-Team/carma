@@ -42,7 +42,8 @@ class Trip(Base):
     hard_brakes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     aggressive_accels: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     sharp_turns: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    phone_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    touch_epochs: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    screen_interaction_seconds: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
 
     ai_insight: Mapped[str | None] = mapped_column(String(500))
     start_location: Mapped[str | None] = mapped_column(String(200))

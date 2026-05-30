@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { userApi } from '@/services/api/user.api';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 
 /**
@@ -80,6 +81,36 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
+
+          {/* Privacy Section */}
+          <View>
+            <Text style={styles.sectionLabel}>🔒 {t('profile.privacy') || 'פרטיות'}</Text>
+            <Card style={styles.settingCard}>
+              <Text style={styles.settingDescription}>
+                {t('profile.privacyDesc') || 'חשבון פרטי: עוקבים חדשים יצטרכו לקבל אישור לפני שיוכלו לראות אותך בטבלת הדירוג.'}
+              </Text>
+              <View style={styles.row}>
+                <Text style={styles.statusText}>
+                  {user.isPrivate ? `🔒 ${t('profile.private') || 'פרטי'}` : `🌐 ${t('profile.public') || 'ציבורי'}`}
+                </Text>
+                <Button
+                  size="sm"
+                  variant={user.isPrivate ? 'primary' : 'outline'}
+                  onPress={async () => {
+                    const next = !user.isPrivate;
+                    await setUser({ ...user, isPrivate: next });
+                    try {
+                      await userApi.updateProfile({ isPrivate: next });
+                    } catch {
+                      await setUser({ ...user, isPrivate: !next }); // revert on failure
+                    }
+                  }}
+                >
+                  {user.isPrivate ? t('profile.makePublic') || 'הפוך לציבורי' : t('profile.makePrivate') || 'הפוך לפרטי'}
+                </Button>
+              </View>
+            </Card>
+          </View>
 
           {/* Drive Mode Section */}
           <View>

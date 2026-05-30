@@ -20,7 +20,11 @@ class SaveTripIn(CamelModel):
     hard_brakes: int | None = None
     aggressive_accels: int | None = None
     sharp_turns: int | None = None
-    phone_seconds: int | None = None
+    touch_epochs: int | None = Field(default=None, validation_alias=AliasChoices("touchEpochs", "touch_epochs"))
+    screen_interaction_seconds: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("screenInteractionSeconds", "screen_interaction_seconds"),
+    )
     risk_multiplier: float | None = Field(
         default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
     )
@@ -61,7 +65,8 @@ class TripOut(CamelModel):
     hard_brakes: int
     aggressive_accels: int
     sharp_turns: int
-    phone_seconds: int
+    touch_epochs: int
+    screen_interaction_seconds: int
     risk_multiplier: float
     start_location: str | None
     end_location: str | None
@@ -84,7 +89,8 @@ class TripOut(CamelModel):
                 "hard_brakes": trip.hard_brakes,
                 "aggressive_accels": trip.aggressive_accels,
                 "sharp_turns": trip.sharp_turns,
-                "phone_seconds": trip.phone_seconds,
+                "touch_epochs": trip.touch_epochs,
+                "screen_interaction_seconds": trip.screen_interaction_seconds,
                 "risk_multiplier": trip.risk_multiplier,
                 "start_location": trip.start_location,
                 "end_location": trip.end_location,
