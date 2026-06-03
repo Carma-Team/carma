@@ -10,6 +10,8 @@ Scenarios:
 
 Run: python e2e_v15.py
 """
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import hashlib
 import hmac as _hmac
 import json
