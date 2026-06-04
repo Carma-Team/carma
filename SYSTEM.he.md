@@ -414,15 +414,16 @@ mobile/src/
 
 ### איך לחבר את האפליקציה לשרת
 
-ב-`mobile/src/services/api/client.ts`:
+כתובת השרת מוגדרת ב-`mobile/src/constants/serverConfig.ts`:
 ```ts
-const BASE_URL = 'http://localhost:3000';
+export const USE_REAL_SERVER = true;
+export const STAGING_SERVER_URL = 'http://10.0.2.2:3000'; // alias של האמולטור למחשב המארח
 ```
 
-- **אמולטור Android** באותו מחשב: `http://10.0.2.2:3000`.
-- **מכשיר פיזי** באותו Wi-Fi: ה-IP של המחשב, למשל `http://192.168.1.42:3000`.
-- **iOS Simulator**: `http://localhost:3000` עובד.
-- **Azure** (אחרי deploy): `https://carma-api.<region>.azurecontainerapps.io`.
+- **אמולטור Android** (ברירת מחדל): `10.0.2.2` הוא alias מובנה של האמולטור למחשב המארח — כבר מוגדר.
+- **מכשיר פיזי** באותו Wi-Fi: שנה את `STAGING_SERVER_URL` ל-IP של המחשב, למשל `http://192.168.1.42:3000`.
+- **iOS Simulator**: שנה ל-`http://localhost:3000`.
+- **Azure** (אחרי deploy): שנה ל-`https://carma-api.<region>.azurecontainerapps.io`.
 
 ### השוואת חוזה API (Frontend ↔ Backend)
 
@@ -470,41 +471,22 @@ avg_score: float | None = Field(
 
 ## 10. הרצה לוקאלית — צעד אחר צעד
 
-### דרישות מקדימות
-
-- Python 3.11+ (3.12 מומלץ — תואם ל-Dockerfile ו-CI)
-- Docker Desktop (ל-Postgres+PostGIS)
-- Git
-
-### Setup ראשוני
+### פעם ראשונה
 
 ```powershell
-cd <repo-root>\server
-
-# 1. Virtualenv
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
-
-# 2. משתני סביבה
-copy .env.example .env
-
-# 3. הפעלת Postgres+PostGIS
-docker compose up -d db
-
-# 4. יצירת migration ראשון מהמודלים, וריצה
-alembic revision --autogenerate -m "init"
-alembic upgrade head
-
-# 5. Seed (levels, businesses, rewards, demo user)
-python -m app.seed
+# מ-root של ה-repo — מתקין את כל הדרישות, יוצר venv,
+# מריץ migrations, מזריע נתוני דמו, מוסיף חוק firewall.
+.\scripts\setup.ps1   # דרוש: הרצת PowerShell כ-Administrator
 ```
 
-### הרצת השרת
+### כל יום
 
 ```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+# מפעיל Docker, DB, שרת FastAPI ו-Expo Metro בפקודה אחת.
+.\scripts\dev.ps1
 ```
+
+לאחר מכן לחץ **`a`** בחלון Metro כדי לפתוח את האפליקציה באמולטור Android.
 
 - API: `http://localhost:3000/api/...`
 - Swagger: `http://localhost:3000/api/docs`
@@ -703,8 +685,8 @@ ContainerAppConsoleLogs_CL
 
 ### עכשיו (אינטגרציה עם הפרונט)
 
-1. הרצת השרת: `uvicorn app.main:app --reload` מ-`server/`. דפדפן ל-`/api/docs`.
-2. שינוי `BASE_URL` ב-`mobile/src/services/api/client.ts` ל-IP של המחשב (מכשיר פיזי) או השארה ב-`localhost` (סימולטור).
+1. הרצת `.\scripts\dev.ps1` מ-root של ה-repo — מפעיל הכל. דפדפן ל-`http://localhost:3000/api/docs`.
+2. האמולטור כבר מוגדר מראש להגיע לשרת ב-`http://10.0.2.2:3000` דרך `serverConfig.ts` — אין צורך לשנות כלום.
 3. התחברות באפליקציה עם `daniel@carma.app` / `password123` — אמור להגיע לשרת אמיתי.
 4. הרצת נסיעה באפליקציה ואימות שהיא נשמרה ב-DB (`docker exec -it carma_db psql -U carma -d carma -c "SELECT id, user_id, distance_km, avg_score FROM trips ORDER BY created_at DESC LIMIT 5;"`).
 

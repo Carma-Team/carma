@@ -413,15 +413,16 @@ mobile/src/
 
 ### How to connect her app to our server
 
-At `mobile/src/services/api/client.ts`:
+Server URL is configured in `mobile/src/constants/serverConfig.ts`:
 ```ts
-const BASE_URL = 'http://localhost:3000';
+export const USE_REAL_SERVER = true;
+export const STAGING_SERVER_URL = 'http://10.0.2.2:3000'; // emulator → host alias
 ```
 
-- **Android emulator** on the same machine: use `http://10.0.2.2:3000`.
-- **Physical device** on the same Wi-Fi: replace with the host's IP, e.g. `http://192.168.1.42:3000`.
-- **iOS Simulator**: `http://localhost:3000` works as-is.
-- **Azure** (after deploy): `https://carma-api.<region>.azurecontainerapps.io`.
+- **Android emulator** (default): `10.0.2.2` is the emulator's built-in alias for the host machine — already configured.
+- **Physical device** on the same Wi-Fi: change `STAGING_SERVER_URL` to the host's IP, e.g. `http://192.168.1.42:3000`.
+- **iOS Simulator**: change to `http://localhost:3000`.
+- **Azure** (after deploy): change to `https://carma-api.<region>.azurecontainerapps.io`.
 
 ### API contract comparison (Frontend ↔ Backend)
 
@@ -469,42 +470,22 @@ Both styles are accepted on input.
 
 ## 10. Running Locally — Step by Step
 
-### Prerequisites
-
-- Python 3.11+ (3.12 recommended — matches the Dockerfile and CI)
-- Docker Desktop (for Postgres+PostGIS)
-- Git
-
-### Initial setup
+### First time
 
 ```powershell
-cd <repo-root>\server
-
-# 1. Virtualenv
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
-
-# 2. Env vars
-copy .env.example .env
-# (defaults work for dev)
-
-# 3. Start Postgres+PostGIS
-docker compose up -d db
-
-# 4. Generate the initial migration from the models, then apply it
-alembic revision --autogenerate -m "init"
-alembic upgrade head
-
-# 5. Seed (levels, businesses, rewards, demo user)
-python -m app.seed
+# From the monorepo root — installs all prerequisites, creates venv,
+# applies migrations, seeds demo data, adds firewall rule.
+.\scripts\setup.ps1   # requires: run PowerShell as Administrator
 ```
 
-### Run the server
+### Every day
 
 ```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+# Starts Docker, DB, FastAPI server, and Expo Metro in one command.
+.\scripts\dev.ps1
 ```
+
+Then press **`a`** in the Metro window to open the app on the Android emulator.
 
 - API: `http://localhost:3000/api/...`
 - Swagger: `http://localhost:3000/api/docs`
@@ -700,8 +681,8 @@ Deliberately deferred:
 
 ### Right now (mobile integration)
 
-1. Run the API: `uvicorn app.main:app --reload` from `server/`. Visit `/api/docs`.
-2. Change `BASE_URL` in `mobile/src/services/api/client.ts` to the host IP (physical device) or leave `localhost` (simulator).
+1. Run `.\scripts\dev.ps1` from the monorepo root — starts everything. Visit `/api/docs` at `http://localhost:3000/api/docs`.
+2. The emulator is already pre-configured to reach the server at `http://10.0.2.2:3000` via `serverConfig.ts` — no changes needed.
 3. Log in in the app with `daniel@carma.app` / `password123` — should hit the real server.
 4. Run a trip in the app and verify it persists in the DB (`docker exec -it carma_db psql -U carma -d carma -c "SELECT id, user_id, distance_km, avg_score FROM trips ORDER BY created_at DESC LIMIT 5;"`).
 
