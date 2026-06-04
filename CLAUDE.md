@@ -103,9 +103,7 @@ The rule: `develop` is the buffer that protects `main`. Keep it green.
 
 ---
 
-## Executive Guidelines & Developer Personas
-
-### System-Wide Rules
+## Engineering Rules
 
 1. **Shared Types:** Any change to API contracts or DTOs MUST be manually synchronized between `server/app/schemas/` and `mobile/src/types/index.ts`. Never let the two drift. The `gen:api` script in mobile (`openapi-typescript`) is available to automate this once the OpenAPI schema is stable — until then, sync manually. The CI (`ci-mobile.yml`) enforces this automatically on every merge to `main`.
 
@@ -119,6 +117,8 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 - It must contain **only** hardware-abstraction code: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `CarmaDrivingSDK` (orchestrator), and `types.ts`.
 - **Never add** CARMA-specific logic here: trip validation rules, fraud detection thresholds, gamification levels, scoring formulas, or any business constants.
 - CARMA-specific logic that consumes SDK events belongs in `mobile/src/lib/` (directly, not inside `driving-sdk/`): see `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+
+## Working with Claude
 
 ### Dan's Developer Persona (Active when user is Dan)
 
