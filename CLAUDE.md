@@ -8,11 +8,11 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 
 ## Core Team Roles
 
-- **Dan (Me - CTO & CPO):** Core AI/ML formulas, Driving SDK physics, sensor-fusion logic, and anti-fraud mechanics.
+- **Dan (CTO & CPO):** Core AI/ML scoring formula, CARMA Score algorithm, development roadmap prioritization, and anti-fraud mechanics.
 - **Naveh (Chief Architect & Data Engineer):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
-- **Sean (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
-- **Mai (UI/UX Developer):** Mobile application screens, styling, design components, and client-side interactions.
-
+- **Shaun (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
+- **May (Mobile & Frontend UI Lead):** Mobile application screens, UI components and styling, **Driving SDK — IMU/GPS/BLE sensor integration**, battery consumption management, and client-side interactions.
+- 
 ---
 
 ## Repository Layout
