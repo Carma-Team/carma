@@ -24,6 +24,7 @@ from app.routers import (
     fraud,
     health,
     leaderboard,
+    levels,
     notifications,
     rewards,
     trips,
@@ -68,6 +69,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 app.include_router(auth.router)
+app.include_router(levels.router)
 app.include_router(users.router)
 app.include_router(users.stats_router)
 app.include_router(trips.router)

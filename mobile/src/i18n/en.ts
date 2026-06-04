@@ -28,8 +28,11 @@ const en = {
   },
   trip: {
     active: 'Active Trip', start: 'Start Trip', end: 'End Trip',
+    activeTrip: 'Active Trip', endBtn: 'End Trip',
+    endTripConfirm: 'End Trip', endTripMessage: 'Are you sure you want to end the current trip?',
+    eventsDetected: 'Events Detected', safetyTip: 'Smooth driving without sudden braking improves your score!',
     duration: 'Duration', distance: 'Distance', score: 'Score', events: 'Events',
-    hardBrakes: 'Hard Brakes', aggressiveAccels: 'Aggressive Accels',
+    hardBrakes: 'Hard Brakes', aggressiveAccels: 'Aggressive Accelerations',
     sharpTurns: 'Sharp Turns', phoneTouches: 'Phone Touches',
     status: { excellent: 'Excellent!', good: 'Good', fair: 'Fair', poor: 'Improve' },
     trafficLight: { green: 'Great driving!', yellow: 'Pay attention', red: 'Dangerous driving' },
@@ -57,7 +60,7 @@ const en = {
     title: 'Rewards Store', subtitle: 'Redeem your points',
     myVouchers: 'My Vouchers', allRewards: 'All Rewards', points: 'points',
     redeem: 'Redeem', redeemSuccess: 'Reward redeemed successfully!',
-    notEnoughPoints: 'Not enough points', outOfStock: 'Out of stock', expires: 'Expires',
+    notEnoughPoints: 'Not enough points', missingPoints: 'Missing', outOfStock: 'Out of stock', expires: 'Expires',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
     voucher: { title: 'Your Voucher', code: 'Code', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active' },
     bonusDilemma: {
@@ -73,8 +76,8 @@ const en = {
     showing_national: 'Showing drivers in',
   },
   profile: {
-    title: 'My Profile', stats: 'Stats', achievements: 'Achievements',
-    tripHistory: 'Trip History', settings: 'Settings', language: 'Language',
+    title: 'My Profile', stats: 'Stats', chart: 'Statistics', achievements: 'Achievements',
+    tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',
     totalDistance: 'km', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     level: 'Level', joined: 'Joined', phone: 'Phone', city: 'City', age: 'Age',
     licenseYear: 'Licensed', noTrips: 'No trips yet',

@@ -2,16 +2,16 @@ import type { LevelConfig } from '@/types'
 
 // ברירת מחדל — מוחלפת בנתוני השרת ברגע ש-AppContext טוען /api/levels
 const DEFAULT_LEVELS: LevelConfig[] = [
-  { level: 1,  name: 'מתחיל',       nameEn: 'Beginner',     minPoints: 0,     maxPoints: 199,   color: '#94a3b8', icon: '🌱', perks: [] },
-  { level: 2,  name: 'מתרגל',       nameEn: 'Learner',      minPoints: 200,   maxPoints: 499,   color: '#22c55e', icon: '🚗', perks: ['גישה לטבלת המובילים'] },
-  { level: 3,  name: 'זהיר',        nameEn: 'Careful',      minPoints: 500,   maxPoints: 999,   color: '#16a34a', icon: '⭐', perks: ['הנחות בסיסיות בשוק'] },
-  { level: 4,  name: 'אמין',        nameEn: 'Reliable',     minPoints: 1000,  maxPoints: 1799,  color: '#0d9488', icon: '🛡️', perks: ['פרסים בלעדיים'] },
-  { level: 5,  name: 'מנוסה',       nameEn: 'Experienced',  minPoints: 1800,  maxPoints: 2999,  color: '#3b82f6', icon: '🏅', perks: ['מכפיל נקודות x1.2'] },
-  { level: 6,  name: 'מקצועי',      nameEn: 'Professional', minPoints: 3000,  maxPoints: 4499,  color: '#6366f1', icon: '💎', perks: ['מכפיל נקודות x1.3', 'גישה VIP לפרסים'] },
-  { level: 7,  name: 'מצטיין',      nameEn: 'Excellent',    minPoints: 4500,  maxPoints: 6499,  color: '#8b5cf6', icon: '🌟', perks: ['מכפיל x1.4', 'בונוס חודשי'] },
-  { level: 8,  name: 'אלוף',        nameEn: 'Champion',     minPoints: 6500,  maxPoints: 8999,  color: '#f59e0b', icon: '🏆', perks: ['מכפיל x1.5', 'תג אלוף'] },
-  { level: 9,  name: 'גנרל הכביש', nameEn: 'Road General', minPoints: 9000,  maxPoints: 11999, color: '#ef4444', icon: '⚡', perks: ['מכפיל x1.7', 'VIP לכל הפרסים'] },
-  { level: 10, name: 'נהג מדגם',    nameEn: 'Model Driver', minPoints: 12000, maxPoints: Infinity, color: '#f97316', icon: '👑', perks: ['מכפיל x2.0', 'תג הנהג המדגם', 'גישה לכל'] },
+  { level: 1,  name: 'מתחיל',        nameEn: 'Beginner',     minPoints: 0,     maxPoints: 499,      color: '#94a3b8', icon: '🌱', perks: [] },
+  { level: 2,  name: 'זהיר',         nameEn: 'Cautious',     minPoints: 500,   maxPoints: 1499,     color: '#22c55e', icon: '🚗', perks: ['גישה לטבלת המובילים'] },
+  { level: 3,  name: 'מרוכז',        nameEn: 'Focused',      minPoints: 1500,  maxPoints: 3499,     color: '#16a34a', icon: '⭐', perks: ['5% הנחה בחנות הפרסים'] },
+  { level: 4,  name: 'מיומן',        nameEn: 'Skilled',      minPoints: 3500,  maxPoints: 5499,     color: '#0d9488', icon: '🛡️', perks: ['5% הנחה בחנות הפרסים', 'פרסים בלעדיים'] },
+  { level: 5,  name: 'חד',           nameEn: 'Sharp',        minPoints: 5500,  maxPoints: 11999,    color: '#3b82f6', icon: '🏅', perks: ['10% הנחה', 'מכפיל נקודות x1.1'] },
+  { level: 6,  name: 'מומחה',        nameEn: 'Expert',       minPoints: 12000, maxPoints: 19999,    color: '#6366f1', icon: '💎', perks: ['10% הנחה', 'גישה VIP לפרסים'] },
+  { level: 7,  name: 'אשף',          nameEn: 'Wizard',       minPoints: 20000, maxPoints: 31999,    color: '#8b5cf6', icon: '🌟', perks: ['15% הנחה', 'בונוס חודשי'] },
+  { level: 8,  name: 'מאסטר',        nameEn: 'Master',       minPoints: 32000, maxPoints: 49999,    color: '#f59e0b', icon: '🏆', perks: ['15% הנחה', 'תג מאסטר'] },
+  { level: 9,  name: 'גנרל הכביש',  nameEn: 'Road General', minPoints: 50000, maxPoints: 74999,    color: '#ef4444', icon: '⚡', perks: ['20% הנחה', 'VIP לכל הפרסים'] },
+  { level: 10, name: 'נהג מדגם',     nameEn: 'Model Driver', minPoints: 75000, maxPoints: Infinity, color: '#f97316', icon: '👑', perks: ['25% הנחה', 'מכפיל x1.2', 'גישה לכל'] },
 ]
 
 let _levels: LevelConfig[] = DEFAULT_LEVELS;

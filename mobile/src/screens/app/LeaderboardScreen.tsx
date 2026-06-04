@@ -14,7 +14,7 @@ export default function LeaderboardScreen() {
   const { t } = useTranslation()
   const { user } = useApp()
 
-  const [type,          setType]          = useState<LeaderboardType>('national')
+  const [type,          setType]          = useState<LeaderboardType>('city')
   const [entries,       setEntries]       = useState<LeaderboardEntry[]>([])
   const [currentUserId, setCurrentUserId] = useState('')
   const [myRank,        setMyRank]        = useState<number | null>(null)
