@@ -15,6 +15,22 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 
 ---
 
+## Design Philosophy — Keep It Simple
+
+The guiding principle across all of CARMA's development is **simplicity**. This is not a constraint — it is a competitive advantage. Every technical decision should be weighed against it.
+
+In practice this means:
+
+- **Build what is needed now.** No abstractions for hypothetical future requirements. Three similar lines of code are better than a premature helper.
+- **Solve the real problem.** Before adding a layer, a config flag, or a new file — ask whether removing something solves it instead.
+- **Readable beats clever.** Code is read far more than it is written. Optimise for the next person reading it (often you, six months from now).
+- **Small, complete units of work.** A feature that ships is worth more than a perfect architecture that doesn't. Scope ruthlessly.
+- **Visible complexity is honest.** If something is genuinely complex (sensor fusion, fraud detection, scoring formulas), let it be visible and well-named — not hidden behind indirection.
+
+When in doubt: the simpler solution is almost always the right one.
+
+---
+
 ## Repository Layout
 
 ```
