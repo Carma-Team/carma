@@ -479,7 +479,7 @@ avg_score: float | None = Field(
 ### Setup ראשוני
 
 ```powershell
-cd c:\Users\tzvai\OneDrive\BSc\year_3\workshop\carma\server
+cd <repo-root>\server
 
 # 1. Virtualenv
 python -m venv .venv
@@ -692,7 +692,7 @@ ContainerAppConsoleLogs_CL
 
 בכוונה נדחה:
 
-- **חישוב Score CARMA המלא** (נספח ג') — הציון מחושב כיום בצד הלקוח; יעבור ל-`app/services/scoring.py`.
+- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v1.5+). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד.
 - **מודלי Notification + Achievement + Friendship**.
 - **העלאת תמונת רישיון** (דורש Azure Blob Storage). השדה `license_img_url` קיים בסכמה.
 - **Refresh tokens** — כרגע JWT יחיד ל-7 ימים.
@@ -710,7 +710,7 @@ ContainerAppConsoleLogs_CL
 
 ### בקרוב
 
-5. מימוש אלגוריתם ה-Score המלא (נספח ג') ב-`app/services/scoring.py`.
+5. ~~מימוש אלגוריתם ה-Score המלא~~ ✅ בוצע — scoring oracle בצד השרת פעיל מאז v1.5.
 6. הוספת מודלי `Notification`, `Achievement`, `Friendship` + migrations.
 7. החלפת stub ה-notifications במשהו אמיתי + push notifications (Expo Push).
 8. הוספת e2e tests ל-auth + trips + rewards.

@@ -7,26 +7,24 @@ A React Native / Expo app that rewards safe driving. Drivers earn points based o
 ## Prerequisites
 
 - Node.js 20+
-- Expo Go on your physical device
-- `carma-local-server` running on port 3000 (see `mock-server/local-server/` in the monorepo root)
+- Android Studio (for the Android emulator + SDK)
+- Docker Desktop (for the PostgreSQL database)
+- Python 3.12 (for the FastAPI server)
+
+> First time? Run `.\scripts\setup.ps1` from the monorepo root — it handles everything automatically.
 
 ---
 
 ## Running the App
 
-```bash
-# Terminal 1 — local dev server (must be running first)
-cd ../mock-server/local-server
-npm run dev
-
-# Terminal 2 — Expo (from monorepo root)
-npm run mobile:start
-# or directly:
-cd mobile && npm start
+```powershell
+# From the monorepo root — starts Docker, emulator, FastAPI server, and Metro in one command
+.\scripts\dev.ps1
 ```
 
-Open Expo Go on your phone and scan the QR code.
-All `/api/*` requests are proxied through Metro to the local server — no manual IP configuration needed.
+Then press **`a`** in the Metro window to open the app on the Android emulator.
+
+The app connects to the FastAPI server at `http://10.0.2.2:3000` (the emulator's alias for `localhost`).
 
 ---
 
