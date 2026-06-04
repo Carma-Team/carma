@@ -12,8 +12,8 @@ import Constants from 'expo-constants';
 
 export const USE_REAL_SERVER = true;
 
-// Local FastAPI server — Dan's machine running docker-compose db + uvicorn on port 3000
-export const STAGING_SERVER_URL = 'http://192.168.1.142:3000';
+// Android emulator alias for host localhost — use 10.0.2.2 for emulator, real IP for physical device
+export const STAGING_SERVER_URL = 'http://10.0.2.2:3000';
 
 function getMetroOrigin(): string {
   // manifest2.launchAsset.url is the bundle URL in Expo Go SDK 46+
