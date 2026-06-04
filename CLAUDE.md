@@ -27,7 +27,7 @@ In practice this means:
 - **Small, complete units of work.** A feature that ships is worth more than a perfect architecture that doesn't. Scope ruthlessly.
 - **Visible complexity is honest.** If something is genuinely complex (sensor fusion, fraud detection, scoring formulas), let it be visible and well-named — not hidden behind indirection.
 
-When in doubt: the simpler solution is almost always the right one.
+When in doubt: choose the simpler solution.
 
 ---
 
@@ -45,6 +45,14 @@ carma/
 ---
 
 ## Workspace Layout & Commands
+
+### Quick Start (Full Stack)
+
+```
+.\scripts\dev.ps1
+```
+
+Starts Postgres (Docker), FastAPI on :3000, and Metro bundler in parallel. Use this for day-to-day development. The individual commands below are for running each service in isolation.
 
 ### Mobile Client (React Native / Expo)
 
@@ -71,13 +79,35 @@ carma/
 
 ---
 
+## CI/CD
+
+All three workflows trigger on push or PR to `main` only — pushing to `develop` does not run CI.
+
+| Workflow | What it does |
+|---|---|
+| `ci-server.yml` | Ruff lint, Mypy, DB migrations, pytest, smoke tests |
+| `ci-mobile.yml` | TypeScript check, Jest, API contract drift check (regenerates types from live OpenAPI and diffs against `mobile/src/types/index.ts`) |
+| `deploy.yml` | Builds Docker image → pushes to ACR → deploys to Azure Container App. Has a built-in secrets gate: if `AZURE_CREDENTIALS` is not configured in GitHub Secrets the deploy step is silently skipped — CI stays green. |
+
+**Before merging `develop` → `main`:** run `pytest` and `npx tsc --noEmit` locally. CI is the last line of defense, not the first.
+
+---
+
+## Branching Strategy
+
+- **`main`** — stable and deployable. Merged from `develop` only at deliberate milestones (demo, cloud deploy, sprint end). Never commit directly.
+- **`develop`** — daily integration branch. All feature branches merge here. Tests must pass before merging.
+- **`feature/*`** — short-lived branches for any change that takes more than ~30 minutes or touches more than 2 files. Merge freely into `develop` — no PR or review required.
+
+The rule: `develop` is the buffer that protects `main`. Keep it green.
+
+---
+
 ## Executive Guidelines & Developer Personas
 
 ### System-Wide Rules
 
-1. **Data Model Synchronization:** Any change to API contracts or DTOs MUST be synchronized between `server/app/schemas/` and `mobile/src/types/` to prevent runtime drift.
-2. **Shared Types:** Use `openapi-typescript` (`gen:api` script in mobile) to regenerate types from the FastAPI OpenAPI schema after any server schema change.
-3. **No Stubs:** Implement full, functional, production-ready code. Never commit empty code blocks or unhandled `// TODO` stubs.
+1. **Shared Types:** Any change to API contracts or DTOs MUST be manually synchronized between `server/app/schemas/` and `mobile/src/types/index.ts`. Never let the two drift. The `gen:api` script in mobile (`openapi-typescript`) is available to automate this once the OpenAPI schema is stable — until then, sync manually. The CI (`ci-mobile.yml`) enforces this automatically on every merge to `main`.
 
 ### Mobile Directory Ownership
 
@@ -96,6 +126,3 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 2. **One-Shot Execution:** Do not halt tasks to request micro-confirmations or generate abstract implementation plans unless extreme ambiguity is present.
 3. **Guardrails Action:** If local test suites pass successfully, you are authorized to auto-commit and merge local feature branches. Do NOT force-push directly to remote `main` if shared team history is modified without direct user input.
 
-### Naveh's & Sean's Developer Personas (Reference)
-
-- Focus on database normalization, caching performance, API contract stability, and migration safety.
