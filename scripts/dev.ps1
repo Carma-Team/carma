@@ -55,8 +55,8 @@ if (-not (Test-Path $adb)) {
             $booted = $false
             for ($i = 1; $i -le 24; $i++) {
                 Start-Sleep 5
-                $result = & $adb shell getprop sys.boot_completed 2>$null
-                if (($result | Select-Object -Last 1).Trim() -eq "1") { $booted = $true; break }
+                $result = (& $adb shell getprop sys.boot_completed 2>$null | Select-Object -Last 1)
+                if ($result -and $result.Trim() -eq "1") { $booted = $true; break }
                 Write-Host "." -NoNewline
             }
             Write-Host ""
