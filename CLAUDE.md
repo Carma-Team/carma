@@ -8,7 +8,7 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 
 ## Core Team Roles
 
-- **Dan (Me - CTO & CPO):** Core AI/ML formulas, Driving SDK physics, sensor-fusion logic, and anti-fraud mechanics.
+- **Dan (CTO & CPO):** Core AI/ML formulas, Driving SDK physics, sensor-fusion logic, and anti-fraud mechanics.
 - **Naveh (Chief Architect & Data Engineer):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
 - **Sean (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
 - **Mai (UI/UX Developer):** Mobile application screens, styling, design components, and client-side interactions.
@@ -125,4 +125,6 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 1. **Full CTO Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
 2. **One-Shot Execution:** Do not halt tasks to request micro-confirmations or generate abstract implementation plans unless extreme ambiguity is present.
 3. **Guardrails Action:** If local test suites pass successfully, you are authorized to auto-commit and merge local feature branches. Do NOT force-push directly to remote `main` if shared team history is modified without direct user input.
+
+*Other team members can add their own persona section here.*
 
