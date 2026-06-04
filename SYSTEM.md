@@ -39,7 +39,8 @@ Both paths produce the same JWT — a client holding a token can call every API 
 **Deployment:** Container-based — multi-stage Dockerfile, suitable for Azure Container Apps. Postgres on Azure Database for PostgreSQL Flexible Server (PostGIS supported). Application Insights for monitoring (via `azure-monitor-opentelemetry`).
 
 **CI/CD:** Two workflows under `.github/workflows/`:
-- `ci.yml` — always runs (ruff, mypy, alembic migrations, pytest, docker build).
+- `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
+- `ci-mobile.yml` — tsc always; npm test gated.
 - `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
@@ -477,7 +478,7 @@ Both styles are accepted on input.
 ### Initial setup
 
 ```powershell
-cd c:\Users\tzvai\OneDrive\BSc\year_3\workshop\Carma\server
+cd <repo-root>\server
 
 # 1. Virtualenv
 python -m venv .venv
@@ -548,13 +549,14 @@ python -m app.seed                     # reseed
 
 ## 11. CI/CD and Azure Deployment
 
-### CI Workflow (`.github/workflows/ci.yml`)
+### CI Workflow (`.github/workflows/ci-server.yml`)
 
-Runs on every PR and every push to main:
+Runs on every PR and push to main (tiered):
 
-1. **Code checks:** `ruff check`, `ruff format --check`, `mypy app`.
-2. **DB check:** spins up Postgres+PostGIS as a service, runs `alembic upgrade head` to verify the migrations apply cleanly, then `pytest`.
-3. **Docker build:** verifies the Dockerfile builds. No push (that's in deploy).
+1. **lint** — always runs: `ruff check`, `ruff format --check`. Fast gate on every push.
+2. **typecheck-test** — mypy + alembic upgrade + pytest. Runs on push to main, `workflow_dispatch`, or label `run-full-ci`.
+3. **smoke** — starts a live server and runs `scripts/smoke.sh`. Same gate as typecheck-test.
+4. **docker-build** — verifies the Dockerfile builds. No push (that's in deploy).
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 
@@ -687,7 +689,7 @@ Matching spec section 8:
 
 Deliberately deferred:
 
-- **Full CARMA Score algorithm** (Appendix C) — score is currently client-side; will move to `app/services/scoring.py`.
+- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring.py` (v1.5+). Server is the sole scoring oracle; client sends raw telemetry only.
 - **Notification + Achievement + Friendship models**.
 - **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
 - **Refresh tokens** — current JWT is 7 days, single token.
@@ -705,7 +707,7 @@ Deliberately deferred:
 
 ### Soon
 
-5. Implement the full Score algorithm in `app/services/scoring.py`.
+5. ~~Implement the full Score algorithm~~ ✅ Done — server-side scoring oracle live since v1.5.
 6. Add `Notification`, `Achievement`, `Friendship` models + migrations.
 7. Replace the notifications stub with real data + push notifications (Expo Push).
 8. Add e2e tests for auth + trips + rewards.
