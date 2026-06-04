@@ -122,9 +122,9 @@ if (-not (Test-Path ".env")) {
 Step "Running DB migrations (requires Docker to be running)"
 $dockerReady = (docker info 2>$null) -ne $null
 if ($dockerReady) {
-    docker compose up db -d
+    docker compose up db -d *>$null
     Start-Sleep 5
-    alembic upgrade head
+    alembic upgrade head *>$null
     OK "Migrations applied"
     python -m app.seed
     OK "Demo data seeded"
