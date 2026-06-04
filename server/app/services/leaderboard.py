@@ -20,7 +20,7 @@ from app.schemas.leaderboard import (
 def _status_for(edge: UserFriend | None) -> FollowStatus:
     if edge is None:
         return "none"
-    return edge.status.value  # type: ignore[return-value]
+    return edge.status.value.lower()  # type: ignore[return-value]
 
 
 async def _edge(db: AsyncSession, follower_id: str, followee_id: str) -> UserFriend | None:
@@ -46,7 +46,7 @@ async def _status_map(db: AsyncSession, viewer_id: str, user_ids: list[str]) -> 
     ).all()
     m: dict[str, FollowStatus] = {uid: "none" for uid in user_ids}
     for edge in edges:
-        m[edge.followee_id] = edge.status.value  # type: ignore[assignment]
+        m[edge.followee_id] = edge.status.value.lower()  # type: ignore[assignment]
     return m
 
 
@@ -58,7 +58,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType) -> Leader
         accepted_ids: set[str] = {e.followee_id for e in edges if e.status == FriendStatus.ACCEPTED}
         accepted_ids.add(current.id)
         statuses: dict[str, FollowStatus] = {
-            e.followee_id: e.status.value  # type: ignore[misc]
+            e.followee_id: e.status.value.lower()  # type: ignore[misc]
             for e in edges
         }
         users = (
@@ -132,7 +132,7 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         return FollowStatusOut(status="none")
 
     if edge and edge.status in (FriendStatus.ACCEPTED, FriendStatus.PENDING):
-        return FollowStatusOut(status=edge.status.value)  # type: ignore[arg-type]
+        return FollowStatusOut(status=edge.status.value.lower())  # type: ignore[arg-type]
 
     new_status = FriendStatus.PENDING if target.is_private else FriendStatus.ACCEPTED
     if edge:
@@ -146,8 +146,8 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         await db.rollback()
         existing = await _edge(db, current.id, target_id)
         if existing:
-            return FollowStatusOut(status=existing.status.value)  # type: ignore[arg-type]
-    return FollowStatusOut(status=new_status.value)  # type: ignore[arg-type]
+            return FollowStatusOut(status=existing.status.value.lower())  # type: ignore[arg-type]
+    return FollowStatusOut(status=new_status.value.lower())  # type: ignore[arg-type]
 
 
 async def unfollow(db: AsyncSession, current: User, target_id: str) -> FollowStatusOut:

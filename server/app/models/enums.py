@@ -46,6 +46,6 @@ class BusinessCategory(str, enum.Enum):
 
 
 class FriendStatus(str, enum.Enum):
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    BLOCKED = "blocked"
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    BLOCKED = "BLOCKED"

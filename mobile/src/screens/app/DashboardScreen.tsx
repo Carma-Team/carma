@@ -47,7 +47,7 @@ export default function DashboardScreen() {
   // חישוב ציון ממוצע לנסיעות אחרונות
   useEffect(() => {
     if (recentTrips && recentTrips.length > 0) {
-      const sum = recentTrips.reduce((acc, trip) => acc + (trip.score || 0), 0);
+      const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
       setAvgScore(Math.round(sum / recentTrips.length));
     } else {
       setAvgScore(null);

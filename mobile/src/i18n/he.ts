@@ -60,7 +60,7 @@ const he = {
     title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
     myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים', points: 'נקודות',
     redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
-    notEnoughPoints: 'אין מספיק נקודות', outOfStock: 'אזל מהמלאי', expires: 'תפוגה',
+    notEnoughPoints: 'אין מספיק נקודות', missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי', expires: 'תפוגה',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
     voucher: { title: 'השובר שלך', code: 'קוד', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
     bonusDilemma: {
@@ -70,7 +70,7 @@ const he = {
   },
   leaderboard: {
     title: 'טבלת המובילים', friends: 'חברים', city: 'עיר', national: 'ארצי',
-    rank: 'מיקום', player: 'שחקן', score: 'ניקוד', you: 'אתה',
+    rank: 'מיקום', player: 'שחקן', score: 'ציון', you: 'אתה',
     noFriends: 'אין חברים עדיין',
     showing_city: 'מציג נהגים ב',
     showing_national: 'מציג נהגים ב',
