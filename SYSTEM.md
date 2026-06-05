@@ -39,7 +39,8 @@ Both paths produce the same JWT — a client holding a token can call every API 
 **Deployment:** Container-based — multi-stage Dockerfile, suitable for Azure Container Apps. Postgres on Azure Database for PostgreSQL Flexible Server (PostGIS supported). Application Insights for monitoring (via `azure-monitor-opentelemetry`).
 
 **CI/CD:** Two workflows under `.github/workflows/`:
-- `ci.yml` — always runs (ruff, mypy, alembic migrations, pytest, docker build).
+- `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
+- `ci-mobile.yml` — tsc always; npm test gated.
 - `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
@@ -412,15 +413,16 @@ mobile/src/
 
 ### How to connect her app to our server
 
-At `mobile/src/services/api/client.ts`:
+Server URL is configured in `mobile/src/constants/serverConfig.ts`:
 ```ts
-const BASE_URL = 'http://localhost:3000';
+export const USE_REAL_SERVER = true;
+export const STAGING_SERVER_URL = 'http://10.0.2.2:3000'; // emulator → host alias
 ```
 
-- **Android emulator** on the same machine: use `http://10.0.2.2:3000`.
-- **Physical device** on the same Wi-Fi: replace with the host's IP, e.g. `http://192.168.1.42:3000`.
-- **iOS Simulator**: `http://localhost:3000` works as-is.
-- **Azure** (after deploy): `https://carma-api.<region>.azurecontainerapps.io`.
+- **Android emulator** (default): `10.0.2.2` is the emulator's built-in alias for the host machine — already configured.
+- **Physical device** on the same Wi-Fi: change `STAGING_SERVER_URL` to the host's IP, e.g. `http://192.168.1.42:3000`.
+- **iOS Simulator**: change to `http://localhost:3000`.
+- **Azure** (after deploy): change to `https://carma-api.<region>.azurecontainerapps.io`.
 
 ### API contract comparison (Frontend ↔ Backend)
 
@@ -468,42 +470,22 @@ Both styles are accepted on input.
 
 ## 10. Running Locally — Step by Step
 
-### Prerequisites
-
-- Python 3.11+ (3.12 recommended — matches the Dockerfile and CI)
-- Docker Desktop (for Postgres+PostGIS)
-- Git
-
-### Initial setup
+### First time
 
 ```powershell
-cd c:\Users\tzvai\OneDrive\BSc\year_3\workshop\Carma\server
-
-# 1. Virtualenv
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
-
-# 2. Env vars
-copy .env.example .env
-# (defaults work for dev)
-
-# 3. Start Postgres+PostGIS
-docker compose up -d db
-
-# 4. Generate the initial migration from the models, then apply it
-alembic revision --autogenerate -m "init"
-alembic upgrade head
-
-# 5. Seed (levels, businesses, rewards, demo user)
-python -m app.seed
+# From the monorepo root — installs all prerequisites, creates venv,
+# applies migrations, seeds demo data, adds firewall rule.
+.\scripts\setup.ps1   # requires: run PowerShell as Administrator
 ```
 
-### Run the server
+### Every day
 
 ```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+# Starts Docker, DB, FastAPI server, and Expo Metro in one command.
+.\scripts\dev.ps1
 ```
+
+Then press **`a`** in the Metro window to open the app on the Android emulator.
 
 - API: `http://localhost:3000/api/...`
 - Swagger: `http://localhost:3000/api/docs`
@@ -548,13 +530,14 @@ python -m app.seed                     # reseed
 
 ## 11. CI/CD and Azure Deployment
 
-### CI Workflow (`.github/workflows/ci.yml`)
+### CI Workflow (`.github/workflows/ci-server.yml`)
 
-Runs on every PR and every push to main:
+Runs on every PR and push to main (tiered):
 
-1. **Code checks:** `ruff check`, `ruff format --check`, `mypy app`.
-2. **DB check:** spins up Postgres+PostGIS as a service, runs `alembic upgrade head` to verify the migrations apply cleanly, then `pytest`.
-3. **Docker build:** verifies the Dockerfile builds. No push (that's in deploy).
+1. **lint** — always runs: `ruff check`, `ruff format --check`. Fast gate on every push.
+2. **typecheck-test** — mypy + alembic upgrade + pytest. Runs on push to main, `workflow_dispatch`, or label `run-full-ci`.
+3. **smoke** — starts a live server and runs `scripts/smoke.sh`. Same gate as typecheck-test.
+4. **docker-build** — verifies the Dockerfile builds. No push (that's in deploy).
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 
@@ -687,7 +670,7 @@ Matching spec section 8:
 
 Deliberately deferred:
 
-- **Full CARMA Score algorithm** (Appendix C) — score is currently client-side; will move to `app/services/scoring.py`.
+- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring.py` (v1.5+). Server is the sole scoring oracle; client sends raw telemetry only.
 - **Notification + Achievement + Friendship models**.
 - **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
 - **Refresh tokens** — current JWT is 7 days, single token.
@@ -698,14 +681,14 @@ Deliberately deferred:
 
 ### Right now (mobile integration)
 
-1. Run the API: `uvicorn app.main:app --reload` from `server/`. Visit `/api/docs`.
-2. Change `BASE_URL` in `mobile/src/services/api/client.ts` to the host IP (physical device) or leave `localhost` (simulator).
+1. Run `.\scripts\dev.ps1` from the monorepo root — starts everything. Visit `/api/docs` at `http://localhost:3000/api/docs`.
+2. The emulator is already pre-configured to reach the server at `http://10.0.2.2:3000` via `serverConfig.ts` — no changes needed.
 3. Log in in the app with `daniel@carma.app` / `password123` — should hit the real server.
 4. Run a trip in the app and verify it persists in the DB (`docker exec -it carma_db psql -U carma -d carma -c "SELECT id, user_id, distance_km, avg_score FROM trips ORDER BY created_at DESC LIMIT 5;"`).
 
 ### Soon
 
-5. Implement the full Score algorithm in `app/services/scoring.py`.
+5. ~~Implement the full Score algorithm~~ ✅ Done — server-side scoring oracle live since v1.5.
 6. Add `Notification`, `Achievement`, `Friendship` models + migrations.
 7. Replace the notifications stub with real data + push notifications (Expo Push).
 8. Add e2e tests for auth + trips + rewards.

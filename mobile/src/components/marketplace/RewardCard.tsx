@@ -49,6 +49,12 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
           {!inStock ? t('marketplace.outOfStock') : !canAfford ? '🔒' : t('marketplace.redeem')}
         </Button>
       </View>
+
+      {!canAfford && inStock && (
+        <Text style={styles.missingPointsHint}>
+          {t('marketplace.missingPoints')} {(reward.costPoints - userPoints).toLocaleString()} {t('common.points')}
+        </Text>
+      )}
     </Card>
   )
 }
@@ -111,6 +117,7 @@ const styles = StyleSheet.create({
   rewardCost:       { color: '#818cf8', fontSize: 12, fontWeight: '700' },
   redeemBtn:        { minWidth: 70, height: 32, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 8, alignSelf: 'flex-end' },
   redeemBtnText:    { fontSize: 13, fontWeight: '700' },
+  missingPointsHint: { color: '#f59e0b', fontSize: 11, fontWeight: '600', textAlign: 'right', marginTop: 6 },
   voucherContent:   { alignItems: 'center', paddingVertical: 16, gap: 12 },
   voucherEmoji:     { fontSize: 48 },
   voucherRewardTitle: { color: '#fff', fontSize: 18, fontWeight: '700', textAlign: 'center' },
