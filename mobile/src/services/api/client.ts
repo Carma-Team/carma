@@ -1,18 +1,18 @@
 /**
- * @fileoverview לקוח HTTP מרכזי — כל הבקשות לשרת עוברות דרך כאן
+ * @fileoverview Central HTTP client — all server requests go through here
  * @module services/api/client
  *
  * @description
- * פונקציה `request<T>` שמטפלת ב:
- * - שליפת token מ-AsyncStorage והוספתו ל-Authorization header
- * - שליחת בקשה ל-BASE_URL (השרת המקומי או שרת נווה לפי USE_REAL_SERVER)
- * - טיפול בשגיאות HTTP ובתשובת 204 No Content
+ * `request<T>` function that handles:
+ * - Loading the token from AsyncStorage and attaching it as an Authorization header
+ * - Sending the request to BASE_URL (local server or real server per USE_REAL_SERVER)
+ * - Handling HTTP errors and 204 No Content responses
  *
  * @server
- * - USE_REAL_SERVER=false: בקשות → LOCAL_SERVER_URL (carma-local-server, חייב לרוץ)
- * - USE_REAL_SERVER=true:  בקשות → שרת נווה (עדכן REAL_SERVER_URL בהתאם)
+ * - USE_REAL_SERVER=false: requests → LOCAL_SERVER_URL (carma-local-server must be running)
+ * - USE_REAL_SERVER=true:  requests → real server (update REAL_SERVER_URL accordingly)
  *
- * לטלפון אמיתי: שנה LOCAL_SERVER_URL ב-serverConfig.ts ל-IP של המחשב
+ * For a physical device: change LOCAL_SERVER_URL in serverConfig.ts to your machine's IP
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { USE_REAL_SERVER, LOCAL_SERVER_URL, STAGING_SERVER_URL } from '@/constants/serverConfig';

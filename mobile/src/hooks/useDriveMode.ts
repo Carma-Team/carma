@@ -1,61 +1,56 @@
 /**
- * @fileoverview Hook לניהול מצב נסיעה אוטומטי מבוסס Bluetooth — useDriveMode
- * @module hooks/useDriveMode
+ * useDriveMode — manages the SDK's BT event subscription for the drive mode feature.
  *
- * @description
- * כשמצב נהיגה מופעל ויש מכשיר BT מוגדר — בודק כל 5 שניות אם הרכב מחובר.
- * חיבור → startTrip אוטומטי. ניתוק → endTrip אוטומטי.
+ * The app registers as a native Bluetooth listener via DrivingSDK → BluetoothManager
+ * → RNBluetoothClassic (ACTION_ACL_CONNECTED / ACTION_ACL_DISCONNECTED broadcasts).
+ * No polling. When the target device connects, the SDK runs trip validation and then fires
+ * sdk.startTrip(). When the device disconnects during an active trip, sdk.stopTrip() fires.
+ * AppContext's sdk.onTripStart / sdk.onTripEnd handlers update React state accordingly.
  *
- * @remarks
- * כרגע הבדיקה מדומה (isConnectedToCar = false תמיד).
- * לשדרוג: להחליף ב-BleManager.addListener עם react-native-ble-plx.
- * ללא קריאות שרת ישירות.
+ * This hook's responsibilities:
+ *   1. Activate / deactivate the SDK's BT listener when drive mode settings change.
+ *   2. Notify the user via toast when a BT-triggered trip auto-starts.
+ *   3. Expose drive mode status for UI consumers.
  */
 import { useEffect, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
-import { useTrip } from '@/hooks/useTrip';
-import { Alert } from 'react-native';
+import { useTranslation } from '@/hooks/useTranslation';
 
-/**
- * Hook לניהול מצב נסיעה אוטומטי מבוסס Bluetooth
- */
 export function useDriveMode() {
-  const { user, addToast } = useApp();
-  const { state: tripState, startTrip, endTrip } = useTrip();
-  const lastConnectedId = useRef<string | null>(null);
+  const { user, sdk, tripState, addToast } = useApp();
+  const { t } = useTranslation();
 
+  const driveModeEnabled = !!(user?.driveModeEnabled && user?.bluetoothDeviceId);
+  const prevActiveRef = useRef(tripState.isActive);
+
+  // Register or remove the native BT event subscription whenever the drive mode
+  // config changes (feature toggled on/off, paired device changed).
+  // sdk.updateTargetDevice → btManager.setTargetDevice + btManager.startMonitoring/stopMonitoring.
+  // startMonitoring is idempotent — safe to call if monitoring is already active.
   useEffect(() => {
-    if (!user?.driveModeEnabled || !user?.bluetoothDeviceId) return;
+    if (driveModeEnabled && user?.bluetoothDeviceId) {
+      sdk.updateTargetDevice(user.bluetoothDeviceId);
+    } else {
+      sdk.updateTargetDevice(null);
+    }
+  }, [driveModeEnabled, user?.bluetoothDeviceId, sdk]);
 
-    // כאן בדרך כלל נשתמש ב-BleManager.addListener
-    // לצורך הדגמה, אנחנו נדמה זיהוי חיבור
+  // Toast: notify when a trip starts while drive mode is active.
+  // Fires on both BT auto-start and manual start while drive mode is on.
+  useEffect(() => {
+    const prev = prevActiveRef.current;
+    prevActiveRef.current = tripState.isActive;
 
-    const checkConnection = async () => {
-      // סימולציה של בדיקת חיבור
-      // נניח שקיבלנו אירוע שהמכשיר התחבר/התנתק
+    if (driveModeEnabled && !prev && tripState.isActive) {
+      addToast({
+        type: 'info',
+        message: `${user?.bluetoothDeviceName ?? t('driving.defaultDeviceName')} ${t('driving.btConnected')}`,
+      });
+    }
+  }, [tripState.isActive, driveModeEnabled, addToast, user?.bluetoothDeviceName]);
 
-      const isConnectedToCar = false; // כאן תבוא הבדיקה האמיתית מול ה-Bluetooth
-
-      if (isConnectedToCar && !tripState.isActive) {
-        addToast({
-          type: 'info',
-          message: `זוהה חיבור ל-${user.bluetoothDeviceName}. מתחיל נסיעה...`
-        });
-        await startTrip();
-      }
-      else if (!isConnectedToCar && tripState.isActive && lastConnectedId.current === user.bluetoothDeviceId) {
-        addToast({
-          type: 'info',
-          message: 'ניתוק מהרכב זוהה. מסיים נסיעה...'
-        });
-        await endTrip();
-        Alert.alert('נסיעה הסתיימה', 'המכשיר התנתק מהרכב. הנסיעה נשמרה בהצלחה.');
-      }
-
-      lastConnectedId.current = isConnectedToCar ? (user.bluetoothDeviceId ?? null) : null;
-    };
-
-    const interval = setInterval(checkConnection, 5000); // בדיקה כל 5 שניות בסימולציה
-    return () => clearInterval(interval);
-  }, [user?.driveModeEnabled, user?.bluetoothDeviceId, tripState.isActive]);
+  return {
+    driveModeEnabled,
+    isAutoTripActive: driveModeEnabled && tripState.isActive,
+  };
 }

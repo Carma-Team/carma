@@ -8,26 +8,26 @@ import { ActiveTripMonitor } from '@/components/driving/ActiveTripMonitor';
 import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
 
 /**
- * מסך נסיעה פעילה.
- * מוצג אוטומטית על ידי ה-Dashboard כאשר tripState.isActive הוא true.
- * אינו מסך עצמאי בניתוב — הוא מוחלף ע"י DashboardScreen כשהנסיעה פעילה.
+ * Active trip screen.
+ * Rendered automatically by DashboardScreen when tripState.isActive is true.
+ * Not a standalone route — DashboardScreen swaps it in while a trip is running.
  */
 export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
   const { tripState, endTrip, user, debugAddDistance } = useApp();
   const { t } = useTranslation();
 
-  // כפתור debug להוספת מרחק מופיע רק למשתמש admin
+  // Debug distance button is shown only to admin users
   const showDebug = user?.role === 'admin';
 
   /**
-   * מציגה dialog אישור לפני סיום הנסיעה.
-   * עם אישור: קוראת ל-endTrip() מ-AppContext.
+   * Shows a confirmation dialog before ending the trip.
+   * On confirm: calls endTrip() from AppContext.
    *
-   * [שרת] endTrip() → sdk.stopTrip() → processEndTrip() → tripsApi.save()
-   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר mock trip
-   *   - USE_REAL_SERVER=true  → POST /api/trips לשרת האמיתי של נווה
-   * לאחר השמירה: הנסיעה מופיעה ברשימת recentTrips ומוצג modal סיכום.
+   * [server] endTrip() → sdk.stopTrip() → processEndTrip() → tripsApi.save()
+   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock trip
+   *   - USE_REAL_SERVER=true  → POST /api/trips to the real server
+   * After saving: trip appears in recentTrips and the summary modal is shown.
    */
   const handleEndTrip = async () => {
     Alert.alert(
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     marginTop: 10
   },
-  title: { ...TYPOGRAPHY.h2, color: '#fff' },
+  title: { ...TYPOGRAPHY.h2, color: COLORS.text },
   liveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',

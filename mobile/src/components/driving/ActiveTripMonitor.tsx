@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 import { formatDuration, formatDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -14,6 +16,7 @@ interface ActiveTripMonitorProps {
       HARD_BRAKE: number;
       AGGRESSIVE_ACCEL: number;
       SHARP_TURN: number;
+      SWERVE: number;
       PHONE_TOUCH: number;
     };
   };
@@ -26,10 +29,11 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
   const { t } = useTranslation();
 
   const events = [
-    { label: t('trip.hardBrakes'), value: tripState.eventCounts.HARD_BRAKE, emoji: '🛑', color: COLORS.warning },
-    { label: t('trip.aggressiveAccels'), value: tripState.eventCounts.AGGRESSIVE_ACCEL, emoji: '🚀', color: COLORS.warning },
-    { label: t('trip.sharpTurns'), value: tripState.eventCounts.SHARP_TURN, emoji: '↩️', color: COLORS.warning },
-    { label: t('trip.phoneTouches'), value: tripState.eventCounts.PHONE_TOUCH, emoji: '📱', color: COLORS.danger },
+    { label: t('trip.hardBrakes'),       value: tripState.eventCounts.HARD_BRAKE,       icon: ICONS.hardBrake,       color: COLORS.warning },
+    { label: t('trip.aggressiveAccels'), value: tripState.eventCounts.AGGRESSIVE_ACCEL, icon: ICONS.aggressiveAccel, color: COLORS.warning },
+    { label: t('trip.sharpTurns'),       value: tripState.eventCounts.SHARP_TURN,       icon: ICONS.sharpTurn,       color: COLORS.warning },
+    // { label: t('trip.swerve'), value: tripState.eventCounts.SWERVE, icon: ICONS.swerve, color: COLORS.warning }, // EVT_SWERVE disabled
+    { label: t('trip.phoneTouches'),     value: tripState.eventCounts.PHONE_TOUCH,      icon: ICONS.phoneUsage,      color: COLORS.danger },
   ];
 
   return (
@@ -51,8 +55,13 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
       <View style={styles.grid}>
         {events.map(event => (
           <Card key={event.label} style={styles.eventCard}>
-            <Text style={styles.eventEmoji}>{event.emoji}</Text>
-            <Text style={[styles.eventValue, { color: event.value > 0 ? event.color : '#fff' }]}>
+            <Ionicons
+              name={event.icon}
+              size={24}
+              color={event.value > 0 ? event.color : COLORS.textMuted}
+              style={{ marginBottom: 8 }}
+            />
+            <Text style={[styles.eventValue, { color: event.value > 0 ? event.color : COLORS.text }]}>
               {event.value}
             </Text>
             <Text style={styles.eventLabel}>{event.label}</Text>
@@ -68,13 +77,13 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
         onPress={onEnd}
         style={styles.inlineEndBtn}
       >
-        🛑 {t('trip.endBtn')}
+        {t('trip.endBtn')}
       </Button>
 
       {/* Admin Debug Tools */}
       {showDebug && onDebugAddDistance && (
         <View style={styles.debugContainer}>
-          <Text style={styles.debugTitle}>🛠️ כלי ניהול (מצב דמו)</Text>
+          <Text style={styles.debugTitle}>{t('driving.debugTitle')}</Text>
           <View style={styles.debugRow}>
             <Button
               variant="secondary"
@@ -82,7 +91,7 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
               onPress={() => onDebugAddDistance(10)}
               style={styles.debugBtn}
             >
-              {'+10 ק"מ'}
+              {t('driving.addDistance')}
             </Button>
             <Button
               variant="outline"
@@ -90,7 +99,7 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
               onPress={() => onDebugAddDistance(0.1)}
               style={styles.debugBtn}
             >
-              +100 מטר
+              {t('driving.addDistanceSmall')}
             </Button>
           </View>
         </View>
@@ -111,15 +120,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border
   },
-  statBox: { alignItems: 'center', flex: 1 },
-  statLabel: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 5 },
-  statValue: { color: '#fff', fontSize: 32, fontWeight: '900' },
+  statBox:      { alignItems: 'center', flex: 1 },
+  statLabel:    { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 5 },
+  statValue:    { color: COLORS.text, fontSize: 32, fontWeight: '900' },
   sectionTitle: { ...TYPOGRAPHY.label, color: COLORS.textMuted, marginBottom: 15, marginStart: 5 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', marginBottom: 25 },
-  eventCard: { width: '48%', alignItems: 'center', paddingVertical: 20 },
-  eventEmoji: { fontSize: 24, marginBottom: 8 },
-  eventValue: { fontSize: 28, fontWeight: '900', marginBottom: 4 },
-  eventLabel: { ...TYPOGRAPHY.caption, fontSize: 12 },
+  grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', marginBottom: 25 },
+  eventCard:    { width: '48%', alignItems: 'center', paddingVertical: 20 },
+  eventValue:   { fontSize: 28, fontWeight: '900', marginBottom: 4 },
+  eventLabel:   { ...TYPOGRAPHY.caption, fontSize: 12 },
   inlineEndBtn: { borderRadius: 20, height: 65, marginBottom: 15 },
   debugContainer: {
     marginBottom: 20,
@@ -137,15 +145,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center'
   },
-  debugRow: {
-    flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'center'
-  },
-  debugBtn: {
-    flex: 1,
-    maxWidth: 140
-  }
+  debugRow: { flexDirection: 'row', gap: 10, justifyContent: 'center' },
+  debugBtn: { flex: 1, maxWidth: 140 },
 });
 
 export default ActiveTripMonitor;

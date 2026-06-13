@@ -1,18 +1,18 @@
 /**
- * @fileoverview תור Offline-First לשמירת נסיעות תקינות — SyncManager
+ * @fileoverview Offline-first queue for persisting completed trips — SyncManager
  * @module services/sync/SyncManager
  *
  * @description
- * מנהל תור FIFO ב-AsyncStorage. כשה-API נכשל (רשת מנותקת / 5xx),
- * הנסיעה נשמרת בתור. בהפעלה הבאה / חזרה מ-background, `flushQueue`
- * מנסה לשלוח את כל הפריטים ברצף — עוצר לחלוטין בשגיאת רשת ראשונה
- * כדי לא לבזבז משאבים.
+ * Manages a FIFO queue in AsyncStorage. When the API fails (network down / 5xx),
+ * the trip is enqueued. On the next launch or foreground return, `flushQueue`
+ * attempts to send all items in order — stopping completely on the first network
+ * error to avoid wasting resources.
  *
  * @remarks
- * - Idempotency: כל נסיעה נושאת `localTripId`; השרת (Sean) צריך לשמור
- *   שדה UNIQUE idempotency_key כך שretry לאחר timeout יהיה בטוח.
- * - Double-enqueue guard: אם `localTripId` כבר בתור — לא מוסיפים שוב.
- * - MAX_ATTEMPTS=5: לאחר חמישה כישלונות הפריט מושלך ומוזכר בלוג.
+ * - Idempotency: each trip carries a `localTripId`; the server must store a
+ *   UNIQUE idempotency_key so retries after timeout are safe.
+ * - Double-enqueue guard: if `localTripId` is already in the queue it is not added again.
+ * - MAX_ATTEMPTS=5: after five failures the item is dropped and logged.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Trip } from '@/types';

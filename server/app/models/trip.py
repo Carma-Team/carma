@@ -60,6 +60,7 @@ class Trip(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     telemetry_digest: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     payload_signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    route_waypoints: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="trips")
     events: Mapped[list[Event]] = relationship(back_populates="trip", cascade="all, delete-orphan")

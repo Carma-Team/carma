@@ -12,8 +12,6 @@ import Constants from 'expo-constants';
 
 export const USE_REAL_SERVER = true;
 
-// Android emulator alias for host localhost — use 10.0.2.2 for emulator, real IP for physical device
-// Live Azure backend (HTTPS — works from any network, no iOS ATS issues):
 export const STAGING_SERVER_URL = 'https://carma-api.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io';
 
 function getMetroOrigin(): string {

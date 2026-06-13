@@ -16,7 +16,7 @@ export function Progress({ value, color = COLORS.brand, height = 12, showValue =
     <View style={styles.container}>
       <View style={[styles.track, { height }]}>
         {/* We use a visible background for the "empty" part */}
-        <View style={[styles.emptyTrack, { height, backgroundColor: '#334155' }]} />
+        <View style={[styles.emptyTrack, { height, backgroundColor: COLORS.border }]} />
 
         {/* The "filled" part */}
         <View
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#1e293b', // Deep dark background
+    backgroundColor: COLORS.border,
   },
   emptyTrack: {
     width: '100%',
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   valueText: {
-    color: '#94a3b8',
+    color: COLORS.textMuted,
     fontSize: 10,
     textAlign: 'right',
     fontWeight: '700'

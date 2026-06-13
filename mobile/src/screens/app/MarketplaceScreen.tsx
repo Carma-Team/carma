@@ -12,14 +12,15 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { REWARD_CATEGORIES } from '@/lib/constants'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
+import type { IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
 
 type Tab = 'rewards' | 'vouchers'
 
 /**
- * מסך חנות ההטבות.
- * מציג רשימת הטבות לפדיון ורשימת שוברים שהמשתמש כבר פדה.
- * ניתן לסנן הטבות לפי קטגוריה.
+ * Rewards store screen.
+ * Shows a list of redeemable rewards and the user's already-redeemed vouchers.
+ * Rewards can be filtered by category.
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
@@ -35,14 +36,17 @@ export default function MarketplaceScreen() {
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null)
   const [redeeming, setRedeeming] = useState(false)
 
-  const categories = [{ key: 'all', labelHe: 'הכל', labelEn: 'All', emoji: '🏪' }, ...REWARD_CATEGORIES]
+  const categories = [
+    { key: 'all', labelHe: 'הכל', labelEn: 'All', icon: 'grid-outline' as IoniconName },
+    ...REWARD_CATEGORIES.map(c => ({ ...c, icon: c.icon as IoniconName })),
+  ]
 
   /**
-   * טוען הטבות ושוברים מהשרת בכל שינוי קטגוריה.
+   * Loads rewards and vouchers from the server on every category change.
    *
-   * [שרת] rewardsApi.list(category) → GET /api/rewards?category=...
-   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר MOCK_REWARDS + MOCK_VOUCHERS
-   *   - USE_REAL_SERVER=true  → GET /api/rewards לשרת האמיתי של נווה
+   * [server] rewardsApi.list(category) → GET /api/rewards?category=...
+   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_REWARDS + MOCK_VOUCHERS
+   *   - USE_REAL_SERVER=true  → GET /api/rewards on the real server
    */
   useEffect(() => {
     setLoading(true)
@@ -55,15 +59,15 @@ export default function MarketplaceScreen() {
   }, [category])
 
   /**
-   * מבצעת פדיון הטבה: מורידה נקודות מהמשתמש ויוצרת שובר.
-   * נקראת רק לאחר אישור המשתמש ב-RedeemConfirmSheet.
+   * Redeems a reward: deducts the user's points and creates a voucher.
+   * Called only after the user confirms in RedeemConfirmSheet.
    *
-   * [שרת] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
-   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר mock voucher
-   *   - USE_REAL_SERVER=true  → POST לשרת האמיתי של נווה
+   * [server] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
+   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock voucher
+   *   - USE_REAL_SERVER=true  → POST to the real server
    *
-   * לאחר הצלחה: מוסיפה את השובר לרשימה, מעדכנת נקודות ב-AppContext,
-   * מציגה toast הצלחה ועוברת לטאב השוברים.
+   * On success: adds the voucher to the list, updates points in AppContext,
+   * shows a success toast, and switches to the vouchers tab.
    */
   async function confirmRedeem() {
     if (!selectedReward || !user) return

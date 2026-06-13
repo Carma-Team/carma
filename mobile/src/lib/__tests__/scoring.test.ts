@@ -18,6 +18,7 @@ const BASE_INPUT = {
   hardBrakes: 0,
   aggressiveAccels: 0,
   sharpTurns: 0,
+  swerves: 0,
   touchEpochs: 0,
   screenInteractionSeconds: 0,
   durationSeconds: 120,
@@ -94,10 +95,10 @@ describe('calculateScore', () => {
       expect(result.score).toBe(91)
     })
 
-    it('applies sharp turn penalty (2 pts each)', () => {
+    it('applies sharp turn penalty (3 pts each — spec §א severity = 3)', () => {
       const result = calculateScore({ ...BASE_INPUT, sharpTurns: 5 })
-      expect(result.penalties).toBe(10)
-      expect(result.score).toBe(90)
+      expect(result.penalties).toBe(15)
+      expect(result.score).toBe(85)
     })
 
     it('applies screen interaction penalty proportionally (SIS / duration × 40)', () => {
@@ -187,7 +188,7 @@ describe('calculateScore', () => {
 
     it('returns non-NaN for all-zero input', () => {
       const result = calculateScore({
-        hardBrakes: 0, aggressiveAccels: 0, sharpTurns: 0,
+        hardBrakes: 0, aggressiveAccels: 0, sharpTurns: 0, swerves: 0,
         touchEpochs: 0, screenInteractionSeconds: 0, durationSeconds: 0, distanceKm: 0,
         startTime: makeDate('tue', 12),
       })

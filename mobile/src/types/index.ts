@@ -16,6 +16,7 @@ export interface AppUser {
   avatarUrl?: string;
   age?: number;
   city?: string;
+  country?: string;
   licenseYear?: number;
   points: number;
   totalPoints: number;
@@ -26,9 +27,8 @@ export interface AppUser {
   bluetoothDeviceId?: string;
   bluetoothDeviceName?: string;
   businessId?: string;
+  businessCategory?: string;
   createdAt?: string;
-  // App-only fields (not from server)
-  country?: string;
   rank?: string;
   unreadNotifications?: number;
   lastClearedHistory?: string;
@@ -48,6 +48,7 @@ export interface Trip {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
+  swerves?: number;                  // EVT_SWERVE — spec §א Table 1
   touchEpochs: number;              // v1.7
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
@@ -55,6 +56,8 @@ export interface Trip {
   endLocation?: string;
   aiInsight?: string;
   status: string;
+  // Route map data — only returned by GET /api/trips/:id (not the list endpoint)
+  routeWaypoints?: Array<{ lat: number; lng: number; ts: number; speedKmh: number }>;
   // Local-only aliases (used by TripCard/TripDetailScreen for locally-created trips)
   score?: number;
   eventsArray?: any[];
@@ -72,7 +75,7 @@ export interface Reward {
   descriptionEn?: string;
   category: string;
   costPoints: number;
-  imageEmoji: string;
+  imageIcon: string;
   isActive: boolean;
   stock: number;
   expiresAt?: string;
@@ -130,6 +133,15 @@ export interface FollowRequest {
   requestedAt: string;
 }
 
+export interface FriendRequest {
+  id: string;
+  fromUserId: string;
+  fromUserName: string;
+  fromUserLevel: number;
+  fromUserCity?: string | null;
+  createdAt: string;
+}
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 // Matches server's StatsOut camelCase wire format
 export interface DrivingStats {
@@ -183,6 +195,7 @@ export interface ScoringInput {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
+  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — glass-tap proxy count
   screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
   durationSeconds: number;

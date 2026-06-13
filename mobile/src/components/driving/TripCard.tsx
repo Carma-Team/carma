@@ -1,10 +1,13 @@
 import React from 'react'
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native'
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { formatDate, formatDistance, scoreToEmoji } from '@/lib/utils'
-import { scoreToGrade } from '@/lib/scoring'
+import { formatDate, formatDistance } from '@/lib/utils'
+import { scoreToGrade, scoreToColor } from '@/lib/scoring'
 import { useTranslation } from '@/hooks/useTranslation'
+import { COLORS } from '@/constants/theme'
+import { ICONS } from '@/constants/icons'
 import type { Trip } from '@/types'
 
 interface TripCardProps {
@@ -22,7 +25,7 @@ export function TripCard({ trip, onPress }: TripCardProps) {
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Card>
         <View style={styles.row}>
-          <Text style={styles.emoji}>{scoreToEmoji(displayScore)}</Text>
+          <FontAwesome5 name="map-marked-alt" size={20} color={scoreToColor(displayScore)} />
           <View style={styles.info}>
             <Text style={styles.title} numberOfLines={1}>
               {formatDate(trip.startTime, lang)}
@@ -39,7 +42,8 @@ export function TripCard({ trip, onPress }: TripCardProps) {
 
         {(trip.eventsArray?.length ?? 0) > 0 && (
           <View style={styles.events}>
-            <Text style={styles.eventText}>⚡ {trip.eventsArray!.length} {t('trip.events') || 'אירועי בטיחות'}</Text>
+            <Ionicons name={ICONS.flash} size={13} color={COLORS.textMuted} />
+            <Text style={styles.eventText}>{trip.eventsArray!.length} {t('trip.events')}</Text>
           </View>
         )}
       </Card>
@@ -51,13 +55,13 @@ const styles = StyleSheet.create({
   row:       { flexDirection: 'row', alignItems: 'center', gap: 12 },
   emoji:     { fontSize: 24 },
   info:      { flex: 1 },
-  title:     { color: '#fff', fontWeight: '600', fontSize: 14 },
-  sub:       { color: '#94a3b8', fontSize: 12, marginTop: 2 },
+  title:     { color: COLORS.text, fontWeight: '600', fontSize: 14 },
+  sub:       { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
   right:     { alignItems: 'flex-end', gap: 4 },
-  points:    { color: '#818cf8', fontSize: 12, fontWeight: '600' },
-  events:    { flexDirection: 'row', gap: 12, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1f2937' },
-  eventText: { color: '#94a3b8', fontSize: 12 },
-  riskText:  { color: '#f59e0b', fontSize: 12 },
+  points:    { color: COLORS.brandLight, fontSize: 12, fontWeight: '600' },
+  events:    { flexDirection: 'row', gap: 12, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.border },
+  eventText: { color: COLORS.textMuted, fontSize: 12 },
+  riskText:  { color: COLORS.warning, fontSize: 12 },
 })
 
 export default TripCard

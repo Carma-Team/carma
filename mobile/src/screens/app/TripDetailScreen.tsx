@@ -6,17 +6,15 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatDistance, formatDuration } from '@/lib/utils';
 import { COLORS, COMMON_STYLES } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 import { TripScoreHero } from '@/components/driving/TripScoreHero';
 import { TripEventsList } from '@/components/driving/TripEventsList';
 import { StatsGrid } from '@/components/ui/StatsGrid';
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
 import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
+import { tripsApi } from '@/services/api/trips.api';
+import type { DrivingEvent } from '@/lib/driving-sdk/types';
 
-/**
- * מסך פירוט נסיעה בודדת.
- * מקבל tripId כ-param בניתוב ומחפש את הנסיעה ברשימת recentTrips שב-AppContext.
- * אין קריאה לשרת — הנתונים כבר נטענו בעת הכניסה לאפליקציה.
- */
 export default function TripDetailScreen() {
   const { tripId } = useLocalSearchParams<{ tripId: string }>();
   const router = useRouter();
@@ -26,18 +24,24 @@ export default function TripDetailScreen() {
 
   const [trip, setTrip] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [routeWaypoints, setRouteWaypoints] = useState<any[]>([]);
+  const [tripEvents, setTripEvents] = useState<DrivingEvent[]>([]);
 
-  /**
-   * מחפש את הנסיעה לפי tripId בתוך recentTrips (state מקומי, ללא שרת).
-   * recentTrips נטענות בעת ההתחברות מ-tripsApi.list() ומתעדכנות עם כל נסיעה חדשה.
-   *
-   * [שרת] אין קריאה לשרת בשלב זה. אם הנסיעה לא נמצאת ב-recentTrips
-   * (למשל נסיעה ישנה יותר מ-10 האחרונות) — תוצג הודעת שגיאה.
-   */
   useEffect(() => {
     const foundTrip = recentTrips.find(t => t.id === tripId);
     if (foundTrip) {
       setTrip(foundTrip);
+      // If the cached trip already has waypoints (just-completed trip), use them directly.
+      // Otherwise fetch from the single-trip endpoint which includes route_waypoints.
+      if (foundTrip.routeWaypoints?.length) {
+        setRouteWaypoints(foundTrip.routeWaypoints);
+      } else if (tripId) {
+        tripsApi.getById(tripId)
+          .then(res => {
+            if (res.trip.routeWaypoints) setRouteWaypoints(res.trip.routeWaypoints);
+          })
+          .catch(() => {});
+      }
     }
     setLoading(false);
   }, [tripId, recentTrips]);
@@ -53,9 +57,9 @@ export default function TripDetailScreen() {
   if (!trip) {
     return (
       <View style={[styles.root, styles.center]}>
-        <Text style={{ color: COLORS.textMuted }}>{t('common.error') || 'הנסיעה לא נמצאה'}</Text>
+        <Text style={{ color: COLORS.textMuted }}>{t('common.error')}</Text>
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-          <Text style={{ color: COLORS.brand }}>חזור</Text>
+          <Text style={{ color: COLORS.brand }}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -64,10 +68,11 @@ export default function TripDetailScreen() {
   const score = trip.avgScore ?? trip.score ?? 0;
 
   const events = [
-    { label: t('trip.hardBrakes'),      emoji: '🛑', value: trip.hardBrakes ?? 0,      bad: (trip.hardBrakes ?? 0) > 0 },
-    { label: t('trip.aggressiveAccels'),emoji: '🚀', value: trip.aggressiveAccels ?? 0, bad: (trip.aggressiveAccels ?? 0) > 0 },
-    { label: t('trip.sharpTurns'),      emoji: '↩️', value: trip.sharpTurns ?? 0,       bad: (trip.sharpTurns ?? 0) > 0 },
-    { label: t('trip.phoneTouches'),    emoji: '📱', value: trip.touchEpochs ?? 0,        bad: (trip.touchEpochs ?? 0) > 0 },
+    { label: t('trip.hardBrakes'),       icon: ICONS.hardBrake,       value: trip.hardBrakes ?? 0,      bad: (trip.hardBrakes ?? 0) > 0 },
+    { label: t('trip.aggressiveAccels'), icon: ICONS.aggressiveAccel, value: trip.aggressiveAccels ?? 0, bad: (trip.aggressiveAccels ?? 0) > 0 },
+    { label: t('trip.sharpTurns'),   icon: ICONS.sharpTurn,  value: trip.sharpTurns ?? 0,  bad: (trip.sharpTurns ?? 0) > 0 },
+    // { label: t('trip.swerve'), icon: ICONS.swerve, value: trip.swerves ?? 0, bad: (trip.swerves ?? 0) > 0 }, // EVT_SWERVE disabled
+    { label: t('trip.phoneTouches'), icon: ICONS.phoneUsage, value: trip.touchEpochs ?? 0, bad: (trip.touchEpochs ?? 0) > 0 },
   ];
 
   return (
@@ -84,17 +89,20 @@ export default function TripDetailScreen() {
         />
 
         {/* Stats Grid */}
-        <StatsGrid items={[
-          { emoji: '⏱️', label: t('trip.duration'), value: formatDuration(trip.durationSeconds ?? 0, lang) },
-          { emoji: '📍', label: t('trip.distance'), value: formatDistance(trip.distanceKm ?? 0, lang) },
-          { emoji: '⭐', label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
+        <StatsGrid columns={3} items={[
+          { icon: ICONS.duration, label: t('trip.duration'), value: formatDuration(trip.durationSeconds ?? 0, lang) },
+          { icon: ICONS.distance, label: t('trip.distance'), value: formatDistance(trip.distanceKm ?? 0, lang) },
+          { icon: ICONS.points,   label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
         ]} />
 
         {/* Events breakdown */}
         <TripEventsList events={events} />
 
-        {/* Map Placeholder */}
-        <TripMapPlaceholder />
+        {/* Route map */}
+        <TripMapPlaceholder
+          waypoints={routeWaypoints}
+          events={trip.tripEvents ?? tripEvents}
+        />
 
       </ScrollView>
     </View>
@@ -102,8 +110,6 @@ export default function TripDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:         { flex: 1, backgroundColor: COLORS.dark },
-  center:       { justifyContent: 'center', alignItems: 'center' },
-  back:         { marginBottom: 12 },
-  backText:     { color: COLORS.brandLight, fontSize: 15, fontWeight: '600' },
+  root:   { flex: 1, backgroundColor: COLORS.dark },
+  center: { justifyContent: 'center', alignItems: 'center' },
 });

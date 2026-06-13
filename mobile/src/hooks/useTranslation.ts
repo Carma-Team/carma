@@ -1,19 +1,18 @@
 /**
- * @fileoverview Hook לתרגום טקסטים לפי שפת המשתמש — useTranslation
+ * @fileoverview Localisation hook — useTranslation
  * @module hooks/useTranslation
  *
  * @description
- * קורא את שפת המשתמש מ-AppContext ומחזיר פונקציית `t(key)` לגישה למחרוזות.
- * תומך ב-dot-notation לגישה לשדות מקוננים (לדוגמה: `t('auth.errors.emailRequired')`).
- * קובצי התרגום: `i18n/he.ts` (עברית), `i18n/en.ts` (אנגלית).
+ * Reads the user language from AppContext and returns a `t(key)` function for string lookup.
+ * Supports dot-notation for nested keys (e.g. `t('auth.errors.emailRequired')`).
+ * Translation files: `i18n/he.ts` (Hebrew), `i18n/en.ts` (English).
  *
- * @remarks ללא קריאות שרת — מקומי בלבד.
+ * @remarks No server calls — local only.
  */
 import { useApp } from '@/context/AppContext'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
-
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
+import type { TranslationMap } from '@/i18n/he'
 
 function getNestedValue(obj: Record<string, unknown>, path: string): string {
   const keys = path.split('.')
@@ -30,7 +29,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): string {
 
 export function useTranslation() {
   const { lang, setLang } = useApp()
-  const translations = lang === 'he' ? he : en as unknown as typeof he
+  const translations: TranslationMap = lang === 'he' ? he : en
 
   function t(key: string): string {
     return getNestedValue(translations as unknown as Record<string, unknown>, key)

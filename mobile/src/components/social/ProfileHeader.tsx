@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { LevelBadge } from '@/components/gamification/LevelBadge';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { getLevelConfig } from '@/lib/constants';
-import { formatDistance, formatDate } from '@/lib/utils';
+import { formatDistance, formatDate, localize } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Language } from '@/types';
 
@@ -38,9 +39,12 @@ export function ProfileHeader({ user, lang }: ProfileHeaderProps) {
         <View style={styles.info}>
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.city}>{user.city}</Text>
-          <Text style={[styles.levelText, { color: levelConfig.color }]}>
-            {levelConfig.icon} {lang === 'he' ? levelConfig.name : levelConfig.nameEn}
-          </Text>
+          <View style={styles.levelRow}>
+            <Ionicons name={levelConfig.icon as any} size={12} color={levelConfig.color} />
+            <Text style={[styles.levelText, { color: levelConfig.color }]}>
+              {localize(levelConfig.name, levelConfig.nameEn, lang)}
+            </Text>
+          </View>
         </View>
         <View style={styles.pointsWrapper}>
           <Text style={styles.pointsValue}>{(user.totalPoints || 0).toLocaleString()}</Text>
@@ -66,12 +70,13 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { ...TYPOGRAPHY.h3, fontSize: 18 },
   city: { ...TYPOGRAPHY.caption },
-  levelText: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+  levelRow:  { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  levelText: { fontSize: 12, fontWeight: '700' },
   pointsWrapper: { alignItems: 'flex-end' },
   pointsValue: { color: COLORS.brandLight, fontSize: 22, fontWeight: '900' },
   pointsLabel: { ...TYPOGRAPHY.caption, fontSize: 11 },
   statsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 12, paddingTop: 12 },
   statItem: { flex: 1, alignItems: 'center' },
-  statValue: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  statValue: { color: COLORS.text, fontWeight: '700', fontSize: 14 },
   statLabel: { ...TYPOGRAPHY.caption, fontSize: 11, marginTop: 2 },
 });

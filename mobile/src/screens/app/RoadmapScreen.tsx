@@ -9,9 +9,9 @@ import { RoadmapHero } from '@/components/gamification/RoadmapHero'
 import { RoadmapLevelItem } from '@/components/gamification/RoadmapLevelItem'
 
 /**
- * מסך מפת הדרך — מציג את כל רמות הגמיפיקציה ואת התקדמות המשתמש.
- * [שרת] אין קריאות לשרת — כל הנתונים מגיעים מ-AppContext (user.points, user.level)
- * שנטענו בעת ההתחברות. רשימת הרמות (LEVELS) מוגדרת סטטית ב-constants.
+ * Roadmap screen — shows all gamification levels and the user's progress.
+ * [server] No server calls — all data comes from AppContext (user.points, user.level)
+ * loaded at login. The LEVELS list is statically defined in constants.
  */
 export default function RoadmapScreen() {
   const insets = useSafeAreaInsets()
@@ -20,12 +20,12 @@ export default function RoadmapScreen() {
 
   if (!user) return null
 
-  // חישוב רמה בטוח: אם אין רמה למשתמש, נחשב לפי נקודות. מינימום 1, מקסימום 10.
+  // Safe level calculation: fall back to points-derived level if user.level is missing. Clamp to [1, 10].
   const currentPoints  = user.points || 0
   const calculatedLevel = getLevelByPoints(currentPoints)
   const currentLevel   = Math.min(10, Math.max(1, user.level || calculatedLevel))
 
-  // הגנה סופית: אם האינדקס לא קיים, ניקח את הרמה הראשונה
+  // Final guard: if the index doesn't exist, fall back to the first level
   const levelInfo = LEVELS[currentLevel - 1] || LEVELS[0]
 
   return (

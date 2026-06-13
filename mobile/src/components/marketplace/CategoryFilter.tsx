@@ -1,12 +1,16 @@
 import React from 'react';
-import { ScrollView, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { ScrollView, TouchableOpacity, Text, View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, TYPOGRAPHY } from '@/constants/theme';
+import { CATEGORY_CONFIG } from '@/constants/icons';
+import { localize } from '@/lib/utils';
+import type { IoniconName } from '@/constants/icons';
 
 interface Category {
   key: string;
   labelHe: string;
   labelEn: string;
-  emoji: string;
+  icon: IoniconName;
 }
 
 interface CategoryFilterProps {
@@ -29,17 +33,24 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
     >
-      {categories.map((cat) => (
-        <TouchableOpacity
-          key={cat.key}
-          onPress={() => onSelectCategory(cat.key)}
-          style={[styles.catBtn, selectedCategory === cat.key && styles.catBtnActive]}
-        >
-          <Text style={[styles.catText, selectedCategory === cat.key && styles.catTextActive]}>
-            {cat.emoji} {lang === 'he' ? cat.labelHe : cat.labelEn}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      {categories.map((cat) => {
+        const isActive = selectedCategory === cat.key;
+        const catConfig = CATEGORY_CONFIG[cat.key];
+        const iconColor = isActive ? '#fff' : (catConfig?.color ?? COLORS.textMuted);
+
+        return (
+          <TouchableOpacity
+            key={cat.key}
+            onPress={() => onSelectCategory(cat.key)}
+            style={[styles.catBtn, isActive && styles.catBtnActive]}
+          >
+            <Ionicons name={cat.icon} size={13} color={iconColor} style={{ marginRight: 4 }} />
+            <Text style={[styles.catText, isActive && styles.catTextActive]}>
+              {localize(cat.labelHe, cat.labelEn, lang)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </ScrollView>
   );
 };
@@ -52,6 +63,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   catBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,

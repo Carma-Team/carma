@@ -87,5 +87,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4
   },
-  progressPointsText: { ...TYPOGRAPHY.caption, fontSize: 10, color: '#fff' },
+  progressPointsText: { ...TYPOGRAPHY.caption, fontSize: 10, color: COLORS.text },
 });
