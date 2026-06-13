@@ -10,7 +10,9 @@
       "PowerShell(py *)",
       "PowerShell(alembic revision *)",
       "PowerShell(ruff check *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(npx tsc *)",
+      "Bash(grep -v \"//.*[^\\\\x00-\\\\x7F]\")"
     ]
   }
 }

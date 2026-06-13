@@ -1,15 +1,15 @@
 /**
- * @fileoverview חישוב ציון וניקוד נסיעה — מנוע הניקוד של CARMA
+ * @fileoverview Trip score and points calculation — CARMA scoring engine
  * @module lib/scoring
  *
  * @description
- * פונקציות pure (ללא תופעות לוואי) לחישוב:
- * - `calculateScore` — ציון 0–100 לפי אירועי נהיגה, מרחק וזמן. מחזיר גם נקודות שנצברו.
- * - `getRiskMultiplier` — מכפיל סיכון לפי שעה/יום (לילות סוף שבוע = x2)
- * - `scoreToGrade` — המרה ל-excellent/good/fair/poor
- * - `scoreToColor` — צבע hex מתאים לציון (ירוק–אדום)
+ * Pure functions (no side effects) for:
+ * - `calculateScore` — 0–100 score based on driving events, distance, and time; also returns earned points.
+ * - `getRiskMultiplier` — risk multiplier by hour/day (weekend nights = x2)
+ * - `scoreToGrade` — maps score to excellent/good/fair/poor
+ * - `scoreToColor` — maps score to a hex color (green → red)
  *
- * @remarks ללא קריאות שרת — חישוב מקומי בלבד. הניקוד הסופי נשלח לשרת ב-tripsApi.save().
+ * @remarks No server calls — local calculation only. Final score is sent to the server via tripsApi.save().
  */
 import type { ScoringInput, ScoringResult } from '@/types'
 
@@ -25,11 +25,15 @@ export function getRiskMultiplier(startTime: Date): number {
 
 export function calculateScore(input: ScoringInput): ScoringResult {
   const { hardBrakes, aggressiveAccels, sharpTurns, touchEpochs, screenInteractionSeconds, durationSeconds, distanceKm, startTime } = input
+  // const { swerves } = input  // EVT_SWERVE disabled — uncomment when re-enabling
   const safeDuration = Math.max(durationSeconds, 1)
+  // Penalty weights align with spec §א Table 1 severity column:
+  //   EVT_BRAKE=5, EVT_ACCEL=3, EVT_TURN=3, EVT_SWERVE=5 (SWERVE disabled)
   const penalties =
     hardBrakes * 5 +
     aggressiveAccels * 3 +
-    sharpTurns * 2 +
+    sharpTurns * 3 +       // spec severity = 3
+    // swerves * 5 +        // EVT_SWERVE disabled — spec severity = 5
     touchEpochs * 4 +
     (screenInteractionSeconds / safeDuration) * 40
 

@@ -34,6 +34,29 @@ Files that must NOT be inside `driving-sdk/`:
 Test before asking: *"If a different app used this SDK, would this file make sense?"*
 If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
 
+## Server config — builds vs. dev
+
+`constants/serverConfig.ts` controls where API calls go:
+
+| Flag | Value | Where requests go |
+|---|---|---|
+| `USE_REAL_SERVER` | `false` | Metro proxy → local mock server (Expo Go / dev client only) |
+| `USE_REAL_SERVER` | `true` | `STAGING_SERVER_URL` (real or Render-hosted server) |
+
+**Before building an APK/IPA for device testing:** set `USE_REAL_SERVER = true` and set `STAGING_SERVER_URL` to the live server URL. Do not commit this change to `main` — it is build-time configuration.
+
+## Disabled features — pattern
+
+Features that are implemented but not yet active in the UI are wrapped in comments marked `// EVT_<NAME> disabled — uncomment when re-enabling`. Do not delete these blocks.
+
+Current disabled features:
+
+| Feature | Marker | Files affected |
+|---|---|---|
+| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `scoring.ts`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
+
+When re-enabling: search for the marker across the repo and uncomment all matching blocks. Also make `swerves` required again in `TelemetryDigest`, `ValidTripPayload`, and `ScoringInput`.
+
 ## Commands
 
 ```bash

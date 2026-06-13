@@ -1,18 +1,18 @@
 /**
- * @fileoverview API לניהול הטבות עבור משתמשי עסק
+ * @fileoverview Rewards API for business users
  * @module services/api/business
  *
  * @description
- * נתיבים המיועדים למשתמש עם role='business' בלבד (השרת מאמת businessId).
- * - `getRewards` — שליפת ההטבות של העסק
- * - `addReward` — הוספת הטבה חדשה
- * - `updateReward` — עדכון הטבה קיימת
- * - `deleteReward` — מחיקת הטבה (שרת מחזיר 204)
+ * Endpoints available only to users with role='business' (server validates businessId).
+ * - `getRewards` — fetch the business's reward list
+ * - `addReward` — add a new reward
+ * - `updateReward` — update an existing reward
+ * - `deleteReward` — delete a reward (server returns 204)
  *
  * @server
- * - GET/POST/PATCH/DELETE /api/business/rewards — אינו מיורט ב-mock interceptor.
- *   USE_REAL_SERVER=false → שרת מקומי (carma-local-server, db.json)
- *   USE_REAL_SERVER=true  → שרת נווה
+ * - GET/POST/PATCH/DELETE /api/business/rewards — not intercepted by mock interceptor.
+ *   USE_REAL_SERVER=false → local server (carma-local-server, db.json)
+ *   USE_REAL_SERVER=true  → real server
  */
 import { request } from './client';
 
@@ -26,7 +26,7 @@ export interface BusinessReward {
   descriptionEn?: string | null;
   category: string;
   costPoints: number;
-  imageEmoji: string;
+  imageIcon: string;
   isActive: boolean;
   stock: number;
   expiresAt?: string | null;

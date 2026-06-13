@@ -203,6 +203,7 @@ async def save(
         ai_insight=dto.ai_insight,
         telemetry_digest=dto.telemetry_digest,
         payload_signature=dto.payload_signature,
+        route_waypoints=dto.route_waypoints,
         status=TripStatus.COMPLETED if end else TripStatus.ACTIVE,
         synced_at=datetime.now(UTC),
     )

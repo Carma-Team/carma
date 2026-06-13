@@ -1,36 +1,39 @@
 /**
- * @fileoverview מנהל המצב הגלובלי של האפליקציה — AppContext
+ * @fileoverview Global application state manager — AppContext
  * @module context/AppContext
  *
  * @description
- * Context מרכזי שמנהל את כל ה-state הגלובלי:
- * - **משתמש**: טעינה מ-AsyncStorage, refresh מהשרת בהתחברות, logout
- * - **נסיעה**: `processEndTrip` — חישוב ציון, שמירה לשרת, עדכון נקודות/רמה
- * - **רשימת נסיעות**: sync עם שרת בהתחברות, שמירה ל-AsyncStorage
- * - **UI**: toasts, שפה, loading state
- * - **SDK**: האזנה ל-callbacks של CarmaDrivingSDK
+ * Central context managing all global state:
+ * - **User**: loaded from AsyncStorage, refreshed from server on auth, logout
+ * - **Trip**: `processEndTrip` — score calculation, server persistence, points/level update
+ * - **Trip list**: synced with server on login, persisted to AsyncStorage
+ * - **UI**: toasts, language, loading state
+ * - **SDK**: registers conditional event listeners on DrivingSDK
  *
  * @server
- * - `authApi.me()` — GET /api/auth/me — רענון פרטי משתמש בהפעלה
- * - `tripsApi.list()` — GET /api/trips — sync נסיעות בהתחברות
- * - `tripsApi.save()` — POST /api/trips — שמירת נסיעה שהסתיימה
- * - USE_REAL_SERVER=false: כל הקריאות מיורטות ב-client.ts (mock)
- * - USE_REAL_SERVER=true: קריאות לשרת האמיתי של נווה
+ * - `authApi.me()` — GET /api/auth/me — refresh user details on startup
+ * - `tripsApi.list()` — GET /api/trips — sync trips on login
+ * - `tripsApi.save()` — POST /api/trips — persist a completed trip
+ * - USE_REAL_SERVER=false: all calls intercepted in client.ts (mock)
+ * - USE_REAL_SERVER=true: calls go to the real server
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { InteractionManager, AppState } from 'react-native'
+import { InteractionManager, AppState, I18nManager } from 'react-native'
 import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { CarmaDrivingSDK, TripData, DrivingEventType } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { fraudApi } from '@/services/api/fraud.api'
+import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import he from '@/i18n/he'
+import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
 import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
 import { calculateLevel, detectLevelUp } from '@/lib/gamification'
@@ -49,6 +52,7 @@ export interface TripState {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
     SHARP_TURN: number;
+    SWERVE: number;
     PHONE_TOUCH: number; // UI display only — not used for scoring
   };
 }
@@ -62,7 +66,7 @@ const INITIAL_TRIP_STATE: TripState = {
   currentSpeedKmH: 0,
   touchEpochs: 0,
   screenInteractionSeconds: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, PHONE_TOUCH: 0 },
+  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0, PHONE_TOUCH: 0 },
 };
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
@@ -193,6 +197,7 @@ function buildTelemetryDigest(
     hardBrakes:               state.eventCounts.HARD_BRAKE,
     aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
     sharpTurns:               state.eventCounts.SHARP_TURN,
+    // swerves:               state.eventCounts.SWERVE,  // EVT_SWERVE disabled
     touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
     riskMultiplier:           getRiskMultiplier(new Date(startTime)),
@@ -234,7 +239,7 @@ interface AppContextValue {
   registerPhoneTouch: () => void
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
-  sdk: CarmaDrivingSDK
+  sdk: DrivingSDK
   // TODO: Mai — subscribe to `userLevelState` for level-up animations and progress bar UI
   userLevelState: GamificationLevel
 }
@@ -258,9 +263,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
   }, [recentTrips, user?.lastClearedHistory]);
 
-  const sdk = useMemo(() => new CarmaDrivingSDK(), []);
+  const sdk = useMemo(() => new DrivingSDK(), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
+  // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
+  const lastTripDataRef = useRef<TripData | null>(null);
 
   const lastTouchTimeRef = useRef(0);
 
@@ -324,12 +331,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
+      // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
       riskMultiplier: 1.0,  // server computes — placeholder only
       penalties: 0,         // server computes — placeholder only
       telemetryDigest,
       payloadSignature,
+      routeWaypoints: lastTripDataRef.current?.waypoints,
     };
 
     let savedTrip: Trip | null = null;
@@ -381,6 +390,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
+          // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
           touchEpochs: finalState.touchEpochs,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
@@ -426,12 +436,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       points: earnedPoints,
       riskMultiplier: serverRiskMultiplier,
       penalties: 0,
+      routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
+      tripEvents: lastTripDataRef.current?.events ?? [],
     });
+    lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
   }, [user, userLevelState, addToast]);
 
   useEffect(() => {
+    // Fired when any trip starts (manual or BT auto-start).
+    // For manual trips, AppContext.startTrip() calls setTripState explicitly after this — that call wins.
+    // For BT auto-started trips, this is the only setter, so it correctly establishes startTime + sessionId.
+    sdk.onTripStart = (tripId: string) => {
+      setTripState(prev => {
+        if (prev.isActive) return prev;
+        return { ...INITIAL_TRIP_STATE, isActive: true, startTime: new Date(), sessionId: tripId };
+      });
+    };
+
     sdk.onUpdate = (data: TripData) => {
       setTripState(prev => ({
         ...prev,
@@ -440,21 +463,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         distanceKm: data.distanceKm,
         touchEpochs: data.touchEpochs,
         screenInteractionSeconds: data.screenInteractionSeconds,
-        eventCounts: {
-          HARD_BRAKE: data.events.filter(e => e.type === DrivingEventType.HARD_BRAKE).length,
-          AGGRESSIVE_ACCEL: data.events.filter(e => e.type === DrivingEventType.AGGRESSIVE_ACCEL).length,
-          SHARP_TURN: data.events.filter(e => e.type === DrivingEventType.SHARP_TURN).length,
-          PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH, // UI display only, maintained by registerPhoneTouch
-        }
+        // eventCounts is maintained by the sdk.on() listeners registered below —
+        // not recomputed here, so only events that met CARMA's conditions are counted.
       }));
     };
 
-    sdk.onTripEnd = () => {
+    sdk.onTripEnd = (data: TripData) => {
+      lastTripDataRef.current = data;
       if (tripRef.current.isActive) {
         processEndTrip();
       }
     };
   }, [sdk, processEndTrip]);
+
+  // ─── CARMA Scoring Event Listeners ───────────────────────────────────────────
+  // Register conditional listeners on the generic DrivingSDK.
+  // Each listener defines CARMA's scoring thresholds — these values are CARMA-specific
+  // and intentionally live here, not inside the SDK.
+  useEffect(() => {
+    const tokens = [
+      sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, () => {
+        setTripState(prev => ({
+          ...prev,
+          eventCounts: { ...prev.eventCounts, HARD_BRAKE: prev.eventCounts.HARD_BRAKE + 1 },
+        }));
+      }),
+      sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5 }, () => {
+        setTripState(prev => ({
+          ...prev,
+          eventCounts: { ...prev.eventCounts, AGGRESSIVE_ACCEL: prev.eventCounts.AGGRESSIVE_ACCEL + 1 },
+        }));
+      }),
+      sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 10 }, () => {
+        setTripState(prev => ({
+          ...prev,
+          eventCounts: { ...prev.eventCounts, SHARP_TURN: prev.eventCounts.SHARP_TURN + 1 },
+        }));
+      }),
+      // EVT_SWERVE disabled — uncomment when re-enabling detection + UI display
+      // sdk.on(DrivingEventType.SWERVE, { minSpeedKmh: 15 }, () => {
+      //   setTripState(prev => ({
+      //     ...prev,
+      //     eventCounts: { ...prev.eventCounts, SWERVE: prev.eventCounts.SWERVE + 1 },
+      //   }));
+      // }),
+      // Fires when the user leaves the app (Home button / task switcher) during a trip.
+      // No condition guard needed — any background transition while driving counts.
+      sdk.on(DrivingEventType.PHONE_USAGE, {}, () => {
+        setTripState(prev => ({
+          ...prev,
+          eventCounts: { ...prev.eventCounts, PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1 },
+        }));
+      }),
+    ];
+    return () => tokens.forEach(token => sdk.off(token));
+  }, [sdk]);
 
   // ─── Fraud Detection Handler ──────────────────────────────────────────────
   // Fires when TripValidationManager detects non-car transport (Rule 3).
@@ -464,7 +527,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Discard any accumulated trip data — fraudulent sessions earn zero CARMA Points
       setTripState(INITIAL_TRIP_STATE);
 
-      // TODO: Mai — implement "נסיעה בתחבורה ציבורית זוהתה" toast/modal component
+      // TODO: Mai — implement "public transport trip detected" toast/modal component
 
       // Report to Sean's backend (non-blocking — failure must never affect the user flow)
       fraudApi.syncInvalidTrip({
@@ -516,6 +579,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadInitialData() {
+      const serverOnline = await pingServer();
       try {
         const [l, u, t, btId, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
@@ -529,8 +593,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (l === 'he' || l === 'en') setLangState(l as Language)
         if (btId) sdk.updateTargetDevice(btId)
 
+        if (!serverOnline) {
+          const tr = l === 'en' ? en : he;
+          addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
+        }
+
         if (u && token) {
-          // יש token שמור — מאמת מול השרת ומרענן נתונים
+          // Saved token found — validate against server and refresh data
           try {
             const freshUser = await authApi.me();
             const merged = { ...JSON.parse(u), ...freshUser };
@@ -543,7 +612,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setRecentTrips(serverData.trips);
             await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
           } catch {
-            // טוקן לא תקף — ניקוי ומעבר ל-login
+            // Invalid token — clear storage and redirect to login
             await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
             setUserState(null);
             setRecentTrips([]);
@@ -605,6 +674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
+    I18nManager.forceRTL(l === 'he');
     await AsyncStorage.setItem('carma_lang', l);
   }, [])
 
@@ -624,9 +694,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
+      const tr = lang === 'he' ? he : en;
       addToast({
-        title: lang === 'he' ? 'ההיסטוריה נמחקה' : 'History Cleared',
-        message: lang === 'he' ? 'היסטוריית הנסיעות הוסתרה' : 'Trip history has been hidden',
+        title: tr.common.historyCleared,
+        message: tr.common.historyClearedDesc,
         type: 'success'
       });
     } catch (e) {

@@ -1,9 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Progress } from '@/components/ui/Progress';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
+import { localize } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { LevelConfig } from '@/types';
 
@@ -20,9 +22,11 @@ export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: Roadm
 
   return (
     <Card glass glow style={styles.hero}>
-      <Text style={styles.heroIcon}>{levelData.config.icon}</Text>
+      <View style={[styles.heroIconCircle, { borderColor: levelData.config.color + '60', backgroundColor: levelData.config.color + '18' }]}>
+        <Ionicons name={levelData.config.icon as any} size={40} color={levelData.config.color} />
+      </View>
       <Text style={[styles.heroName, { color: levelData.config.color }]}>
-        {lang === 'he' ? levelData.config.name : levelData.config.nameEn}
+        {localize(levelData.config.name, levelData.config.nameEn, lang)}
       </Text>
       <Text style={styles.heroPoints}>{userPoints.toLocaleString()} {t('common.points')}</Text>
 
@@ -44,9 +48,13 @@ export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: Roadm
 
 const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: 8, paddingVertical: 28, marginBottom: SPACING.lg },
-  heroIcon: { fontSize: 56 },
+  heroIconCircle: {
+    width: 88, height: 88, borderRadius: 44,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2,
+  },
   heroName: { fontSize: 22, fontWeight: '900' },
-  heroPoints: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  heroPoints: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
   progressWrapper: { width: '100%', paddingHorizontal: 25, marginTop: 10 },
   heroSub: { ...TYPOGRAPHY.caption, fontSize: 12, textAlign: 'center', marginTop: 8 },
 });

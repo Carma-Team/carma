@@ -4,9 +4,9 @@ import { View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
 
 /**
- * דף הבית הראשי (/).
- * הוא מפנה אוטומטית לדאשבורד.
- * בזכות ה-Guard ב-Root _layout.tsx, המשתמש יופנה ל-Login אם אינו מחובר.
+ * Home index (/).
+ * Automatically redirects to the dashboard.
+ * The auth guard in root _layout.tsx redirects to Login if the user is not authenticated.
  */
 export default function Index() {
   const { isLoading } = useApp();
@@ -19,6 +19,6 @@ export default function Index() {
     );
   }
 
-  // הפניה לדאשבורד הפנימי בתוך הסטאק של הבית
+  // Redirect to the main dashboard within the home stack
   return <Redirect href="/(tabs)/(home)/dashboard" />;
 }

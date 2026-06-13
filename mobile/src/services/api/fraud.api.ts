@@ -1,10 +1,10 @@
 /**
- * @fileoverview API לדיווח על נסיעות לא תקינות / חשד להונאה
+ * @fileoverview API for reporting invalid trips / suspected fraud
  * @module services/api/fraud
  *
  * @description
- * `syncInvalidTrip` — ממיר את ה-SDK FraudDetectedEvent לפורמט השרת ושולח ל-backend.
- * בmock mode (USE_REAL_SERVER=false): ממיר ל-JSON מעוצב + מחזיר DTO מדומה.
+ * `syncInvalidTrip` — converts the SDK FraudDetectedEvent to the server format and posts to the backend.
+ * In mock mode (USE_REAL_SERVER=false): logs formatted JSON and returns a stub DTO.
  *
  * @server POST /api/fraud — live (server/app/routers/fraud.py)
  */
@@ -12,7 +12,7 @@ import { request } from './client';
 import { USE_REAL_SERVER } from '@/constants/serverConfig';
 import { TransportMode } from '@/lib/driving-sdk/types';
 
-// ─── Mobile SDK event shape (emitted by CarmaDrivingSDK.onFraudDetected) ─────
+// ─── Mobile SDK event shape (emitted by DrivingSDK.onFraudDetected) ──────────
 
 export interface FraudEventPayload {
   userId: string;

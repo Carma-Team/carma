@@ -1,12 +1,17 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { Card } from './Card';
-import { COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 export interface StatItem {
   label: string;
   value: string | number;
-  emoji: string;
+  icon: IoniconName;
+  fa5Icon?: string;
 }
 
 interface StatsGridProps {
@@ -39,9 +44,21 @@ export function StatsGrid({ items, columns = 2, variant = 'default' }: StatsGrid
             isCompact ? styles.compactCard : undefined
           ]}
         >
-          <Text style={[COMMON_STYLES.statEmoji, isCompact && styles.compactEmoji]}>
-            {item.emoji}
-          </Text>
+          {item.fa5Icon ? (
+            <FontAwesome5
+              name={item.fa5Icon}
+              size={isCompact ? 16 : 24}
+              color={COLORS.brandLight}
+              style={{ marginBottom: isCompact ? 2 : 6 }}
+            />
+          ) : (
+            <Ionicons
+              name={item.icon}
+              size={isCompact ? 18 : 28}
+              color={COLORS.brandLight}
+              style={{ marginBottom: isCompact ? 2 : 6 }}
+            />
+          )}
           <Text style={[COMMON_STYLES.statValue, isCompact && styles.compactValue]}>
             {item.value}
           </Text>
@@ -59,11 +76,7 @@ const styles = StyleSheet.create({
     minHeight: 65,
     padding: SPACING.xs,
     borderColor: 'transparent',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  compactEmoji: {
-    fontSize: 18,
-    marginBottom: 0,
+    backgroundColor: COLORS.card,
   },
   compactValue: {
     fontSize: 14,

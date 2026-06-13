@@ -1,16 +1,16 @@
 /**
- * @fileoverview API לניהול נסיעות
+ * @fileoverview Trips API
  * @module services/api/trips
  *
  * @description
- * - `list` — שליפת רשימת נסיעות המשתמש
- * - `save` — שמירת נסיעה שהסתיימה (נקרא מ-SyncManager.flushQueue)
- * - `getById` — שליפת פרטי נסיעה בודדת
+ * - `list` — fetch the user's trip list
+ * - `save` — persist a completed trip (called from SyncManager.flushQueue)
+ * - `getById` — fetch a single trip's full detail
  *
  * @server
- * - GET /api/trips — USE_REAL_SERVER=false → mock; true → שרת נווה
- * - POST /api/trips — USE_REAL_SERVER=false → mock (מחזיר trip עם ID ייחודי); true → שרת נווה
- * - GET /api/trips/:id — USE_REAL_SERVER=false → mock; true → שרת נווה
+ * - GET /api/trips — USE_REAL_SERVER=false → mock; true → real server
+ * - POST /api/trips — USE_REAL_SERVER=false → mock (returns trip with unique ID); true → real server
+ * - GET /api/trips/:id — USE_REAL_SERVER=false → mock; true → real server
  */
 import { request } from './client';
 import type { Trip } from '@/types';

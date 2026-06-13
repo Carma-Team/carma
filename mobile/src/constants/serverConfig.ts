@@ -12,8 +12,7 @@ import Constants from 'expo-constants';
 
 export const USE_REAL_SERVER = true;
 
-// Android emulator alias for host localhost — use 10.0.2.2 for emulator, real IP for physical device
-export const STAGING_SERVER_URL = 'http://10.0.2.2:3000';
+export const STAGING_SERVER_URL = 'https://carma-app.onrender.com';
 
 function getMetroOrigin(): string {
   // manifest2.launchAsset.url is the bundle URL in Expo Go SDK 46+

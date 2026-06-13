@@ -7,13 +7,13 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { userApi } from '@/services/api/user.api';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 
 /**
- * מסך הגדרות.
- * כולל: מצב נהיגה + בחירת Bluetooth, שפה, מחיקת היסטוריה, התנתקות.
- * כל הפעולות כאן הן מקומיות (AsyncStorage / AppContext) — אין קריאות לשרת.
+ * Settings screen.
+ * Includes: drive mode + Bluetooth selection, language, history reset, logout.
+ * All actions here are local (AsyncStorage / AppContext) — no server calls.
  */
 export default function SettingsScreen() {
   const router = useRouter();
@@ -24,9 +24,9 @@ export default function SettingsScreen() {
   if (!user) return null;
 
   /**
-   * מציגה dialog אישור ואז מתנתקת.
-   * setUser(null) מנקה את AppContext, AsyncStorage (token + user) ומחזירה למסך הכניסה.
-   * [שרת] אין קריאה לשרת — ההתנתקות היא מקומית בלבד.
+   * Shows a confirmation dialog then logs out.
+   * setUser(null) clears AppContext, AsyncStorage (token + user), and returns to the login screen.
+   * [server] No server call — logout is local only.
    */
   async function handleLogout() {
     Alert.alert(
@@ -46,10 +46,10 @@ export default function SettingsScreen() {
   }
 
   /**
-   * מציגה dialog אישור ואז מסתירה את היסטוריית הנסיעות.
-   * המחיקה היא לוגית בלבד — מעדכנת lastClearedHistory בתאריך עכשיו,
-   * והנסיעות הישנות יסוננו ב-AppContext (filteredTrips).
-   * [שרת] אין קריאה לשרת — הנסיעות לא נמחקות מבסיס הנתונים.
+   * Shows a confirmation dialog then hides trip history.
+   * The deletion is logical only — sets lastClearedHistory to now,
+   * and older trips are filtered out in AppContext (filteredTrips).
+   * [server] No server call — trips are not removed from the database.
    */
   const handleClearHistory = () => {
     Alert.alert(
@@ -72,58 +72,32 @@ export default function SettingsScreen() {
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name={lang === 'he' ? 'arrow-forward' : 'arrow-back'} size={28} color="#fff" />
+      <View style={COMMON_STYLES.screenHeader}>
+        <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
+          <Ionicons name={lang === 'he' ? 'arrow-forward' : 'arrow-back'} size={28} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>{t('profile.settings')}</Text>
+        <Text style={COMMON_STYLES.screenHeaderTitle}>{t('profile.settings')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
 
-          {/* Privacy Section */}
-          <View>
-            <Text style={styles.sectionLabel}>🔒 {t('profile.privacy') || 'פרטיות'}</Text>
-            <Card style={styles.settingCard}>
-              <Text style={styles.settingDescription}>
-                {t('profile.privacyDesc') || 'חשבון פרטי: עוקבים חדשים יצטרכו לקבל אישור לפני שיוכלו לראות אותך בטבלת הדירוג.'}
-              </Text>
-              <View style={styles.row}>
-                <Text style={styles.statusText}>
-                  {user.isPrivate ? `🔒 ${t('profile.private') || 'פרטי'}` : `🌐 ${t('profile.public') || 'ציבורי'}`}
-                </Text>
-                <Button
-                  size="sm"
-                  variant={user.isPrivate ? 'primary' : 'outline'}
-                  onPress={async () => {
-                    const next = !user.isPrivate;
-                    await setUser({ ...user, isPrivate: next });
-                    try {
-                      await userApi.updateProfile({ isPrivate: next });
-                    } catch {
-                      await setUser({ ...user, isPrivate: !next }); // revert on failure
-                    }
-                  }}
-                >
-                  {user.isPrivate ? t('profile.makePublic') || 'הפוך לציבורי' : t('profile.makePrivate') || 'הפוך לפרטי'}
-                </Button>
-              </View>
-            </Card>
-          </View>
-
           {/* Drive Mode Section */}
           <View>
-            <Text style={styles.sectionLabel}>🚗 {t('profile.driveMode')}</Text>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.trips} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.driveMode')}</Text>
+            </View>
             <Card style={styles.settingCard}>
               <Text style={styles.settingDescription}>
                 {t('profile.driveModeDesc')}
               </Text>
 
               <View style={styles.row}>
-                <Text style={styles.statusText}>
-                  {user.driveModeEnabled ? `✅ ${t('profile.active')}` : `❌ ${t('profile.inactive')}`}
-                </Text>
+                <View style={styles.statusRow}>
+                  <Ionicons name={user.driveModeEnabled ? ICONS.active : ICONS.inactive} size={14} color={user.driveModeEnabled ? COLORS.success : COLORS.danger} />
+                  <Text style={styles.statusText}>{user.driveModeEnabled ? t('profile.active') : t('profile.inactive')}</Text>
+                </View>
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
@@ -152,7 +126,10 @@ export default function SettingsScreen() {
 
           {/* Language Section */}
           <View>
-            <Text style={styles.sectionLabel}>🌐 {t('profile.language')}</Text>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.globe} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.language')}</Text>
+            </View>
             <Card style={styles.settingCard}>
               <View style={styles.langRow}>
                 {(['he', 'en'] as const).map(l => (
@@ -172,7 +149,10 @@ export default function SettingsScreen() {
 
           {/* Data Management Section */}
           <View>
-            <Text style={styles.sectionLabel}>⚙️ {t('profile.dataManagement')}</Text>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.settings} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.dataManagement')}</Text>
+            </View>
             <Card style={styles.settingCard}>
               <TouchableOpacity style={styles.actionRow} onPress={handleClearHistory}>
                 <Text style={styles.actionTextDanger}>{t('profile.clearHistory')}</Text>
@@ -183,7 +163,7 @@ export default function SettingsScreen() {
 
           {/* Logout Section */}
           <Button variant="danger" fullWidth onPress={handleLogout} style={styles.logoutBtn}>
-            🚪 {t('auth.logout')}
+            {t('auth.logout')}
           </Button>
 
           <Text style={styles.versionText}>{t('profile.version')} 1.0.0 (5.3.1)</Text>
@@ -194,15 +174,12 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: '#222' },
-  backBtn: { marginEnd: 15 },
-  title: { ...TYPOGRAPHY.h2, flex: 1, textAlign: 'left' },
   content: { padding: SPACING.lg },
-  sectionLabel: { ...TYPOGRAPHY.label, color: COLORS.textMuted, marginBottom: 8, marginStart: 4 },
-  settingCard: { backgroundColor: 'rgba(255,255,255,0.03)', padding: 16 },
+  statusRow:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  settingCard: { backgroundColor: COLORS.card, padding: 16 },
   settingDescription: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 16, lineHeight: 18, textAlign: 'left' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statusText: { color: '#fff', fontWeight: '700' },
+  statusText: { color: COLORS.text, fontWeight: '700' },
   linkButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -210,7 +210,7 @@ async def run() -> None:
                 description_he=r["desc"],
                 category=r["cat"],
                 cost_points=r["cost"],
-                image_emoji=r["emoji"],
+                image_icon=r.get("icon", "gift-outline"),
                 stock=100,
                 is_active=True,
             )

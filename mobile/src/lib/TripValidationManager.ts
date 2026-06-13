@@ -1,7 +1,7 @@
 import { ValidationState, TransportMode, ValidationSample } from '@/lib/driving-sdk/types';
 import { FraudDetector, FraudEvaluation, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
 
-// ─── Thresholds (Appendix E — נספח ה') ───────────────────────────────────────
+// ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
 const START_THRESHOLD_MS     = 30_000;   // Rule 1: 30s continuous > 10 km/h
 const END_THRESHOLD_MS       = 180_000;  // Rule 2: 3 min continuous < 10 km/h

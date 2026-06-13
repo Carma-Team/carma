@@ -40,6 +40,9 @@ class SaveTripIn(CamelModel):
     events: list[dict[str, Any]] | None = Field(
         default=None, validation_alias=AliasChoices("events", "eventsArray", "events_array")
     )
+    route_waypoints: list[dict[str, Any]] | None = Field(
+        default=None, validation_alias=AliasChoices("routeWaypoints", "route_waypoints")
+    )
     start_location: str | None = None
     end_location: str | None = None
     ai_insight: str | None = None
@@ -101,9 +104,22 @@ class TripOut(CamelModel):
         )
 
 
+class TripDetailOut(TripOut):
+    """Extended trip shape for GET /api/trips/:id — includes the GPS route track."""
+
+    route_waypoints: list[dict[str, Any]] | None = None
+
+    @classmethod
+    def from_orm_trip_detail(cls, trip: Any) -> TripDetailOut:
+        base = TripOut.from_orm_trip(trip)
+        return cls.model_validate(
+            {**base.model_dump(), "route_waypoints": trip.route_waypoints}
+        )
+
+
 class TripList(CamelModel):
     trips: list[TripOut]
 
 
 class TripSingle(CamelModel):
-    trip: TripOut
+    trip: TripDetailOut

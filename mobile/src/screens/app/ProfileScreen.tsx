@@ -7,17 +7,19 @@ import { AchievementsTab } from '@/components/social/AchievementsTab'
 import { TripHistoryTab } from '@/components/social/TripHistoryTab'
 import { NotificationsTab } from '@/components/social/NotificationsTab'
 import { ProfileSectionTabs, Section } from '@/components/social/ProfileSectionTabs'
+import { FriendRequestsTab } from '@/components/social/FriendRequestsTab'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { tripsApi } from '@/services/api/trips.api'
 import { userApi } from '@/services/api/user.api'
 import { COMMON_STYLES } from '@/constants/theme'
+import { ICONS, type IoniconName } from '@/constants/icons'
 import type { DrivingStats, Trip } from '@/types'
 
 /**
- * מסך פרופיל המשתמש.
- * כולל 4 טאבים: הישגים, גרף ציונים, היסטוריית נסיעות, התראות.
- * כל טאב נטען בפעם הראשונה שנכנסים אליו (lazy loading).
+ * User profile screen.
+ * Contains 4 tabs: achievements, score chart, trip history, notifications.
+ * Each tab is loaded lazily on first visit.
  */
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets()
@@ -29,15 +31,15 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(false)
 
   /**
-   * טוען נתונים לפי הטאב הפעיל — רק בפעם הראשונה (לא טוען שוב אם כבר יש נתונים).
+   * Loads data for the active tab on first visit — does not reload if data already exists.
    *
-   * [שרת] userApi.stats() → GET /api/user/stats — עבור טאב הישגים וגרף:
-   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר MOCK_STATS / MOCK_DRIVER_STATS
-   *   - USE_REAL_SERVER=true  → GET /api/user/stats לשרת האמיתי של נווה
+   * [server] userApi.stats() → GET /api/user/stats — for stats and chart tab:
+   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_STATS / MOCK_DRIVER_STATS
+   *   - USE_REAL_SERVER=true  → GET /api/user/stats on the real server
    *
-   * [שרת] tripsApi.list(20) → GET /api/trips — עבור טאב נסיעות וגרף:
-   *   - USE_REAL_SERVER=false → מיורט ב-client.ts, מחזיר MOCK_TRIPS
-   *   - USE_REAL_SERVER=true  → GET /api/trips לשרת האמיתי של נווה
+   * [server] tripsApi.list(20) → GET /api/trips — for trips and chart tab:
+   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_TRIPS
+   *   - USE_REAL_SERVER=true  → GET /api/trips on the real server
    */
   useEffect(() => {
     if (section === 'stats' && !stats) {
@@ -58,11 +60,12 @@ export default function ProfileScreen() {
 
   if (!user) return null
 
-  const sectionTabs: { key: Section; label: string; emoji: string }[] = [
-    { key: 'stats',    label: t('profile.achievements') || 'הישגים', emoji: '🏆' },
-    { key: 'chart',    label: t('profile.chart') || 'סטטיסטיקות',  emoji: '📈' },
-    { key: 'trips',    label: t('profile.tripHistory'), emoji: '🚗' },
-    { key: 'notifications', label: t('profile.notifications') || 'הודעות', emoji: '🔔' },
+  const sectionTabs: { key: Section; label: string; icon: IoniconName }[] = [
+    { key: 'stats',          label: t('profile.achievements') || 'הישגים',          icon: ICONS.achievements },
+    { key: 'chart',          label: t('profile.chart') || 'סטטיסטיקות',             icon: ICONS.chart },
+    { key: 'trips',          label: t('profile.tripHistory'),                        icon: ICONS.trips },
+    { key: 'notifications',  label: t('profile.notifications') || 'הודעות',          icon: ICONS.notifications },
+    { key: 'friendRequests', label: t('profile.friendRequests') || 'בקשות חברות',   icon: 'people-outline' },
   ]
 
   return (
@@ -93,6 +96,10 @@ export default function ProfileScreen() {
 
         {section === 'notifications' && (
           <NotificationsTab />
+        )}
+
+        {section === 'friendRequests' && (
+          <FriendRequestsTab />
         )}
       </ScrollView>
     </View>

@@ -60,6 +60,7 @@ function serializeUser(u) {
     language:         u.language   ?? 'he',
     age:              u.age        ?? null,
     city:             u.city       ?? null,
+    country:          u.country    ?? null,
     licenseYear:      u.license_year ?? null,
     points:           u.points       ?? 0,
     totalPoints:      u.total_points ?? 0,
@@ -104,7 +105,7 @@ function serializeReward(r) {
     descriptionEn: r.description_en  ?? null,
     category:      r.category,
     costPoints:    r.cost_points,
-    imageEmoji:    r.image_emoji,
+    imageIcon:     r.image_icon,
     isActive:      r.is_active,
     stock:         r.stock,
     expiresAt:     r.expiry_date     ?? null,
@@ -427,29 +428,195 @@ app.get('/api/vouchers', requireAuth, (req, res) => {
   res.json({ vouchers });
 });
 
+// ─── User search by phone ─────────────────────────────────────────────────────
+
+app.get('/api/users/search', requireAuth, (req, res) => {
+  const { phone } = req.query;
+  if (!phone) return res.status(400).json({ detail: 'phone query param required' });
+  const db    = readDb();
+  const found = db.users.find(u => u.phone === phone && u.id !== req.currentUser.id);
+  if (!found) return res.status(404).json({ detail: 'User not found' });
+  res.json({ user: { id: found.id, name: found.name, city: found.city ?? null } });
+});
+
+app.post('/api/users/:id/friend-request', requireAuth, (req, res) => {
+  const db       = readDb();
+  const fromId   = req.currentUser.id;
+  const toId     = req.params.id;
+  const target   = db.users.find(u => u.id === toId);
+  if (!target) return res.status(404).json({ detail: 'User not found' });
+  if (fromId === toId) return res.status(400).json({ detail: 'Cannot add yourself' });
+
+  if (!db.friend_requests) db.friend_requests = [];
+  // Avoid duplicates
+  const existing = db.friend_requests.find(
+    r => r.from_user_id === fromId && r.to_user_id === toId && r.status === 'pending'
+  );
+  if (existing) return res.json({ status: 'pending', id: existing.id });
+
+  const newReq = {
+    id:           `fr-${Date.now()}`,
+    from_user_id: fromId,
+    to_user_id:   toId,
+    status:       'pending',
+    created_at:   new Date().toISOString(),
+  };
+  db.friend_requests.push(newReq);
+  writeDb(db);
+  res.json({ status: 'pending', id: newReq.id });
+});
+
+// Cancel a pending friend request sent TO user :id
+app.delete('/api/users/:id/friend-request', requireAuth, (req, res) => {
+  const db   = readDb();
+  const fromId = req.currentUser.id;
+  const toId   = req.params.id;
+  if (!db.friend_requests) db.friend_requests = [];
+  const idx = db.friend_requests.findIndex(
+    r => r.from_user_id === fromId && r.to_user_id === toId && r.status === 'pending'
+  );
+  if (idx < 0) return res.status(404).json({ detail: 'No pending request found' });
+  db.friend_requests.splice(idx, 1);
+  writeDb(db);
+  res.json({ status: 'none' });
+});
+
+// ─── Friend Requests ──────────────────────────────────────────────────────────
+
+// Get incoming pending friend requests for the current user
+app.get('/api/friend-requests', requireAuth, (req, res) => {
+  const db      = readDb();
+  const userId  = req.currentUser.id;
+  const pending = (db.friend_requests || []).filter(
+    r => r.to_user_id === userId && r.status === 'pending'
+  );
+  const requests = pending.map(r => {
+    const sender = db.users.find(u => u.id === r.from_user_id);
+    return {
+      id:            r.id,
+      fromUserId:    r.from_user_id,
+      fromUserName:  sender?.name  ?? '—',
+      fromUserLevel: sender?.level ?? 1,
+      fromUserCity:  sender?.city  ?? null,
+      createdAt:     r.created_at,
+    };
+  });
+  res.json({ requests });
+});
+
+// Accept a friend request
+app.post('/api/friend-requests/:id/accept', requireAuth, (req, res) => {
+  const db  = readDb();
+  if (!db.friend_requests) db.friend_requests = [];
+  const req_ = db.friend_requests.find(
+    r => r.id === req.params.id && r.to_user_id === req.currentUser.id
+  );
+  if (!req_) return res.status(404).json({ detail: 'Request not found' });
+  req_.status = 'accepted';
+  writeDb(db);
+  res.json({ status: 'accepted' });
+});
+
+// Reject (or cancel) a friend request by its ID
+app.delete('/api/friend-requests/:id', requireAuth, (req, res) => {
+  const db = readDb();
+  if (!db.friend_requests) db.friend_requests = [];
+  const idx = db.friend_requests.findIndex(
+    r => r.id === req.params.id &&
+         (r.to_user_id === req.currentUser.id || r.from_user_id === req.currentUser.id)
+  );
+  if (idx < 0) return res.status(404).json({ detail: 'Request not found' });
+  db.friend_requests.splice(idx, 1);
+  writeDb(db);
+  res.status(204).send();
+});
+
+// Remove an accepted friendship (both directions). Either party can re-add afterward.
+app.delete('/api/friends/:userId', requireAuth, (req, res) => {
+  const db        = readDb();
+  const currentId = req.currentUser.id;
+  const otherId   = req.params.userId;
+  if (!db.friend_requests) db.friend_requests = [];
+
+  const before = db.friend_requests.length;
+  db.friend_requests = db.friend_requests.filter(r =>
+    !(r.status === 'accepted' && (
+      (r.from_user_id === currentId && r.to_user_id === otherId) ||
+      (r.from_user_id === otherId   && r.to_user_id === currentId)
+    ))
+  );
+  if (db.friend_requests.length === before) {
+    return res.status(404).json({ detail: 'Friendship not found' });
+  }
+  writeDb(db);
+  res.status(204).send();
+});
+
 // ─── Leaderboard ──────────────────────────────────────────────────────────────
+
+// Returns all unique countries and cities (per country) that exist in the DB
+app.get('/api/leaderboard/locations', requireAuth, (req, res) => {
+  const db    = readDb();
+  const users = db.users.filter(u => u.role === 'driver' || u.role === 'admin');
+  const citiesByCountry = {};
+  for (const u of users) {
+    const country = u.country || 'ישראל';
+    if (!citiesByCountry[country]) citiesByCountry[country] = new Set();
+    if (u.city) citiesByCountry[country].add(u.city);
+  }
+  // Convert Sets to sorted arrays
+  const result = {};
+  for (const [country, cities] of Object.entries(citiesByCountry)) {
+    result[country] = [...cities].sort();
+  }
+  res.json({ citiesByCountry: result, countries: Object.keys(result).sort() });
+});
 
 app.get('/api/leaderboard', requireAuth, (req, res) => {
   const db          = readDb();
   const type        = req.query.type || 'national';
+  const filterCity    = req.query.city    || null;
+  const filterCountry = req.query.country || null;
   const currentUser = req.currentUser;
 
   let pool = db.users.filter(u => u.role === 'driver' || u.role === 'admin');
 
-  if (type === 'city' && currentUser.city) {
-    pool = pool.filter(u => u.city === currentUser.city);
+  if (type === 'city') {
+    const city = filterCity || currentUser.city;
+    if (city) pool = pool.filter(u => u.city === city);
+  } else if (type === 'national') {
+    const country = filterCountry || currentUser.country || 'ישראל';
+    pool = pool.filter(u => (u.country || 'ישראל') === country);
   } else if (type === 'friends') {
-    pool = pool.filter(u => u.id === currentUser.id);
+    const reqs = db.friend_requests || [];
+    const friendIds = new Set(
+      reqs
+        .filter(r => r.status === 'accepted' &&
+          (r.from_user_id === currentUser.id || r.to_user_id === currentUser.id))
+        .map(r => r.from_user_id === currentUser.id ? r.to_user_id : r.from_user_id)
+    );
+    pool = pool.filter(u => friendIds.has(u.id));
+  }
+
+  const requests = db.friend_requests || [];
+
+  function friendStatusFor(targetId) {
+    const sent = requests.find(r => r.from_user_id === currentUser.id && r.to_user_id === targetId);
+    if (sent) return sent.status === 'accepted' ? 'accepted' : 'pending';
+    const received = requests.find(r => r.from_user_id === targetId && r.to_user_id === currentUser.id && r.status === 'accepted');
+    if (received) return 'accepted';
+    return 'none';
   }
 
   const entries = [...pool]
     .sort((a, b) => (b.total_points || 0) - (a.total_points || 0))
     .map((u, i) => ({
-      id:     `lb-${u.id}`,
-      userId: u.id,
-      rank:   i + 1,
-      score:  u.total_points || 0,
-      user:   { id: u.id, name: u.name, city: u.city ?? null, level: u.level ?? 1 },
+      id:           `lb-${u.id}`,
+      userId:       u.id,
+      rank:         i + 1,
+      score:        u.total_points || 0,
+      user:         { id: u.id, name: u.name, city: u.city ?? null, level: u.level ?? 1 },
+      followStatus: friendStatusFor(u.id),
     }));
 
   res.json({ entries, currentUserId: currentUser.id });
@@ -484,7 +651,7 @@ app.post('/api/business/rewards', requireAuth, (req, res) => {
   const businessId = req.currentUser.business_id;
   if (!businessId) return res.status(403).json({ detail: 'Not a business user' });
   const bizName  = (db.businesses.find(b => b.id === businessId) || {}).name || '';
-  const { titleHe, descriptionHe, costPoints, imageEmoji, category, stock, isActive, expiresAt } = req.body || {};
+  const { titleHe, descriptionHe, costPoints, imageIcon, category, stock, isActive, expiresAt } = req.body || {};
   const newReward = {
     id:            `r-${Date.now()}`,
     business_id:   businessId,
@@ -492,7 +659,7 @@ app.post('/api/business/rewards', requireAuth, (req, res) => {
     title:         titleHe,
     description:   descriptionHe,
     cost_points:   Number(costPoints) || 0,
-    image_emoji:   imageEmoji  || '🎁',
+    image_icon:    imageIcon   || 'gift-outline',
     category:      category    || 'other',
     is_active:     isActive    !== undefined ? isActive : true,
     stock:         Number(stock) || 100,
@@ -509,11 +676,11 @@ app.patch('/api/business/rewards/:id', requireAuth, (req, res) => {
   const idx = db.rewards.findIndex(r => r.id === req.params.id && r.business_id === businessId);
   if (idx < 0) return res.status(404).json({ detail: 'Reward not found' });
   const r = db.rewards[idx];
-  const { titleHe, descriptionHe, costPoints, imageEmoji, category, stock, isActive, expiresAt } = req.body || {};
+  const { titleHe, descriptionHe, costPoints, imageIcon, category, stock, isActive, expiresAt } = req.body || {};
   if (titleHe       !== undefined) r.title        = titleHe;
   if (descriptionHe !== undefined) r.description  = descriptionHe;
   if (costPoints    !== undefined) r.cost_points  = Number(costPoints);
-  if (imageEmoji    !== undefined) r.image_emoji  = imageEmoji;
+  if (imageIcon     !== undefined) r.image_icon   = imageIcon;
   if (category      !== undefined) r.category     = category;
   if (stock         !== undefined) r.stock        = Number(stock);
   if (isActive      !== undefined) r.is_active    = isActive;

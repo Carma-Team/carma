@@ -1,12 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { Card } from '@/components/ui/Card';
 import { COLORS, TYPOGRAPHY } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
 
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
 export interface TripEventItem {
   label: string;
-  emoji: string;
+  icon: IoniconName;
   value: number | string;
   bad: boolean;
 }
@@ -24,7 +28,12 @@ export function TripEventsList({ events }: TripEventsListProps) {
       <Card>
         {events.map((ev, i) => (
           <View key={ev.label} style={[styles.eventRow, i < events.length - 1 && styles.eventDivider]}>
-            <Text style={styles.eventEmoji}>{ev.emoji}</Text>
+            <Ionicons
+              name={ev.icon}
+              size={20}
+              color={ev.bad ? COLORS.danger : COLORS.textMuted}
+              style={styles.eventIcon}
+            />
             <Text style={styles.eventLabel}>{ev.label}</Text>
             <Text style={[styles.eventValue, { color: ev.bad ? COLORS.danger : COLORS.success }]}>
               {ev.value}
@@ -37,11 +46,11 @@ export function TripEventsList({ events }: TripEventsListProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { marginTop: 16 },
+  container:    { marginTop: 16 },
   sectionTitle: { ...TYPOGRAPHY.h3, marginBottom: 8 },
-  eventRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 },
+  eventRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 },
   eventDivider: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  eventEmoji: { fontSize: 20, width: 28 },
-  eventLabel: { flex: 1, color: COLORS.textMuted, fontSize: 14 },
-  eventValue: { fontSize: 15, fontWeight: '700' },
+  eventIcon:    { width: 28 },
+  eventLabel:   { flex: 1, color: COLORS.textMuted, fontSize: 14 },
+  eventValue:   { fontSize: 15, fontWeight: '700' },
 });
