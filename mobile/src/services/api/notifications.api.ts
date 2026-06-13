@@ -1,12 +1,12 @@
 /**
- * @fileoverview API להתראות ועדכונים
+ * @fileoverview Notifications API
  * @module services/api/notifications
  *
  * @description
- * - `list` — שליפת רשימת ההתראות של המשתמש
+ * - `list` — fetch the user's notification list
  *
  * @server
- * - GET /api/notifications — USE_REAL_SERVER=false → mock (רשימה ריקה מהשרת המקומי); true → שרת נווה
+ * - GET /api/notifications — USE_REAL_SERVER=false → mock (empty list from local server); true → real server
  */
 import { request } from './client';
 import type { Notification } from '@/types';

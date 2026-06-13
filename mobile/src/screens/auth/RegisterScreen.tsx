@@ -5,11 +5,13 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Ionicons } from '@expo/vector-icons'
 import { Button }   from '@/components/ui/Button'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
+import { ICONS } from '@/constants/icons'
 
 interface FormState {
   name:        string
@@ -32,22 +34,22 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
 
-  /** מעדכן שדה בודד בטופס הרישום מבלי לאפס את שאר השדות. */
+  /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
   /**
-   * שולחת בקשת רישום משתמש חדש.
-   * מבצעת ולידציה מקומית לפני שליחה.
+   * Submits a new user registration request.
+   * Runs local validation before sending.
    *
-   * [שרת] authApi.register — אין mock interceptor לרישום.
-   * תמיד שולח POST /api/auth/register:
-   *   - USE_REAL_SERVER=false → לשרת המקומי (carma-local-server, db.json)
-   *   - USE_REAL_SERVER=true  → לשרת האמיתי של נווה
+   * [server] authApi.register — no mock interceptor for registration.
+   * Always sends POST /api/auth/register:
+   *   - USE_REAL_SERVER=false → local server (carma-local-server, db.json)
+   *   - USE_REAL_SERVER=true  → real server
    *
-   * לאחר הצלחה: קורא ל-loginUser (AppContext) שמטפל בשמירת token וסנכרון נסיעות,
-   * ומציג toast ברוך הבא. הניתוב לטאבים מתבצע אוטומטית ע"י ה-Layout.
+   * On success: calls loginUser (AppContext) which handles token storage and trip sync,
+   * then shows a welcome toast. Navigation to tabs happens automatically via the root Layout.
    */
   async function handleRegister() {
     if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
@@ -69,7 +71,7 @@ export default function RegisterScreen() {
       await loginUser(data)
       const firstName = data.user?.name?.split(' ')[0] ?? 'משתמש'
       addToast({ type: 'success', message: `ברוך הבא, ${firstName}! 🎉` })
-      // אין צורך ב-router.replace, ה-Layout הראשי יזהה את המשתמש ויעביר לטאבים
+      // No need for router.replace — the root Layout detects the logged-in user and redirects to tabs
     } catch (e: any) {
       setError(e.message || t('auth.errors.emailExists'))
     } finally {
@@ -91,7 +93,7 @@ export default function RegisterScreen() {
     <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
-          <Text style={styles.logoIcon}>🚗</Text>
+          <Ionicons name={ICONS.car} size={48} color={COLORS.brand} style={{ marginBottom: 6 }} />
           <Text style={styles.logoTitle}>CARMA</Text>
           <Text style={styles.logoTagline}>{t('app.tagline')}</Text>
         </View>
@@ -99,8 +101,8 @@ export default function RegisterScreen() {
         <Text style={styles.heading}>{t('auth.register')}</Text>
 
         {error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={COMMON_STYLES.errorBox}>
+            <Text style={COMMON_STYLES.errorText}>{error}</Text>
           </View>
         ) : null}
 
@@ -111,7 +113,7 @@ export default function RegisterScreen() {
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
             <TextInput
-              style={styles.input}
+              style={COMMON_STYLES.input}
               value={form[field.key]}
               onChangeText={v => update(field.key, v)}
               placeholder={field.placeholder}
@@ -142,15 +144,12 @@ const styles = StyleSheet.create({
   inner:    { flexGrow: 1, padding: SPACING.lg, paddingBottom: 40 },
   logo:     { alignItems: 'center', marginBottom: 32, marginTop: 16 },
   logoIcon: { fontSize: 48, marginBottom: 6 },
-  logoTitle:{ color: '#fff', fontSize: 30, fontWeight: '900' },
+  logoTitle:{ color: COLORS.text, fontSize: 30, fontWeight: '900' },
   logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
   heading:  { ...TYPOGRAPHY.h2, marginBottom: 20, textAlign: 'center' },
-  errorBox: { backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
-  errorText:{ color: COLORS.danger, fontSize: 13, textAlign: 'center' },
   field:    { marginBottom: 14 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
-  input:    { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, color: '#fff', fontSize: 15 },
   btn:      { marginTop: 8 },
   link:     { marginTop: 20, alignItems: 'center' },
   linkText: { ...TYPOGRAPHY.caption, fontSize: 14 },

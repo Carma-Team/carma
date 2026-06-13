@@ -16,7 +16,7 @@ class RewardOut(CamelModel):
     description_en: str | None
     category: str
     cost_points: int
-    image_emoji: str
+    image_icon: str
     is_active: bool
     stock: int
     expires_at: datetime | None
@@ -34,7 +34,7 @@ class RewardOut(CamelModel):
                 "description_en": reward.description_en,
                 "category": reward.category.value.lower(),
                 "cost_points": reward.cost_points,
-                "image_emoji": reward.image_emoji,
+                "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
                 "stock": reward.stock,
                 "expires_at": reward.expires_at,

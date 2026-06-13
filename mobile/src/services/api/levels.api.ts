@@ -1,12 +1,12 @@
 /**
- * @fileoverview API לטעינת הגדרות רמות
+ * @fileoverview Levels configuration API
  * @module services/api/levels
  *
  * @description
- * - `list` — שליפת כל הגדרות הרמות (שמות, סף נקודות, צבע, אייקון, הטבות)
+ * - `list` — fetch all level configurations (names, point thresholds, color, icon, perks)
  *
  * @server
- * - GET /api/levels — מחזיר את טבלת ה-levels מ-db.json
+ * - GET /api/levels — returns the levels table from db.json
  */
 import { request } from './client';
 import type { LevelConfig } from '@/types';

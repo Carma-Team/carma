@@ -179,7 +179,7 @@ One file per backend resource.
 
 | File | Backend route group |
 |---|---|
-| `client.ts` | Axios instance + mock intercept switch (`USE_REAL_SERVER`) |
+| `client.ts` | Native `fetch` wrapper — attaches auth token, handles HTTP errors, switches between mock and real server via `USE_REAL_SERVER` flag in `constants/serverConfig.ts` |
 | `auth.api.ts` | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
 | `trips.api.ts` | `GET /api/trips`, `POST /api/trips` |
 | `fraud.api.ts` | `POST /api/trips/invalid` |
@@ -189,11 +189,13 @@ One file per backend resource.
 | `business.api.ts` | Business-portal endpoints |
 | `user.api.ts` | `GET /api/users/:id`, `PATCH /api/users/:id` |
 | `notifications.api.ts` | Push notification registration |
+| `friends.api.ts` | `GET /api/friend-requests`, `POST /api/friend-requests/:id/accept`, `DELETE /api/friend-requests/:id`, `DELETE /api/friends/:userId` |
+| `health.api.ts` | `GET /health/live` — liveness ping, no auth. Use `pingServer()` to check if the server is reachable before showing an error toast. |
 
 **Rules:**
 - Functions return typed response objects — no raw `any`.
 - No business decisions here. If response data needs transformation, do it in `lib/` or `context/`.
-- Mock data for `USE_REAL_SERVER=false` lives inside `client.ts` interceptors, not scattered across files.
+- The server URL is controlled exclusively by `constants/serverConfig.ts` — never hardcode URLs in api files.
 
 ### `services/sync/`
 
@@ -209,6 +211,6 @@ One file per backend resource.
 TypeScript types shared between the mobile app and the backend.
 
 **Rules:**
-- Generated from the FastAPI OpenAPI schema via `npm run gen:api` (uses `openapi-typescript`).
-- **Do not edit manually.** Any change to a server schema must be followed by `gen:api` and a type check.
+- Ideally generated from the FastAPI OpenAPI schema via `npm run gen:api` (uses `openapi-typescript`).
+- Manual edits are permitted when the generator output is insufficient (e.g. adding optional fields that are disabled in the current build, or fixing a drift between server schema and app state shape). Document any manual addition with a short comment.
 - App-only types (e.g. UI state shapes) belong in the file that uses them, or in `context/` if they are part of global state.

@@ -1,15 +1,15 @@
 /**
- * @fileoverview פונקציות עזר כלליות לפורמט תצוגה
+ * @fileoverview General display formatting utilities
  * @module lib/utils
  *
  * @description
- * פונקציות pure לפורמט נתונים לתצוגה בממשק:
- * - `formatPoints` / `formatDistance` / `formatDuration` / `formatScore` — פורמט מספרים
- * - `formatDate` / `formatTime` / `formatRelativeTime` — פורמט תאריכים (עברית/אנגלית)
- * - `scoreToEmoji` / `levelToEmoji` — המרה לאמוג'י
- * - `truncate` / `clamp` / `sleep` — כלי עזר כלליים
+ * Pure functions for formatting data for UI display:
+ * - `formatPoints` / `formatDistance` / `formatDuration` / `formatScore` — number formatting
+ * - `formatDate` / `formatTime` / `formatRelativeTime` — date formatting (Hebrew/English)
+ * - `scoreToIcon` / `levelToIcon` — score/level to icon mapping
+ * - `truncate` / `clamp` / `sleep` — general utilities
  *
- * @remarks ללא קריאות שרת — פונקציות מקומיות בלבד.
+ * @remarks No server calls — local functions only.
  */
 export function formatPoints(points: number, lang: 'he' | 'en' = 'he'): string {
   const rounded = Math.round(points)
@@ -70,16 +70,27 @@ export function formatRelativeTime(dateStr: string, lang: 'he' | 'en' = 'he'): s
   return formatDate(dateStr, 'en')
 }
 
-export function scoreToEmoji(score: number): string {
-  if (score >= 90) return '🌟'
-  if (score >= 75) return '😊'
-  if (score >= 55) return '😐'
-  return '😟'
+export function scoreToIcon(score: number): string {
+  if (score >= 90) return 'star'
+  if (score >= 75) return 'checkmark-circle'
+  if (score >= 55) return 'alert-circle'
+  return 'close-circle'
 }
 
-export function levelToEmoji(level: number): string {
-  const emojis = ['🌱', '🚗', '⭐', '🛡️', '🏅', '💎', '🌟', '🏆', '⚡', '👑']
-  return emojis[Math.min(level - 1, emojis.length - 1)]
+export function levelToIcon(level: number): string {
+  const icons = [
+    'leaf-outline',             // 1 — beginner
+    'compass-outline',          // 2 — finding your way
+    'aperture-outline',         // 3 — developing precision
+    'flash-outline',            // 4 — gaining energy
+    'shield-checkmark-outline', // 5 — safety aware
+    'flame-outline',            // 6 — on fire
+    'star-outline',             // 7 — rising star
+    'diamond-outline',          // 8 — elite
+    'trophy-outline',           // 9 — champion
+    'ribbon-outline',           // 10 — legend
+  ]
+  return icons[Math.min(level - 1, icons.length - 1)]
 }
 
 export function truncate(str: string, maxLen: number): string {
@@ -93,4 +104,12 @@ export function clamp(value: number, min: number, max: number): number {
 
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Returns the correctly localised string from a bilingual server object.
+ * Used for voucher titles, level names, categories, and any object with titleHe/titleEn fields.
+ */
+export function localize(he: string, en: string | null | undefined, lang: string): string {
+  return lang === 'he' ? he : (en || he)
 }

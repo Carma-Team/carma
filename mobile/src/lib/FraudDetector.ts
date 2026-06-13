@@ -1,6 +1,6 @@
 import { TransportMode } from '@/lib/driving-sdk/types';
 
-// ─── Thresholds (Appendix E — נספח ה', Rule 3) ───────────────────────────────
+// ─── Thresholds (Appendix E, Rule 3) ─────────────────────────────────────────
 const WINDOW_SIZE = 60;
 const MIN_SAMPLES_TO_EVALUATE = 30; // enough to evaluate at Rule 1 boundary (30s)
 

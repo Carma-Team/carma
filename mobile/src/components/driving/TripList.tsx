@@ -1,10 +1,12 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Card } from '@/components/ui/Card';
 import { TripCard } from './TripCard';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, COMMON_STYLES, SPACING } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 import type { Trip } from '@/types';
 
 interface TripListProps {
@@ -25,7 +27,7 @@ export function TripList({ trips, loading, emptyText, maxItems }: TripListProps)
   if (trips.length === 0) {
     return (
       <Card style={COMMON_STYLES.emptyState}>
-        <Text style={COMMON_STYLES.emptyIcon}>🛣️</Text>
+        <Ionicons name={ICONS.noTrips} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
         <Text style={COMMON_STYLES.emptyText}>{emptyText || t('dashboard.noTrips')}</Text>
       </Card>
     );

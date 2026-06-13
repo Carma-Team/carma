@@ -1,13 +1,13 @@
 /**
- * @fileoverview Hook גישה מהירה לנסיעה — useTrip
+ * @fileoverview Lightweight trip access hook — useTrip
  * @module hooks/useTrip
  *
  * @description
- * Proxy קל ל-AppContext שחושף רק את שדות הנסיעה:
+ * Thin proxy over AppContext that exposes only the trip-related fields:
  * `state` (TripState), `startTrip`, `endTrip`.
- * כל הלוגיקה האמיתית נמצאת ב-AppContext.processEndTrip.
+ * All real logic lives in AppContext.processEndTrip.
  *
- * @remarks ללא קריאות שרת ישירות — ראה AppContext לשמירת נסיעה.
+ * @remarks No direct server calls — see AppContext for trip persistence.
  */
 import { useApp } from '@/context/AppContext';
 export function useTrip() {

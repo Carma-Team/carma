@@ -23,7 +23,7 @@ const variantStyle: Record<Variant, ViewStyle & { color?: string }> = {
   primary:   { backgroundColor: COLORS.brand },
   secondary: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   ghost:     { backgroundColor: 'transparent' },
-  danger:    { backgroundColor: '#dc2626' },
+  danger:    { backgroundColor: COLORS.danger },
   outline:   { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.brand },
 }
 
@@ -70,6 +70,7 @@ export function Button({
               styles.text,
               sStyle.text,
               fullWidth && { flex: 1 },
+              (variant === 'primary' || variant === 'danger') && { color: '#ffffff' },
               variant === 'outline' && { color: COLORS.brand },
               textStyle
             ]}
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
   base:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   fullWidth: { width: '100%' },
   disabled:  { opacity: 0.5 },
-  text:      { color: '#fff', fontWeight: '600', textAlign: 'center' },
+  text:      { color: COLORS.text, fontWeight: '600', textAlign: 'center' },
 })
 
 export default Button

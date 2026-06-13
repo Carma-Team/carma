@@ -1,10 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 import { scoreToColor } from '@/lib/scoring';
+import { formatDuration, formatDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
+
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 interface TripSummaryModalProps {
   visible: boolean;
@@ -13,6 +19,7 @@ interface TripSummaryModalProps {
     id?: string;
     score: number;
     distanceKm: number;
+    durationSeconds?: number;
     points: number;
     eventCounts?: Record<string, number>;
     isTooShort?: boolean;
@@ -25,7 +32,6 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
 
   if (!trip) return null;
 
-  // אם הנסיעה הייתה קצרה מדי או שלא זוהתה תנועה
   const isTooShort = trip.isTooShort || (trip.distanceKm < 0.1);
 
   return (
@@ -34,7 +40,7 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
         <Card style={styles.summaryCard}>
           {isTooShort ? (
             <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-              <Text style={{ fontSize: 60, marginBottom: 20 }}>📍</Text>
+              <Ionicons name={ICONS.noLocation} size={60} color={COLORS.textMuted} style={{ marginBottom: 20 }} />
               <Text style={[styles.summaryTitle, { textAlign: 'center' }]}>{t('trip.noTripDetected')}</Text>
               <Text style={[TYPOGRAPHY.body, { textAlign: 'center', color: COLORS.textMuted, marginBottom: 30 }]}>
                 {t('trip.noTripDetectedDesc')}
@@ -58,10 +64,17 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
 
                   <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
-                      <Text style={styles.statValueSmall}>{trip.distanceKm?.toFixed(2) || '0.00'}</Text>
+                      <Ionicons name={ICONS.duration} size={18} color={COLORS.textMuted} style={{ marginBottom: 4 }} />
+                      <Text style={styles.statValueSmall}>{formatDuration(trip.durationSeconds ?? 0)}</Text>
+                      <Text style={styles.statLabelSmall}>{t('trip.duration')}</Text>
+                    </View>
+                    <View style={[styles.statBox, styles.statBoxMiddle]}>
+                      <Ionicons name={ICONS.distance} size={18} color={COLORS.textMuted} style={{ marginBottom: 4 }} />
+                      <Text style={styles.statValueSmall}>{formatDistance(trip.distanceKm ?? 0)}</Text>
                       <Text style={styles.statLabelSmall}>{t('trip.km')}</Text>
                     </View>
                     <View style={styles.statBox}>
+                      <Ionicons name={ICONS.points} size={18} color={COLORS.brand} style={{ marginBottom: 4 }} />
                       <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{trip.points || 0}</Text>
                       <Text style={styles.statLabelSmall}>{t('trip.points')}</Text>
                     </View>
@@ -69,27 +82,11 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
 
                   <View style={styles.eventsList}>
                     <Text style={styles.eventsTitle}>{t('trip.eventDetails')}</Text>
-
-                    <EventRow
-                      icon="🛑"
-                      label={t('trip.hardBrakes')}
-                      count={trip.eventCounts?.HARD_BRAKE || 0}
-                    />
-                    <EventRow
-                      icon="🚀"
-                      label={t('trip.aggressiveAccels')}
-                      count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0}
-                    />
-                    <EventRow
-                      icon="↩️"
-                      label={t('trip.sharpTurns')}
-                      count={trip.eventCounts?.SHARP_TURN || 0}
-                    />
-                    <EventRow
-                      icon="📱"
-                      label={t('trip.phoneTouches')}
-                      count={trip.eventCounts?.PHONE_TOUCH || 0}
-                    />
+                    <EventRow icon={ICONS.hardBrake}       label={t('trip.hardBrakes')}      count={trip.eventCounts?.HARD_BRAKE || 0} />
+                    <EventRow icon={ICONS.aggressiveAccel} label={t('trip.aggressiveAccels')} count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0} />
+                    <EventRow icon={ICONS.sharpTurn}  label={t('trip.sharpTurns')}   count={trip.eventCounts?.SHARP_TURN || 0} />
+                    {/* <EventRow icon={ICONS.swerve} label={t('trip.swerve')} count={trip.eventCounts?.SWERVE || 0} /> */}{/* EVT_SWERVE disabled */}
+                    <EventRow icon={ICONS.phoneUsage} label={t('trip.phoneTouches')} count={trip.eventCounts?.PHONE_TOUCH || 0} />
                   </View>
                 </View>
 
@@ -116,10 +113,11 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
   );
 }
 
-function EventRow({ icon, label, count }: { icon: string, label: string, count: number }) {
+function EventRow({ icon, label, count }: { icon: IoniconName; label: string; count: number }) {
   return (
     <View style={styles.eventRow}>
-      <Text style={styles.eventLabel}>{icon} {label}</Text>
+      <Ionicons name={icon} size={16} color={count > 0 ? COLORS.danger : COLORS.textMuted} style={{ width: 22 }} />
+      <Text style={styles.eventLabel}>{label}</Text>
       <Text style={[styles.eventCount, count > 0 && { color: COLORS.danger }]}>{count}</Text>
     </View>
   );
@@ -133,51 +131,39 @@ const styles = StyleSheet.create({
     width: '94%',
     maxHeight: '92%',
     borderRadius: 35,
-    backgroundColor: '#1A1A1A',
-    borderWidth: 0.3,
-    borderColor: 'rgba(255,255,255,0.15)'
+    backgroundColor: COLORS.dark,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  summaryTitle: { ...TYPOGRAPHY.h2, fontSize: 26, marginBottom: SPACING.md },
+  summaryTitle:     { ...TYPOGRAPHY.h2, fontSize: 26, marginBottom: SPACING.md },
   resultsContainer: { width: '100%', alignItems: 'center' },
   scoreCircle: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    borderWidth: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SPACING.md,
-    backgroundColor: 'rgba(255,255,255,0.02)'
+    width: 130, height: 130, borderRadius: 65, borderWidth: 8,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: SPACING.md, backgroundColor: 'transparent'
   },
-  scoreValue: { fontSize: 48, fontWeight: '900' },
-  scoreLabel: { ...TYPOGRAPHY.caption, fontSize: 13 },
-  statsGrid: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md, width: '100%' },
+  scoreValue:     { fontSize: 48, fontWeight: '900' },
+  scoreLabel:     { ...TYPOGRAPHY.caption, fontSize: 13 },
+  statsGrid:      { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md, alignSelf: 'stretch' },
   statBox: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingVertical: 12,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)'
+    flex: 1, backgroundColor: COLORS.card,
+    paddingVertical: 14, paddingHorizontal: 6,
+    borderRadius: 20, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border
   },
-  statValueSmall: { ...TYPOGRAPHY.h2, fontSize: 24 },
-  statLabelSmall: { ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
+  statBoxMiddle: {
+    borderLeftWidth: 1, borderRightWidth: 1,
+    borderLeftColor: COLORS.border, borderRightColor: COLORS.border,
+  },
+  statValueSmall: { ...TYPOGRAPHY.h2, fontSize: 18 },
+  statLabelSmall: { ...TYPOGRAPHY.caption, fontSize: 11, marginTop: 2, textAlign: 'center' },
   eventsList: {
-    width: '100%',
-    gap: 2,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    padding: 12,
-    borderRadius: 20
+    width: '100%', gap: 2,
+    backgroundColor: COLORS.card,
+    padding: 12, borderRadius: 20
   },
   eventsTitle: { ...TYPOGRAPHY.h3, fontSize: 16, marginBottom: 4 },
-  eventRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 3
-  },
-  eventLabel: { ...TYPOGRAPHY.body, color: COLORS.textMuted, fontSize: 14 },
-  eventCount: { ...TYPOGRAPHY.label, color: '#fff', fontSize: 15 },
+  eventRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 },
+  eventLabel:  { ...TYPOGRAPHY.body, color: COLORS.textMuted, fontSize: 14, flex: 1, marginStart: 6 },
+  eventCount:  { ...TYPOGRAPHY.label, color: COLORS.text, fontSize: 15 },
 });

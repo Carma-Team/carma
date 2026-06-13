@@ -1,26 +1,29 @@
 /**
- * @fileoverview ה-SDK המרכזי לניהול נסיעות — CarmaDrivingSDK
+ * @fileoverview Generic driving trip SDK — DrivingSDK
  * @module lib/driving-sdk
  *
  * @description
- * מחלקה יחידנית (Singleton) שמנהלת את מחזור חיי הנסיעה:
- * - התחלה/סיום ידני ואוטומטי (דרך Bluetooth)
- * - טיימר רץ שמעדכן את TripData כל שנייה
- * - האזנה לאירועי חיישנים (בלימה/האצה/פנייה) דרך SensorManager
- * - האזנה לשימוש בטלפון דרך PhoneUsageManager
+ * Singleton class managing the full trip lifecycle:
+ * - Manual and automatic start/end (via Bluetooth)
+ * - 1-second wall-clock timer that updates TripData
+ * - Sensor event listeners (brake/accel/turn) via SensorManager
+ * - Phone usage listener via PhoneUsageManager
  * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
  *
- * @remarks ללא קריאות שרת — כל הלוגיקה מקומית. השמירה לשרת מתבצעת ב-AppContext אחרי stopTrip().
- * @see AppContext.processEndTrip — שם מתבצע tripsApi.save() לאחר סיום נסיעה
+ * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
+ * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
  */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { TripValidationManager } from '@/lib/TripValidationManager';
-import { DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent } from '@/lib/driving-sdk/types';
+import {
+  DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
+  SensorEventCondition, SensorEventHandler, ListenerToken,
+} from '@/lib/driving-sdk/types';
 import type { FraudEvaluation } from '@/lib/FraudDetector';
 
-export class CarmaDrivingSDK {
+export class DrivingSDK {
   private config: SDKConfig;
   private btManager: BluetoothManager;
   private sensorManager: SensorManager;
@@ -35,19 +38,67 @@ export class CarmaDrivingSDK {
   private timer: any = null;
   // Wall-clock start used to compute durationSeconds — setInterval is throttled by the OS in background.
   private tripStartMs = 0;
+  // Wall-clock timestamp of the most recent startTrip() call — used to enforce a 3-second warm-up
+  // grace period that drops spurious sensor events caused by the physical act of pressing Start.
+  private tripStartTime = 0;
   // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
   private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
+
+  // Registered conditional sensor event listeners.
+  // Each entry: { type, condition, handler } — dispatched inside handleEvent().
+  private sensorListeners = new Map<ListenerToken, {
+    type: DrivingEventType;
+    condition: SensorEventCondition;
+    handler: SensorEventHandler;
+  }>();
   // Latest GPS speed tick — stamped onto every DrivingEvent for kinetic penalty scaling
   private currentSpeedKmh = 0;
+  // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
+  private lastKnownLocation: { lat: number; lng: number } | null = null;
+  // Elapsed seconds since the last waypoint was appended — used for 5-second time-based downsampling
+  private secondsSinceLastWaypoint = 0;
 
-  // Callbacks
+  // ─── Trip lifecycle callbacks ────────────────────────────────────────────────
   public onTripStart?: (tripId: string) => void;
   public onTripEnd?: (data: TripData) => void;
+  /** Fires for every SDK-qualified sensor event, regardless of registered listener conditions.
+   *  Useful for raw display (e.g. live event counter). For conditional business logic use `on()`. */
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
-  // AppContext wires this to reset trip state + call fraudApi.syncInvalidTrip()
-  // Mai: show "נסיעה בתחבורה ציבורית זוהתה" toast/modal when this fires
+  // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
+
+  // ─── Conditional sensor event subscription API ───────────────────────────────
+
+  /**
+   * Subscribe to a sensor event type with optional conditions.
+   * The handler fires only when ALL specified conditions are satisfied.
+   *
+   * @param type    - The event type to listen for.
+   * @param condition - Conditions that must hold at detection time (speed, severity, …).
+   * @param handler - Callback invoked with a copy of the event when conditions are met.
+   * @returns A `ListenerToken` — pass to `off()` to unsubscribe.
+   *
+   * @example
+   * // Fire only for hard brakes detected above 15 km/h
+   * const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (event) => {
+   *   console.log('Hard brake at', event.speedKmh, 'km/h — severity', event.severity);
+   * });
+   */
+  public on(
+    type: DrivingEventType,
+    condition: SensorEventCondition,
+    handler: SensorEventHandler,
+  ): ListenerToken {
+    const token: ListenerToken = Symbol('sensor-listener');
+    this.sensorListeners.set(token, { type, condition, handler });
+    return token;
+  }
+
+  /** Remove a previously registered listener. No-op if the token is unknown. */
+  public off(token: ListenerToken): void {
+    this.sensorListeners.delete(token);
+  }
 
   constructor(config: SDKConfig = {}) {
     this.config = {
@@ -83,6 +134,7 @@ export class CarmaDrivingSDK {
 
     if (this.config.targetBluetoothId) {
       this.btManager.setTargetDevice(this.config.targetBluetoothId);
+      this.btManager.startMonitoring();
     }
   }
 
@@ -117,6 +169,11 @@ export class CarmaDrivingSDK {
   public updateTargetDevice(deviceId: string | null) {
     this.config.targetBluetoothId = deviceId;
     this.btManager.setTargetDevice(deviceId);
+    if (deviceId) {
+      this.btManager.startMonitoring();
+    } else {
+      this.btManager.stopMonitoring();
+    }
   }
 
   // --- Trip Control ---
@@ -137,6 +194,9 @@ export class CarmaDrivingSDK {
     this.isTripActive = true;
     this.lastEventTime = {};
     this.tripStartMs = Date.now();
+    this.tripStartTime = Date.now();
+    this.lastKnownLocation = null;
+    this.secondsSinceLastWaypoint = 0;
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -144,6 +204,7 @@ export class CarmaDrivingSDK {
       distanceKm: 0,
       durationSeconds: 0,
       events: [],
+      waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
       phoneSeconds: 0,           // deprecated v1.7
@@ -182,6 +243,9 @@ export class CarmaDrivingSDK {
     if (this.onTripEnd) this.onTripEnd(finalData);
 
     this.currentTripData = null;
+    this.tripStartTime = 0;
+    this.lastKnownLocation = null;
+    this.secondsSinceLastWaypoint = 0;
     return finalData;
   }
 
@@ -217,22 +281,44 @@ export class CarmaDrivingSDK {
       return;
     }
 
-    // Per-type cooldown: each event type has an independent 3s suppression window.
-    // Replaces the old global cooldown that incorrectly silenced e.g. a SHARP_TURN
-    // occurring within 3s of a HARD_BRAKE (two distinct concurrent physical events).
+    // 3-second warm-up guard: drops spurious sensor spikes caused by the physical
+    // motion of the user pressing "Start Trip" (picking up phone, tapping screen).
+    const WARMUP_MS = 3000;
+    if (Date.now() - this.tripStartTime < WARMUP_MS) return;
+
+    // Per-type cooldown — spec §א Table 1: minimum time between events = 0.5 s.
+    // Recommended for less sensitivity: raise IMU cooldowns to 2–3 s.
+    // EVT_SWERVE had a 3 s cooldown but is currently disabled.
     if (event.type !== DrivingEventType.PHONE_USAGE) {
+      const cooldownMs = 500;
       const last = this.lastEventTime[event.type] ?? 0;
-      if (event.timestamp.getTime() - last < 3000) return;
+      if (event.timestamp.getTime() - last < cooldownMs) return;
       this.lastEventTime[event.type] = event.timestamp.getTime();
     }
 
-    console.log(`[SDK] Event Recorded: ${event.type}`);
+    // Stamp GPS speed and location onto the event.
     event.speedKmh = this.currentSpeedKmh;
+    if (this.lastKnownLocation) {
+      event.location = { latitude: this.lastKnownLocation.lat, longitude: this.lastKnownLocation.lng };
+    }
+
+    // Store all SDK-qualified events in the trip (used for route map markers and raw display).
+    // Whether an event counts toward a score is decided by each registered listener's conditions.
     this.currentTripData.events.push(event);
+    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h severity=${event.severity?.toFixed(2)}`);
 
-    if (this.onEventDetected) this.onEventDetected(event);
+    // Dispatch to conditional listeners — each listener fires only when its conditions are met.
+    const snapshot = { ...event };
+    for (const { type, condition, handler } of this.sensorListeners.values()) {
+      if (type !== event.type) continue;
+      if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
+      if (condition.minSeverity !== undefined && (event.severity ?? 0) < condition.minSeverity) continue;
+      try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
+    }
 
-    // Immediate UI update for events
+    // Legacy single callback — fires for every SDK-qualified event regardless of conditions.
+    if (this.onEventDetected) this.onEventDetected(snapshot);
+
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
@@ -243,10 +329,15 @@ export class CarmaDrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; accelX: number; gyroZ: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
+
+    // Keep last known location for event stamping
+    if (update.lat !== undefined && update.lng !== undefined) {
+      this.lastKnownLocation = { lat: update.lat, lng: update.lng };
+    }
 
     // Always feed sensor data to TripValidationManager (works in both phases)
     this.validationManager.updateSample({
@@ -261,7 +352,26 @@ export class CarmaDrivingSDK {
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise
     // accumulates phantom distance via Haversine (D-SDK-3).
     if (update.currentSpeed >= 3) {
-      this.currentTripData.distanceKm += update.distanceKm;
+      // Teleportation guard: GPS position jumps (network-location multipath or brief
+      // satellite loss) can produce a Haversine distance far larger than the reported
+      // Doppler speed implies. Cap each tick's contribution to 1.5× what is physically
+      // achievable at the reported speed over the measured GPS interval.
+      // Example: speed=5 km/h, Δt=2 s → max 5/3.6×2×1.5 = 4.2 m per tick.
+      const maxDistKm = (update.currentSpeed / 3600) * update.timeDeltaS * 1.5;
+      this.currentTripData.distanceKm += Math.min(update.distanceKm, maxDistKm);
+
+      // Waypoint collection: append one point every 5 elapsed GPS seconds while moving.
+      // This caps a 30-minute trip at ~360 waypoints regardless of speed.
+      this.secondsSinceLastWaypoint += 2; // GPS fires every ~2s
+      if (this.secondsSinceLastWaypoint >= 5 && this.lastKnownLocation) {
+        this.currentTripData.waypoints.push({
+          lat: this.lastKnownLocation.lat,
+          lng: this.lastKnownLocation.lng,
+          ts: Date.now(),
+          speedKmh: update.currentSpeed,
+        });
+        this.secondsSinceLastWaypoint = 0;
+      }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
 
@@ -275,6 +385,10 @@ export class CarmaDrivingSDK {
 
   public async getAvailableDevices() {
     return this.btManager.getBondedDevices();
+  }
+
+  public async getBTSupportStatus() {
+    return this.btManager.getBTSupportStatus();
   }
 
   public getStatus() {

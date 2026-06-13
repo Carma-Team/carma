@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { Animated, Text, StyleSheet, View } from 'react-native'
+import { COLORS } from '@/constants/theme'
 import type { ToastMessage } from '@/types'
 
 interface ToastProps {
@@ -43,6 +44,6 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; 
 
 const styles = StyleSheet.create({
   wrapper:   { position: 'absolute', top: 60, left: 16, right: 16, zIndex: 999 },
-  container: { backgroundColor: '#1e293b', borderRadius: 12, padding: 14, marginBottom: 8, borderLeftWidth: 4 },
-  text:      { color: '#fff', fontSize: 14, fontWeight: '500' },
+  container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
+  text:      { color: COLORS.text, fontSize: 14, fontWeight: '500' },
 })

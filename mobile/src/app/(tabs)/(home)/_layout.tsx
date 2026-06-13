@@ -1,25 +1,25 @@
 import { Stack } from 'expo-router';
 
 /**
- * הסטאק הפנימי של טאב הבית.
- * מנהל את המעברים בין דאשבורד, נסיעה פעילה וסיכום נסיעה.
+ * Inner stack for the Home tab.
+ * Manages navigation between dashboard, active trip, and trip detail.
  */
 export default function HomeLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      {/* מסך ברירת המחדל שמבצע את ההפניה */}
+      {/* Default index screen that performs the redirect */}
       <Stack.Screen name="index" />
 
-      {/* מסך הבית המרכזי */}
+      {/* Main dashboard screen */}
       <Stack.Screen name="dashboard" />
 
-      {/* מסך נסיעה פעילה */}
+      {/* Active trip screen */}
       <Stack.Screen name="trip" options={{ gestureEnabled: false }} />
 
-      {/* מסך סיכום נסיעה (Trip Detail) */}
+      {/* Trip detail / summary screen */}
       <Stack.Screen name="trip-detail" options={{ presentation: 'modal' }} />
 
-      {/* מסכי הגדרות חדשים */}
+      {/* Settings screens */}
       <Stack.Screen name="settings" options={{ presentation: 'card' }} />
       <Stack.Screen name="bluetooth-settings" options={{ presentation: 'card' }} />
     </Stack>

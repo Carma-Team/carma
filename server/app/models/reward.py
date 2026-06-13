@@ -32,7 +32,7 @@ class Reward(Base):
         nullable=False,
     )
     cost_points: Mapped[int] = mapped_column(Integer, nullable=False)
-    image_emoji: Mapped[str] = mapped_column(String(10), default="🎁", nullable=False)
+    image_icon: Mapped[str] = mapped_column(String(40), default="gift-outline", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

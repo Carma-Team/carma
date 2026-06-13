@@ -1,17 +1,17 @@
 /**
  * ─── Design Tokens (Centralized Theme) ───────────────────────────────────────
- * שינוי כאן ישפיע על כל האפליקציה: צבעים, ריווחים וטיפוגרפיה.
+ * Changes here propagate app-wide: colors, spacing, and typography.
  */
 import type { ViewStyle } from 'react-native';
 
 export const COLORS = {
-  dark:       '#0a0f1e', // רקע ראשי
-  card:       '#111827', // רקע כרטיסים/אלמנטים
-  border:     '#1f2937', // גבולות
-  brand:      '#6366f1', // צבע מותג ראשי
-  brandLight: '#818cf8', // צבע מותג בהיר (לטקסט דגש)
-  text:       '#ffffff', // טקסט ראשי
-  textMuted:  '#94a3b8', // טקסט משני/עמום
+  dark:       '#ffffff', // primary background — white
+  card:       '#f1f5f9', // card / element background
+  border:     '#e2e8f0', // borders
+  brand:      '#6366f1', // primary brand color
+  brandLight: '#4338ca', // dark brand (emphasis text on light background)
+  text:       '#0f172a', // primary text — near-black blue
+  textMuted:  '#64748b', // secondary / muted text
   success:    '#22c55e',
   warning:    '#f59e0b',
   danger:     '#ef4444',
@@ -51,7 +51,7 @@ export const COMMON_STYLES = {
     borderColor: COLORS.border,
     padding: SPACING.md,
   },
-  // תבניות פריסה נפוצות לחיסכון בקוד מקומי
+  // Common layout helpers shared across screens
   row: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
@@ -79,7 +79,7 @@ export const COMMON_STYLES = {
     ...TYPOGRAPHY.h3,
     marginBottom: SPACING.sm,
   },
-  // סגנון אחיד לכרטיסי סטטיסטיקה (בשימוש ברוב המסכים)
+  // Shared stat card style used across most screens
   statGrid: {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -100,7 +100,7 @@ export const COMMON_STYLES = {
   statValue: {
     ...TYPOGRAPHY.h3,
     fontSize: 20,
-    color: '#fff',
+    color: COLORS.text,
   },
   statLabel: {
     ...TYPOGRAPHY.caption,
@@ -109,7 +109,7 @@ export const COMMON_STYLES = {
     textAlign: 'center' as const,
     opacity: 0.8,
   },
-  // סגנון למצבי "אין נתונים"
+  // Empty-state style (no data)
   emptyState: {
     alignItems: 'center' as const,
     paddingVertical: SPACING.xl,
@@ -124,7 +124,7 @@ export const COMMON_STYLES = {
     fontSize: 14,
     textAlign: 'center' as const,
   },
-  // טאבים (Leaderboard, Marketplace, Profile)
+  // Segmented tab control (Leaderboard, Marketplace, Profile)
   tabsContainer: {
     flexDirection: 'row' as const,
     backgroundColor: COLORS.card,
@@ -149,5 +149,58 @@ export const COMMON_STYLES = {
   },
   tabTextActive: {
     color: '#fff',
-  }
+  },
+  // ─── Screen header with back button ─────────────────────────────────────────
+  screenHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    padding: SPACING.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  screenHeaderTitle: {
+    ...TYPOGRAPHY.h2,
+    flex: 1,
+    textAlign: 'auto' as const,
+  },
+  screenHeaderBackBtn: {
+    marginEnd: 15,
+  },
+  // ─── Text input field ────────────────────────────────────────────────────────
+  input: {
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: COLORS.text,
+    fontSize: 15,
+  },
+  // ─── Error box ───────────────────────────────────────────────────────────────
+  errorBox: {
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    textAlign: 'center' as const,
+  },
+  // ─── Category label row (icon + muted text above a Card) ────────────────────
+  sectionLabelRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+    marginBottom: 8,
+    marginStart: 4,
+  },
+  sectionLabel: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.textMuted,
+  },
 }
