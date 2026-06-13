@@ -62,6 +62,7 @@ BUSINESSES = [
     {"name": "Aroma", "category": BusinessCategory.FOOD, "location_lat": 32.0733, "location_lng": 34.7779, "address": "תל אביב"},
     {"name": "yes Planet", "category": BusinessCategory.ENTERTAINMENT, "location_lat": 32.0580, "location_lng": 34.7680, "address": "תל אביב"},
     {"name": "ביטוח ישיר", "category": BusinessCategory.OTHER, "location_lat": 32.0700, "location_lng": 34.7900, "address": "תל אביב"},
+    {"name": "McDonald's", "category": BusinessCategory.FOOD, "location_lat": 32.0763, "location_lng": 34.7745, "address": "תל אביב"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -158,6 +159,15 @@ REWARDS = [
         "cat": BusinessCategory.OTHER,
         "cost": 5500,
         "emoji": "🛡️",
+    },
+    {
+        "business": "McDonald's",
+        "title_he": "המבורגר קלאסי חינם",
+        "desc": "המבורגר קלאסי חינם בכל סניפי מקדונלד'ס",
+        "cat": BusinessCategory.FOOD,
+        "cost": 250,
+        "emoji": "🍔",
+        "icon": "fast-food-outline",
     },
 ]
 
