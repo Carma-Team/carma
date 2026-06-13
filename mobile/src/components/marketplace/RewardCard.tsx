@@ -30,7 +30,7 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
           <Ionicons name={cat.icon} size={22} color={cat.color} />
         </View>
         <View style={styles.headerText}>
-          <Text style={styles.businessName}>{reward.business}</Text>
+          <Text style={styles.businessName}>{localize(reward.businessHe ?? reward.business, reward.business, lang)}</Text>
           <Text style={styles.rewardTitle} numberOfLines={2}>
             {localize(reward.titleHe, reward.titleEn, lang)}
           </Text>

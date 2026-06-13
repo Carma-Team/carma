@@ -62,7 +62,7 @@ BUSINESSES = [
     {"name": "Aroma", "category": BusinessCategory.FOOD, "location_lat": 32.0733, "location_lng": 34.7779, "address": "תל אביב"},
     {"name": "yes Planet", "category": BusinessCategory.ENTERTAINMENT, "location_lat": 32.0580, "location_lng": 34.7680, "address": "תל אביב"},
     {"name": "ביטוח ישיר", "category": BusinessCategory.OTHER, "location_lat": 32.0700, "location_lng": 34.7900, "address": "תל אביב"},
-    {"name": "McDonald's", "category": BusinessCategory.FOOD, "location_lat": 32.0763, "location_lng": 34.7745, "address": "תל אביב"},
+    {"name": "McDonald's", "name_he": "מקדונלד'ס", "category": BusinessCategory.FOOD, "location_lat": 32.0763, "location_lng": 34.7745, "address": "תל אביב"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -162,11 +162,24 @@ REWARDS = [
     },
     {
         "business": "McDonald's",
-        "title_he": "המבורגר קלאסי חינם",
-        "desc": "המבורגר קלאסי חינם בכל סניפי מקדונלד'ס",
+        "title_he": "גלידת פיצוץ",
+        "title_en": "Ice Cream Blast",
+        "desc": "גלידת פיצוץ חינם בכל סניפי מקדונלד'ס",
+        "desc_en": "A free Ice Cream Blast at any McDonald's branch",
         "cat": BusinessCategory.FOOD,
-        "cost": 250,
-        "emoji": "🍔",
+        "cost": 120,
+        "emoji": "🍦",
+        "icon": "ice-cream-outline",
+    },
+    {
+        "business": "McDonald's",
+        "title_he": "מנת צ'יפס חינם",
+        "title_en": "Free Fries",
+        "desc": "מנת צ'יפס חינם בכל סניפי מקדונלד'ס",
+        "desc_en": "A free portion of fries at any McDonald's branch",
+        "cat": BusinessCategory.FOOD,
+        "cost": 150,
+        "emoji": "🍟",
         "icon": "fast-food-outline",
     },
 ]
@@ -268,7 +281,9 @@ async def run() -> None:
             data: dict[str, Any] = dict(
                 business_id=biz_row.id,
                 title_he=r["title_he"],
+                title_en=r.get("title_en"),
                 description_he=r["desc"],
+                description_en=r.get("desc_en"),
                 category=r["cat"],
                 cost_points=r["cost"],
                 image_icon=r.get("icon", "gift-outline"),

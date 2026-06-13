@@ -68,7 +68,8 @@ export interface Trip {
 export interface Reward {
   id: string;
   businessId: string;
-  business: string;        // business name string
+  business: string;        // canonical / English business name
+  businessHe?: string;     // Hebrew override; falls back to `business`
   titleHe: string;
   titleEn?: string;
   descriptionHe: string;
