@@ -1,7 +1,13 @@
-# CARMA Scoring Algorithm v2 — Next Generation (Proposal)
+# CARMA Scoring Algorithm v2 — Next Generation
 
-> **Status: design proposal — not yet implemented.**
-> The current production algorithm is documented in [scoring-algorithm.md](scoring-algorithm.md).
+> **Status: stage 1 implemented — running server-side in SHADOW MODE.**
+> v1 ([scoring-algorithm.md](scoring-algorithm.md)) remains the sole authoritative,
+> user-facing score. v2 is now computed and persisted *alongside* it on every trip
+> save, but is never returned to the client. This lets us validate the v2 distribution
+> on real traffic (§10.2) before anything flips. See **§13 Implementation status**.
+> SDK and UI work needed to complete v2 is specified in
+> [scoring-v2-handoff.md](scoring-v2-handoff.md).
+>
 > This document specifies the next-generation scoring engine, aligned with industry practice
 > in usage-based insurance (UBI) and smartphone telematics (Cambridge Mobile Telematics,
 > Zendrive/Credit Karma, Geotab, Samsara, Damoov).
@@ -314,6 +320,41 @@ were evaluated and rejected for this version:
 | `mobile/src/lib/scoring.ts` | Mirror stages 1–5 for local real-time preview only |
 | `mobile/src/lib/FraudDetector.ts` | Emit exclusion flag consumed by points engine |
 | `mobile/src/types/index.ts` | Regenerate after server schema change (`npm run gen:api`) |
+
+---
+
+## 13. Implementation status
+
+**Implemented now (server-side, shadow mode):**
+
+| Piece | File |
+|---|---|
+| Stages 3–7 as pure functions (exposure normalization, exp-decay subscores, composite weights, EWMA+credibility driver score, points engine with anti-grind caps) | `server/app/services/scoring_v2.py` |
+| Continuous severity weight `event_severity()` (§3.2) — implemented and unit-tested, **dormant** until the SDK emits per-event `peak_g`/`duration`/`speed` | `server/app/services/scoring_v2.py` |
+| Shadow wiring: compute v2 trip score + driver score on every save, persist beside v1, never returned to client | `server/app/services/trips.py` |
+| Shadow columns `trips.score_v2`, `trips.scoring_version`, `users.driver_score` | migration `a1c2e3f4d5b6` |
+| Kill-switch `SCORING_V2_SHADOW` (default on) | `server/app/config.py` |
+| Unit tests for every stage | `server/tests/test_scoring_v2.py` |
+
+**Shadow-mode approximations (because upstream signals aren't available yet):**
+
+- **Severity:** weighted counts collapse to raw counts (each event weight 1.0). The
+  moment the SDK provides per-event severity, the trips service sums `event_severity()`
+  instead of counting — no downstream change.
+- **Speeding:** `has_speed_data=False`, so the speeding weight is redistributed (§6.2).
+  Needs map-matching.
+- **Distraction:** weighted as `touch_epochs + screen_seconds/60` (per-epoch speed
+  weighting from §3.4 awaits the SDK).
+
+**Not implemented yet (blocked on other owners — see [scoring-v2-handoff.md](scoring-v2-handoff.md)):**
+
+- SDK: tiered thresholds, severity capture, low-speed filter, speed-at-event. *(SDK owner)*
+- Mobile UI: surfacing the second number (driver score) alongside the trip score. *(Mai)*
+- `mobile/src/lib/scoring.ts` real-time preview mirror — kept on v1 deliberately; it
+  depends on SDK severity data, and per the §10.5 rollout order the SDK ships first.
+- Speeding component: map-matching / posted-limit source.
+- Activation (§10): shadow-period recalibration of `k_c`, then the v1→v2 flip at a
+  level-season boundary. **Do not flip until the shadow distribution is validated.**
 
 ---
 

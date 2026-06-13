@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, select, update
@@ -15,7 +16,12 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
+from app.services import scoring_v2
 from app.services.scoring import calculate_score
+
+# Driver-score aggregation window (scoring-algorithm-v2.md §7 — ~28-day effective
+# window from a 14-day half-life; query a 30-day slice to cover the long tail).
+_DRIVER_SCORE_WINDOW_DAYS = 30
 
 _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
@@ -79,7 +85,7 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
                 raise HTTPException(422, f"digest avg_speed={digest_speed:.1f} km/h — implausible")
 
 
-def _check_timestamp_drift(digest: dict | None) -> None:
+def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
     if not digest:
         return
     ts = digest.get("timestamp")
@@ -95,7 +101,7 @@ def _check_timestamp_drift(digest: dict | None) -> None:
         raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
-def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
+def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
     if not signature:
         return
     if signature.startswith("ph:"):
@@ -110,6 +116,64 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
+
+
+async def _compute_v2_shadow(
+    db: AsyncSession,
+    user: User,
+    *,
+    hard_brakes: int,
+    aggressive_accels: int,
+    sharp_turns: int,
+    touch_epochs: int,
+    screen_interaction_seconds: int,
+    distance_km: float,
+    duration_seconds: int,
+    now: datetime,
+) -> tuple[float, float]:
+    """Compute the v2 trip score and the updated driver score in shadow mode.
+
+    Returns (trip_score_v2, driver_score). Pure-formula work lives in scoring_v2;
+    this only sources the inputs. Severity is unavailable (no SDK peak_g yet) so
+    weighted counts equal raw counts; speeding is unavailable (no map-matching)
+    so has_speed_data=False redistributes its weight (scoring-algorithm-v2.md §3/§6).
+    """
+    # Shadow proxy for the distraction weight until the SDK emits per-epoch speed:
+    # each touch epoch is weight 1, plus screen-on minutes (scoring-algorithm-v2.md §3.4).
+    w_distraction = touch_epochs + screen_interaction_seconds / 60.0
+    rolling = user.driver_score if user.driver_score is not None else scoring_v2.CONFIG.prior_score
+
+    trip_v2 = scoring_v2.compute_trip_score(
+        w_brake=hard_brakes,
+        w_accel=aggressive_accels,
+        w_corner=sharp_turns,
+        w_distraction=w_distraction,
+        distance_km=distance_km,
+        duration_min=duration_seconds / 60.0,
+        has_speed_data=False,
+        rolling_score=rolling,
+    )
+
+    cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
+    rows = await db.execute(
+        select(Trip.score_v2, Trip.distance_km, Trip.start_time).where(
+            Trip.user_id == user.id,
+            Trip.score_v2.is_not(None),
+            Trip.start_time >= cutoff,
+        )
+    )
+    history = [
+        scoring_v2.TripHistoryPoint(
+            trip_score=score,
+            distance_km=km,
+            age_days=max(0.0, (now - start).total_seconds() / 86400.0),
+        )
+        for score, km, start in rows.all()
+    ]
+    # Include the trip being saved (age 0) so a first trip yields a real number.
+    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_v2.score, distance_km=distance_km, age_days=0.0))
+    driver_score = scoring_v2.compute_driver_score(history)
+    return trip_v2.score, driver_score
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
@@ -183,6 +247,29 @@ async def save(
         start_time=start,
     )
 
+    # v2 scoring runs in shadow mode (scoring-algorithm-v2.md §10): computed and
+    # stored alongside the authoritative v1 score, never returned to the client.
+    # It must never break the v1 save path, so any failure is swallowed.
+    now = datetime.now(UTC)
+    score_v2: float | None = None
+    new_driver_score: float | None = None
+    if settings.scoring_v2_shadow:
+        try:
+            score_v2, new_driver_score = await _compute_v2_shadow(
+                db,
+                user,
+                hard_brakes=scored_hard_brakes,
+                aggressive_accels=scored_aggressive_accels,
+                sharp_turns=scored_sharp_turns,
+                touch_epochs=scored_touch_epochs,
+                screen_interaction_seconds=scored_screen_secs,
+                distance_km=distance,
+                duration_seconds=digest_duration,
+                now=now,
+            )
+        except Exception as exc:  # noqa: BLE001 — shadow must never fail the trip save
+            audit("trips.scoring_v2.error", user_id=user.id, error=str(exc))
+
     trip = Trip(
         user_id=user.id,
         idempotency_key=idempotency_key,
@@ -191,6 +278,8 @@ async def save(
         duration_seconds=duration or 0,
         distance_km=distance,
         avg_score=avg_score,
+        score_v2=score_v2,
+        scoring_version=scoring_v2.CONFIG.version if score_v2 is not None else "1.0",
         points=round(points_raw),
         risk_multiplier=risk_multiplier,
         hard_brakes=scored_hard_brakes,
@@ -214,16 +303,16 @@ async def save(
             *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
             else_=1,
         )
-        await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(
-                points=User.points + trip.points,
-                total_points=new_total,
-                total_distance=User.total_distance + trip.distance_km,
-                level=level_expr,
-            )
-        )
+        values: dict[str, Any] = {
+            "points": User.points + trip.points,
+            "total_points": new_total,
+            "total_distance": User.total_distance + trip.distance_km,
+            "level": level_expr,
+        }
+        # Shadow-mode driver score (scoring-algorithm-v2.md §7) — persisted, not exposed.
+        if new_driver_score is not None:
+            values["driver_score"] = new_driver_score
+        await db.execute(update(User).where(User.id == user.id).values(**values))
 
     try:
         await db.commit()

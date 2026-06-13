@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     trip_signing_secret: str = Field(default="", min_length=0)
 
+    # Kill-switch for v2 scoring shadow computation (scoring-algorithm-v2.md §10).
+    # Shadow only — never affects the v1 score returned to the client.
+    scoring_v2_shadow: bool = True
+
     @field_validator("cors_origins")
     @classmethod
     def _normalise_origins(cls, v: str) -> str:

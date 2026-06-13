@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -35,6 +35,11 @@ class Trip(Base):
     avg_score: Mapped[float | None] = mapped_column(Float)
     points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     risk_multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+
+    # v2 scoring shadow columns — computed alongside avg_score, never user-facing
+    # until the v2 rollout (docs/scoring-algorithm-v2.md §10). NULL on v1-only trips.
+    score_v2: Mapped[float | None] = mapped_column(Float)
+    scoring_version: Mapped[str] = mapped_column(String(16), server_default="1.0", nullable=False)
     status: Mapped[TripStatus] = mapped_column(
         Enum(TripStatus, name="trip_status"), default=TripStatus.ACTIVE, nullable=False
     )
@@ -53,7 +58,7 @@ class Trip(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
-    telemetry_digest: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    telemetry_digest: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     payload_signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="trips")
