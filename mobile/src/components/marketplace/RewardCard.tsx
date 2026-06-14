@@ -1,6 +1,7 @@
 import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import QRCode from 'react-native-qrcode-svg'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -94,8 +95,14 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
         </Text>
 
         <View style={styles.qrPlaceholder}>
-          <Text style={styles.qrCode}>{voucher.code}</Text>
+          <QRCode
+            value={voucher.code}
+            size={140}
+            backgroundColor="transparent"
+            color={COLORS.text}
+          />
           <Text style={styles.qrNote}>{t('marketplace.voucher.scanQR')}</Text>
+          <Text style={styles.qrCodeText}>{voucher.code}</Text>
         </View>
 
         <Text style={styles.voucherExpiry}>
@@ -134,9 +141,9 @@ const styles = StyleSheet.create({
   voucherContent:   { alignItems: 'center', paddingVertical: 16, gap: 12 },
   voucherIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(99,102,241,0.1)', alignItems: 'center', justifyContent: 'center' },
   voucherRewardTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  qrPlaceholder:    { width: 160, height: 160, backgroundColor: COLORS.card, borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 8, borderWidth: 1, borderColor: COLORS.border },
-  qrCode:           { color: COLORS.text, fontWeight: '700', fontSize: 13, textAlign: 'center' },
-  qrNote:           { color: COLORS.textMuted, fontSize: 10, marginTop: 4 },
+  qrPlaceholder:    { alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8 },
+  qrNote:           { color: COLORS.textMuted, fontSize: 11, marginTop: 2 },
+  qrCodeText:       { color: COLORS.textMuted, fontSize: 10, fontFamily: 'monospace', letterSpacing: 1 },
   voucherExpiry:    { color: COLORS.textMuted, fontSize: 13 },
   statusBadge:      { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
 })

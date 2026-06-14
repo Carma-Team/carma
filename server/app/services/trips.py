@@ -330,8 +330,7 @@ async def save(
             "level": level_expr,
         }
         # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
-        if new_driver_score is not None:
-            values["driver_score"] = new_driver_score
+        values["driver_score"] = new_driver_score
         await db.execute(update(User).where(User.id == user.id).values(**values))
 
     try:
