@@ -20,7 +20,8 @@ class Business(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), unique=True)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)  # canonical / English display name
+    name_he: Mapped[str | None] = mapped_column(String(120))  # Hebrew override; falls back to `name`
     category: Mapped[BusinessCategory] = mapped_column(
         Enum(BusinessCategory, name="business_category"),
         default=BusinessCategory.OTHER,

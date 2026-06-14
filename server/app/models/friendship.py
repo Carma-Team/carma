@@ -30,7 +30,12 @@ class UserFriend(Base):
     follower_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     followee_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[FriendStatus] = mapped_column(
-        Enum(FriendStatus, name="friend_status"), default=FriendStatus.ACCEPTED, nullable=False
+        # The friend_status PG enum was created with lowercase labels (migration
+        # 0006), while FriendStatus values are uppercase. Map to the DB's lowercase
+        # labels so inserts/reads round-trip correctly.
+        Enum(FriendStatus, name="friend_status", values_callable=lambda e: [m.value.lower() for m in e]),
+        default=FriendStatus.ACCEPTED,
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

@@ -1,9 +1,10 @@
 """CARMA Scoring Algorithm v2 — server-side engine (stages 3–7).
 
-Spec: docs/scoring-algorithm-v2.md. v1 lives in scoring.py and stays the
-authoritative, user-facing score; v2 runs in **shadow mode** (computed and
-persisted alongside v1, never shown) until its distribution is validated and
-recalibrated from real CARMA data — see §10 of the spec.
+Spec: docs/scoring-algorithm-v2.md. v2 is now the **authoritative, user-facing**
+scoring engine (trip score, driver score, points). v1 (`scoring.py`) is retired;
+only its `get_risk_multiplier` time-of-day factor is still reused. v2 is not yet
+recalibrated from real CARMA data (§10) — constants here are initial estimates
+and should be tuned once shadow/live data is available.
 
 Everything here is pure: no I/O, no DB, no side effects. The trips service feeds
 it values sourced from the signed telemetry digest (the oracle) and persists the
@@ -26,10 +27,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ScoringConfigV2:
-    """Versioned v2 parameters. Initial values from spec §6.1/§6.2; to be
-    recalibrated from shadow-period percentiles before v2 ever goes live."""
+    """Versioned v2 parameters. Initial values from spec §6.1/§6.2; still to be
+    recalibrated from real percentiles (constants are estimates, not yet tuned)."""
 
-    version: str = "2.0.0-shadow"
+    version: str = "2.0.0"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.075

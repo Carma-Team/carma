@@ -10,6 +10,7 @@ class RewardOut(CamelModel):
     id: str
     business_id: str
     business: str
+    business_he: str | None
     title_he: str
     title_en: str | None
     description_he: str
@@ -28,6 +29,7 @@ class RewardOut(CamelModel):
                 "id": reward.id,
                 "business_id": reward.business_id,
                 "business": reward.business.name,
+                "business_he": reward.business.name_he,
                 "title_he": reward.title_he,
                 "title_en": reward.title_en,
                 "description_he": reward.description_he,
