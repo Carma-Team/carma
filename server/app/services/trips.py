@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -15,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.audit import audit
-from app.models import Trip, TripStatus, User
+from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
 from app.services import scoring_v2
 from app.services.scoring import get_risk_multiplier
@@ -46,6 +47,111 @@ _LEVEL_THRESHOLDS: list[tuple[int, int]] = [
     (1500, 3),
     (500, 2),
 ]
+
+# Per-trip cap on persisted event rows — bounds the INSERT a malformed or hostile
+# client can trigger. A genuine 30-min trip yields tens of events, not thousands.
+_MAX_EVENTS_PER_TRIP = 1000
+
+# Client (SDK `DrivingEventType`) → server `EventType`. The SDK emits PHONE_USAGE
+# while the column stores PHONE_USE, so the names must be bridged explicitly;
+# unmapped/unknown strings are dropped, never coerced.
+_EVENT_TYPE_ALIASES: dict[str, EventType] = {
+    "HARD_BRAKE": EventType.HARD_BRAKE,
+    "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
+    "SHARP_TURN": EventType.SHARP_TURN,
+    "SWERVE": EventType.SWERVE,
+    "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
+    "PHONE_USE": EventType.PHONE_USE,
+    "SPEEDING": EventType.SPEEDING,
+}
+
+
+def _coerce_event_timestamp(value: Any, fallback: datetime) -> datetime:
+    """Parse a client event timestamp into a tz-aware UTC datetime.
+
+    Accepts an ISO-8601 string, epoch milliseconds/seconds, or a datetime. Any
+    unparseable value falls back to the trip start so an event is never dropped
+    purely for a malformed timestamp.
+    """
+    if isinstance(value, bool):  # bool is an int subclass — reject before the numeric branch
+        return fallback
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, int | float):
+        seconds = float(value)
+        if math.isnan(seconds) or math.isinf(seconds):
+            return fallback
+        if seconds > 1e11:  # heuristic: that large can only be epoch-milliseconds
+            seconds /= 1000.0
+        try:
+            dt = datetime.fromtimestamp(seconds, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return fallback
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _coerce_coord(value: Any, limit: float) -> float | None:
+    """Coerce a coordinate to a float inside [-limit, limit]; junk/out-of-range → None."""
+    try:
+        coord = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(coord) or math.isinf(coord) or abs(coord) > limit:
+        return None
+    return coord
+
+
+def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
+    """Validate one untrusted client event into an `Event` row, or `None` to drop it.
+
+    The events array is unsigned, forensic display data — map markers plus the
+    severity inputs the v2 engine will read once the SDK emits `peak_g`. It never
+    feeds the score, which stays sourced from the signed digest. So parsing is
+    strictly defensive: unknown types and junk coordinates are dropped rather than
+    guessed, and the full raw payload is retained in `sensor_data` for forensics.
+    """
+    if not isinstance(raw, dict):
+        return None
+    event_type = _EVENT_TYPE_ALIASES.get(str(raw.get("type", "")).strip().upper())
+    if event_type is None:
+        return None
+
+    try:
+        severity = min(max(float(raw.get("severity", 1.0)), 0.0), 100.0)
+    except (TypeError, ValueError):
+        severity = 1.0
+
+    loc = raw.get("location")
+    location = loc if isinstance(loc, dict) else {}
+    lat = _coerce_coord(raw.get("lat", location.get("latitude")), 90.0)
+    lng = _coerce_coord(raw.get("lng", location.get("longitude")), 180.0)
+
+    return Event(
+        type=event_type,
+        severity=severity,
+        timestamp=_coerce_event_timestamp(raw.get("timestamp"), trip_start),
+        lat=lat,
+        lng=lng,
+        sensor_data=raw,
+    )
+
+
+def _build_trip_events(raw_events: list[dict[str, Any]] | None, trip_start: datetime) -> list[Event]:
+    """Parse the client events array into persistable `Event` rows.
+
+    Capped at `_MAX_EVENTS_PER_TRIP`; individually invalid entries are skipped so
+    one bad event never costs the whole timeline. `trip_id` is left unset — the
+    Trip→Event relationship cascade stamps it on flush.
+    """
+    if not raw_events:
+        return []
+    parsed = (_parse_event(raw, trip_start) for raw in raw_events[:_MAX_EVENTS_PER_TRIP])
+    return [event for event in parsed if event is not None]
 
 
 def _validate_plausibility(dto: SaveTripIn) -> None:
@@ -315,6 +421,16 @@ async def save(
         status=TripStatus.COMPLETED if end else TripStatus.ACTIVE,
         synced_at=datetime.now(UTC),
     )
+
+    # Persist the per-event timeline (map markers + future severity inputs). This is
+    # forensic, unsigned data sourced from dto.events — independent of the digest
+    # counts that drive the score, so the two may legitimately differ. The cascade
+    # inserts these rows and stamps trip_id on flush.
+    trip.events = _build_trip_events(dto.events, start)
+    # Capture now: expire_on_commit would expire the collection and accessing it
+    # after refresh would trigger an illegal lazy-load in async context.
+    event_count = len(trip.events)
+
     db.add(trip)
 
     if trip.points > 0 or trip.distance_km > 0:
@@ -352,5 +468,6 @@ async def save(
         distance_km=trip.distance_km,
         points=trip.points,
         avg_score=trip.avg_score,
+        events=event_count,
     )
     return TripOut.from_orm_trip(trip)
