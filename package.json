@@ -3,14 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "mobile",
-    "mock-server/local-server"
+    "mobile"
   ],
   "scripts": {
     "mobile:start": "npm run start  --workspace=mobile",
     "mobile:test": "npm run test   --workspace=mobile",
-    "mobile:lint": "npm run lint   --workspace=mobile",
-    "mock:dev": "npm run dev    --workspace=mock-server/local-server"
+    "mobile:lint": "npm run lint   --workspace=mobile"
   },
   "engines": {
     "node": ">=20"
