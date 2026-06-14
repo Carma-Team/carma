@@ -96,7 +96,7 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
 
         <View style={styles.qrPlaceholder}>
           <QRCode
-            value={voucher.code}
+            value={voucher.qrData}
             size={140}
             backgroundColor="transparent"
             color={COLORS.text}
