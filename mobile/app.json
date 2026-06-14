@@ -21,10 +21,16 @@
     },
     "android": {
       "package": "com.carma.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBPkf8Oj28BVJtEg204jYidL7xv3m77y4U"
+        }
+      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
@@ -57,7 +63,16 @@
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CARMA uses your location to track driving safety and distance.",
+          "locationAlwaysAndWhenInUsePermission": "CARMA tracks your trips in the background to reward safe driving.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

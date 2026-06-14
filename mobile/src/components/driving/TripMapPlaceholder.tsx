@@ -65,9 +65,30 @@ function computeRegion(waypoints: RouteWaypoint[]) {
   };
 }
 
-export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps) {
+// Fallback card shown when the map can't render (no route, native module missing, or a render error).
+function MapFallback() {
   const { t } = useTranslation();
+  return (
+    <Card glass style={styles.fallback}>
+      <Ionicons name={ICONS.roadmap} size={30} color={COLORS.textMuted} />
+      <Text style={styles.fallbackText}>{t('trip.mapUnavailable')}</Text>
+    </Card>
+  );
+}
 
+// A native MapView failure (e.g. a missing/invalid Google Maps key on Android)
+// must degrade to the fallback — never crash the whole app.
+class MapErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: unknown) { console.warn('[TripMap] render failed, showing fallback:', err); }
+  render() { return this.state.hasError ? this.props.fallback : this.props.children; }
+}
+
+export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps) {
   const eventsWithLocation = useMemo(
     () => events.filter(e => e.location?.latitude !== undefined && e.location?.longitude !== undefined),
     [events]
@@ -82,16 +103,12 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
   );
 
   if (waypoints.length < 2 || !MapView || !region) {
-    return (
-      <Card glass style={styles.fallback}>
-        <Ionicons name={ICONS.roadmap} size={30} color={COLORS.textMuted} />
-        <Text style={styles.fallbackText}>{t('trip.mapUnavailable')}</Text>
-      </Card>
-    );
+    return <MapFallback />;
   }
 
   return (
-    <View style={styles.container}>
+    <MapErrorBoundary fallback={<MapFallback />}>
+      <View style={styles.container}>
       <MapView style={styles.map} initialRegion={region} scrollEnabled={false} zoomEnabled={false}>
         <Polyline
           coordinates={coordinates}
@@ -135,7 +152,8 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
           </Marker>
         ))}
       </MapView>
-    </View>
+      </View>
+    </MapErrorBoundary>
   );
 }
 
