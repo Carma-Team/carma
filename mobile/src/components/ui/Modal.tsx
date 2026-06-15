@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   sheet:   { backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' },
   header:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title:   { color: '#fff', fontSize: 18, fontWeight: '700' },
+  title:   { color: COLORS.text, fontSize: 18, fontWeight: '700' },
   close:   { color: COLORS.textMuted, fontSize: 18, padding: 4 },
 })
 

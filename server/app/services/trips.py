@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac as _hmac
 import json
-from datetime import UTC, datetime
+import math
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, select, update
@@ -13,9 +16,16 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.audit import audit
-from app.models import Trip, TripStatus, User
+from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services.scoring import calculate_score
+from app.services import scoring_v2
+from app.services.scoring import get_risk_multiplier
+
+_TZ_IL = ZoneInfo("Asia/Jerusalem")
+
+# Driver-score aggregation window (scoring-algorithm-v2.md §7 — ~28-day effective
+# window from a 14-day half-life; query a 30-day slice to cover the long tail).
+_DRIVER_SCORE_WINDOW_DAYS = 30
 
 _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
@@ -37,6 +47,111 @@ _LEVEL_THRESHOLDS: list[tuple[int, int]] = [
     (1500, 3),
     (500, 2),
 ]
+
+# Per-trip cap on persisted event rows — bounds the INSERT a malformed or hostile
+# client can trigger. A genuine 30-min trip yields tens of events, not thousands.
+_MAX_EVENTS_PER_TRIP = 1000
+
+# Client (SDK `DrivingEventType`) → server `EventType`. The SDK emits PHONE_USAGE
+# while the column stores PHONE_USE, so the names must be bridged explicitly;
+# unmapped/unknown strings are dropped, never coerced.
+_EVENT_TYPE_ALIASES: dict[str, EventType] = {
+    "HARD_BRAKE": EventType.HARD_BRAKE,
+    "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
+    "SHARP_TURN": EventType.SHARP_TURN,
+    "SWERVE": EventType.SWERVE,
+    "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
+    "PHONE_USE": EventType.PHONE_USE,
+    "SPEEDING": EventType.SPEEDING,
+}
+
+
+def _coerce_event_timestamp(value: Any, fallback: datetime) -> datetime:
+    """Parse a client event timestamp into a tz-aware UTC datetime.
+
+    Accepts an ISO-8601 string, epoch milliseconds/seconds, or a datetime. Any
+    unparseable value falls back to the trip start so an event is never dropped
+    purely for a malformed timestamp.
+    """
+    if isinstance(value, bool):  # bool is an int subclass — reject before the numeric branch
+        return fallback
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, int | float):
+        seconds = float(value)
+        if math.isnan(seconds) or math.isinf(seconds):
+            return fallback
+        if seconds > 1e11:  # heuristic: that large can only be epoch-milliseconds
+            seconds /= 1000.0
+        try:
+            dt = datetime.fromtimestamp(seconds, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return fallback
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _coerce_coord(value: Any, limit: float) -> float | None:
+    """Coerce a coordinate to a float inside [-limit, limit]; junk/out-of-range → None."""
+    try:
+        coord = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(coord) or math.isinf(coord) or abs(coord) > limit:
+        return None
+    return coord
+
+
+def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
+    """Validate one untrusted client event into an `Event` row, or `None` to drop it.
+
+    The events array is unsigned, forensic display data — map markers plus the
+    severity inputs the v2 engine will read once the SDK emits `peak_g`. It never
+    feeds the score, which stays sourced from the signed digest. So parsing is
+    strictly defensive: unknown types and junk coordinates are dropped rather than
+    guessed, and the full raw payload is retained in `sensor_data` for forensics.
+    """
+    if not isinstance(raw, dict):
+        return None
+    event_type = _EVENT_TYPE_ALIASES.get(str(raw.get("type", "")).strip().upper())
+    if event_type is None:
+        return None
+
+    try:
+        severity = min(max(float(raw.get("severity", 1.0)), 0.0), 100.0)
+    except (TypeError, ValueError):
+        severity = 1.0
+
+    loc = raw.get("location")
+    location = loc if isinstance(loc, dict) else {}
+    lat = _coerce_coord(raw.get("lat", location.get("latitude")), 90.0)
+    lng = _coerce_coord(raw.get("lng", location.get("longitude")), 180.0)
+
+    return Event(
+        type=event_type,
+        severity=severity,
+        timestamp=_coerce_event_timestamp(raw.get("timestamp"), trip_start),
+        lat=lat,
+        lng=lng,
+        sensor_data=raw,
+    )
+
+
+def _build_trip_events(raw_events: list[dict[str, Any]] | None, trip_start: datetime) -> list[Event]:
+    """Parse the client events array into persistable `Event` rows.
+
+    Capped at `_MAX_EVENTS_PER_TRIP`; individually invalid entries are skipped so
+    one bad event never costs the whole timeline. `trip_id` is left unset — the
+    Trip→Event relationship cascade stamps it on flush.
+    """
+    if not raw_events:
+        return []
+    parsed = (_parse_event(raw, trip_start) for raw in raw_events[:_MAX_EVENTS_PER_TRIP])
+    return [event for event in parsed if event is not None]
 
 
 def _validate_plausibility(dto: SaveTripIn) -> None:
@@ -79,7 +194,7 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
                 raise HTTPException(422, f"digest avg_speed={digest_speed:.1f} km/h — implausible")
 
 
-def _check_timestamp_drift(digest: dict | None) -> None:
+def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
     if not digest:
         return
     ts = digest.get("timestamp")
@@ -95,7 +210,7 @@ def _check_timestamp_drift(digest: dict | None) -> None:
         raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
-def _verify_signature(digest: dict | None, signature: str | None, secret: str) -> None:
+def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
     if not signature:
         return
     if signature.startswith("ph:"):
@@ -110,6 +225,95 @@ def _verify_signature(digest: dict | None, signature: str | None, secret: str) -
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
+
+
+async def _compute_v2(
+    db: AsyncSession,
+    user: User,
+    *,
+    hard_brakes: int,
+    aggressive_accels: int,
+    sharp_turns: int,
+    touch_epochs: int,
+    screen_interaction_seconds: int,
+    distance_km: float,
+    duration_seconds: int,
+    risk_multiplier: float,
+    now: datetime,
+) -> tuple[float, float, float]:
+    """Compute the v2 trip score, updated driver score, and points.
+
+    v2 is the sole scoring engine (scoring-algorithm-v2.md). Pure-formula work
+    lives in scoring_v2; this only sources the inputs. Severity is unavailable
+    (no SDK peak_g yet) so weighted counts equal raw counts; speeding is
+    unavailable (no map-matching) so has_speed_data=False redistributes its
+    weight (§3/§6). Returns (trip_score, driver_score, points).
+    """
+    # Proxy for the distraction weight until the SDK emits per-epoch speed:
+    # each touch epoch is weight 1, plus screen-on minutes (scoring-algorithm-v2.md §3.4).
+    w_distraction = touch_epochs + screen_interaction_seconds / 60.0
+    rolling = user.driver_score if user.driver_score is not None else scoring_v2.CONFIG.prior_score
+
+    trip_v2 = scoring_v2.compute_trip_score(
+        w_brake=hard_brakes,
+        w_accel=aggressive_accels,
+        w_corner=sharp_turns,
+        w_distraction=w_distraction,
+        distance_km=distance_km,
+        duration_min=duration_seconds / 60.0,
+        has_speed_data=False,
+        rolling_score=rolling,
+    )
+
+    cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
+    rows = (
+        await db.execute(
+            select(Trip.score_v2, Trip.distance_km, Trip.start_time, Trip.points).where(
+                Trip.user_id == user.id,
+                Trip.start_time >= cutoff,
+            )
+        )
+    ).all()
+
+    # Driver score: recency- and exposure-weighted history (only scored trips).
+    history = [
+        scoring_v2.TripHistoryPoint(
+            trip_score=score,
+            distance_km=km,
+            age_days=max(0.0, (now - start).total_seconds() / 86400.0),
+        )
+        for score, km, start, _pts in rows
+        if score is not None
+    ]
+    # Include the trip being saved (age 0) so a first trip yields a real number.
+    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_v2.score, distance_km=distance_km, age_days=0.0))
+    driver_score = scoring_v2.compute_driver_score(history)
+
+    # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps (§8).
+    today = now.astimezone(_TZ_IL).date()
+    points_today = sum((pts or 0.0) for _s, _km, start, pts in rows if start.astimezone(_TZ_IL).date() == today)
+    distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
+
+    # Streak: consecutive days (including today, counting the trip being saved)
+    # with at least one trip (scoring-algorithm-v2.md §8).
+    trip_days = {start.astimezone(_TZ_IL).date() for _s, _km, start, _p in rows}
+    trip_days.add(today)
+    streak_days = 0
+    cursor = today
+    while cursor in trip_days:
+        streak_days += 1
+        cursor -= timedelta(days=1)
+
+    points = scoring_v2.compute_points(
+        trip_score=trip_v2.score,
+        distance_km=distance_km,
+        risk_multiplier=risk_multiplier,
+        streak_days=streak_days,
+        points_today=points_today,
+        distance_today_km=distance_today_km,
+        fraud_flagged=False,
+    )
+    return trip_v2.score, driver_score, points
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
@@ -172,15 +376,23 @@ async def save(
         distance = dto.distance_km or 0.0
         digest_duration = duration or 0
 
-    avg_score, points_raw, risk_multiplier = calculate_score(
+    # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
+    # is a time-of-day factor reused from v1; the score, driver score, and points
+    # are pure v2. There is no v1 fallback — a v2 failure fails the save.
+    now = datetime.now(UTC)
+    risk_multiplier = get_risk_multiplier(start)
+    score_v2, new_driver_score, points_v2 = await _compute_v2(
+        db,
+        user,
         hard_brakes=scored_hard_brakes,
         aggressive_accels=scored_aggressive_accels,
         sharp_turns=scored_sharp_turns,
         touch_epochs=scored_touch_epochs,
         screen_interaction_seconds=scored_screen_secs,
-        duration_seconds=digest_duration,
         distance_km=distance,
-        start_time=start,
+        duration_seconds=digest_duration,
+        risk_multiplier=risk_multiplier,
+        now=now,
     )
 
     trip = Trip(
@@ -190,8 +402,10 @@ async def save(
         end_time=end,
         duration_seconds=duration or 0,
         distance_km=distance,
-        avg_score=avg_score,
-        points=round(points_raw),
+        avg_score=score_v2,
+        score_v2=score_v2,
+        scoring_version=scoring_v2.CONFIG.version,
+        points=round(points_v2),
         risk_multiplier=risk_multiplier,
         hard_brakes=scored_hard_brakes,
         aggressive_accels=scored_aggressive_accels,
@@ -203,9 +417,20 @@ async def save(
         ai_insight=dto.ai_insight,
         telemetry_digest=dto.telemetry_digest,
         payload_signature=dto.payload_signature,
+        route_waypoints=dto.route_waypoints,
         status=TripStatus.COMPLETED if end else TripStatus.ACTIVE,
         synced_at=datetime.now(UTC),
     )
+
+    # Persist the per-event timeline (map markers + future severity inputs). This is
+    # forensic, unsigned data sourced from dto.events — independent of the digest
+    # counts that drive the score, so the two may legitimately differ. The cascade
+    # inserts these rows and stamps trip_id on flush.
+    trip.events = _build_trip_events(dto.events, start)
+    # Capture now: expire_on_commit would expire the collection and accessing it
+    # after refresh would trigger an illegal lazy-load in async context.
+    event_count = len(trip.events)
+
     db.add(trip)
 
     if trip.points > 0 or trip.distance_km > 0:
@@ -214,16 +439,15 @@ async def save(
             *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
             else_=1,
         )
-        await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(
-                points=User.points + trip.points,
-                total_points=new_total,
-                total_distance=User.total_distance + trip.distance_km,
-                level=level_expr,
-            )
-        )
+        values: dict[str, Any] = {
+            "points": User.points + trip.points,
+            "total_points": new_total,
+            "total_distance": User.total_distance + trip.distance_km,
+            "level": level_expr,
+        }
+        # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
+        values["driver_score"] = new_driver_score
+        await db.execute(update(User).where(User.id == user.id).values(**values))
 
     try:
         await db.commit()
@@ -244,5 +468,6 @@ async def save(
         distance_km=trip.distance_km,
         points=trip.points,
         avg_score=trip.avg_score,
+        events=event_count,
     )
     return TripOut.from_orm_trip(trip)

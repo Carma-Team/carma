@@ -10,13 +10,14 @@ class RewardOut(CamelModel):
     id: str
     business_id: str
     business: str
+    business_he: str | None
     title_he: str
     title_en: str | None
     description_he: str
     description_en: str | None
     category: str
     cost_points: int
-    image_emoji: str
+    image_icon: str
     is_active: bool
     stock: int
     expires_at: datetime | None
@@ -28,13 +29,14 @@ class RewardOut(CamelModel):
                 "id": reward.id,
                 "business_id": reward.business_id,
                 "business": reward.business.name,
+                "business_he": reward.business.name_he,
                 "title_he": reward.title_he,
                 "title_en": reward.title_en,
                 "description_he": reward.description_he,
                 "description_en": reward.description_en,
                 "category": reward.category.value.lower(),
                 "cost_points": reward.cost_points,
-                "image_emoji": reward.image_emoji,
+                "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
                 "stock": reward.stock,
                 "expires_at": reward.expires_at,

@@ -1,16 +1,16 @@
 /**
- * @fileoverview API לפרופיל משתמש וסטטיסטיקות נהיגה
+ * @fileoverview User profile and driving stats API
  * @module services/api/user
  *
  * @description
- * - `stats` — סטטיסטיקות נהיגה מצטברות (נסיעות, מרחק, ציון ממוצע, גרף שבועי)
- * - `updateProfile` — עדכון שם, שפה, גיל, עיר
- * - `deleteAccount` — מחיקת חשבון (GDPR)
+ * - `stats` — cumulative driving statistics (trips, distance, avg score, weekly chart)
+ * - `updateProfile` — update name, language, age, city
+ * - `deleteAccount` — delete account (GDPR)
  *
  * @server
- * - GET /api/user/stats — USE_REAL_SERVER=false → mock (MOCK_STATS/MOCK_DRIVER_STATS); true → שרת נווה
- * - PATCH /api/users/me — USE_REAL_SERVER=false → mock; true → שרת נווה
- * - DELETE /api/users/me — USE_REAL_SERVER=false → mock (204); true → שרת נווה
+ * - GET /api/user/stats — USE_REAL_SERVER=false → mock (MOCK_STATS/MOCK_DRIVER_STATS); true → real server
+ * - PATCH /api/users/me — USE_REAL_SERVER=false → mock; true → real server
+ * - DELETE /api/users/me — USE_REAL_SERVER=false → mock (204); true → real server
  */
 import { request } from './client';
 import type { AppUser, DrivingStats } from '@/types';
@@ -21,6 +21,12 @@ export interface UpdateProfilePayload {
   age?: number;
   city?: string;
   isPrivate?: boolean;
+}
+
+export interface FoundUser {
+  id: string;
+  name: string;
+  city: string | null;
 }
 
 export const userApi = {
@@ -37,4 +43,12 @@ export const userApi = {
   /** Delete account (GDPR right to be forgotten) */
   deleteAccount: () =>
     request<void>('/api/users/me', { method: 'DELETE' }),
+
+  /** Find a user by their phone number (excludes the current user) */
+  searchByPhone: (phone: string) =>
+    request<{ user: FoundUser }>(`/api/users/search?phone=${encodeURIComponent(phone)}`),
+
+  /** Send a friend request to targetUserId */
+  sendFriendRequest: (targetUserId: string) =>
+    request<{ status: string }>(`/api/users/${targetUserId}/friend-request`, { method: 'POST' }),
 };

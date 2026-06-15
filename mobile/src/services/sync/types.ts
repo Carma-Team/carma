@@ -11,6 +11,7 @@ export interface TelemetryDigest {
   hardBrakes:               number;
   aggressiveAccels:         number;
   sharpTurns:               number;
+  swerves?:                 number;  // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
   screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds
   riskMultiplier:           number;  // time-of-day multiplier (client-derived, server recomputes)
@@ -35,6 +36,7 @@ export interface ValidTripPayload {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
+  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — replaces phoneSeconds
   screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds
   riskMultiplier: number;
@@ -42,6 +44,8 @@ export interface ValidTripPayload {
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;
+  // GPS track recorded during the trip — stored server-side for the route map view
+  routeWaypoints?:    Array<{ lat: number; lng: number; ts: number; speedKmh: number }>;
 }
 
 // ─── Queue Item ───────────────────────────────────────────────────────────────

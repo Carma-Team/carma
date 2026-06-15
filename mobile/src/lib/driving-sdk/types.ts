@@ -25,22 +25,43 @@ export interface ValidationSample {
 }
 
 export enum DrivingEventType {
-  HARD_BRAKE = 'HARD_BRAKE',
-  AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL',
-  SHARP_TURN = 'SHARP_TURN',
-  PHONE_USAGE = 'PHONE_USAGE'
+  HARD_BRAKE      = 'HARD_BRAKE',       // EVT_BRAKE   — spec §א table 1
+  AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL', // EVT_ACCEL   — spec §א table 1
+  SHARP_TURN      = 'SHARP_TURN',        // EVT_TURN    — spec §א table 1
+  SWERVE          = 'SWERVE',            // EVT_SWERVE  — spec §א table 1
+  PHONE_USAGE     = 'PHONE_USAGE'        // not in spec table — detected separately
 }
 
 export interface DrivingEvent {
   type: DrivingEventType;
   timestamp: Date;
   severity: number; // 0.0 to 1.0
-  speedKmh?: number; // vehicle speed at the moment the event fired — stamped by CarmaDrivingSDK
+  speedKmh?: number; // vehicle speed at the moment the event fired — stamped by DrivingSDK
   location?: {
     latitude: number;
     longitude: number;
   };
 }
+
+/**
+ * Conditions that a registered sensor event listener must satisfy before being invoked.
+ * All fields are optional — omitting a field means "no constraint on that dimension".
+ */
+export interface SensorEventCondition {
+  /** GPS speed (km/h) must be at or above this value at the moment of detection. */
+  minSpeedKmh?: number;
+  /** Event severity [0–1] must be at or above this value. */
+  minSeverity?: number;
+}
+
+/** Callback signature for a registered sensor event listener. */
+export type SensorEventHandler = (event: DrivingEvent) => void;
+
+/**
+ * Opaque token returned by `DrivingSDK.on()`.
+ * Pass it to `DrivingSDK.off()` to remove the listener.
+ */
+export type ListenerToken = symbol;
 
 export interface SDKConfig {
   autoStartOnBluetooth?: boolean;
@@ -49,12 +70,20 @@ export interface SDKConfig {
   scoringEnabled?: boolean;
 }
 
+export interface RouteWaypoint {
+  lat: number;
+  lng: number;
+  ts: number;        // Date.now() ms
+  speedKmh: number;
+}
+
 export interface TripData {
   startTime: Date;
   endTime?: Date;
   distanceKm: number;
   durationSeconds: number;
   events: DrivingEvent[];
+  waypoints: RouteWaypoint[];      // GPS track — downsampled at ~5s intervals while moving
   averageSpeed: number;
   maxSpeed: number;
   /** @deprecated v1.7 — replaced by touchEpochs + screenInteractionSeconds */
@@ -68,7 +97,7 @@ export type EventCallback = (event: DrivingEvent) => void;
 export type StateChangeCallback = (isActive: boolean) => void;
 
 // ─── Fraud Detection Event ────────────────────────────────────────────────────
-// Fired by CarmaDrivingSDK.onFraudDetected; contains everything AppContext needs
+// Fired by DrivingSDK.onFraudDetected; contains everything AppContext needs
 // to build the InvalidTripPayload for Sean's backend.
 export interface FraudDetectedEvent {
   confidence: number;       // 0–1 fraud score

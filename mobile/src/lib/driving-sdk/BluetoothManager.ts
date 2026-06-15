@@ -1,65 +1,202 @@
 /**
- * @fileoverview ניהול חיבור Bluetooth לרכב — BluetoothManager
- * @module lib/driving-sdk/BluetoothManager
+ * BluetoothManager — Classic Bluetooth device monitoring (Android only).
  *
- * @description
- * מימוש Mock בלבד (ללא תלויות native) לצורך פיתוח ו-Expo Go.
- * מחזיר רשימת מכשירים מדומה ומאפשר סימולציה של חיבור/ניתוק.
- * כשהאפליקציה תועבר לייצור — יוחלף ב-BleManager אמיתי (react-native-ble-plx).
+ * Responsibilities:
+ *   1. List OS-bonded (paired) Bluetooth devices on this handset.
+ *   2. Emit onConnect / onDisconnect when the target device connects or
+ *      disconnects at the system level.
  *
- * @remarks ללא קריאות שרת — כל הנתונים מקומיים.
+ * Platform: Android only.
+ * iOS Classic Bluetooth access requires an Apple MFi licence — see README.md.
+ *
+ * Requires a development build (expo-dev-client).
+ * Not compatible with Expo Go.
  */
 
+import { Platform, PermissionsAndroid, NativeModules, type Permission } from 'react-native';
+import RNBluetoothClassic, {
+  type BluetoothDevice as RNDevice,
+} from 'react-native-bluetooth-classic';
+
+/** True only when the native module is linked — requires a dev/production build, not Expo Go. */
+const isBTNativeAvailable = (): boolean => !!NativeModules.RNBluetoothClassic;
+
 export interface BluetoothDevice {
-  id: string;
+  id: string;   // MAC address on Android (e.g. "AA:BB:CC:DD:EE:FF")
   name: string;
 }
 
 export class BluetoothManager {
   private targetDeviceId: string | null = null;
-  private onConnect: () => void;
-  private onDisconnect: () => void;
+  private readonly onConnect: () => void;
+  private readonly onDisconnect: () => void;
+  private connectSub: { remove: () => void } | null = null;
+  private disconnectSub: { remove: () => void } | null = null;
 
   constructor(onConnect: () => void, onDisconnect: () => void) {
     this.onConnect = onConnect;
     this.onDisconnect = onDisconnect;
-    console.log('[SDK] BluetoothManager initialized in Mock mode');
   }
 
-  public setTargetDevice(id: string | null) {
+  // ─── Target device ───────────────────────────────────────────────────────────
+
+  public setTargetDevice(id: string | null): void {
     this.targetDeviceId = id;
-    console.log('[SDK] Target device set to:', id);
   }
 
   public getTargetDevice(): string | null {
     return this.targetDeviceId;
   }
 
+  // ─── Permissions ─────────────────────────────────────────────────────────────
+
+  private async requestPermissions(): Promise<boolean> {
+    if (Platform.OS !== 'android') return false;
+
+    // Android 12+ (API 31) replaces the location-based BT permission with explicit ones.
+    const apiLevel = Platform.Version as number;
+    const permissions: Permission[] = apiLevel >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        ]
+      : [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ];
+
+    const results = await PermissionsAndroid.requestMultiple(permissions);
+    return Object.values(results).every(
+      r => r === PermissionsAndroid.RESULTS.GRANTED
+    );
+  }
+
+  // ─── Bonded devices ──────────────────────────────────────────────────────────
+
+  /**
+   * Returns the list of Bluetooth devices already paired to this Android handset.
+   * Returns an empty array on iOS or when permissions are denied.
+   */
   public async getBondedDevices(): Promise<BluetoothDevice[]> {
-    return [
-      { id: 'car-bt-01', name: 'My Tesla Model 3' },
-      { id: 'car-bt-02', name: 'Toyota Multimedia' },
-      { id: 'car-bt-03', name: 'Mazda Connect' },
-    ];
+    if (Platform.OS !== 'android' || !isBTNativeAvailable()) return [];
+
+    const granted = await this.requestPermissions();
+    if (!granted) {
+      console.warn('[SDK] Bluetooth permissions not granted');
+      return [];
+    }
+
+    try {
+      const available = await RNBluetoothClassic.isBluetoothAvailable();
+      if (!available) return [];
+
+      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+      if (!enabled) return [];
+
+      const bonded: RNDevice[] = await RNBluetoothClassic.getBondedDevices();
+      return bonded.map(d => ({
+        id: d.address,
+        name: d.name ?? d.address,
+      }));
+    } catch (err) {
+      console.warn('[SDK] getBondedDevices error:', err);
+      return [];
+    }
   }
 
+  // ─── Connection check ────────────────────────────────────────────────────────
+
+  /**
+   * Returns true if the target device is currently connected at the system level.
+   */
   public async checkCurrentConnection(): Promise<boolean> {
-    return false;
+    if (Platform.OS !== 'android' || !this.targetDeviceId || !isBTNativeAvailable()) return false;
+
+    try {
+      const device = await RNBluetoothClassic.getConnectedDevice(this.targetDeviceId);
+      return device !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── Monitoring ──────────────────────────────────────────────────────────────
+
+  /**
+   * Subscribes to system-level Bluetooth connect / disconnect broadcasts.
+   * Android: ACTION_ACL_CONNECTED / ACTION_ACL_DISCONNECTED.
+   *
+   * Fires onConnect / onDisconnect only when the event matches targetDeviceId.
+   * Event-driven — no polling, no background thread, minimal battery impact.
+   *
+   * Safe to call multiple times; subsequent calls before stopMonitoring() are no-ops.
+   */
+  public startMonitoring(): void {
+    if (Platform.OS !== 'android' || !isBTNativeAvailable()) return;
+    if (this.connectSub || this.disconnectSub) return;
+
+    this.connectSub = RNBluetoothClassic.onDeviceConnected((event: any) => {
+      const device = event as RNDevice;
+      if (device.address === this.targetDeviceId) {
+        console.log('[SDK] Target BT device connected:', device.name);
+        this.onConnect();
+      }
+    });
+
+    this.disconnectSub = RNBluetoothClassic.onDeviceDisconnected((event: any) => {
+      const device = event as RNDevice;
+      if (device.address === this.targetDeviceId) {
+        console.log('[SDK] Target BT device disconnected:', device.name);
+        this.onDisconnect();
+      }
+    });
   }
 
   /**
-   * Simulates a Bluetooth connection event for demo/testing
+   * Removes all system event subscriptions.
+   * Call when monitoring is no longer needed (feature disabled, app teardown).
    */
-  public simulateConnect() {
-    console.log('[SDK] Simulating Bluetooth Connection...');
-    if (this.onConnect) this.onConnect();
+  public stopMonitoring(): void {
+    this.connectSub?.remove();
+    this.disconnectSub?.remove();
+    this.connectSub = null;
+    this.disconnectSub = null;
   }
 
+  // ─── Support status ──────────────────────────────────────────────────────────
+
   /**
-   * Simulates a Bluetooth disconnection event for demo/testing
+   * Returns why getBondedDevices() might return empty, for diagnostic UI.
+   * nativeAvailable=false → running in Expo Go or native module not linked.
    */
-  public simulateDisconnect() {
-    console.log('[SDK] Simulating Bluetooth Disconnection...');
-    if (this.onDisconnect) this.onDisconnect();
+  public async getBTSupportStatus(): Promise<{
+    nativeAvailable: boolean;
+    btAvailable: boolean;
+    btEnabled: boolean;
+    permissionsGranted: boolean;
+  }> {
+    const nativeAvailable = isBTNativeAvailable();
+    if (Platform.OS !== 'android' || !nativeAvailable) {
+      return { nativeAvailable, btAvailable: false, btEnabled: false, permissionsGranted: false };
+    }
+    try {
+      const btAvailable = await RNBluetoothClassic.isBluetoothAvailable();
+      const btEnabled   = btAvailable && await RNBluetoothClassic.isBluetoothEnabled();
+      const granted     = await this.requestPermissions();
+      return { nativeAvailable, btAvailable, btEnabled, permissionsGranted: granted };
+    } catch {
+      return { nativeAvailable, btAvailable: false, btEnabled: false, permissionsGranted: false };
+    }
+  }
+
+  // ─── Debug helpers ───────────────────────────────────────────────────────────
+
+  /** Fires onConnect directly. Use to test the trip-start flow without a physical BT device. */
+  public simulateConnect(): void {
+    this.onConnect();
+  }
+
+  /** Fires onDisconnect directly. Use to test the trip-end flow without a physical BT device. */
+  public simulateDisconnect(): void {
+    this.onDisconnect();
   }
 }

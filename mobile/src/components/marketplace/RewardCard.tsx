@@ -1,10 +1,14 @@
 import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import QRCode from 'react-native-qrcode-svg'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS } from '@/constants/theme'
+import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons'
+import { localize } from '@/lib/utils'
 import type { Reward, Voucher } from '@/types'
 
 // ─── RewardCard ───────────────────────────────────────────────────────────────
@@ -18,24 +22,26 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
   const canAfford = userPoints >= reward.costPoints
   const inStock   = reward.stock > 0
+  const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
   return (
     <Card style={styles.cardContainer}>
       <View style={styles.headerRow}>
-        <View style={styles.emojiCircle}>
-          <Text style={styles.rewardEmoji}>{reward.imageEmoji}</Text>
+        <View style={[styles.iconCircle, { backgroundColor: cat.bg, borderColor: cat.color + '40' }]}>
+          <Ionicons name={cat.icon} size={22} color={cat.color} />
         </View>
         <View style={styles.headerText}>
-          <Text style={styles.businessName}>{reward.business}</Text>
+          <Text style={styles.businessName}>{localize(reward.businessHe ?? reward.business, reward.business, lang)}</Text>
           <Text style={styles.rewardTitle} numberOfLines={2}>
-            {lang === 'he' ? reward.titleHe : (reward.titleEn || reward.titleHe)}
+            {localize(reward.titleHe, reward.titleEn, lang)}
           </Text>
         </View>
       </View>
 
       <View style={styles.footerRow}>
         <View style={styles.costBadge}>
-          <Text style={styles.rewardCost}>⭐ {reward.costPoints} {t('common.points')}</Text>
+          <Ionicons name={ICONS.points} size={12} color={COLORS.brandLight} style={{ marginRight: 4 }} />
+          <Text style={styles.rewardCost}>{reward.costPoints} {t('common.points')}</Text>
         </View>
 
         <Button
@@ -46,7 +52,11 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
           style={styles.redeemBtn}
           textStyle={styles.redeemBtnText}
         >
-          {!inStock ? t('marketplace.outOfStock') : !canAfford ? '🔒' : t('marketplace.redeem')}
+          {!inStock
+            ? t('marketplace.outOfStock')
+            : !canAfford
+            ? <Ionicons name={ICONS.locked} size={14} color={COLORS.textMuted} />
+            : t('marketplace.redeem')}
         </Button>
       </View>
 
@@ -73,14 +83,26 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
   return (
     <Modal open={open} onClose={onClose} title={t('marketplace.voucher.title')}>
       <View style={styles.voucherContent}>
-        <Text style={styles.voucherEmoji}>{voucher.reward.imageEmoji}</Text>
+        <View style={styles.voucherIconCircle}>
+          <Ionicons
+            name={(voucher.reward.imageIcon ?? DEFAULT_CATEGORY.icon) as IoniconName}
+            size={48}
+            color={COLORS.brand}
+          />
+        </View>
         <Text style={styles.voucherRewardTitle}>
-          {lang === 'he' ? voucher.reward.titleHe : (voucher.reward.titleEn || voucher.reward.titleHe)}
+          {localize(voucher.reward.titleHe, voucher.reward.titleEn, lang)}
         </Text>
 
         <View style={styles.qrPlaceholder}>
-          <Text style={styles.qrCode}>{voucher.code}</Text>
+          <QRCode
+            value={voucher.qrData}
+            size={140}
+            backgroundColor="transparent"
+            color={COLORS.text}
+          />
           <Text style={styles.qrNote}>{t('marketplace.voucher.scanQR')}</Text>
+          <Text style={styles.qrCodeText}>{voucher.code}</Text>
         </View>
 
         <Text style={styles.voucherExpiry}>
@@ -99,31 +121,29 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
 const styles = StyleSheet.create({
   cardContainer:    { padding: 12, marginBottom: 4 },
   headerRow:        { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
-  emojiCircle:      {
+  iconCircle: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
   },
-  rewardEmoji:      { fontSize: 24 },
   headerText:       { flex: 1, gap: 2 },
   businessName:     { color: COLORS.textMuted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  rewardTitle:      { color: '#fff', fontWeight: '700', fontSize: 15, lineHeight: 20 },
+  rewardTitle:      { color: COLORS.text, fontWeight: '700', fontSize: 15, lineHeight: 20 },
   footerRow:        {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)',
+    paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border,
   },
-  costBadge:        { backgroundColor: 'rgba(129, 140, 248, 0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  rewardCost:       { color: '#818cf8', fontSize: 12, fontWeight: '700' },
+  costBadge:        { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(99, 102, 241, 0.08)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  rewardCost:       { color: COLORS.brandLight, fontSize: 12, fontWeight: '700' },
   redeemBtn:        { minWidth: 70, height: 32, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 8, alignSelf: 'flex-end' },
   redeemBtnText:    { fontSize: 13, fontWeight: '700' },
   missingPointsHint: { color: '#f59e0b', fontSize: 11, fontWeight: '600', textAlign: 'right', marginTop: 6 },
   voucherContent:   { alignItems: 'center', paddingVertical: 16, gap: 12 },
-  voucherEmoji:     { fontSize: 48 },
-  voucherRewardTitle: { color: '#fff', fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  qrPlaceholder:    { width: 160, height: 160, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 8 },
-  qrCode:           { color: '#000', fontWeight: '700', fontSize: 13, textAlign: 'center' },
-  qrNote:           { color: '#666', fontSize: 10, marginTop: 4 },
-  voucherExpiry:    { color: '#94a3b8', fontSize: 13 },
+  voucherIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(99,102,241,0.1)', alignItems: 'center', justifyContent: 'center' },
+  voucherRewardTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  qrPlaceholder:    { alignItems: 'center', justifyContent: 'center', padding: 12, gap: 8 },
+  qrNote:           { color: COLORS.textMuted, fontSize: 11, marginTop: 2 },
+  qrCodeText:       { color: COLORS.textMuted, fontSize: 10, fontFamily: 'monospace', letterSpacing: 1 },
+  voucherExpiry:    { color: COLORS.textMuted, fontSize: 13 },
   statusBadge:      { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
 })

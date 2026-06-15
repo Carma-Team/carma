@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,29 +8,29 @@ import { useApp } from '@/context/AppContext';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
 import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
 
-/**
- * מסך בחירת מכשיר Bluetooth לזיהוי אוטומטי של נסיעות.
- * כל הפעולות הן מקומיות בלבד (SDK + AsyncStorage) — אין קריאות לשרת.
- */
+type BTStatus = {
+  nativeAvailable: boolean;
+  btAvailable: boolean;
+  btEnabled: boolean;
+  permissionsGranted: boolean;
+} | null;
+
 export default function BluetoothSettings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { sdk, addToast } = useApp();
 
-  const [devices, setDevices] = useState<BluetoothDevice[]>([]);
+  const [devices, setDevices]       = useState<BluetoothDevice[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]       = useState(true);
+  const [btStatus, setBTStatus]     = useState<BTStatus>(null);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  /**
-   * טוען את רשימת המכשירים הזמינים מה-SDK ואת המכשיר הנבחר מ-AsyncStorage.
-   * [שרת] אין — הכל מקומי. SDK.getAvailableDevices() מחזיר מכשירים מדומים במצב Mock.
-   */
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
+    setLoading(true);
     try {
+      const status = await sdk.getBTSupportStatus();
+      setBTStatus(status);
+
       const available = await sdk.getAvailableDevices();
       setDevices(available);
 
@@ -41,14 +41,12 @@ export default function BluetoothSettings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sdk]);
 
-  /**
-   * בוחרת / מבטלת בחירת מכשיר Bluetooth.
-   * לחיצה על מכשיר נבחר — מבטלת את הבחירה.
-   * לחיצה על מכשיר חדש — שומרת ב-AsyncStorage ומעדכנת את ה-SDK.
-   * [שרת] אין — הכל מקומי (AsyncStorage + SDK).
-   */
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
   const handleSelect = async (device: BluetoothDevice) => {
     try {
       const newId = selectedId === device.id ? null : device.id;
@@ -62,32 +60,110 @@ export default function BluetoothSettings() {
         await AsyncStorage.removeItem('carma_bt_device_id');
         sdk.updateTargetDevice(null);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('שגיאה', 'לא ניתן לשמור את ההגדרה');
     }
   };
 
-  /** מרנדרת שורת מכשיר אחד ברשימה, עם סימון אם הוא הנבחר. */
   const renderItem = ({ item }: { item: BluetoothDevice }) => (
     <TouchableOpacity
       style={[styles.deviceItem, selectedId === item.id && styles.selectedItem]}
       onPress={() => handleSelect(item)}
     >
       <View style={styles.deviceInfo}>
-        <Ionicons name="bluetooth" size={24} color={selectedId === item.id ? COLORS.brand : '#fff'} />
+        <Ionicons name="bluetooth" size={24} color={selectedId === item.id ? COLORS.brand : COLORS.text} />
         <Text style={[styles.deviceName, selectedId === item.id && styles.selectedText]}>{item.name}</Text>
       </View>
       {selectedId === item.id && <Ionicons name="checkmark-circle" size={24} color={COLORS.brand} />}
     </TouchableOpacity>
   );
 
+  const renderEmpty = () => {
+    if (!btStatus) return null;
+
+    if (!btStatus.nativeAvailable) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="construct-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
+          <Text style={styles.emptyTitle}>נדרש גרסת Dev Build</Text>
+          <Text style={styles.emptyText}>
+            תכונה זו דורשת גרסת פיתוח של האפליקציה (Expo Dev Build) ואינה זמינה ב-Expo Go.
+          </Text>
+        </View>
+      );
+    }
+
+    if (Platform.OS !== 'android') {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="logo-apple" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
+          <Text style={styles.emptyTitle}>iOS אינה נתמכת</Text>
+          <Text style={styles.emptyText}>
+            חיבור Bluetooth Classic זמין על מכשירי Android בלבד.
+          </Text>
+        </View>
+      );
+    }
+
+    if (!btStatus.btEnabled) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="bluetooth-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
+          <Text style={styles.emptyTitle}>Bluetooth כבוי</Text>
+          <Text style={styles.emptyText}>
+            אנא הפעל את ה-Bluetooth בהגדרות המכשיר ולחץ על רענון.
+          </Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
+            <Ionicons name="refresh" size={18} color={COLORS.brand} />
+            <Text style={styles.refreshText}>רענן</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (!btStatus.permissionsGranted) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="shield-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
+          <Text style={styles.emptyTitle}>נדרשת הרשאה</Text>
+          <Text style={styles.emptyText}>
+            לא הוענקה הרשאת Bluetooth. אנא אשר גישה בהגדרות האפליקציה ולחץ על רענון.
+          </Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
+            <Ionicons name="refresh" size={18} color={COLORS.brand} />
+            <Text style={styles.refreshText}>נסה שוב</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="bluetooth-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
+        <Text style={styles.emptyTitle}>לא נמצאו מכשירים</Text>
+        <Text style={styles.emptyText}>
+          לא נמצאו מכשירים Bluetooth מוצמדים. ודא שהטלפון מוצמד לרכב בהגדרות הטלפון.
+        </Text>
+        <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
+          <Ionicons name="refresh" size={18} color={COLORS.brand} />
+          <Text style={styles.refreshText}>רענן</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-forward" size={28} color="#fff" />
+      <View style={COMMON_STYLES.screenHeader}>
+        <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
+          <Ionicons name="arrow-forward" size={28} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>חיבור לרכב</Text>
+        <Text style={COMMON_STYLES.screenHeaderTitle}>חיבור לרכב</Text>
+        {!loading && devices.length > 0 && (
+          <TouchableOpacity onPress={loadSettings} style={styles.refreshHeaderBtn}>
+            <Ionicons name="refresh" size={22} color={COLORS.textMuted} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.content}>
@@ -102,9 +178,7 @@ export default function BluetoothSettings() {
             data={devices}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>לא נמצאו מכשירים מוצמדים. וודא שהטלפון מוצמד לרכב בהגדרות המכשיר.</Text>
-            }
+            ListEmptyComponent={renderEmpty}
           />
         )}
       </View>
@@ -119,32 +193,32 @@ export default function BluetoothSettings() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: SPACING.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222'
-  },
-  backBtn: { marginEnd: 15 },
-  title: { ...TYPOGRAPHY.h2, flex: 1, textAlign: 'left' },
-  content: { flex: 1, padding: SPACING.lg },
-  description: { ...TYPOGRAPHY.body, color: COLORS.textMuted, marginBottom: 30, textAlign: 'left' },
+  refreshHeaderBtn: { marginStart: 'auto' },
+  content:          { flex: 1, padding: SPACING.lg },
+  description:      { ...TYPOGRAPHY.body, color: COLORS.textMuted, marginBottom: 30, textAlign: 'left' },
   deviceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1f2e',
+    backgroundColor: COLORS.card,
     padding: 20,
     borderRadius: 15,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#333'
+    borderColor: COLORS.border
   },
   selectedItem: { borderColor: COLORS.brand, backgroundColor: 'rgba(52, 199, 89, 0.05)' },
-  deviceInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  deviceName: { color: '#fff', fontSize: 16, fontWeight: '600', marginStart: 15 },
+  deviceInfo:   { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  deviceName:   { color: COLORS.text, fontSize: 16, fontWeight: '600', marginStart: 15 },
   selectedText: { color: COLORS.brand },
-  emptyText: { color: COLORS.textMuted, textAlign: 'center', marginTop: 50, lineHeight: 22 },
-  footer: { padding: SPACING.xl, borderTopWidth: 1, borderTopColor: '#222' },
-  footerText: { color: COLORS.textMuted, textAlign: 'center', fontSize: 13 }
+  emptyContainer: { alignItems: 'center', marginTop: 60, paddingHorizontal: 24 },
+  emptyTitle:     { color: COLORS.text, fontSize: 17, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
+  emptyText:      { color: COLORS.textMuted, textAlign: 'center', lineHeight: 22, fontSize: 14 },
+  refreshBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: 20, paddingVertical: 10, paddingHorizontal: 20,
+    borderRadius: 20, borderWidth: 1, borderColor: COLORS.brand,
+  },
+  refreshText:  { color: COLORS.brand, fontSize: 15, fontWeight: '600' },
+  footer:       { padding: SPACING.xl, borderTopWidth: 1, borderTopColor: COLORS.border },
+  footerText:   { color: COLORS.textMuted, textAlign: 'center', fontSize: 13 }
 });

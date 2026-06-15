@@ -5,21 +5,17 @@ import { AppProvider, useApp } from '@/context/AppContext';
 import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
+import { useDriveMode } from '@/hooks/useDriveMode';
 
-// RTL Support
-if (!I18nManager.isRTL) {
-  try {
-    I18nManager.allowRTL(true);
-    I18nManager.forceRTL(true);
-  } catch (e) {
-    console.warn('RTL initialization failed', e);
-  }
-}
+// Allow RTL so the OS respects direction style — actual direction is set per render
+I18nManager.allowRTL(true);
 
 function RootLayoutNav() {
-  const { user, isLoading } = useApp();
+  const { user, isLoading, lang } = useApp();
   const router = useRouter();
+  useDriveMode();
   const segments = useSegments();
+  const direction = lang === 'he' ? 'rtl' : 'ltr';
 
   useEffect(() => {
     if (isLoading) return;
@@ -39,7 +35,7 @@ function RootLayoutNav() {
           router.replace('/(business)');
         }
       } else {
-        // driver ו-admin מנותבים לאותם tabs
+        // driver and admin roles both use the same tabs layout
         if (!inTabsGroup && !inAuthGroup) {
           router.replace('/(tabs)');
         }
@@ -56,18 +52,20 @@ function RootLayoutNav() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {user ? (
-        user.role === 'business' ? (
-          <Stack.Screen name="(business)" />
+    <View style={{ flex: 1, direction }}>
+      <Stack screenOptions={{ headerShown: false }}>
+        {user ? (
+          user.role === 'business' ? (
+            <Stack.Screen name="(business)" />
+          ) : (
+            <Stack.Screen name="(tabs)" />
+          )
         ) : (
-          <Stack.Screen name="(tabs)" />
-        )
-      ) : (
-        <Stack.Screen name="login" />
-      )}
-      <Stack.Screen name="register" />
-    </Stack>
+          <Stack.Screen name="login" />
+        )}
+        <Stack.Screen name="register" />
+      </Stack>
+    </View>
   );
 }
 

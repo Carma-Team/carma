@@ -1,17 +1,19 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Text, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS } from '@/constants/theme';
+import { ICONS, outlineIcon } from '@/constants/icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 
 const TAB_ITEMS = [
-    { name: '(home)',      icon: '🏠', labelKey: 'nav.dashboard'   },
-    { name: 'roadmap',     icon: '🗺️', labelKey: 'nav.roadmap'     },
-    { name: 'marketplace', icon: '🎁', labelKey: 'nav.marketplace' },
-    { name: 'leaderboard', icon: '🏆', labelKey: 'nav.leaderboard' },
-    { name: 'profile',     icon: '👤', labelKey: 'nav.profile'     },
+    { name: '(home)',      icon: ICONS.home,        labelKey: 'nav.dashboard'   },
+    { name: 'roadmap',     icon: ICONS.roadmap,     labelKey: 'nav.roadmap'     },
+    { name: 'marketplace', icon: ICONS.marketplace, labelKey: 'nav.marketplace' },
+    { name: 'leaderboard', icon: ICONS.leaderboard, labelKey: 'nav.leaderboard' },
+    { name: 'profile',     icon: ICONS.profile,     labelKey: 'nav.profile'     },
 ] as const;
 
 export default function TabsLayout() {
@@ -44,7 +46,7 @@ export default function TabsLayout() {
           name={item.name}
           listeners={{
             tabPress: () => {
-              // רישום נגיעה בטלפון בעת מעבר טאב בזמן נסיעה
+              // Register a phone touch when the user taps a tab during a trip
               registerPhoneTouch();
             },
           }}
@@ -55,7 +57,11 @@ export default function TabsLayout() {
                 styles.iconContainer,
                 focused && styles.iconContainerActive
               ]}>
-                <Text style={{ fontSize: focused ? 24 : 20 }}>{item.icon}</Text>
+                <Ionicons
+                  name={focused ? item.icon : outlineIcon(item.icon)}
+                  size={focused ? 24 : 20}
+                  color={focused ? COLORS.brandLight : COLORS.textMuted}
+                />
               </View>
             ),
           }}
@@ -75,7 +81,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   iconContainerActive: {
-    backgroundColor: 'rgba(52, 199, 89, 0.15)', // צבע הברנד עם שקיפות
+    backgroundColor: 'rgba(52, 199, 89, 0.15)', // brand color at low opacity
     shadowColor: COLORS.brand,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,

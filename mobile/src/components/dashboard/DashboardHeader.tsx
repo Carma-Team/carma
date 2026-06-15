@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 
 interface DashboardHeaderProps {
   userName: string;
@@ -17,13 +19,13 @@ export function DashboardHeader({ userName }: DashboardHeaderProps) {
     <View style={COMMON_STYLES.rowBetween}>
       <View>
         <Text style={styles.welcome}>{t('dashboard.welcome')},</Text>
-        <Text style={styles.name}>{firstName} 👋</Text>
+        <Text style={styles.name}>{firstName}</Text>
       </View>
       <TouchableOpacity
         style={styles.settingsBtn}
         onPress={() => router.push('/(home)/settings')}
       >
-        <Text style={styles.settingsIcon}>⚙️</Text>
+        <Ionicons name={ICONS.settings} size={18} color={COLORS.text} />
       </TouchableOpacity>
     </View>
   );
@@ -42,5 +44,4 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  settingsIcon: { fontSize: 18 },
 });

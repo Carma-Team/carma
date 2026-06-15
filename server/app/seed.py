@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
-from sqlalchemy import delete as sql_delete, select
+from sqlalchemy import delete as sql_delete, select, update as sql_update
 
 from app.core.security import hash_password
 from app.database import SessionLocal
@@ -62,6 +62,7 @@ BUSINESSES = [
     {"name": "Aroma", "category": BusinessCategory.FOOD, "location_lat": 32.0733, "location_lng": 34.7779, "address": "תל אביב"},
     {"name": "yes Planet", "category": BusinessCategory.ENTERTAINMENT, "location_lat": 32.0580, "location_lng": 34.7680, "address": "תל אביב"},
     {"name": "ביטוח ישיר", "category": BusinessCategory.OTHER, "location_lat": 32.0700, "location_lng": 34.7900, "address": "תל אביב"},
+    {"name": "McDonald's", "name_he": "מקדונלד'ס", "category": BusinessCategory.FOOD, "location_lat": 32.0763, "location_lng": 34.7745, "address": "תל אביב"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -73,7 +74,9 @@ REWARDS = [
     {
         "business": "Paz",
         "title_he": '50 ש"ח הנחה בתדלוק',
+        "title_en": "50 ILS Discount at Paz Gas Stations",
         "desc": '50 ש"ח הנחה בתדלוק בכל תחנות פז',
+        "desc_en": "50 ILS Discount at All Paz Gas Stations",
         "cat": BusinessCategory.FUEL,
         "cost": 500,
         "emoji": "⛽",
@@ -81,7 +84,9 @@ REWARDS = [
     {
         "business": "Arcaffe",
         "title_he": "קפה ומאפה חינם",
+        "title_en": "Free Coffee and Pastry",
         "desc": "קפה ומאפה חינם בכל סניפי ארקפה",
+        "desc_en": "Free Coffee and Pastry at All Arcaffe Branches",
         "cat": BusinessCategory.FOOD,
         "cost": 200,
         "emoji": "☕",
@@ -90,6 +95,8 @@ REWARDS = [
         "business": "Lime",
         "title_he": "15 דקות קורקינט Lime חינם",
         "desc": "15 דקות נסיעה חינם בקורקינט חשמלי Lime",
+        "title_en": "15 Minutes Free Lime Electric Scooter",
+        "desc_en": "15 Minutes Free Electric Scooter Rental at Lime",
         "cat": BusinessCategory.ECO,
         "cost": 300,
         "emoji": "🛴",
@@ -98,6 +105,8 @@ REWARDS = [
         "business": "Cinema City",
         "title_he": "כרטיס VIP לסרט",
         "desc": "כרטיס כניסה למתחם ה-VIP",
+        "title_en": "VIP Ticket for Movie",
+        "desc_en": "VIP Entry Ticket to the Cinema City",
         "cat": BusinessCategory.ENTERTAINMENT,
         "cost": 1200,
         "emoji": "🎬",
@@ -106,6 +115,8 @@ REWARDS = [
         "business": "Super-Pharm",
         "title_he": "20% הנחה בקוסמטיקה",
         "desc": "קופון הנחה למחלקת הקוסמטיקה בסופר-פארם",
+        "title_en": "20% Discount on Cosmetics",
+        "desc_en": "Discount Coupon for the Cosmetics Department at Super-Pharm",
         "cat": BusinessCategory.SHOPPING,
         "cost": 400,
         "emoji": "🧴",
@@ -115,6 +126,8 @@ REWARDS = [
         "business": "Am:pm",
         "title_he": "שתייה קרה חינם",
         "desc": "שתייה קרה לבחירה חינם בכל סניפי Am:pm",
+        "title_en": "Free Refreshment",
+        "desc_en": "Free Refreshment at Any Am:pm Branch",
         "cat": BusinessCategory.SHOPPING,
         "cost": 80,
         "emoji": "🥤",
@@ -123,6 +136,8 @@ REWARDS = [
         "business": "Aroma",
         "title_he": "קפה גדול חינם",
         "desc": "קפה גדול לבחירה חינם בכל סניפי ארומה",
+        "title_en": "Free Large Coffee",
+        "desc_en": "Free Large Coffee at Any Aroma Branch",
         "cat": BusinessCategory.FOOD,
         "cost": 120,
         "emoji": "☕",
@@ -131,6 +146,8 @@ REWARDS = [
         "business": "Yellow",
         "title_he": "30 דקות אופניים חשמליים Yellow",
         "desc": "30 דקות נסיעה חינם באופניים חשמליים Yellow",
+        "title_en": "30 Minutes Free Yellow Electric Bike",
+        "desc_en": "30 Minutes Free Electric Bike Rental at Yellow",
         "cat": BusinessCategory.ECO,
         "cost": 450,
         "emoji": "🚲",
@@ -139,6 +156,8 @@ REWARDS = [
         "business": "yes Planet",
         "title_he": "משחק בולינג לזוג",
         "desc": "משחק בולינג לזוג ב-yes Planet כולל השכרת נעליים",
+        "title_en": "Bowling Game for Two",
+        "desc_en": "Bowling Game for Two at yes Planet including shoe rental",
         "cat": BusinessCategory.ENTERTAINMENT,
         "cost": 800,
         "emoji": "🎳",
@@ -147,6 +166,8 @@ REWARDS = [
         "business": "Paz",
         "title_he": '100 ש"ח הנחה בתדלוק',
         "desc": '100 ש"ח הנחה בתדלוק בכל תחנות פז',
+        "title_en": "100 ILS Discount at Paz Gas Stations",
+        "desc_en": "100 ILS Discount at All Paz Gas Stations",
         "cat": BusinessCategory.FUEL,
         "cost": 950,
         "emoji": "⛽",
@@ -155,9 +176,44 @@ REWARDS = [
         "business": "ביטוח ישיר",
         "title_he": "15% הנחה על ביטוח רכב",
         "desc": "15% הנחה על פוליסת ביטוח רכב שנתית — בלעדי לנהגי CARMA",
+        "title_en": "15% Discount on Car Insurance",
+        "desc_en": "15% Discount on Annual Car Insurance Policy — Exclusive to CARMA Drivers",
         "cat": BusinessCategory.OTHER,
         "cost": 5500,
         "emoji": "🛡️",
+    },
+    {
+        "business": "McDonald's",
+        "title_he": "גלידה פיצוץ",
+        "title_en": "McFlurry",
+        "desc": "גלידה פיצוץ חינם בכל סניפי מקדונלד'ס",
+        "desc_en": "A free McFlurry Ice Cream Blast at any McDonald's branch",
+        "cat": BusinessCategory.FOOD,
+        "cost": 120,
+        "emoji": "🍦",
+        "icon": "ice-cream-outline",
+    },
+    {
+        "business": "McDonald's",
+        "title_he": "צ'יפס קטן חינם",
+        "title_en": "Free Fries",
+        "desc": "צ'יפס קטן חינם בכל סניפי מקדונלד'ס",
+        "desc_en": "A small french fries at any McDonald's branch",
+        "cat": BusinessCategory.FOOD,
+        "cost": 150,
+        "emoji": "🍟",
+        "icon": "fast-food-outline",
+    },
+    {
+        "business": "McDonald's",
+        "title_he": "ארוחה חינם",
+        "title_en": "Free Meal",
+        "desc": "ארוחה חינם (המבורגר + צ'יפס + שתייה) בכל סניפי מקדונלד'ס",
+        "desc_en": "Free meal (burger + fries + drink) at any McDonald's branch",
+        "cat": BusinessCategory.FOOD,
+        "cost": 350,
+        "emoji": "🍔",
+        "icon": "fast-food-outline",
     },
 ]
 
@@ -181,6 +237,38 @@ LEADERBOARD_USERS = [
 
 # Dan follows these three (shows in his Friends leaderboard)
 DAN_FRIEND_EMAILS = ["yoav@carma.app", "noa@carma.app", "tamar@carma.app"]
+
+# ---------------------------------------------------------------------------
+# Yoni — investor-demo protagonist (Tel Aviv, ranked near bottom → motivation)
+# ---------------------------------------------------------------------------
+
+YONI_FRIENDS = ["yoav@carma.app", "noa@carma.app", "uri@carma.app"]
+
+# Yoni's trip history — 12 trips over ~4 weeks, arc of gradual improvement
+# Columns: date_str, start_hour_utc, dur_sec, dist_km, score,
+#          hard_brakes, aggr_accels, sharp_turns, risk_mult, touch_epochs, points,
+#          start_loc, end_loc, ai_insight
+_YONI_TRIPS: list[tuple] = [
+    # Phase 1 — rough start
+    ("2026-05-15", 7,  1320, 10.0, 62, 4, 2, 1, 1.0, 0, 150, "כיכר המדינה",      "תל אביב - מרכז",  None),
+    ("2026-05-17", 16, 1200,  8.0, 58, 5, 2, 0, 1.0, 1, 120, "תל אביב - צפון",   "יפו",              "בלימות תכופות — הגדל מרחק מהרכב לפניך."),
+    ("2026-05-18",  7, 1680, 12.0, 65, 3, 2, 1, 1.0, 0, 180, "פלורנטין",          "רמת אביב",        None),
+    ("2026-05-20", 16, 1320,  9.0, 60, 4, 1, 1, 1.0, 1, 140, "תל אביב - לב",     "נווה צדק",        None),
+    # Phase 2 — slight improvement
+    ("2026-05-22",  7, 1560, 11.0, 68, 3, 1, 1, 1.0, 0, 190, "הצפון הישן",        "תל אביב",         None),
+    ("2026-05-24", 15, 1440, 10.0, 65, 3, 1, 0, 1.0, 0, 160, "תל אביב",           "רמת אביב ג׳",    None),
+    ("2026-05-26",  7, 1800, 13.0, 70, 2, 1, 1, 1.0, 0, 220, "תל אביב - מרכז",   "אוניברסיטת ת״א", None),
+    ("2026-05-28", 16, 1320,  9.0, 67, 3, 1, 0, 1.0, 0, 170, "כיכר רבין",         "כיכר המדינה",    None),
+    # Phase 3 — steady progress
+    ("2026-05-30",  7, 1560, 11.0, 72, 2, 1, 0, 1.0, 0, 200, "תל אביב",           "הרצליה",          None),
+    ("2026-06-02", 16, 1440, 10.0, 71, 2, 1, 0, 1.0, 0, 185, "רחוב דיזנגוף",     "תל אביב - דרום", None),
+    ("2026-06-09",  7, 1320,  9.0, 73, 2, 0, 0, 1.0, 0, 180, "תל אביב",           "יפו",             None),
+    # Demo trip — score 74, 2 hard brakes on Dizengoff, 2 phone touches on coastal road
+    ("2026-06-14",  7, 1500,  9.2, 74, 2, 1, 0, 1.0, 2, 200, "דיזנגוף, תל אביב", "כביש החוף",      "שתי בלימות חזקות בדיזנגוף ופעמיים נגיעה בטלפון בכביש החוף — נסה להתרכז בדרך."),
+]
+
+_YONI_TOTAL_POINTS = sum(t[10] for t in _YONI_TRIPS)   # 2 095
+_YONI_TOTAL_DISTANCE = round(sum(t[3] for t in _YONI_TRIPS), 1)  # 120.2
 
 # ---------------------------------------------------------------------------
 # Dan Ofri trip history — 18 trips over ~3 weeks (total 4 540 pts, 218.4 km)
@@ -258,10 +346,12 @@ async def run() -> None:
             data: dict[str, Any] = dict(
                 business_id=biz_row.id,
                 title_he=r["title_he"],
+                title_en=r.get("title_en"),
                 description_he=r["desc"],
+                description_en=r.get("desc_en"),
                 category=r["cat"],
                 cost_points=r["cost"],
-                image_emoji=r["emoji"],
+                image_icon=r.get("icon", "gift-outline"),
                 stock=100,
                 is_active=True,
             )
@@ -273,6 +363,16 @@ async def run() -> None:
                 for k, v in data.items():
                     setattr(existing_r, k, v)
                 reward_map[(cast(str, r["business"]), cast(str, r["title_he"]))] = existing_r
+        await db.flush()
+
+        # Deactivate any stale reward no longer in REWARDS (e.g. after a rename),
+        # so renamed/removed rewards don't linger in the marketplace as duplicates.
+        seeded_reward_ids = {r.id for r in reward_map.values()}
+        await db.execute(
+            sql_update(Reward)
+            .where(Reward.id.not_in(seeded_reward_ids), Reward.is_active.is_(True))
+            .values(is_active=False)
+        )
         await db.flush()
 
         # --- Legacy test driver (daniel@carma.app) ---
@@ -409,10 +509,81 @@ async def run() -> None:
             if friend is not None:
                 db.add(UserFriend(follower_id=dan.id, followee_id=friend.id, status=FriendStatus.ACCEPTED))
 
+        await db.flush()
+
+        # --- Yoni — investor-demo protagonist ---
+        yoni = await db.scalar(select(User).where(User.email == "yoni@carma.app"))
+        if yoni is None:
+            yoni = User(
+                email="yoni@carma.app",
+                password_hash=hash_password("Yoni1234"),
+                name="יוני כהן",
+                role=UserRole.DRIVER,
+                city="תל אביב",
+                age=26,
+                license_year=2019,
+                points=_YONI_TOTAL_POINTS,
+                total_points=_YONI_TOTAL_POINTS,
+                total_distance=_YONI_TOTAL_DISTANCE,
+                level=3,
+            )
+            db.add(yoni)
+        else:
+            yoni.name = "יוני כהן"
+            yoni.password_hash = hash_password("Yoni1234")
+            yoni.points = _YONI_TOTAL_POINTS
+            yoni.total_points = _YONI_TOTAL_POINTS
+            yoni.total_distance = _YONI_TOTAL_DISTANCE
+            yoni.level = 3
+        await db.flush()
+
+        # Reset Yoni's trip history for idempotent re-runs.
+        # Also clear any redemptions so the demo always starts with a clean voucher list.
+        await db.execute(sql_delete(Trip).where(Trip.user_id == yoni.id))
+        await db.execute(sql_delete(Redemption).where(Redemption.user_id == yoni.id))
+        await db.execute(sql_delete(UserFriend).where(UserFriend.follower_id == yoni.id))
+        await db.flush()
+
+        # --- Yoni's trips ---
+        for idx, row in enumerate(_YONI_TRIPS):
+            date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, n_te, pts, sloc, eloc, insight = row
+            y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
+            t_start = datetime(y, mo, d, start_h, 0, tzinfo=timezone.utc)
+            t_end = t_start + timedelta(seconds=dur_sec)
+            db.add(
+                Trip(
+                    user_id=yoni.id,
+                    start_time=t_start,
+                    end_time=t_end,
+                    duration_seconds=dur_sec,
+                    distance_km=dist_km,
+                    avg_score=float(score),
+                    points=pts,
+                    risk_multiplier=risk,
+                    status=TripStatus.COMPLETED,
+                    hard_brakes=n_hb,
+                    aggressive_accels=n_aa,
+                    sharp_turns=n_st,
+                    touch_epochs=n_te,
+                    start_location=sloc,
+                    end_location=eloc,
+                    ai_insight=insight,
+                    synced_at=t_end,
+                    idempotency_key=f"seed-trip-yoni-{idx:02d}",
+                )
+            )
+
+        # --- Yoni follows friends (Friends leaderboard) ---
+        for friend_email in YONI_FRIENDS:
+            friend = await db.scalar(select(User).where(User.email == friend_email))
+            if friend is not None:
+                db.add(UserFriend(follower_id=yoni.id, followee_id=friend.id, status=FriendStatus.ACCEPTED))
+
         await db.commit()
 
     print("Seed completed OK")
     print(f"  Demo login  : ofridan@gmail.com / Dan1234  (Level 4, {_DAN_TOTAL_POINTS} pts, {len(_DAN_TRIPS)} trips)")
+    print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
     print(f"  Test login  : daniel@carma.app / password123")
     print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded in תל אביב")
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")

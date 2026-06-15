@@ -11,6 +11,7 @@ import { RecentTripsSection } from '@/components/dashboard/RecentTripsSection';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
+import { ICONS } from '@/constants/icons';
 import { formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 
@@ -21,7 +22,7 @@ export default function DashboardScreen() {
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
 
-  // לוגיקת הצגת סיכום נסיעה
+  // Controls whether the post-trip summary modal is visible
   const [showSummary, setShowSummary] = useState(false);
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function DashboardScreen() {
     });
   };
 
-  // חישוב ציון ממוצע לנסיעות אחרונות
+  // Compute average score across recent trips
   useEffect(() => {
     if (recentTrips && recentTrips.length > 0) {
       const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
@@ -62,7 +63,7 @@ export default function DashboardScreen() {
     );
   }
 
-  // אם יש נסיעה פעילה, נציג את מסך הנסיעה במקום הדאשבורד
+  // While a trip is active, show ActiveTripScreen in place of the dashboard
   if (tripState.isActive) {
     return <ActiveTripScreen />;
   }
@@ -71,7 +72,7 @@ export default function DashboardScreen() {
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
-        {/* Header Section - מופרד לקומפוננטה */}
+        {/* Header Section */}
         <DashboardHeader userName={user.name || ''} />
 
         {/* Level & Points Card */}
@@ -86,9 +87,9 @@ export default function DashboardScreen() {
           columns={3}
           variant="compact"
           items={[
-            { emoji: '🚗', value: recentTrips.length, label: t('stats.totalTrips') },
-            { emoji: '📍', value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
-            { emoji: '⭐', value: user.totalPoints.toLocaleString(), label: t('common.points') },
+            { icon: ICONS.trips,    value: recentTrips.length,                          label: t('stats.totalTrips') },
+            { icon: ICONS.distance, value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
+            { icon: ICONS.points,   value: user.totalPoints.toLocaleString(),             label: t('common.points') },
           ]}
         />
 
@@ -99,15 +100,15 @@ export default function DashboardScreen() {
           onPress={startTrip}
           style={styles.ctaBtn}
         >
-          🚗  {t('dashboard.startTrip')}
+          {t('dashboard.startTrip')}
         </Button>
 
-        {/* Recent History List - מופרד לקומפוננטה */}
+        {/* Recent History List */}
         <RecentTripsSection trips={recentTrips} />
 
       </ScrollView>
 
-      {/* מודאל סיכום נסיעה */}
+      {/* Post-trip summary modal */}
       <TripSummaryModal
         visible={showSummary}
         trip={lastTripSummary}
