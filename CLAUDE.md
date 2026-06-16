@@ -37,9 +37,8 @@ When in doubt: choose the simpler solution.
 carma/
 ├── mobile/                  ← React Native (Expo) — workspace: "carma-app"
 ├── server/                  ← FastAPI + PostgreSQL — Python, outside npm workspaces
-├── mock-server/local-server/ ← Express dev mock — workspace: "carma-local-server"
 ├── docs/                    ← Architecture & algorithm docs (docs/archive/ for retired specs)
-├── scripts/                 ← smoke.sh, dev.ps1
+├── scripts/                 ← dev.ps1, setup.ps1, dev-tunnel.ps1, smoke.sh
 └── .github/workflows/       ← ci-server.yml, ci-mobile.yml, deploy.yml
 ```
 
@@ -53,7 +52,7 @@ carma/
 .\scripts\dev.ps1
 ```
 
-Starts Postgres (Docker), FastAPI on :3000, and Metro bundler in parallel. Use this for day-to-day development. The individual commands below are for running each service in isolation.
+Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator in parallel. Use this for day-to-day development. The individual commands below are for running each service in isolation.
 
 ### Mobile Client (React Native / Expo)
 
@@ -72,11 +71,6 @@ Starts Postgres (Docker), FastAPI on :3000, and Metro bundler in parallel. Use t
 - **DB Migrations:** `cd server && alembic upgrade head`
 - **Lint:** `cd server && ruff check . && ruff format --check .`
 - **Tests:** `cd server && pytest`
-
-### Mock Server (Dev Only)
-
-- **Path:** `./mock-server/local-server`
-- **Start:** `npm run mock:dev` (from root) or `npm run dev` (from `./mock-server/local-server`)
 
 ---
 
