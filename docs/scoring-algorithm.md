@@ -1,6 +1,6 @@
 # CARMA Scoring Algorithm
 
-> Describes the scoring and points formula used in both the mobile client (`mobile/src/lib/scoring.ts`) and the server oracle (`server/app/services/scoring.py`). The two implementations are kept in sync manually — any change to one must be reflected in the other.
+> **Status: RETIRED.** Superseded by [scoring-algorithm-v2.md](scoring-algorithm-v2.md), which is now the sole authoritative engine. The `get_risk_multiplier` time-of-day factor from `scoring.py` is still reused by the v2 engine. `scoring.ts` in the mobile client is kept for unit-test reference only — not called at runtime.
 
 ---
 

@@ -1,12 +1,10 @@
 # CARMA Scoring Algorithm v2 — Next Generation
 
-> **Status: stage 1 implemented — running server-side in SHADOW MODE.**
-> v1 ([scoring-algorithm.md](scoring-algorithm.md)) remains the sole authoritative,
-> user-facing score. v2 is now computed and persisted *alongside* it on every trip
-> save, but is never returned to the client. This lets us validate the v2 distribution
-> on real traffic (§10.2) before anything flips. See **§13 Implementation status**.
-> SDK and UI work needed to complete v2 is specified in
-> [scoring-v2-handoff.md](scoring-v2-handoff.md).
+> **Status: LIVE — v2 is the sole authoritative, user-facing scoring engine.**
+> v1 ([scoring-algorithm.md](scoring-algorithm.md)) is retired; only its
+> `get_risk_multiplier` time-of-day factor is still reused. Remaining SDK and UI work
+> (severity capture, driver-score UI) is tracked in
+> [scoring-v2-handoff.md](scoring-v2-handoff.md). See **§13 Implementation status**.
 >
 > This document specifies the next-generation scoring engine, aligned with industry practice
 > in usage-based insurance (UBI) and smartphone telematics (Cambridge Mobile Telematics,
@@ -325,18 +323,17 @@ were evaluated and rejected for this version:
 
 ## 13. Implementation status
 
-**Implemented now (server-side, shadow mode):**
+**Implemented and live:**
 
 | Piece | File |
 |---|---|
 | Stages 3–7 as pure functions (exposure normalization, exp-decay subscores, composite weights, EWMA+credibility driver score, points engine with anti-grind caps) | `server/app/services/scoring_v2.py` |
 | Continuous severity weight `event_severity()` (§3.2) — implemented and unit-tested, **dormant** until the SDK emits per-event `peak_g`/`duration`/`speed` | `server/app/services/scoring_v2.py` |
-| Shadow wiring: compute v2 trip score + driver score on every save, persist beside v1, never returned to client | `server/app/services/trips.py` |
-| Shadow columns `trips.score_v2`, `trips.scoring_version`, `users.driver_score` | migration `a1c2e3f4d5b6` |
-| Kill-switch `SCORING_V2_SHADOW` (default on) | `server/app/config.py` |
+| v2 is sole engine: trip score, driver score, and points written by `_compute_v2()`; no v1 fallback | `server/app/services/trips.py` |
+| DB columns: `trips.score_v2`, `trips.scoring_version`, `users.driver_score` | migration `a1c2e3f4d5b6` |
 | Unit tests for every stage | `server/tests/test_scoring_v2.py` |
 
-**Shadow-mode approximations (because upstream signals aren't available yet):**
+**Current approximations (upstream signals not yet available — see [scoring-v2-handoff.md](scoring-v2-handoff.md)):**
 
 - **Severity:** weighted counts collapse to raw counts (each event weight 1.0). The
   moment the SDK provides per-event severity, the trips service sums `event_severity()`
@@ -353,8 +350,7 @@ were evaluated and rejected for this version:
 - `mobile/src/lib/scoring.ts` real-time preview mirror — kept on v1 deliberately; it
   depends on SDK severity data, and per the §10.5 rollout order the SDK ships first.
 - Speeding component: map-matching / posted-limit source.
-- Activation (§10): shadow-period recalibration of `k_c`, then the v1→v2 flip at a
-  level-season boundary. **Do not flip until the shadow distribution is validated.**
+- Calibration of `k_c` decay constants from real data — deferred (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
 
 ---
 

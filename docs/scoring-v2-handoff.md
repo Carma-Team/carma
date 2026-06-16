@@ -95,10 +95,10 @@ user benefit. It will be updated in lockstep with item A.
 
 ---
 
-## Rollout gate (spec §10)
+## Rollout status
 
-1. Shadow mode runs ≥ 4 weeks; compare v1 vs v2 score distributions (median should land
-   ≈ 80, no pile-up at 0/100).
-2. Recalibrate the `k_c` decay constants from the shadow percentiles.
-3. Ship SDK severity (A), then the UI (B), then flip v1→v2 — at a level-season boundary so
-   no one's points balance jumps mid-progression.
+v2 is the active engine — shadow mode is complete, v1 is retired. Remaining steps:
+
+1. Ship SDK severity (A) — unblocks the severity dimension (zero server change needed).
+2. Ship Mobile UI (B) — surface driver score alongside trip score.
+3. Recalibrate `k_c` decay constants once ≥ ~200 real trips accumulate (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
