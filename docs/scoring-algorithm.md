@@ -6,14 +6,17 @@
 
 ## Architecture
 
-The server is the **sole scoring oracle**. The mobile client computes a local score in real-time for display purposes only. When the trip ends, the raw telemetry is sent to the server, which recomputes the authoritative score before persisting the trip.
+The server is the **sole scoring oracle** (RFC-001 v1.5 — Absolute Metrics Decoupling). The mobile client is a sensor node only: it collects raw telemetry and shows raw event notifications during the trip. No score is calculated or displayed on the client during a live trip.
 
 ```
-Mobile (real-time display)          Server (authoritative)
-  scoring.ts::calculateScore()  →    scoring.py::calculate_score()
-       ↓ local preview                      ↓ final value written to DB
-  shown on trip-end screen          Trip.avg_score, Trip.points
+Mobile (sensor node — no scoring)   Server (sole oracle)
+  CarmaDrivingSDK                →    scoring.py::calculate_score()
+  raw telemetry + events              ↓ final value written to DB
+  HUD: speed, distance, events   ←   Trip.avg_score, Trip.points
+  post-trip summary from server       (returned in POST /api/trips response)
 ```
+
+`scoring.ts` is kept in `mobile/src/lib/` for unit-test reference only. It is not called at runtime.
 
 ---
 
