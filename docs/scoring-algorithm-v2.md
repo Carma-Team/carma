@@ -1,7 +1,7 @@
 # CARMA Scoring Algorithm v2 — Next Generation
 
 > **Status: LIVE — v2 is the sole authoritative, user-facing scoring engine.**
-> v1 ([scoring-algorithm.md](scoring-algorithm.md)) is retired; only its
+> v1 ([scoring-algorithm.md](archive/scoring-algorithm.md)) is retired; only its
 > `get_risk_multiplier` time-of-day factor is still reused. Remaining SDK and UI work
 > (severity capture, driver-score UI) is tracked in
 > [scoring-v2-handoff.md](scoring-v2-handoff.md). See **§13 Implementation status**.
