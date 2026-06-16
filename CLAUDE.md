@@ -12,7 +12,7 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 - **Naveh (Chief Architect & Data Engineer):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
 - **Shaun (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
 - **May (Mobile & Frontend UI Lead):** Mobile application screens, UI components and styling, **Driving SDK — IMU/GPS/BLE sensor integration**, battery consumption management, and client-side interactions.
-- 
+
 ---
 
 ## Design Philosophy — Keep It Simple
@@ -38,6 +38,7 @@ carma/
 ├── mobile/                  ← React Native (Expo) — workspace: "carma-app"
 ├── server/                  ← FastAPI + PostgreSQL — Python, outside npm workspaces
 ├── mock-server/local-server/ ← Express dev mock — workspace: "carma-local-server"
+├── docs/                    ← Architecture & algorithm docs (docs/archive/ for retired specs)
 ├── scripts/                 ← smoke.sh, dev.ps1
 └── .github/workflows/       ← ci-server.yml, ci-mobile.yml, deploy.yml
 ```
