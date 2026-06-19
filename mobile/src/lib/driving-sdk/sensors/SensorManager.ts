@@ -1,13 +1,27 @@
 /**
- * @fileoverview GPS, accelerometer, and gyroscope listeners for driving event detection — SensorManager
+ * @fileoverview GPS + accelerometer + gyroscope listeners for driving event detection — SensorManager
  * @module lib/driving-sdk/sensors/SensorManager
  *
  * @description
- * Implements the detection algorithm from spec §א — Table 1 (Appendix 1).
- * - Accelerometer Y-axis (5-sample MA): EVT_BRAKE, EVT_ACCEL
- * - Accelerometer X-axis (5-sample MA): EVT_TURN
- * - GPS Heading rate:                   EVT_SWERVE
- * - Gyroscope (raw):                    fraud-detection telemetry only
+ * Detects EVT_BRAKE / EVT_ACCEL / EVT_TURN using a lightweight GPS+IMU fusion that
+ * is **independent of how the phone is oriented in the car** (vent mount, pocket,
+ * cup holder all work):
+ *
+ * - **Trigger + direction (orientation-free):** GPS.
+ *   - Longitudinal accel = Δspeed / Δt  → brake (deceleration) / accel.
+ *   - Lateral accel      = speed × heading-rate → sharp turn.
+ * - **Severity + cross-confirm (orientation-free):** accelerometer.
+ *   - We remove gravity (EMA) and take the magnitude of the *horizontal* component.
+ *     That magnitude is invariant to rotation about the vertical axis, so it does
+ *     not depend on the phone's yaw — no per-axis assumption.
+ *   - The IMU peak refines the GPS-averaged severity and rejects GPS glitches
+ *     (an event fires only if the IMU also saw a real horizontal force).
+ *
+ * Why not per-axis IMU? Reading brake from accel-Y and turns from accel-X only works
+ * if the phone lies flat with +Y pointing forward — false in any real car mount, so
+ * it detected nothing. GPS dynamics + IMU magnitude are both orientation-invariant.
+ *
+ * - Gyroscope (raw z): fraud-detection telemetry only.
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
@@ -18,35 +32,34 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 import { CARMA_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
 // ─── EMA for gravity isolation ────────────────────────────────────────────────
-// Slow-moving component (~0.5 s time constant at 10 Hz) tracks static gravity.
-// Not specified in the spec — retained because axis-independent gravity removal
-// prevents phone tilt from appearing as a driving event.
-const LPF_ALPHA = 0.8;
+// Slow-moving component tracks static gravity so phone tilt isn't read as a force.
+// Used to split the accelerometer signal into vertical (along gravity) and horizontal.
+const LPF_ALPHA = 0.9;
 
-// ─── Moving-average window (spec §א note 1) ───────────────────────────────────
-// IMU values are averaged over 5 consecutive samples before threshold evaluation.
-const MA_WINDOW = 5;
+// ─── Detection thresholds (m/s²) ──────────────────────────────────────────────
+// Aligned with industry telematics (Geotab/Verizon/Digital Matter): a "hard" event
+// is ~0.27–0.4 g sustained, considerably lower than the original §א spec (0.46 g),
+// which only caught emergency stops.
+const BRAKE_THRESHOLD_MS2 = 2.7;  // deceleration ≳ 0.27 g (~6 mph/s)
+const ACCEL_THRESHOLD_MS2 = 3.0;  // acceleration ≳ 0.31 g
+const TURN_THRESHOLD_MS2  = 3.5;  // lateral accel ≳ 0.36 g
 
-// ─── Detection thresholds — SPEC VALUES (spec §א Table 1) ────────────────────
-// Convert m/s² → g (1 g = 9.81 m/s²).
+// Maps (value − threshold) → severity 0..1 over this span.
+const SEVERITY_RANGE_MS2 = 5.0;
 
-/** EVT_BRAKE  — Accelerometer Y-axis (deceleration, positive spike)
- *  Spec: > 4.5 m/s² = 0.459 g
- *  Recommended for less sensitivity (fewer false positives): 0.60 g (≈ 5.9 m/s²)
- */
-const BRAKE_THRESHOLD_G  = 4.5 / 9.81;  // 0.459 g
+// Evaluate GPS-derived dynamics over a window of at least this long, so a burst of
+// high-frequency location updates (distanceInterval) doesn't turn Doppler-speed
+// jitter into phantom events. ~1.5–2 s also matches how long a real maneuver lasts.
+const MOTION_EVAL_MIN_S = 1.5;
 
-/** EVT_ACCEL  — Accelerometer Y-axis (acceleration, negative spike)
- *  Spec: > 4.0 m/s² = 0.408 g
- *  Recommended for less sensitivity: 0.55 g (≈ 5.4 m/s²)
- */
-const ACCEL_THRESHOLD_G  = 4.0 / 9.81;  // 0.408 g
+// Below this speed GPS heading is unreliable — skip turn detection.
+const TURN_MIN_SPEED_MS = 2.8; // ~10 km/h
 
-/** EVT_TURN   — Accelerometer X-axis (lateral G, either direction)
- *  Spec: > 3.5 m/s² = 0.357 g
- *  Recommended for less sensitivity: 0.50 g (≈ 4.9 m/s²)
- */
-const TURN_THRESHOLD_G   = 3.5 / 9.81;  // 0.357 g
+// Lenient IMU cross-confirm: a GPS-detected event fires only if the accelerometer
+// also saw at least this much horizontal force during the window. Kept low so real
+// events (possibly damped by a soft mount) still pass; it only rejects pure GPS
+// glitches where the phone felt essentially no force. Skipped if no accelerometer.
+const IMU_CONFIRM_MS2 = 1.0;
 
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
 // /** EVT_SWERVE — GPS Heading change rate
@@ -57,26 +70,27 @@ const TURN_THRESHOLD_G   = 3.5 / 9.81;  // 0.357 g
 // const SWERVE_MIN_DURATION_MS    = 3000;
 // const SWERVE_SEVERITY_RANGE     = 25;   // 15°/s → 0.0 ; 40°/s → 1.0
 
-// ─── Severity scale upper bound (normalises severity to [0, 1]) ────────────────
-// severity = (value - threshold) / SEVERITY_RANGE, clamped [0, 1]
-const SEVERITY_RANGE_G = 1.0;   // e.g. 0.459 g → 0.0 ; 1.459 g → 1.0
-
 export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;
   private lastLocation: any = null;
   private isRunning = false;
+  private accelAvailable = false;
 
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
   private gravity = { x: 0, y: 0, z: 1 };
 
-  // 5-sample MA buffers for gravity-removed X and Y components
-  private maX: number[] = [];
-  private maY: number[] = [];
-
   // Latest raw sensor values — bundled into onUpdate at GPS rate for fraud detection
-  private latestAccelX = 0; // gravity-removed lateral component (g)
+  private latestAccelX = 0; // gravity-removed lateral component (g) — fraud telemetry
   private latestGyroZ  = 0; // yaw rate (rad/s) — fraud telemetry only
+
+  // GPS-window state for brake/accel/turn detection
+  private motionPrevMs = 0;
+  private motionPrevSpeedMs = 0;
+  private motionPrevHeadingDeg: number | null = null;
+  // Peak orientation-invariant horizontal acceleration (m/s²) seen since the last
+  // motion evaluation — the IMU's contribution to severity and cross-confirmation.
+  private peakHorizAccelMs2 = 0;
 
   // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
   // private prevHeading:      number | null = null;
@@ -106,10 +120,12 @@ export class SensorManager {
     if (this.isRunning) return;
     this.isRunning = true;
     this.gravity = { x: 0, y: 0, z: 1 };
-    this.maX = [];
-    this.maY = [];
     this.latestAccelX = 0;
     this.latestGyroZ  = 0;
+    this.motionPrevMs = 0;
+    this.motionPrevSpeedMs = 0;
+    this.motionPrevHeadingDeg = null;
+    this.peakHorizAccelMs2 = 0;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
     // this.prevLocTimestamp = null;
     // this.swerveStartTime  = null;
@@ -146,9 +162,9 @@ export class SensorManager {
         console.warn('[SensorManager] Location permission denied');
       }
 
-      const accelAvailable = await Accelerometer.isAvailableAsync();
-      if (accelAvailable) {
-        Accelerometer.setUpdateInterval(100); // 10 Hz — gives 5-sample MA a 0.5 s window
+      this.accelAvailable = await Accelerometer.isAvailableAsync();
+      if (this.accelAvailable) {
+        Accelerometer.setUpdateInterval(100); // 10 Hz
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
 
@@ -178,13 +194,13 @@ export class SensorManager {
     this.lastLocation = null;
   }
 
-  // ─── GPS handler — distance and speed ───────────────────────────────────────
+  // ─── GPS handler — distance, speed, and brake/accel/turn detection ───────────
 
   private handleLocation(loc: Location.LocationObject) {
     let distance = 0;
     // Elapsed seconds since the previous GPS tick — used by the SDK's teleportation
     // guard to cap the distance contribution of each update (D-SDK-3).
-    let timeDeltaS = 2; // nominal 2 s (matches watchPositionAsync timeInterval)
+    let timeDeltaS = 2; // nominal 2 s (matches startLocationUpdatesAsync timeInterval)
     if (this.lastLocation) {
       distance = this.calculateDistance(
         this.lastLocation.coords.latitude,
@@ -205,6 +221,66 @@ export class SensorManager {
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
     });
+    // Fire events after onUpdate so the SDK's speed/location is current when stamped.
+    this.detectMotionEvents(loc);
+  }
+
+  /**
+   * GPS-triggered brake / accel / turn detection, cross-confirmed by the IMU.
+   * Evaluated over a stable ≥ MOTION_EVAL_MIN_S window to avoid Doppler-jitter noise.
+   */
+  private detectMotionEvents(loc: Location.LocationObject) {
+    const now       = loc.timestamp;
+    const speedMs   = Math.max(0, loc.coords.speed ?? 0);
+    const headingDeg = loc.coords.heading ?? -1; // expo returns -1 when unavailable
+
+    // First fix in this trip — just seed the window.
+    if (this.motionPrevMs === 0) {
+      this.motionPrevMs = now;
+      this.motionPrevSpeedMs = speedMs;
+      this.motionPrevHeadingDeg = headingDeg >= 0 ? headingDeg : null;
+      this.peakHorizAccelMs2 = 0;
+      return;
+    }
+
+    const dt = (now - this.motionPrevMs) / 1000;
+    if (dt < MOTION_EVAL_MIN_S) return; // accumulate until the window is wide enough
+
+    const imuPeak = this.peakHorizAccelMs2;
+    // Lenient sanity check: reject GPS-only spikes the phone never physically felt.
+    const imuConfirms = !this.accelAvailable || imuPeak >= IMU_CONFIRM_MS2;
+
+    // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
+    const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
+    if (aLong <= -BRAKE_THRESHOLD_MS2 && imuConfirms) {
+      const mag = Math.max(-aLong, imuPeak); // IMU peak refines GPS-averaged severity
+      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity: this.severity(mag, BRAKE_THRESHOLD_MS2) });
+    } else if (aLong >= ACCEL_THRESHOLD_MS2 && imuConfirms) {
+      const mag = Math.max(aLong, imuPeak);
+      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity: this.severity(mag, ACCEL_THRESHOLD_MS2) });
+    }
+
+    // ── Lateral: sharp turn — orientation-free via GPS heading rate × speed ──
+    if (this.motionPrevHeadingDeg !== null && headingDeg >= 0 && speedMs > TURN_MIN_SPEED_MS) {
+      let dHead = headingDeg - this.motionPrevHeadingDeg;
+      dHead = ((dHead + 540) % 360) - 180;                       // normalise to [-180,180]
+      const yawRate = (Math.abs(dHead) * Math.PI / 180) / dt;    // rad/s
+      const aLat = speedMs * yawRate;                            // m/s²
+      if (aLat >= TURN_THRESHOLD_MS2 && imuConfirms) {
+        const mag = Math.max(aLat, imuPeak);
+        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity: this.severity(mag, TURN_THRESHOLD_MS2) });
+      }
+    }
+
+    // Advance the window.
+    this.motionPrevMs = now;
+    this.motionPrevSpeedMs = speedMs;
+    if (headingDeg >= 0) this.motionPrevHeadingDeg = headingDeg;
+    this.peakHorizAccelMs2 = 0;
+  }
+
+  private severity(magMs2: number, thresholdMs2: number): number {
+    return Math.min(1, Math.max(0, (magMs2 - thresholdMs2) / SEVERITY_RANGE_MS2));
   }
 
   // EVT_SWERVE detection — disabled (not yet in UI/scoring; re-enable when ready)
@@ -239,50 +315,31 @@ export class SensorManager {
   //   this.prevLocTimestamp = now;
   // }
 
-  // ─── Accelerometer handler — EVT_BRAKE, EVT_ACCEL, EVT_TURN ─────────────────
+  // ─── Accelerometer handler — severity + cross-confirm + fraud telemetry ──────
 
   private handleAccel(data: { x: number; y: number; z: number }) {
-    // Step 1: EMA low-pass filter to isolate slow-changing static gravity
+    // Step 1: EMA low-pass filter to isolate slow-changing static gravity.
     this.gravity.x = LPF_ALPHA * this.gravity.x + (1 - LPF_ALPHA) * data.x;
     this.gravity.y = LPF_ALPHA * this.gravity.y + (1 - LPF_ALPHA) * data.y;
     this.gravity.z = LPF_ALPHA * this.gravity.z + (1 - LPF_ALPHA) * data.z;
 
-    // Step 2: gravity-removed dynamic components
-    const dynX = data.x - this.gravity.x;  // lateral force
-    const dynY = data.y - this.gravity.y;  // longitudinal force
+    // Step 2: gravity-removed dynamic acceleration (g units, expo convention).
+    const dynX = data.x - this.gravity.x;
+    const dynY = data.y - this.gravity.y;
+    const dynZ = data.z - this.gravity.z;
 
-    this.latestAccelX = dynX; // expose for fraud telemetry
+    this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
 
-    // Step 3: 5-sample Moving Average (spec §א note 1)
-    this.maX.push(dynX);
-    this.maY.push(dynY);
-    if (this.maX.length > MA_WINDOW) this.maX.shift();
-    if (this.maY.length > MA_WINDOW) this.maY.shift();
+    // Step 3: orientation-invariant horizontal magnitude.
+    // Project out the component along gravity (vertical); what remains is horizontal,
+    // and its magnitude does not depend on the phone's yaw — so brake/accel/turn
+    // forces are captured regardless of how the phone is mounted.
+    const gMag = Math.sqrt(this.gravity.x ** 2 + this.gravity.y ** 2 + this.gravity.z ** 2) || 1;
+    const vertComp = (dynX * this.gravity.x + dynY * this.gravity.y + dynZ * this.gravity.z) / gMag;
+    const dynMagSq = dynX ** 2 + dynY ** 2 + dynZ ** 2;
+    const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * 9.81; // g → m/s²
 
-    if (this.maX.length < MA_WINDOW) return; // wait until buffer is full
-
-    const smoothX = this.maX.reduce((s, v) => s + v, 0) / MA_WINDOW;
-    const smoothY = this.maY.reduce((s, v) => s + v, 0) / MA_WINDOW;
-
-    // ── EVT_BRAKE (spec: Accel Y > +4.5 m/s² = +0.459 g) ────────────────────
-    if (smoothY > BRAKE_THRESHOLD_G) {
-      const severity = Math.min(1, Math.max(0, (smoothY - BRAKE_THRESHOLD_G) / SEVERITY_RANGE_G));
-      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity });
-      return; // brake dominates; don't also fire accel/turn in the same sample
-    }
-
-    // ── EVT_ACCEL (spec: Accel Y < -4.0 m/s² = -0.408 g) ────────────────────
-    if (smoothY < -ACCEL_THRESHOLD_G) {
-      const severity = Math.min(1, Math.max(0, (-smoothY - ACCEL_THRESHOLD_G) / SEVERITY_RANGE_G));
-      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity });
-      return;
-    }
-
-    // ── EVT_TURN (spec: |Accel X| > 3.5 m/s² = 0.357 g) ────────────────────
-    if (Math.abs(smoothX) > TURN_THRESHOLD_G) {
-      const severity = Math.min(1, Math.max(0, (Math.abs(smoothX) - TURN_THRESHOLD_G) / SEVERITY_RANGE_G));
-      this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity });
-    }
+    if (horizMs2 > this.peakHorizAccelMs2) this.peakHorizAccelMs2 = horizMs2;
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
