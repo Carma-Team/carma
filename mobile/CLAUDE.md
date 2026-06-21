@@ -41,9 +41,33 @@ If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
 | Flag | Value | Where requests go |
 |---|---|---|
 | `USE_REAL_SERVER` | `false` | Metro proxy → local mock server (Expo Go / dev client only) |
-| `USE_REAL_SERVER` | `true` | `STAGING_SERVER_URL` (real or Render-hosted server) |
+| `USE_REAL_SERVER` | `true` | `STAGING_SERVER_URL` (real or cloud-hosted server) |
 
-**Before building an APK/IPA for device testing:** set `USE_REAL_SERVER = true` and set `STAGING_SERVER_URL` to the live server URL. Do not commit this change to `main` — it is build-time configuration.
+### Current state (as of branch `feature/beta-improvements`)
+
+`USE_REAL_SERVER = true` and `STAGING_SERVER_URL` is set to the cloud server URL.
+The app is configured to talk to the real backend — **not** the local mock server.
+
+### Before the next APK/IPA build
+
+The mobile side is ready. The build is **blocked on the backend** until the following are confirmed:
+
+| # | What | Owner |
+|---|---|---|
+| 1 | FastAPI server deployed and running at the URL set in `STAGING_SERVER_URL` | Backend |
+| 2 | PostgreSQL database provisioned and reachable from the server | Backend |
+| 3 | All environment variables set (see `server/.env.example`) | Backend |
+| 4 | Database migrations applied (`alembic upgrade head`) | Backend |
+| 5 | `GET <server-url>/health/live` returns HTTP 200 | Backend |
+
+Once all five are confirmed, run:
+```bash
+cd mobile
+eas build -p android --profile preview   # Android APK
+eas build -p ios     --profile preview   # iOS IPA (requires Apple Developer account)
+```
+
+Full step-by-step instructions are in **`docs/SERVER-INTEGRATION-SETUP.md`** (repo root level, outside `mobile/`).
 
 ## Disabled features — pattern
 

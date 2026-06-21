@@ -1,104 +1,105 @@
 # CARMA
 
-CARMA היא אפליקציית מובייל שעוקבת אחר התנהגות נהיגה דרך חיישני GPS ו-IMU, מחשבת ציון CARMA, ומאפשרת לנהגים בטוחים לצבור נקודות להנחות בזמן אמת.
+CARMA is a mobile app that tracks driving behavior through GPS and IMU sensors, calculates a CARMA score, and allows safe drivers to earn points redeemable for real-time discounts.
 
 ---
 
-## תוכן הריפו
+## Repository Structure
 
-| תיקייה | מה זה | טכנולוגיה |
+| Folder | Description | Technology |
 |---|---|---|
-| `server/` | Backend — API, DB, לוגיקה עסקית | Python / FastAPI / PostgreSQL |
-| `mobile/` | אפליקציית מובייל | React Native / Expo |
-| `mock-server/` | שרת mock לפיתוח offline | Express / json-server |
-| `scripts/` | סקריפטי עזר | PowerShell |
+| `server/` | Backend — API, DB, business logic | Python / FastAPI / PostgreSQL |
+| `mobile/` | Mobile application | React Native / Expo |
+| `mock-server/` | Mock server for offline development | Express / json-server |
+| `scripts/` | Helper scripts | PowerShell |
+| `Hub/` | Documents for the Hub entrepreneurship workshop | — |
 
 ---
 
-## דרישות מוקדמות — התקנה חד-פעמית
+## Prerequisites — One-Time Installation
 
-לפני הכל, וודא שהכלים הבאים מותקנים:
+Make sure the following tools are installed before getting started:
 
-| כלי | לאיזה חלק | הורדה |
+| Tool | Required For | Download |
 |---|---|---|
 | **Docker Desktop** | Backend + DB | docker.com |
 | **Python 3.12** | Backend | python.org |
 | **Node.js 20+** | Mobile | nodejs.org |
-| **Android Studio** | Mobile (כולל Android SDK + AVD) | developer.android.com/studio |
+| **Android Studio** | Mobile (includes Android SDK + AVD) | developer.android.com/studio |
 
-> **Backend בלבד?** צריך רק Docker + Python.
+> **Backend only?** You only need Docker + Python.
 
 ---
 
-## Setup פעם ראשונה
+## First-Time Setup
 
-**חד פעמי על כל מחשב — הרץ כ-Administrator:**
+**One-time per machine — run as Administrator:**
 
 ```powershell
 .\scripts\setup.ps1
 ```
 
-הסקריפט מתקין ומגדיר אוטומטית:
-- Docker Desktop, Python 3.12, Node.js (דרך winget אם חסרים)
-- ANDROID_HOME, JAVA_HOME, PATH — env vars קבועות
-- Python venv + כל התלויות
-- יצירת `.env` מ-`.env.example`
-- migrations + seed של נתוני demo
+The script automatically installs and configures:
+- Docker Desktop, Python 3.12, Node.js (via winget if missing)
+- `ANDROID_HOME`, `JAVA_HOME`, `PATH` — permanent env vars
+- Python venv + all dependencies
+- Creates `.env` from `.env.example`
+- Migrations + demo data seed
 
-> **בטוח להריץ שוב.** אם הכל כבר מותקן, הסקריפט מדלג על כל שלב ומדפיס בסוף:
+> **Safe to re-run.** If everything is already installed, the script skips each step and prints at the end:
 > `Everything already set up — run .\scripts\dev.ps1`
 >
-> רק כשיש migration חדש יש להריץ ידנית: `alembic upgrade head`
+> Only when there is a new migration do you need to run manually: `alembic upgrade head`
 
 ---
 
-## הפעלה יומיומית
+## Daily Usage
 
-### Full Stack — Backend + Mobile + אמולטור
+### Full Stack — Backend + Mobile + Emulator
 
 ```powershell
 .\scripts\dev.ps1
 ```
 
-הסקריפט עושה הכל אוטומטית:
-1. מפעיל Docker Desktop (אם לא רץ)
-2. מפעיל את אמולטור Android
-3. מעלה PostgreSQL
-4. מעלה FastAPI server על פורט 3000
-5. מעלה Expo Metro על פורט 8081
+The script handles everything automatically:
+1. Starts Docker Desktop (if not running)
+2. Launches the Android emulator
+3. Brings up PostgreSQL
+4. Starts FastAPI server on port 3000
+5. Starts Expo Metro on port 8081
 
-לאחר שהכל עלה — לחץ **`a`** בחלון Metro לפתיחת האפליקציה באמולטור.
+Once everything is up — press **`a`** in the Metro window to open the app in the emulator.
 
 ---
 
-### Backend בלבד — בלי mobile
+### Backend Only — Without Mobile
 
 ```powershell
 cd server
-docker compose up db          # חלון 1 — PostgreSQL
+docker compose up db          # Window 1 — PostgreSQL
 .venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000   # חלון 2 — API
+uvicorn app.main:app --reload --host 0.0.0.0 --port 3000   # Window 2 — API
 ```
 
 API docs: http://localhost:3000/api/docs
 
 ---
 
-## נקודות חשובות
+## Important Notes
 
-| נושא | פרט |
+| Topic | Detail |
 |---|---|
-| **Android אמולטור** | נפתח תמיד עם `-no-snapshot-load` (הסקריפט מטפל בזה) |
-| **חיבור אמולטור לשרת** | ה-app מתחבר ל-`http://10.0.2.2:3000` (alias ל-localhost מתוך אמולטור) |
-| **Docker חייב לרוץ** | ה-DB עולה דרך Docker — בלי Docker אין DB |
-| **Migration חדש** | `cd server && alembic upgrade head` |
+| **Android Emulator** | Always launched with `-no-snapshot-load` (handled by the script) |
+| **Emulator → Server connection** | The app connects to `http://10.0.2.2:3000` (alias for localhost from within the emulator) |
+| **Docker must be running** | The DB runs via Docker — no Docker, no DB |
+| **New migration** | `cd server && alembic upgrade head` |
 
 ---
 
-## פקודות שימושיות
+## Useful Commands
 
 ```powershell
-# בדיקות mobile
+# Mobile tests
 cd mobile && npm test -- --no-coverage
 
 # TypeScript check
@@ -110,16 +111,16 @@ cd mobile && npm run lint
 # Lint server
 cd server && ruff check . && ruff format --check .
 
-# בדיקות server
+# Server tests
 cd server && pytest
 ```
 
 ---
 
-## תרשים ארכיטקטורה
+## Architecture Diagram
 
 ```
 mobile (Expo) ──→ FastAPI :3000 ──→ PostgreSQL :5432
                       ↑
-              (10.0.2.2 מהאמולטור)
+              (10.0.2.2 from emulator)
 ```
