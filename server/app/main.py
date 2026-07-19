@@ -6,6 +6,8 @@ from app.core.logging import configure_logging
 configure_logging()
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +35,15 @@ from app.routers import (
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["500/hour", "30/minute"])
 
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logging.getLogger(__name__).info(
+        "CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider
+    )
+    yield
+
+
 app = FastAPI(
     title="CARMA API",
     description="Backend for the CARMA safe-driving rewards platform",
@@ -40,6 +51,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
+    lifespan=_lifespan,
 )
 
 app.state.limiter = limiter
@@ -82,10 +94,3 @@ app.include_router(health.router)
 
 
 configure_monitoring(app)
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    logging.getLogger(__name__).info(
-        "CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider
-    )
