@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -52,7 +52,17 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     code = random_voucher_code()
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
-    user.points -= reward.cost_points
+    # Atomic conditional debit — two concurrent redeems cannot both pass the
+    # points check above and drive the balance negative.
+    debited = await db.execute(
+        update(User)
+        .where(User.id == user.id, User.points >= reward.cost_points)
+        .values(points=User.points - reward.cost_points)
+    )
+    if debited.rowcount == 0:
+        await db.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
+
     redemption = Redemption(
         user_id=user.id,
         reward_id=reward.id,
@@ -63,6 +73,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     )
     db.add(redemption)
     await db.commit()
+    await db.refresh(user)
     await db.refresh(redemption)
     # eager-load reward+business for response
     await db.refresh(redemption, attribute_names=["reward"])

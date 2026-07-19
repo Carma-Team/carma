@@ -7,10 +7,12 @@ Usage: python -m app.seed
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete as sql_delete, select, update as sql_update
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
@@ -223,7 +225,7 @@ REWARDS = [
 # Investor-demo leaderboard population (Tel Aviv, all public)
 # ---------------------------------------------------------------------------
 
-LEADERBOARD_USERS = [
+LEADERBOARD_USERS: list[dict[str, Any]] = [
     # Tel Aviv
     {"email": "yoav@carma.app",   "name": "יואב לוי",    "city": "תל אביב", "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
     {"email": "noa@carma.app",    "name": "נועה שמיר",   "city": "תל אביב", "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
@@ -250,7 +252,7 @@ YONI_FRIENDS = ["yoav@carma.app", "noa@carma.app", "uri@carma.app"]
 # Columns: date_str, start_hour_utc, dur_sec, dist_km, score,
 #          hard_brakes, aggr_accels, sharp_turns, risk_mult, touch_epochs, points,
 #          start_loc, end_loc, ai_insight
-_YONI_TRIPS: list[tuple] = [
+_YONI_TRIPS: list[tuple[Any, ...]] = [
     # Phase 1 — rough start
     ("2026-05-15", 7,  1320, 10.0, 62, 4, 2, 1, 1.0, 0, 150, "כיכר המדינה",      "תל אביב - מרכז",  None),
     ("2026-05-17", 16, 1200,  8.0, 58, 5, 2, 0, 1.0, 1, 120, "תל אביב - צפון",   "יפו",              "בלימות תכופות — הגדל מרחק מהרכב לפניך."),
@@ -281,7 +283,7 @@ _YONI_TOTAL_DISTANCE = round(sum(t[3] for t in _YONI_TRIPS), 1)  # 120.2
 #   start_loc, end_loc, ai_insight
 # ---------------------------------------------------------------------------
 
-_DAN_TRIPS: list[tuple] = [
+_DAN_TRIPS: list[tuple[Any, ...]] = [
     # Phase 1 — starting out, rough driving (scores 58–70)
     ("2026-05-15", 5,  1440, 8.2,  58, 5, 3, 2, 1.0, 175, "הרצליה פיתוח",    "תל אביב - מרכז",    "בלימות קשות תכופות — נסה להגדיל מרחק מהרכב לפניך."),
     ("2026-05-16", 15, 2100, 12.1, 62, 4, 2, 1, 1.0, 275, "תל אביב - צפון",  "רמת גן",             "שיפור קטן מאתמול! עבוד על העקביות בנהיגה."),
@@ -365,9 +367,9 @@ async def run() -> None:
             name = cast(str, biz["name"])
             existing_b = await db.scalar(select(Business).where(Business.name == name))
             if existing_b is None:
-                row = Business(**biz)
-                db.add(row)
-                biz_by_name[name] = row
+                new_biz = Business(**biz)
+                db.add(new_biz)
+                biz_by_name[name] = new_biz
             else:
                 for k, v in biz.items():
                     setattr(existing_b, k, v)
@@ -501,7 +503,7 @@ async def run() -> None:
         for idx, row in enumerate(_DAN_TRIPS):
             date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, pts, sloc, eloc, insight = row
             y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
-            start_time = datetime(y, mo, d, start_h, 0, tzinfo=timezone.utc)
+            start_time = datetime(y, mo, d, start_h, 0, tzinfo=UTC)
             end_time = start_time + timedelta(seconds=dur_sec)
             db.add(
                 Trip(
@@ -528,7 +530,7 @@ async def run() -> None:
         # --- Dan's redeemed voucher (Paz 50 ₪, used on May 21) ---
         paz_reward = reward_map.get(("Paz", '50 ש"ח הנחה בתדלוק'))
         if paz_reward:
-            used_at = datetime(2026, 5, 21, 9, 45, tzinfo=timezone.utc)
+            used_at = datetime(2026, 5, 21, 9, 45, tzinfo=UTC)
             db.add(
                 Redemption(
                     user_id=dan.id,
@@ -586,7 +588,7 @@ async def run() -> None:
         for idx, row in enumerate(_YONI_TRIPS):
             date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, n_te, pts, sloc, eloc, insight = row
             y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
-            t_start = datetime(y, mo, d, start_h, 0, tzinfo=timezone.utc)
+            t_start = datetime(y, mo, d, start_h, 0, tzinfo=UTC)
             t_end = t_start + timedelta(seconds=dur_sec)
             db.add(
                 Trip(
@@ -624,7 +626,7 @@ async def run() -> None:
     print("Seed completed OK")
     print(f"  Demo login  : ofridan@gmail.com / Dan1234  (Level 4, {_DAN_TOTAL_POINTS} pts, {len(_DAN_TRIPS)} trips)")
     print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
-    print(f"  Test login  : daniel@carma.app / password123")
+    print("  Test login  : daniel@carma.app / password123")
     print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded in תל אביב")
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")
 

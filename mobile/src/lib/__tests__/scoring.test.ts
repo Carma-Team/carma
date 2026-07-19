@@ -95,10 +95,10 @@ describe('calculateScore', () => {
       expect(result.score).toBe(91)
     })
 
-    it('applies sharp turn penalty (3 pts each — spec §א severity = 3)', () => {
+    it('applies sharp turn penalty (2 pts each — parity with server oracle)', () => {
       const result = calculateScore({ ...BASE_INPUT, sharpTurns: 5 })
-      expect(result.penalties).toBe(15)
-      expect(result.score).toBe(85)
+      expect(result.penalties).toBe(10)
+      expect(result.score).toBe(90)
     })
 
     it('applies screen interaction penalty proportionally (SIS / duration × 40)', () => {
