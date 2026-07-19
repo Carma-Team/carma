@@ -51,7 +51,7 @@ class TestComputeTripScore:
     def test_perfect_trip_scores_100(self) -> None:
         r = compute_trip_score(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
         assert r.score == 100.0
-        assert r.version == "2.0.0"
+        assert r.version == CONFIG.version
 
     def test_exposure_normalization_rewards_longer_trips(self) -> None:
         # Same 3 hard brakes: a long highway trip must score better than a short one.
