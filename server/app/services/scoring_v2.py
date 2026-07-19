@@ -2,9 +2,14 @@
 
 Spec: docs/scoring-algorithm-v2.md. v2 is now the **authoritative, user-facing**
 scoring engine (trip score, driver score, points). v1 (`scoring.py`) is retired;
-only its `get_risk_multiplier` time-of-day factor is still reused. v2 is not yet
-recalibrated from real CARMA data (§10) — constants here are initial estimates
-and should be tuned once shadow/live data is available.
+only its `get_risk_multiplier` time-of-day factor is still reused.
+
+v2.1 (2026-07): the decay constants were re-fit from the live fleet's
+recency-weighted rate distributions (see docs/scoring-v2-calibration-status.md)
+— the initial estimates produced a bimodal score distribution (exact 100 or a
+cliff to ~50 from a single event). v2.1 also adds `apply_confidence`, which
+caps how far a trip can score above the driver's rolling score when the GPS
+trace is too sparse to prove clean driving.
 
 Everything here is pure: no I/O, no DB, no side effects. The trips service feeds
 it values sourced from the signed telemetry digest (the oracle) and persists the
@@ -27,17 +32,19 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ScoringConfigV2:
-    """Versioned v2 parameters. Initial values from spec §6.1/§6.2; still to be
-    recalibrated from real percentiles (constants are estimates, not yet tuned)."""
+    """Versioned v2 parameters. Decay constants re-fit 2026-07 from the live
+    fleet's recency-weighted rate percentiles (docs/scoring-v2-calibration-status.md):
+    anchored so a single event on a median trip costs ~5–10 composite points and
+    the weighted p90-worst trip lands near 50, per spec §6.1."""
 
-    version: str = "2.0.0"
+    version: str = "2.1.0"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
-    k_brake: float = 0.075
-    k_accel: float = 0.089
-    k_corner: float = 0.064
-    k_speed: float = 0.045
-    k_distraction: float = 0.112
+    k_brake: float = 0.018
+    k_accel: float = 0.022
+    k_corner: float = 0.012
+    k_speed: float = 0.012
+    k_distraction: float = 0.020
 
     # Composite weights when speeding data IS available (§6.2).
     w_distraction: float = 0.30
@@ -191,6 +198,22 @@ def compute_trip_score(
         sub_distraction=round(sub_distraction * 10) / 10,
         version=config.version,
     )
+
+
+def apply_confidence(raw_score: float, rolling_score: float, confidence: float) -> float:
+    """Cap a trip score's *upside* by telemetry confidence (v2.1).
+
+    A sparse or gappy GPS trace makes "zero events" weak evidence — a device
+    that under-detects (or under-reports) would otherwise bank a perfect 100
+    every trip. The asymmetry is deliberate: low confidence limits how far a
+    trip can score above the driver's rolling standing, but reported events are
+    positive evidence and are never diluted, so scores at or below the rolling
+    standing pass through untouched. `confidence` comes from telemetry.analyze.
+    """
+    if raw_score <= rolling_score:
+        return raw_score
+    c = _clamp(confidence, 0.0, 1.0)
+    return round((rolling_score + c * (raw_score - rolling_score)) * 10) / 10
 
 
 # ─── Stage 6 — driver score (EWMA over exposure + credibility) ──────────────────

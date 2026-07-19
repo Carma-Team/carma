@@ -52,6 +52,7 @@ export interface Trip {
   touchEpochs: number;              // v1.7
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
+  pointsCapped?: boolean;           // v2.1 — daily anti-grind caps reduced this trip's award (save response only)
   startLocation?: string;
   endLocation?: string;
   aiInsight?: string;

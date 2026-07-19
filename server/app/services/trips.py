@@ -18,7 +18,7 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import scoring_v2
+from app.services import scoring_v2, telemetry
 from app.services.scoring import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -154,6 +154,33 @@ def _build_trip_events(raw_events: list[dict[str, Any]] | None, trip_start: date
     return [event for event in parsed if event is not None]
 
 
+def _server_events(gps: telemetry.TelemetryAnalysis, client_events: list[Event]) -> list[Event]:
+    """Materialize server-GPS-detected events as `Event` rows (v2.1).
+
+    Tagged `{"source": "server-gps"}` in sensor_data so forensics can tell them
+    apart from client-reported events. A detection matching a client event of
+    the same type within ±10 s is redundant and skipped, so one maneuver never
+    gets two markers (matters once issue #12 lands and clients send events).
+    """
+    rows: list[Event] = []
+    for ge in gps.events:
+        ts = datetime.fromtimestamp(ge.ts_ms / 1000.0, tz=UTC)
+        event_type = EventType[ge.type]
+        if any(ce.type == event_type and abs((ce.timestamp - ts).total_seconds()) <= 10.0 for ce in client_events):
+            continue
+        rows.append(
+            Event(
+                type=event_type,
+                severity=ge.severity,
+                timestamp=ts,
+                lat=ge.lat,
+                lng=ge.lng,
+                sensor_data={"source": "server-gps", **ge.detail},
+            )
+        )
+    return rows
+
+
 def _validate_plausibility(dto: SaveTripIn) -> None:
     if dto.avg_score is not None and not (0.0 <= dto.avg_score <= 100.0):
         raise HTTPException(422, f"avg_score={dto.avg_score} — must be in [0, 100]")
@@ -240,14 +267,18 @@ async def _compute_v2(
     duration_seconds: int,
     risk_multiplier: float,
     now: datetime,
-) -> tuple[float, float, float]:
+    gps: telemetry.TelemetryAnalysis,
+) -> tuple[float, float, float, bool]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring-algorithm-v2.md). Pure-formula work
     lives in scoring_v2; this only sources the inputs. Severity is unavailable
-    (no SDK peak_g yet) so weighted counts equal raw counts; speeding is
-    unavailable (no map-matching) so has_speed_data=False redistributes its
-    weight (§3/§6). Returns (trip_score, driver_score, points).
+    (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
+    telemetry confidence come from the server-side GPS analysis (`gps`): the
+    speeding weight is time-over-threshold against a conservative absolute
+    limit, and the confidence caps how far above the rolling score a trip can
+    land when the trace is too sparse to prove clean driving (v2.1).
+    Returns (trip_score, driver_score, points, points_capped).
     """
     # Proxy for the distraction weight until the SDK emits per-epoch speed:
     # each touch epoch is weight 1, plus screen-on minutes (scoring-algorithm-v2.md §3.4).
@@ -259,11 +290,13 @@ async def _compute_v2(
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
         w_distraction=w_distraction,
+        w_speed=gps.speeding_weight,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
-        has_speed_data=False,
+        has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
+    trip_score = scoring_v2.apply_confidence(trip_v2.score, rolling, gps.confidence)
 
     cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
     rows = (
@@ -286,7 +319,7 @@ async def _compute_v2(
         if score is not None
     ]
     # Include the trip being saved (age 0) so a first trip yields a real number.
-    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_v2.score, distance_km=distance_km, age_days=0.0))
+    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
     driver_score = scoring_v2.compute_driver_score(history)
 
     # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps (§8).
@@ -305,7 +338,7 @@ async def _compute_v2(
         cursor -= timedelta(days=1)
 
     points = scoring_v2.compute_points(
-        trip_score=trip_v2.score,
+        trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
         streak_days=streak_days,
@@ -313,7 +346,15 @@ async def _compute_v2(
         distance_today_km=distance_today_km,
         fraud_flagged=False,
     )
-    return trip_v2.score, driver_score, points
+    # Same formula minus the daily anti-grind caps — if the caps reduced the
+    # award, the save response says so instead of showing a silent 0 (§8).
+    points_uncapped = scoring_v2.compute_points(
+        trip_score=trip_score,
+        distance_km=distance_km,
+        risk_multiplier=risk_multiplier,
+        streak_days=streak_days,
+    )
+    return trip_score, driver_score, points, round(points) < round(points_uncapped)
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
@@ -376,12 +417,21 @@ async def save(
         distance = dto.distance_km or 0.0
         digest_duration = duration or 0
 
+    # Server-side GPS cross-check (v2.1): the waypoint trace is an independent
+    # witness against client under-detection. Merged counts only ever go UP —
+    # the server adds missed events, never erases reported ones — so a client
+    # cannot lower its penalty by suppressing detection.
+    gps = telemetry.analyze(dto.route_waypoints, digest_duration)
+    scored_hard_brakes = max(scored_hard_brakes, gps.hard_brakes)
+    scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
+    scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)
+
     # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
     # is a time-of-day factor reused from v1; the score, driver score, and points
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
     now = datetime.now(UTC)
     risk_multiplier = get_risk_multiplier(start)
-    score_v2, new_driver_score, points_v2 = await _compute_v2(
+    score_v2, new_driver_score, points_v2, points_capped = await _compute_v2(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -393,6 +443,7 @@ async def save(
         duration_seconds=digest_duration,
         risk_multiplier=risk_multiplier,
         now=now,
+        gps=gps,
     )
 
     trip = Trip(
@@ -425,8 +476,11 @@ async def save(
     # Persist the per-event timeline (map markers + future severity inputs). This is
     # forensic, unsigned data sourced from dto.events — independent of the digest
     # counts that drive the score, so the two may legitimately differ. The cascade
-    # inserts these rows and stamps trip_id on flush.
-    trip.events = _build_trip_events(dto.events, start)
+    # inserts these rows and stamps trip_id on flush. Server-GPS detections are
+    # appended so the map shows what the trace proves even while the client
+    # under-reports (issues #12/#13).
+    client_events = _build_trip_events(dto.events, start)
+    trip.events = client_events + _server_events(gps, client_events)
     # Capture now: expire_on_commit would expire the collection and accessing it
     # after refresh would trigger an illegal lazy-load in async context.
     event_count = len(trip.events)
@@ -469,5 +523,7 @@ async def save(
         points=trip.points,
         avg_score=trip.avg_score,
         events=event_count,
+        gps_confidence=gps.confidence,
+        points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip)
+    return TripOut.from_orm_trip(trip, points_capped=points_capped)

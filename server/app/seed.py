@@ -1,15 +1,17 @@
 """Seed the database with reference data and investor-demo drivers.
 
 Usage: python -m app.seed
+       python -m app.seed --driver-scores-only   (backfill NULL driver_score, no reseed)
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, cast
 
 from sqlalchemy import delete as sql_delete, select, update as sql_update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.database import SessionLocal
@@ -309,6 +311,42 @@ _DAN_TOTAL_POINTS = sum(t[9] for t in _DAN_TRIPS)   # 4 540
 _DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
 
 
+async def backfill_driver_scores(db: AsyncSession) -> None:
+    """Fill driver_score (v2 §7) for users where it is NULL.
+
+    Seeded users get their trips inserted directly, bypassing the live save path
+    that normally maintains driver_score — leaving the demo leaderboard blank.
+    v1-era trips (score_v2 NULL) contribute their avg_score. Never overwrites a
+    score the live path already computed.
+    """
+    from app.services import scoring_v2
+
+    now = datetime.now(UTC)
+    users = (await db.scalars(select(User).where(User.driver_score.is_(None)))).all()
+    for user in users:
+        rows = (
+            await db.execute(
+                select(Trip.score_v2, Trip.avg_score, Trip.distance_km, Trip.start_time).where(
+                    Trip.user_id == user.id
+                )
+            )
+        ).all()
+        history = []
+        for score_v2, avg_score, km, start in rows:
+            score = score_v2 if score_v2 is not None else avg_score
+            if score is None:
+                continue
+            aware_start = start if start.tzinfo else start.replace(tzinfo=UTC)
+            history.append(
+                scoring_v2.TripHistoryPoint(
+                    trip_score=score,
+                    distance_km=km or 0.0,
+                    age_days=max(0.0, (now - aware_start).total_seconds() / 86400.0),
+                )
+            )
+        user.driver_score = scoring_v2.compute_driver_score(history)
+
+
 async def run() -> None:
     async with SessionLocal() as db:
 
@@ -579,6 +617,8 @@ async def run() -> None:
             if friend is not None:
                 db.add(UserFriend(follower_id=yoni.id, followee_id=friend.id, status=FriendStatus.ACCEPTED))
 
+        await db.flush()
+        await backfill_driver_scores(db)
         await db.commit()
 
     print("Seed completed OK")
@@ -589,5 +629,17 @@ async def run() -> None:
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")
 
 
+async def run_driver_scores_only() -> None:
+    async with SessionLocal() as db:
+        await backfill_driver_scores(db)
+        await db.commit()
+    print("driver_score backfill completed OK")
+
+
 if __name__ == "__main__":
-    asyncio.run(run())
+    import sys
+
+    if "--driver-scores-only" in sys.argv:
+        asyncio.run(run_driver_scores_only())
+    else:
+        asyncio.run(run())

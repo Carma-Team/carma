@@ -332,14 +332,18 @@ were evaluated and rejected for this version:
 | v2 is sole engine: trip score, driver score, and points written by `_compute_v2()`; no v1 fallback | `server/app/services/trips.py` |
 | DB columns: `trips.score_v2`, `trips.scoring_version`, `users.driver_score` | migration `a1c2e3f4d5b6` |
 | Unit tests for every stage | `server/tests/test_scoring_v2.py` |
+| **v2.1:** server-side GPS analysis of `route_waypoints` — independent brake/accel/turn detection (`max(digest, gps)` merge), speeding vs. conservative absolute limit, telemetry-confidence metric, `server-gps` Event rows | `server/app/services/telemetry.py` + `server/tests/test_telemetry.py` |
+| **v2.1:** confidence cap `apply_confidence()` — sparse traces limit score upside above the rolling score, never dilute reported events | `server/app/services/scoring_v2.py` |
+| **v2.1:** decay constants re-fit from live fleet percentiles; `scoring_version` 2.1.0 | [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md) |
 
 **Current approximations (upstream signals not yet available — see [scoring-v2-handoff.md](scoring-v2-handoff.md)):**
 
 - **Severity:** weighted counts collapse to raw counts (each event weight 1.0). The
   moment the SDK provides per-event severity, the trips service sums `event_severity()`
   instead of counting — no downstream change.
-- **Speeding:** `has_speed_data=False`, so the speeding weight is redistributed (§6.2).
-  Needs map-matching.
+- **Speeding:** active since v2.1 against a conservative absolute limit (120 km/h
+  national max + 10 buffer, GPS-derived). Contextual posted-limit bands (§3.3)
+  still need map-matching.
 - **Distraction:** weighted as `touch_epochs + screen_seconds/60` (per-epoch speed
   weighting from §3.4 awaits the SDK).
 
@@ -349,8 +353,8 @@ were evaluated and rejected for this version:
 - Mobile UI: surfacing the second number (driver score) alongside the trip score. *(Mai)*
 - `mobile/src/lib/scoring.ts` real-time preview mirror — kept on v1 deliberately; it
   depends on SDK severity data, and per the §10.5 rollout order the SDK ships first.
-- Speeding component: map-matching / posted-limit source.
-- Calibration of `k_c` decay constants from real data — deferred (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
+- Speeding against **posted** limits: map-matching source (absolute-limit detection ships in v2.1).
+- Full percentile calibration of `k_c` (severity-weighted) — partial re-fit done in v2.1; the rest deferred (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
 
 ---
 
