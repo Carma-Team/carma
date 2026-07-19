@@ -27,12 +27,13 @@ export function calculateScore(input: ScoringInput): ScoringResult {
   const { hardBrakes, aggressiveAccels, sharpTurns, touchEpochs, screenInteractionSeconds, durationSeconds, distanceKm, startTime } = input
   // const { swerves } = input  // EVT_SWERVE disabled — uncomment when re-enabling
   const safeDuration = Math.max(durationSeconds, 1)
-  // Penalty weights align with spec §א Table 1 severity column:
-  //   EVT_BRAKE=5, EVT_ACCEL=3, EVT_TURN=3, EVT_SWERVE=5 (SWERVE disabled)
+  // Penalty weights MUST match the server oracle (server/app/services/scoring.py),
+  // which is authoritative — it recomputes and overrides the client's score:
+  //   hardBrakes=5, aggressiveAccels=3, sharpTurns=2, touchEpochs=4
   const penalties =
     hardBrakes * 5 +
     aggressiveAccels * 3 +
-    sharpTurns * 3 +       // spec severity = 3
+    sharpTurns * 2 +
     // swerves * 5 +        // EVT_SWERVE disabled — spec severity = 5
     touchEpochs * 4 +
     (screenInteractionSeconds / safeDuration) * 40
