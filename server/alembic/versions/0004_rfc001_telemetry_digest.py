@@ -8,8 +8,9 @@ Create Date: 2026-05-21 00:00:00.000000
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "c4d5e6f7a8b9"
 down_revision: str | None = "c2d3e4f5a6b7"
@@ -26,9 +27,7 @@ def upgrade() -> None:
         "trips",
         sa.Column("payload_signature", sa.String(128), nullable=True),
     )
-    op.execute(
-        "CREATE INDEX ix_trips_has_telemetry ON trips (id) WHERE telemetry_digest IS NOT NULL"
-    )
+    op.execute("CREATE INDEX ix_trips_has_telemetry ON trips (id) WHERE telemetry_digest IS NOT NULL")
 
 
 def downgrade() -> None:

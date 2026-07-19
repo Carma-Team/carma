@@ -24,12 +24,13 @@ def _status_for(edge: UserFriend | None) -> FollowStatus:
 
 
 async def _edge(db: AsyncSession, follower_id: str, followee_id: str) -> UserFriend | None:
-    return await db.scalar(
+    edge: UserFriend | None = await db.scalar(
         select(UserFriend).where(
             UserFriend.follower_id == follower_id,
             UserFriend.followee_id == followee_id,
         )
     )
+    return edge
 
 
 async def _status_map(db: AsyncSession, viewer_id: str, user_ids: list[str]) -> dict[str, FollowStatus]:
@@ -132,7 +133,7 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         return FollowStatusOut(status="none")
 
     if edge and edge.status in (FriendStatus.ACCEPTED, FriendStatus.PENDING):
-        return FollowStatusOut(status=edge.status.value.lower())  # type: ignore[arg-type]
+        return FollowStatusOut(status=edge.status.value.lower())
 
     new_status = FriendStatus.PENDING if target.is_private else FriendStatus.ACCEPTED
     if edge:
@@ -146,8 +147,8 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         await db.rollback()
         existing = await _edge(db, current.id, target_id)
         if existing:
-            return FollowStatusOut(status=existing.status.value.lower())  # type: ignore[arg-type]
-    return FollowStatusOut(status=new_status.value.lower())  # type: ignore[arg-type]
+            return FollowStatusOut(status=existing.status.value.lower())
+    return FollowStatusOut(status=new_status.value.lower())
 
 
 async def unfollow(db: AsyncSession, current: User, target_id: str) -> FollowStatusOut:

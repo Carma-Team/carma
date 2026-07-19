@@ -10,7 +10,7 @@ CARMA is a mobile app that tracks driving behavior through GPS and IMU sensors, 
 |---|---|---|
 | `server/` | Backend — API, DB, business logic | Python / FastAPI / PostgreSQL |
 | `mobile/` | Mobile app | React Native / Expo |
-| `mock-server/` | Mock server for offline development | Express / json-server |
+| `docs/` | Architecture & algorithm docs | Markdown |
 | `scripts/` | Helper scripts | PowerShell |
 
 ---
