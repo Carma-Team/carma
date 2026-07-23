@@ -4,9 +4,9 @@
  *
  * @description
  * Detects active phone handling via IMU accelerometer-variance analysis and
- * a glass-tap transient proxy. Replaces the v1.x AppState-only approach that
- * caused false positives when CARMA ran in the background behind navigation
- * apps (Waze, Google Maps) with the phone mounted on the dashboard.
+ * a glass-tap transient proxy. Replaces a v1.x AppState-only approach that
+ * caused false positives when the host app ran in the background behind
+ * navigation apps (Waze, Google Maps) with the phone mounted on the dashboard.
  *
  * Two metrics emitted via onInteractionData callback:
  *   - touchEpochs              count of sharp single-sample acceleration transients
@@ -15,8 +15,8 @@
  *                               (low variance = vehicle-mounted → not counted)
  *
  * @remarks Hardware-abstraction only. Threshold constants are IMU calibration values,
- * not CARMA scoring weights. They require empirical drive-test validation before
- * Sprint+1 launch — see RFC-001 §4.3 (MAI-SDK-v1.7).
+ * not app-specific scoring weights. They require empirical drive-test validation
+ * before production launch.
  */
 import { AppState, AppStateStatus } from 'react-native';
 import { Accelerometer } from 'expo-sensors';

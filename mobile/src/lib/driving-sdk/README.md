@@ -82,9 +82,10 @@ Any file that encodes a decision specific to the consuming application.
 ├──────────────────────────────────────────────────────────────┤
 │                      driving-sdk/                            │
 │  DrivingSDK · BluetoothManager · SensorManager               │
-│  PhoneUsageManager                                           │
+│  PhoneUsageManager · DefaultTripValidator                    │
 │                                                              │
-│  Detects physical events (planar accel > 0.45g, gyro > 2 rad/s) │
+│  Detects physical events via GPS+IMU fusion (tunable via     │
+│  SDKConfig.motionThresholds)                                 │
 │  Dispatches to registered listeners when conditions are met  │
 │  No business decisions — zero app-specific code              │
 ├──────────────────────────────────────────────────────────────┤
@@ -146,12 +147,14 @@ The primary way to consume driving events. Each listener fires only when **all**
 
 ### `DrivingEventType`
 
-| Value | Sensor | Description |
+| Value | Detected from | Description |
 |---|---|---|
-| `HARD_BRAKE` | Accelerometer | Sudden deceleration — planar force > 0.45g |
-| `AGGRESSIVE_ACCEL` | Accelerometer | Sudden acceleration — planar force > 0.45g |
-| `SHARP_TURN` | Gyroscope | Fast rotation — magnitude > 2.0 rad/s |
+| `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
+| `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
+| `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
 | `PHONE_USAGE` | AppState | App moved to background (Home button / app switch) while trip is active — counts as one phone-touch event |
+
+`HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
 
 ### Multiple listeners
 
@@ -215,6 +218,8 @@ new DrivingSDK(config?: SDKConfig)
 | `targetBluetoothId` | `string \| null` | — | MAC address of the BT device to monitor |
 | `sensorUpdateInterval` | `number` (ms) | `1000` | How often `onUpdate` fires (wall-clock) |
 | `scoringEnabled` | `boolean` | `true` | Reserved — passed through to application callbacks |
+| `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
+| `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [Pluggable trip validation](#pluggable-trip-validation). |
 
 #### Methods
 
@@ -273,20 +278,22 @@ interface TripData {
 
 ## Sensor internals
 
-### Accelerometer — `SensorManager`
+### Motion-event detection (brake / accel / turn) — `SensorManager`
 
-- Sampling rate: **10 Hz** (100 ms interval)
-- Gravity isolation: **EMA low-pass filter** (α = 0.8, ~0.5 s time constant)
-- Detection metric: **planar magnitude** `√(dx² + dy²)` — Z axis (vertical) excluded to prevent road bumps and phone tilts from triggering events
-- Detection threshold: **0.45g** (gravity-removed)
-- Severity mapping: `0.45g → 0.0`, `1.45g → 1.0`, clamped to `[0, 1]`
+Detects `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` via **GPS+IMU fusion**,
+independent of how the phone is oriented in the vehicle (vent mount, cup holder,
+pocket — all work the same):
 
-### Gyroscope — `SensorManager`
-
-- Sampling rate: **10 Hz**
-- Detection metric: full rotation magnitude `√(x² + y² + z²)` rad/s — works regardless of phone orientation
-- Detection threshold: **2.0 rad/s** (~115°/s — a fast lane-change or aggressive swerve)
-- Severity mapping: `2.0 rad/s → 0.0`, `5.0 rad/s → 1.0`, clamped to `[0, 1]`
+- **Trigger + direction (GPS, orientation-free):**
+  - Longitudinal accel = `Δspeed / Δt` → brake (deceleration) / accel.
+  - Lateral accel = `speed × heading-rate` → sharp turn.
+  - Evaluated over a rolling ≥1.5 s window so a burst of high-frequency GPS ticks doesn't read as a phantom spike.
+  - Turn detection is skipped below ~10 km/h, where GPS heading is unreliable.
+- **Severity + cross-confirm (accelerometer, orientation-free):**
+  - Gravity is removed (EMA low-pass filter, α = 0.9), and the *horizontal* magnitude of what remains is computed — this magnitude doesn't depend on the phone's yaw, so it's meaningful regardless of mounting angle.
+  - A GPS-detected event only fires if the accelerometer also registered a matching horizontal force (rejects pure GPS glitches); the IMU peak also refines the reported severity.
+- Thresholds default to `DEFAULT_MOTION_THRESHOLDS` (2.7 / 3.0 / 3.5 m/s² — aligned with common UBI/telematics "harsh event" bands) — override via `SDKConfig.motionThresholds`.
+- Severity mapping: `threshold → 0.0`, `threshold + 5.0 m/s² → 1.0`, clamped to `[0, 1]`.
 
 ### GPS — `SensorManager`
 
@@ -295,6 +302,11 @@ interface TripData {
 - Speed: from `loc.coords.speed` (m/s → km/h), floored at 0
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
+- Background tracking: a TaskManager task keeps GPS updates flowing while the app is backgrounded or the phone is locked.
+
+### Gyroscope — `SensorManager`
+
+Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g. transport-mode fraud detection). It does not itself trigger any `DrivingEventType`.
 
 ### Per-event cooldown
 
@@ -303,6 +315,42 @@ After an event of a given type fires, the same type is suppressed for **500 ms**
 ### Warm-up guard
 
 The first **3 seconds** after `startTrip()` all sensor events are dropped. This eliminates spurious spikes caused by the physical act of pressing the start button.
+
+---
+
+## Pluggable trip validation
+
+Deciding when GPS/BT activity actually counts as a "trip" (vs. noise, a parked car
+with the engine running, or a red light) is an app-specific product decision — the
+SDK ships a trivial `DefaultTripValidator` that confirms a trip the moment `start()`
+is called and never flags anything as suspicious, so `new DrivingSDK()` works with
+zero configuration.
+
+To apply your own rules (a minimum-duration/speed gate before confirming a trip, an
+idle-timeout to auto-end one, transport-mode fraud detection, …), implement the
+`TripValidator` interface and pass an instance via `SDKConfig.tripValidator`:
+
+```typescript
+import type { TripValidator, ValidationSample, SuspiciousActivityEvaluation } from '@/lib/driving-sdk/types';
+
+class MyTripValidator implements TripValidator {
+  onTripConfirmed?: () => void;
+  onTripEnded?: () => void;
+  onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+
+  start(): void { /* begin watching samples */ }
+  stop(): void { /* stop watching */ }
+  updateSample(sample: ValidationSample): void { /* e.g. accumulate time above a speed threshold */ }
+}
+
+const sdk = new DrivingSDK({ tripValidator: new MyTripValidator() });
+```
+
+`updateSample()` is called at sensor rate with the latest GPS speed and (when
+available) accelerometer/gyroscope readings. Call `onTripConfirmed()` once your
+rules decide a trip has genuinely started, and `onTripEnded()` once it's genuinely
+over — `DrivingSDK` calls `startTrip()` / `stopTrip()` in response. `onFraudSuspected`
+is optional and only needed if your validator also does suspicious-activity detection.
 
 ---
 

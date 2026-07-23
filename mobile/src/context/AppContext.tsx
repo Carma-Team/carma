@@ -25,6 +25,7 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
+import { TripValidationManager } from '@/lib/TripValidationManager'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
@@ -263,7 +264,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
   }, [recentTrips, user?.lastClearedHistory]);
 
-  const sdk = useMemo(() => new DrivingSDK(), []);
+  // TripValidationManager (30s-start/3min-end/fraud rules) is CARMA-specific business
+  // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
+  // the generic library with its own trip-validation rules, per the driving-sdk
+  // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
+  const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations

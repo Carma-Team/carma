@@ -14,7 +14,7 @@
 import * as TaskManager from 'expo-task-manager';
 import type { LocationObject } from 'expo-location';
 
-export const CARMA_LOCATION_TASK = 'carma-location-updates';
+export const DRIVING_SDK_LOCATION_TASK = 'driving-sdk-location-updates';
 
 type LocationHandler = (loc: LocationObject) => void;
 
@@ -25,7 +25,7 @@ export function setLocationHandler(fn: LocationHandler | null): void {
   handler = fn;
 }
 
-TaskManager.defineTask<{ locations?: LocationObject[] }>(CARMA_LOCATION_TASK, async ({ data, error }) => {
+TaskManager.defineTask<{ locations?: LocationObject[] }>(DRIVING_SDK_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     console.warn('[locationTask] error:', error.message);
     return;
