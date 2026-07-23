@@ -70,6 +70,8 @@ const TURN_MIN_SPEED_MS = 2.8; // ~10 km/h
 // glitches where the phone felt essentially no force. Skipped if no accelerometer.
 const IMU_CONFIRM_MS2 = 1.0;
 
+const MS2_PER_G = 9.81;
+
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
 // /** EVT_SWERVE — GPS Heading change rate
 //  *  Spec: > 15 °/s sustained for ≥ 3 s
@@ -101,6 +103,10 @@ export class SensorManager {
   // Peak orientation-invariant horizontal acceleration (m/s²) seen since the last
   // motion evaluation — the IMU's contribution to severity and cross-confirmation.
   private peakHorizAccelMs2 = 0;
+  // Longest continuous streak (ms) that horizMs2 stayed at/above IMU_CONFIRM_MS2
+  // since the last motion evaluation — reported as DrivingEvent.durationMs.
+  private aboveConfirmSinceMs: number | null = null;
+  private peakDurationMs = 0;
 
   // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
   // private prevHeading:      number | null = null;
@@ -138,6 +144,8 @@ export class SensorManager {
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
     this.peakHorizAccelMs2 = 0;
+    this.aboveConfirmSinceMs = null;
+    this.peakDurationMs = 0;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
     // this.prevLocTimestamp = null;
     // this.swerveStartTime  = null;
@@ -252,6 +260,8 @@ export class SensorManager {
       this.motionPrevSpeedMs = speedMs;
       this.motionPrevHeadingDeg = headingDeg >= 0 ? headingDeg : null;
       this.peakHorizAccelMs2 = 0;
+      this.aboveConfirmSinceMs = null;
+      this.peakDurationMs = 0;
       return;
     }
 
@@ -259,6 +269,7 @@ export class SensorManager {
     if (dt < MOTION_EVAL_MIN_S) return; // accumulate until the window is wide enough
 
     const imuPeak = this.peakHorizAccelMs2;
+    const imuPeakDurationMs = this.peakDurationMs;
     // Lenient sanity check: reject GPS-only spikes the phone never physically felt.
     const imuConfirms = !this.accelAvailable || imuPeak >= IMU_CONFIRM_MS2;
 
@@ -266,10 +277,10 @@ export class SensorManager {
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
     if (aLong <= -this.thresholds.brakeThresholdMs2 && imuConfirms) {
       const mag = Math.max(-aLong, imuPeak); // IMU peak refines GPS-averaged severity
-      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity: this.severity(mag, this.thresholds.brakeThresholdMs2) });
+      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity: this.severity(mag, this.thresholds.brakeThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
     } else if (aLong >= this.thresholds.accelThresholdMs2 && imuConfirms) {
       const mag = Math.max(aLong, imuPeak);
-      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity: this.severity(mag, this.thresholds.accelThresholdMs2) });
+      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity: this.severity(mag, this.thresholds.accelThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
     }
 
     // ── Lateral: sharp turn — orientation-free via GPS heading rate × speed ──
@@ -280,7 +291,7 @@ export class SensorManager {
       const aLat = speedMs * yawRate;                            // m/s²
       if (aLat >= this.thresholds.turnThresholdMs2 && imuConfirms) {
         const mag = Math.max(aLat, imuPeak);
-        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity: this.severity(mag, this.thresholds.turnThresholdMs2) });
+        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity: this.severity(mag, this.thresholds.turnThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
       }
     }
 
@@ -289,6 +300,8 @@ export class SensorManager {
     this.motionPrevSpeedMs = speedMs;
     if (headingDeg >= 0) this.motionPrevHeadingDeg = headingDeg;
     this.peakHorizAccelMs2 = 0;
+    this.aboveConfirmSinceMs = null;
+    this.peakDurationMs = 0;
   }
 
   private severity(magMs2: number, thresholdMs2: number): number {
@@ -349,9 +362,20 @@ export class SensorManager {
     const gMag = Math.sqrt(this.gravity.x ** 2 + this.gravity.y ** 2 + this.gravity.z ** 2) || 1;
     const vertComp = (dynX * this.gravity.x + dynY * this.gravity.y + dynZ * this.gravity.z) / gMag;
     const dynMagSq = dynX ** 2 + dynY ** 2 + dynZ ** 2;
-    const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * 9.81; // g → m/s²
+    const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * MS2_PER_G; // g → m/s²
 
     if (horizMs2 > this.peakHorizAccelMs2) this.peakHorizAccelMs2 = horizMs2;
+
+    // Track how long the signal has stayed continuously at/above the cross-confirm
+    // threshold — reported as DrivingEvent.durationMs if an event fires this window.
+    if (horizMs2 >= IMU_CONFIRM_MS2) {
+      const nowMs = Date.now();
+      if (this.aboveConfirmSinceMs === null) this.aboveConfirmSinceMs = nowMs;
+      const streakMs = nowMs - this.aboveConfirmSinceMs;
+      if (streakMs > this.peakDurationMs) this.peakDurationMs = streakMs;
+    } else {
+      this.aboveConfirmSinceMs = null;
+    }
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -344,6 +344,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,
+      events: lastTripDataRef.current?.events?.map(e => ({
+        type: e.type,
+        timestamp: e.timestamp.toISOString(),
+        severity: e.severity,
+        speedKmh: e.speedKmh,
+        location: e.location,
+        peakG: e.peakG,
+        durationMs: e.durationMs,
+      })),
     };
 
     let savedTrip: Trip | null = null;

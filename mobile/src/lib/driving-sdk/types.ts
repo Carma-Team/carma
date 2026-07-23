@@ -41,6 +41,9 @@ export interface DrivingEvent {
     latitude: number;
     longitude: number;
   };
+  // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
+  peakG?: number;      // gravity-removed peak horizontal g-force, the value already compared against the detection threshold
+  durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 
 /**
