@@ -297,12 +297,23 @@ pocket — all work the same):
 
 ### GPS — `SensorManager`
 
-- Update interval: **2 s** / **5 m** (whichever comes first, `Accuracy.High` — GPS chip only, no network/cell fallback)
+- Update interval: **2 s** / **5 m** (whichever comes first, `Accuracy.BestForNavigation` — GPS chip only, no network/cell fallback)
 - Distance: Haversine formula between consecutive samples
 - Speed: from `loc.coords.speed` (m/s → km/h), floored at 0
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
+- Duplicate-tick guard: a fix arriving less than 500ms after the previous one is dropped before it reaches distance/motion math — some devices emit near-duplicate GPS fixes in bursts (#17), which would otherwise imply physically impossible accelerations.
 - Background tracking: a TaskManager task keeps GPS updates flowing while the app is backgrounded or the phone is locked.
+
+#### Battery impact (`Accuracy.BestForNavigation`) — #17
+
+Waypoint cadence was found to degrade badly on some devices (~6s median gaps instead of the requested 2s, per live cloud data), which caps how much a trip can score above the driver's rolling average. Raising accuracy from `High` to `BestForNavigation` was the direct lever available to improve this.
+
+**What this costs:** `BestForNavigation` keeps the GPS chip polling continuously at its maximum rate rather than letting the OS batch or defer updates — the same tier turn-by-turn navigation apps (Google/Apple Maps) use, which are well known for materially higher battery drain than typical background-location use. Expect a real, noticeable increase in battery consumption **for the duration of an active trip** — this setting is only active while `SensorManager.start()`/`stop()` brackets a trip, never continuously in the background.
+
+**Not a complete fix either way:** some Android OEMs (Xiaomi, Huawei, Samsung, etc.) throttle background location regardless of the requested accuracy tier unless the user manually exempts the app from battery optimization in device settings — that's outside what any accuracy setting alone can override.
+
+**If the team later wants to prioritize battery over cadence consistency:** revert the `accuracy` field in `SensorManager.ts`'s `Location.startLocationUpdatesAsync()` call back to `Location.Accuracy.High` (or try `Balanced`, which trades some accuracy/cadence for meaningfully lower power draw). That single line is the whole trade-off — nothing else in the cadence/dedup logic depends on which tier is selected.
 
 ### Gyroscope — `SensorManager`
 

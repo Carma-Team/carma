@@ -70,6 +70,14 @@ const TURN_MIN_SPEED_MS = 2.8; // ~10 km/h
 // glitches where the phone felt essentially no force. Skipped if no accelerometer.
 const IMU_CONFIRM_MS2 = 1.0;
 
+// Below this gap, two consecutive GPS fixes are treated as the same physical tick
+// rather than independent samples — cloud data (#17) found devices emitting
+// near-duplicate fixes <0.5s apart, which imply physically impossible
+// accelerations if processed as real samples. The server already dedups on
+// its side; this stops the duplicate from ever reaching distance/motion math
+// on the client too.
+const MIN_TICK_INTERVAL_MS = 500;
+
 const MS2_PER_G = 9.81;
 
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
@@ -167,8 +175,18 @@ export class SensorManager {
         if (alreadyStarted) {
           await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
         }
+        // #17: cloud data shows some devices deliver these ticks at a ~6s median
+        // with >15s gaps instead of the requested 2s — timeInterval/distanceInterval
+        // are hints, not guarantees; Android's FusedLocationProviderClient can defer
+        // updates under battery-saver/Doze or aggressive OEM power management, and a
+        // foreground service raises priority but doesn't fully override it.
+        // BestForNavigation raises request priority further, at a real battery cost —
+        // accepted here since it only runs for the duration of an active trip. Not a
+        // full fix on every device: some OEMs (Xiaomi/Huawei/Samsung, etc.) throttle
+        // background location regardless of requested accuracy unless the user
+        // manually exempts the app from battery optimization in device settings.
         await Location.startLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK, {
-          accuracy: Location.Accuracy.High,
+          accuracy: Location.Accuracy.BestForNavigation,
           timeInterval: 2000,
           distanceInterval: 5,
           pausesUpdatesAutomatically: false,
@@ -217,6 +235,14 @@ export class SensorManager {
   // ─── GPS handler — distance, speed, and brake/accel/turn detection ───────────
 
   private handleLocation(loc: Location.LocationObject) {
+    // Drop near-duplicate fixes at the source (#17) — some devices emit bursts of
+    // GPS ticks <0.5s apart under certain background/throttling conditions. Treating
+    // these as independent samples would understate timeDeltaS and can imply
+    // impossible accelerations; simplest and safest is to ignore the repeat entirely.
+    if (this.lastLocation && (loc.timestamp - this.lastLocation.timestamp) < MIN_TICK_INTERVAL_MS) {
+      return;
+    }
+
     let distance = 0;
     // Elapsed seconds since the previous GPS tick — used by the SDK's teleportation
     // guard to cap the distance contribution of each update (D-SDK-3).
