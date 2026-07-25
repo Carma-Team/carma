@@ -613,6 +613,25 @@ async def run() -> None:
                 )
             )
 
+        # --- Business owner login (the only way to exercise /api/business/*) ---
+        # Every seeded Business has owner_user_id=NULL, so without this there is no
+        # account that can reach the business dashboard at all. Aroma is arbitrary —
+        # it just needs one business with a real owner behind it.
+        aroma = await db.scalar(select(Business).where(Business.name == "Aroma"))
+        biz_owner = await db.scalar(select(User).where(User.email == "aroma@carma.app"))
+        if biz_owner is None:
+            biz_owner = User(
+                email="aroma@carma.app",
+                password_hash=hash_password("Aroma1234"),
+                name="ארומה תל אביב",
+                role=UserRole.BUSINESS,
+                city="תל אביב",
+            )
+            db.add(biz_owner)
+            await db.flush()
+        if aroma is not None:
+            aroma.owner_user_id = biz_owner.id
+
         # --- Yoni follows friends (Friends leaderboard) ---
         for friend_email in YONI_FRIENDS:
             friend = await db.scalar(select(User).where(User.email == friend_email))
@@ -627,6 +646,7 @@ async def run() -> None:
     print(f"  Demo login  : ofridan@gmail.com / Dan1234  (Level 4, {_DAN_TOTAL_POINTS} pts, {len(_DAN_TRIPS)} trips)")
     print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
     print("  Test login  : daniel@carma.app / password123")
+    print("  Business    : aroma@carma.app / Aroma1234  (owns Aroma — /api/business/rewards)")
     print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded in תל אביב")
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")
 

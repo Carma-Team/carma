@@ -28,6 +28,10 @@ class UserOut(CamelModel):
     drive_mode_enabled: bool
     bluetooth_device_id: str | None = None
     bluetooth_device_name: str | None = None
+    # Set only for role=BUSINESS (see users_service.profile_out). The business
+    # screens key off businessCategory to categorise new rewards.
+    business_id: str | None = None
+    business_category: str | None = None
     created_at: datetime
 
 

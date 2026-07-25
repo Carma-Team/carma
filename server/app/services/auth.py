@@ -19,7 +19,7 @@ from app.core.security import (
 )
 from app.models import Language, OtpCode, User, UserRole
 from app.schemas.auth import AuthOut, LoginIn, OtpRegisterIn, OtpSent, OtpVerifyIn, RegisterIn
-from app.schemas.user import UserOut
+from app.services import users as users_service
 from app.services.sms import sms_sender
 
 log = logging.getLogger(__name__)
@@ -41,8 +41,8 @@ def _token_for(user: User) -> str:
     return create_access_token(user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role))
 
 
-def _auth_response(user: User) -> AuthOut:
-    return AuthOut(token=_token_for(user), user=UserOut.model_validate(user))
+async def _auth_response(db: AsyncSession, user: User) -> AuthOut:
+    return AuthOut(token=_token_for(user), user=await users_service.profile_out(db, user))
 
 
 # ─── Email + password (May's app) ────────────────────────────────────────────
@@ -68,7 +68,7 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
     await db.commit()
     await db.refresh(user)
     audit("auth.registered", user_id=user.id, via="email")
-    return _auth_response(user)
+    return await _auth_response(db, user)
 
 
 async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
@@ -85,7 +85,7 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
     await db.commit()
     await db.refresh(user)
     audit("auth.login.success", user_id=user.id, via="email")
-    return _auth_response(user)
+    return await _auth_response(db, user)
 
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
@@ -179,7 +179,7 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     await db.commit()
     await db.refresh(user)
     audit("auth.otp.success", user_id=user.id)
-    return _auth_response(user)
+    return await _auth_response(db, user)
 
 
 async def _record_failure(db: AsyncSession, user: User) -> None:

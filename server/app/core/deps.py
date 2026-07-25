@@ -5,12 +5,13 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import user_id_ctx
 from app.core.security import decode_access_token
 from app.database import get_db
-from app.models import User
+from app.models import Business, User, UserRole
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -43,3 +44,21 @@ async def current_user(
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
+
+
+async def current_business(user: CurrentUser, db: DbSession) -> Business:
+    """The Business owned by the authenticated user — the scope of every /api/business route.
+
+    Handlers never take a business id from the client: they operate on whatever
+    this returns, which is what keeps one business out of another's rewards.
+    """
+    if user.role != UserRole.BUSINESS:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Business account required")
+
+    business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
+    if business is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No business is linked to this account")
+    return business
+
+
+CurrentBusiness = Annotated[Business, Depends(current_business)]
