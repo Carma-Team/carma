@@ -30,6 +30,18 @@ class UserOut(CamelModel):
     created_at: datetime
 
 
+class FoundUserOut(CamelModel):
+    """Deliberately narrow: phone search is a lookup, not a profile read."""
+
+    id: str
+    name: str | None = None
+    city: str | None = None
+
+
+class UserSearchOut(CamelModel):
+    user: FoundUserOut
+
+
 class UpdateProfileIn(CamelModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     language: Language | None = None

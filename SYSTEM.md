@@ -229,6 +229,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 | `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
 | `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, 5-min validity), my vouchers. |
 | `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, sorted by `total_points`. |
+| `routers/friends.py` | `services/friends.py` | Friend requests, unfriending, blocks. Owns every write to `user_friends`. |
 | `routers/notifications.py` | — | Stub. Returns an empty list until a model is added. |
 | `routers/health.py` | — | `/health` (DB ping), `/health/live` (uptime). |
 | — | `services/sms.py` | SmsSender abstraction — Twilio in prod, Console in dev. |
@@ -371,7 +372,24 @@ Mobile App                                   Server                 Twilio (prod
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/leaderboard?type=national\|city\|friends` | Currently `friends` returns just the user themselves (friend model not added). |
+| GET | `/api/leaderboard?type=national\|city\|friends` | Ranked by `total_points`. `friends` = accepted friendships, either direction, plus the user themselves. |
+
+### Friends
+
+Mutual friendships on `user_friends`: one row per relationship, oriented requester → recipient.
+`pending` until answered (privacy setting does not change that), `accepted` counts for both
+users whichever way the row points, `blocked` is directional.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/users/search?phone=` | Find a driver to add. Matches `05…` and `+9725…` spellings of the same number. |
+| POST | `/api/users/{id}/friend-request` | Send. If they already asked you, this accepts instead. |
+| DELETE | `/api/users/{id}/friend-request` | Withdraw the pending request |
+| GET | `/api/friend-requests` | Incoming requests awaiting your answer |
+| POST | `/api/friend-requests/{id}/accept` | Accept — `{id}` is the request id, not a user id |
+| DELETE | `/api/friend-requests/{id}` | Reject |
+| DELETE | `/api/friends/{id}` | Unfriend. Either side can call it. |
+| POST \| DELETE | `/api/users/{id}/block` | Block / unblock. Blocking drops any friendship or request. |
 
 ### Notifications
 
@@ -654,7 +672,7 @@ ContainerAppConsoleLogs_CL
 
 - **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
 - **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
-- **Friendships:** spec doesn't define a friends table, but the mobile app calls a leaderboard `type=friends`. Currently it returns only the user themselves until a model is added.
+- **Friendships:** spec doesn't define a friends table. We use `user_friends` — one row per mutual friendship, requester → recipient, with a `pending`/`accepted`/`blocked` status.
 
 ---
 

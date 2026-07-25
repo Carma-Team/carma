@@ -2,6 +2,8 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+// Friendship between the viewer and another user. `pending` covers a request in
+// either direction — one they sent, or one they were sent.
 export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -127,18 +129,12 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
-export interface FollowRequest {
-  followerId: string;
-  followerName?: string;
-  followerLevel: number;
-  followerCity?: string;
-  requestedAt: string;
-}
-
+// Matches server's FriendRequestOut. `id` is the request id — what accept and
+// reject address, not the sender's user id.
 export interface FriendRequest {
   id: string;
   fromUserId: string;
-  fromUserName: string;
+  fromUserName?: string | null;
   fromUserLevel: number;
   fromUserCity?: string | null;
   createdAt: string;

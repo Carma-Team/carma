@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
-from app.models import Trip, TripStatus, User
+from app.models import Trip, TripStatus, User, UserRole
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import UpdateLocationIn, UpdateProfileIn
 
@@ -33,6 +35,47 @@ async def delete_account(db: AsyncSession, user: User) -> None:
     await db.delete(user)
     await db.commit()
     audit("user.deleted", user_id=user_id)
+
+
+def phone_candidates(raw: str) -> list[str]:
+    """Spellings of an Israeli number that could be sitting in `users.phone`.
+
+    OTP signup stores E.164 (`+972501234567`); the email/password path accepts
+    free-form input, so `0501234567` is just as likely. Search has to match a
+    number the user typed either way.
+    """
+    compact = re.sub(r"[^\d+]", "", raw)
+    digits = compact.lstrip("+")
+    if not digits:
+        return []
+
+    forms = {compact}
+    if digits.startswith("972"):
+        forms.add(f"+{digits}")
+        forms.add(f"0{digits[3:]}")
+    elif digits.startswith("0"):
+        forms.add(digits)
+        forms.add(f"+972{digits[1:]}")
+    return sorted(forms)
+
+
+async def search_by_phone(db: AsyncSession, current: User, phone: str) -> User:
+    """Find one driver by phone number. Never matches the caller themselves."""
+    candidates = phone_candidates(phone)
+    found = (
+        await db.scalar(
+            select(User).where(
+                User.phone.in_(candidates),
+                User.id != current.id,
+                User.role == UserRole.DRIVER,
+            )
+        )
+        if candidates
+        else None
+    )
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No user with this phone")
+    return found
 
 
 async def stats(db: AsyncSession, user_id: str) -> StatsOut:

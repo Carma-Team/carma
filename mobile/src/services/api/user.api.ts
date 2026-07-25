@@ -6,11 +6,13 @@
  * - `stats` — cumulative driving statistics (trips, distance, avg score, weekly chart)
  * - `updateProfile` — update name, language, age, city
  * - `deleteAccount` — delete account (GDPR)
+ * - `searchByPhone` — find a driver to send a friend request to
  *
  * @server
  * - GET /api/user/stats — USE_REAL_SERVER=false → mock (MOCK_STATS/MOCK_DRIVER_STATS); true → real server
  * - PATCH /api/users/me — USE_REAL_SERVER=false → mock; true → real server
  * - DELETE /api/users/me — USE_REAL_SERVER=false → mock (204); true → real server
+ * - GET /api/users/search?phone= — real server
  */
 import { request } from './client';
 import type { AppUser, DrivingStats } from '@/types';
@@ -44,11 +46,7 @@ export const userApi = {
   deleteAccount: () =>
     request<void>('/api/users/me', { method: 'DELETE' }),
 
-  /** Find a user by their phone number (excludes the current user) */
+  /** Find a driver by their phone number (excludes the current user) */
   searchByPhone: (phone: string) =>
     request<{ user: FoundUser }>(`/api/users/search?phone=${encodeURIComponent(phone)}`),
-
-  /** Send a friend request to targetUserId */
-  sendFriendRequest: (targetUserId: string) =>
-    request<{ status: string }>(`/api/users/${targetUserId}/friend-request`, { method: 'POST' }),
 };
