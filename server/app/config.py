@@ -31,6 +31,11 @@ class Settings(BaseSettings):
 
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
+
+    # Base of the invite links users share. Must be a host that serves the App
+    # Links / Universal Links well-known files, or the link opens a browser
+    # instead of the app.
+    invite_base_url: str = "https://carma.app"
     trip_signing_secret: str = Field(default="", min_length=0)
 
     @field_validator("cors_origins")

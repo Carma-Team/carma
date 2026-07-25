@@ -24,7 +24,9 @@ from app.monitoring import configure_monitoring
 from app.routers import (
     auth,
     fraud,
+    friends,
     health,
+    invites,
     leaderboard,
     levels,
     notifications,
@@ -89,6 +91,8 @@ app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(leaderboard.router)
+app.include_router(friends.router)
+app.include_router(invites.router)
 app.include_router(notifications.router)
 app.include_router(health.router)
 
