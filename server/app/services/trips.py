@@ -19,7 +19,7 @@ from app.core.audit import audit
 from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
 from app.services import scoring_v2, telemetry
-from app.services.scoring import get_risk_multiplier
+from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
