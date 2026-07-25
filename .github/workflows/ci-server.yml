@@ -16,11 +16,17 @@ on:
       - 'server/**'
       - '.github/workflows/ci-server.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'server/**'
       - '.github/workflows/ci-server.yml'
   workflow_dispatch:
+
+# One run per branch/PR. Superseded runs on develop and feature branches are
+# cancelled; main is never cancelled so every deployable commit keeps its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -147,8 +153,9 @@ jobs:
         run: cat /tmp/uvicorn.log
 
   docker-build:
-    # Heavy — keep off develop pushes (issue #25). Runs on main push, any PR, or manual dispatch.
-    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
+    # Heavy — keep it off develop entirely (issue #25), both pushes and PRs.
+    # Runs on anything targeting main, or manual dispatch.
+    if: ${{ github.base_ref == 'main' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
