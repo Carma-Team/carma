@@ -39,6 +39,23 @@ class Settings(BaseSettings):
         return v.strip() or "*"
 
     @model_validator(mode="after")
+    def _validate_signing_secret(self) -> Settings:
+        """Refuse to start a production server that cannot enforce trip signatures.
+
+        An empty secret makes `_verify_signature` a no-op (trips.py), so the scoring
+        oracle would silently accept any payload. That is acceptable in dev — it is
+        how the app runs today — but shipping it to production is the accident
+        RFC-001 §5 warns about, so it fails loudly at startup instead.
+        """
+        if self.env != "production":
+            return self
+        if not self.trip_signing_secret:
+            raise ValueError("ENV=production requires TRIP_SIGNING_SECRET to be set")
+        if len(self.trip_signing_secret) < 32:
+            raise ValueError("TRIP_SIGNING_SECRET must be at least 32 characters")
+        return self
+
+    @model_validator(mode="after")
     def _validate_twilio(self) -> Settings:
         if self.sms_provider == "twilio":
             missing = [
