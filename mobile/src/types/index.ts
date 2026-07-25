@@ -184,27 +184,6 @@ export interface TripValidationResult {
   invalidReason?: string;            // human-readable, sent to fraud.api
 }
 
-// ─── Scoring (local SDK) ──────────────────────────────────────────────────────
-export interface ScoringResult {
-  score: number;
-  points: number;
-  riskMultiplier: number;
-  penalties: number;
-  distanceFactor: number;
-}
-
-export interface ScoringInput {
-  hardBrakes: number;
-  aggressiveAccels: number;
-  sharpTurns: number;
-  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
-  touchEpochs: number;              // v1.7 — glass-tap proxy count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
-  durationSeconds: number;
-  distanceKm: number;
-  startTime: Date;
-}
-
 // ─── Level ────────────────────────────────────────────────────────────────────
 export interface LevelConfig {
   level: number;

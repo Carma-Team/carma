@@ -297,7 +297,7 @@ describe('detectLevelUp', () => {
 
 describe('multi-level leap — Level 1 → Level 4 single-sync scenario', () => {
   const PREV_TOTAL = 0          // fresh user — Level 1 (×1.00)
-  const TRIP_RAW   = 4600       // raw points from calculateScore()
+  const TRIP_RAW   = 4600       // raw points as returned by the server on trip save
   const L1_MULT    = calculateLevel(PREV_TOTAL).multiplier  // 1.00
   const EARNED     = Math.round(TRIP_RAW * L1_MULT)         // 4600
   const NEW_TOTAL  = PREV_TOTAL + EARNED                     // 4600 → inside L4 (4500–6499)
