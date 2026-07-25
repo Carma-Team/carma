@@ -16,6 +16,7 @@ from app.models.base import Base
 # rename one only alongside mobile/src/i18n.
 NOTIFICATION_LEVEL_UP = "level_up"
 NOTIFICATION_FOLLOW_ACCEPTED = "follow_accepted"
+NOTIFICATION_FOLLOW_REQUESTED = "follow_requested"
 
 
 class Notification(Base):

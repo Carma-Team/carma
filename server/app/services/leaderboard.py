@@ -5,7 +5,14 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import NOTIFICATION_FOLLOW_ACCEPTED, FriendStatus, User, UserFriend, UserRole
+from app.models import (
+    NOTIFICATION_FOLLOW_ACCEPTED,
+    NOTIFICATION_FOLLOW_REQUESTED,
+    FriendStatus,
+    User,
+    UserFriend,
+    UserRole,
+)
 from app.schemas.leaderboard import (
     FollowRequestOut,
     FollowStatus,
@@ -141,6 +148,16 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         edge.status = new_status
     else:
         db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=new_status))
+    if new_status == FriendStatus.PENDING:
+        # Only a private account gets asked — a public follow is already done and
+        # there is nothing to act on. Staged on this transaction so the IntegrityError
+        # rollback below discards the notification along with the edge.
+        notifications.create(
+            db,
+            target_id,
+            NOTIFICATION_FOLLOW_REQUESTED,
+            {"userId": current.id, "userName": current.name},
+        )
     try:
         await db.commit()
     except IntegrityError:

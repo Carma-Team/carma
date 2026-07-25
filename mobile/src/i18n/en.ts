@@ -104,6 +104,8 @@ const en: TranslationMap = {
     levelUp: 'Well done! You reached level {level}',
     followAccepted: '{name} accepted your follow request',
     followAcceptedAnon: 'Your follow request was accepted',
+    followRequested: '{name} wants to follow you',
+    followRequestedAnon: 'You have a new follow request',
   },
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',

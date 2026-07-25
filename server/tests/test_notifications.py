@@ -22,7 +22,15 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
-from app.models import NOTIFICATION_FOLLOW_ACCEPTED, NOTIFICATION_LEVEL_UP, Notification, Trip, User, UserFriend
+from app.models import (
+    NOTIFICATION_FOLLOW_ACCEPTED,
+    NOTIFICATION_FOLLOW_REQUESTED,
+    NOTIFICATION_LEVEL_UP,
+    Notification,
+    Trip,
+    User,
+    UserFriend,
+)
 from app.models.enums import UserRole
 from app.schemas.trip import SaveTripIn
 from app.services import leaderboard as leaderboard_service
@@ -187,12 +195,56 @@ async def test_accepting_a_follow_request_notifies_the_follower(db_session: Asyn
 
         await leaderboard_service.accept_request(db_session, followee, follower.id)
 
-        # The notification goes to the follower, never to the accepter.
-        assert await _notifications_of(db_session, followee) == []
+        # The acceptance goes to the follower. The accepter keeps only the
+        # follow_requested row the follow above created for them.
         rows = await _notifications_of(db_session, follower)
         assert len(rows) == 1
         assert rows[0].type == NOTIFICATION_FOLLOW_ACCEPTED
         assert rows[0].payload == {"userId": followee.id, "userName": "Dana"}
+
+        accepter_types = [r.type for r in await _notifications_of(db_session, followee)]
+        assert accepter_types == [NOTIFICATION_FOLLOW_REQUESTED]
+    finally:
+        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
+        await _cleanup(db_session, follower, followee)
+
+
+@pytest.mark.asyncio
+async def test_requesting_to_follow_a_private_account_notifies_the_followee(db_session: AsyncSession) -> None:
+    follower = await _make_user(db_session)
+    follower.name = "Yoni"
+    followee = await _make_user(db_session)
+    followee.is_private = True
+    await db_session.commit()
+
+    try:
+        assert (await leaderboard_service.follow(db_session, follower, followee.id)).status == "pending"
+
+        # The request goes to the account being asked, not to the asker.
+        assert await _notifications_of(db_session, follower) == []
+        rows = await _notifications_of(db_session, followee)
+        assert len(rows) == 1
+        assert rows[0].type == NOTIFICATION_FOLLOW_REQUESTED
+        assert rows[0].payload == {"userId": follower.id, "userName": "Yoni"}
+    finally:
+        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
+        await _cleanup(db_session, follower, followee)
+
+
+@pytest.mark.asyncio
+async def test_re_following_the_same_private_account_does_not_pile_up_requests(db_session: AsyncSession) -> None:
+    follower = await _make_user(db_session)
+    followee = await _make_user(db_session)
+    followee.is_private = True
+    await db_session.commit()
+
+    try:
+        await leaderboard_service.follow(db_session, follower, followee.id)
+        # A second call finds the edge already pending and returns early, so a
+        # client retrying must not spam the followee.
+        await leaderboard_service.follow(db_session, follower, followee.id)
+
+        assert len(await _notifications_of(db_session, followee)) == 1
     finally:
         await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
         await _cleanup(db_session, follower, followee)

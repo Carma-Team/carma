@@ -185,7 +185,16 @@ export interface FollowAcceptedNotification extends NotificationBase {
   payload: { userId: string; userName: string | null };
 }
 
-export type Notification = LevelUpNotification | FollowAcceptedNotification;
+/** Sent to a private account when someone asks to follow them. */
+export interface FollowRequestedNotification extends NotificationBase {
+  type: 'follow_requested';
+  payload: { userId: string; userName: string | null };
+}
+
+export type Notification =
+  | LevelUpNotification
+  | FollowAcceptedNotification
+  | FollowRequestedNotification;
 export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────

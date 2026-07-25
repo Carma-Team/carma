@@ -104,6 +104,8 @@ const he = {
     levelUp: 'כל הכבוד! עלית לרמה {level}',
     followAccepted: '{name} אישר/ה את בקשת המעקב שלך',
     followAcceptedAnon: 'בקשת המעקב שלך אושרה',
+    followRequested: '{name} מבקש/ת לעקוב אחריך',
+    followRequestedAnon: 'התקבלה בקשת מעקב חדשה',
   },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',

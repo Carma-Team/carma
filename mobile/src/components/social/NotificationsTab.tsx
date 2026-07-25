@@ -19,11 +19,15 @@ function useNotificationText() {
         case 'level_up':
           return t('notifications.levelUp').replace('{level}', String(n.payload.level));
         case 'follow_accepted':
-          // The accepter may have no name set — fall back to a nameless phrasing
+          // The other user may have no name set — fall back to a nameless phrasing
           // rather than printing "null".
           return n.payload.userName
             ? t('notifications.followAccepted').replace('{name}', n.payload.userName)
             : t('notifications.followAcceptedAnon');
+        case 'follow_requested':
+          return n.payload.userName
+            ? t('notifications.followRequested').replace('{name}', n.payload.userName)
+            : t('notifications.followRequestedAnon');
       }
     },
     [t]
@@ -31,8 +35,15 @@ function useNotificationText() {
 }
 
 /** Icon per kind — keeps the switch above about text only. */
-function iconFor(n: Notification): 'trophy' | 'person-add' {
-  return n.type === 'level_up' ? 'trophy' : 'person-add';
+function iconFor(n: Notification): 'trophy' | 'person-add' | 'person-circle' {
+  switch (n.type) {
+    case 'level_up':
+      return 'trophy';
+    case 'follow_accepted':
+      return 'person-add';
+    case 'follow_requested':
+      return 'person-circle';
+  }
 }
 
 function formatWhen(iso: string): string {
