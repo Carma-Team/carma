@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -54,6 +54,29 @@ _LEVEL_THRESHOLDS: list[tuple[int, int]] = [
     (1500, 3),
     (500, 2),
 ]
+
+# Level demotion (#37). `total_points` is cumulative and never falls, so the
+# ladder above can only climb: a driver who earned level 8 and then started
+# driving badly would display 8 forever. The ladder still records what was
+# earned; this table caps what is *shown* by how the driver is behaving now.
+#
+# A cap rather than a separate ladder, so nothing is destroyed — the moment
+# `driver_score` recovers, the earned level comes straight back with no points
+# to re-accumulate.
+#
+# First calibration, not fitted to the fleet. `driver_score` starts at the
+# prior (75, "good but unproven") and is credibility-weighted toward it until a
+# driver has real distance, so a newcomer cannot be capped on thin evidence.
+# Re-fit against the live distribution before treating these as settled —
+# same caveat as the v2 constants (docs/scoring-v2-calibration-status.md).
+# Listed highest-first, like the ladder above.
+_LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
+    (80.0, 10),  # no effective cap — 10 is the top level
+    (70.0, 8),
+    (60.0, 6),
+    (50.0, 4),
+]
+_LEVEL_CAP_FLOOR = 2  # worst case; demotion never takes a driver back to 1
 
 # Per-trip cap on persisted event rows — bounds the INSERT a malformed or hostile
 # client can trigger. A genuine 30-min trip yields tens of events, not thousands.
@@ -273,6 +296,18 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
+
+
+def _level_cap(driver_score: float) -> int:
+    """Highest level a driver may display at their current driver score (#37).
+
+    Separate from what they earned: the cap is applied with LEAST() over the
+    points ladder, so a demotion is a lock rather than a loss.
+    """
+    for threshold, cap in _LEVEL_CAP_BY_DRIVER_SCORE:
+        if driver_score >= threshold:
+            return cap
+    return _LEVEL_CAP_FLOOR
 
 
 def _witness_distance(claimed_km: float, gps_km: float) -> float:
@@ -546,10 +581,16 @@ async def save(
 
     if trip.points > 0 or trip.distance_km > 0:
         new_total = User.total_points + trip.points
-        level_expr = case(
+        earned_level = case(
             *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
             else_=1,
         )
+        # Demotion (#37): show the lower of what was earned and what current
+        # driving supports. LEAST rather than a Python min() so the level is
+        # still resolved by the database in the same statement — RETURNING then
+        # reports the value that was actually written, with no read-modify-write
+        # race against a concurrent save.
+        level_expr = func.least(earned_level, _level_cap(new_driver_score))
         values: dict[str, Any] = {
             "points": User.points + trip.points,
             "total_points": new_total,
