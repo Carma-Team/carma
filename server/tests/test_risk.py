@@ -68,4 +68,4 @@ class TestTimezoneConversion:
 
     def test_naive_datetime_is_read_as_israel_local(self):
         # No tzinfo → treated as already-local rather than UTC.
-        assert get_risk_multiplier(datetime(2026, 1, 8, 23)) == 2.0  # noqa: DTZ001 — the point of the test
+        assert get_risk_multiplier(datetime(2026, 1, 8, 23)) == 2.0

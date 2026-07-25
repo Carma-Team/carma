@@ -11,7 +11,7 @@
  * @remarks The server is the sole scoring oracle (`server/app/services/scoring_v2.py`).
  * The client never computes a score — it renders `avgScore`/`points` as returned by
  * `POST /api/trips`. `getRiskMultiplier` is the one exception: it is sent up with the
- * trip payload, so it must stay in parity with `scoring.get_risk_multiplier` on the server.
+ * trip payload, so it must stay in parity with `risk.get_risk_multiplier` on the server.
  */
 
 export function getRiskMultiplier(startTime: Date): number {

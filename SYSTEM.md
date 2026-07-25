@@ -691,7 +691,7 @@ Matching spec section 8:
 
 Deliberately deferred:
 
-- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring.py` (v1.5+). Server is the sole scoring oracle; client sends raw telemetry only.
+- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring_v2.py` (v2.1). Server is the sole scoring oracle; client sends raw telemetry only. The v1 engine it replaced was deleted in #53; only its night-risk multiplier survives, in `app/services/risk.py`.
 - **Notification + Achievement + Friendship models**.
 - **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
 - **Refresh tokens** — current JWT is 7 days, single token.
