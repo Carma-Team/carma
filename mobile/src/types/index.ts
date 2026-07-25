@@ -129,6 +129,16 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
+// Matches server's ContactMatchOut — one address-book entry that turned out to
+// be a CARMA driver. `phoneHash` identifies which contact matched.
+export interface ContactMatch {
+  phoneHash: string;
+  id: string;
+  name?: string | null;
+  city?: string | null;
+  friendStatus: FollowStatus;
+}
+
 // Matches server's FriendRequestOut. `id` is the request id — what accept and
 // reject address, not the sender's user id.
 export interface FriendRequest {

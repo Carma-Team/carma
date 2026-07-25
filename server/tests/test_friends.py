@@ -308,3 +308,82 @@ async def test_search_never_returns_the_caller(db_session: AsyncSession) -> None
         assert exc.value.status_code == 404
     finally:
         await _cleanup(db_session, alice)
+
+
+# ── Contact matching (issue #33) ──────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("0501234567", "+972501234567"),
+        ("+972501234567", "+972501234567"),
+        ("050-123-4567", "+972501234567"),
+        ("+972 50 123 4567", "+972501234567"),
+        ("972501234567", "+972501234567"),
+        ("+14155551234", "+14155551234"),  # already international, left alone
+        ("", None),
+        ("---", None),
+        ("501234567", None),  # no country and no leading 0 — unreadable
+    ],
+)
+def test_canonical_phone(typed: str, expected: str | None) -> None:
+    assert users_service.canonical_phone(typed) == expected
+
+
+def test_phone_hash_is_spelling_independent() -> None:
+    """The client hashes what it reads from the address book; the server hashes
+    what it stored at signup. Both must land on the same digest."""
+    assert users_service.phone_hash("050-123-4567") == users_service.phone_hash("+972501234567")
+    assert users_service.phone_hash("0501234567") != users_service.phone_hash("0501234568")
+    assert users_service.phone_hash("---") is None
+
+
+@pytest.mark.asyncio
+async def test_match_contacts_finds_registered_numbers_only(db_session: AsyncSession) -> None:
+    suffix = uuid.uuid4().int % 10_000_000
+    alice = await _make_user(db_session, name="Alice")
+    bob = await _make_user(db_session, name="Bob", phone=f"+9725{suffix:07d}")
+    try:
+        book = [
+            users_service.phone_hash(f"05{suffix:07d}"),  # Bob, local spelling
+            users_service.phone_hash("0509999999"),  # a contact who never signed up
+        ]
+        out = await users_service.match_contacts(db_session, alice, [h for h in book if h])
+
+        assert [m.id for m in out.matches] == [bob.id]
+        assert out.matches[0].phone_hash == users_service.phone_hash(f"+9725{suffix:07d}")
+        assert out.matches[0].friend_status == "none"
+    finally:
+        await _cleanup(db_session, alice, bob)
+
+
+@pytest.mark.asyncio
+async def test_match_contacts_reports_existing_relationships(db_session: AsyncSession) -> None:
+    """The list has to render the right button per row, so a match carries the
+    friendship status alongside it."""
+    suffix = uuid.uuid4().int % 10_000_000
+    alice = await _make_user(db_session, name="Alice")
+    bob = await _make_user(db_session, name="Bob", phone=f"+9725{suffix:07d}")
+    try:
+        await friends_service.send_request(db_session, alice, bob.id)
+        digest = users_service.phone_hash(f"+9725{suffix:07d}")
+        assert digest is not None
+
+        out = await users_service.match_contacts(db_session, alice, [digest])
+        assert [(m.id, m.friend_status) for m in out.matches] == [(bob.id, "pending")]
+    finally:
+        await _cleanup(db_session, alice, bob)
+
+
+@pytest.mark.asyncio
+async def test_match_contacts_never_returns_the_caller(db_session: AsyncSession) -> None:
+    phone = f"+9725{uuid.uuid4().int % 10_000_000:07d}"
+    alice = await _make_user(db_session, name="Alice", phone=phone)
+    try:
+        digest = users_service.phone_hash(phone)
+        assert digest is not None
+        assert (await users_service.match_contacts(db_session, alice, [digest])).matches == []
+        assert (await users_service.match_contacts(db_session, alice, [])).matches == []
+    finally:
+        await _cleanup(db_session, alice)

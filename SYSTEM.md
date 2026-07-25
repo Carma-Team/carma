@@ -383,6 +383,7 @@ users whichever way the row points, `blocked` is directional.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/users/search?phone=` | Find a driver to add. Matches `05…` and `+9725…` spellings of the same number. |
+| POST | `/api/users/match-contacts` | Which of the caller's contacts drive with CARMA. Takes SHA-256 digests of E.164 numbers (never raw numbers), max 1000; stores nothing. |
 | POST | `/api/users/{id}/friend-request` | Send. If they already asked you, this accepts instead. |
 | DELETE | `/api/users/{id}/friend-request` | Withdraw the pending request |
 | GET | `/api/friend-requests` | Incoming requests awaiting your answer |
