@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import FriendStatus, User, UserFriend
 from app.models.enums import UserRole
 from app.services import friends as friends_service
+from app.services import invites as invites_service
 from app.services import leaderboard as leaderboard_service
 from app.services import users as users_service
 
@@ -374,6 +375,94 @@ async def test_match_contacts_reports_existing_relationships(db_session: AsyncSe
         assert [(m.id, m.friend_status) for m in out.matches] == [(bob.id, "pending")]
     finally:
         await _cleanup(db_session, alice, bob)
+
+
+# ── Invite links (issue #33) ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_invite_link_is_minted_once_and_reused(db_session: AsyncSession, pair) -> None:
+    alice, _bob = pair
+
+    first = await invites_service.get_or_create_link(db_session, alice)
+    second = await invites_service.get_or_create_link(db_session, alice)
+
+    assert first.code == second.code, "the same link goes to a whole WhatsApp group"
+    assert len(first.code) == 8
+    assert first.url.endswith(f"/i/{first.code}")
+
+
+@pytest.mark.asyncio
+async def test_redeeming_an_invite_makes_them_friends(db_session: AsyncSession, pair) -> None:
+    alice, bob = pair
+    link = await invites_service.get_or_create_link(db_session, alice)
+
+    out = await invites_service.redeem(db_session, bob, link.code)
+
+    # No request step — the inviter already consented by sharing the link.
+    assert out.status == "accepted"
+    assert out.inviter.id == alice.id
+    assert out.inviter.name == "Alice"
+    assert await friends_service.friend_ids(db_session, bob.id) == {alice.id}
+    assert await friends_service.friend_ids(db_session, alice.id) == {bob.id}
+    assert (await friends_service.incoming_requests(db_session, alice)).requests == []
+
+
+@pytest.mark.asyncio
+async def test_redeeming_settles_an_open_request(db_session: AsyncSession, pair) -> None:
+    alice, bob = pair
+    await friends_service.send_request(db_session, bob, alice.id)
+    link = await invites_service.get_or_create_link(db_session, alice)
+
+    out = await invites_service.redeem(db_session, bob, link.code)
+
+    assert out.status == "accepted"
+    assert (await friends_service.incoming_requests(db_session, alice)).requests == []
+
+
+@pytest.mark.asyncio
+async def test_redeeming_twice_is_idempotent(db_session: AsyncSession, pair) -> None:
+    alice, bob = pair
+    link = await invites_service.get_or_create_link(db_session, alice)
+
+    await invites_service.redeem(db_session, bob, link.code)
+    again = await invites_service.redeem(db_session, bob, link.code)
+
+    assert again.status == "accepted"
+    rows = (
+        await db_session.scalars(
+            select(UserFriend).where(or_(UserFriend.follower_id == alice.id, UserFriend.followee_id == alice.id))
+        )
+    ).all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_redeem_rejects_own_code_unknown_code_and_blocks(db_session: AsyncSession, pair) -> None:
+    alice, bob = pair
+    link = await invites_service.get_or_create_link(db_session, alice)
+
+    with pytest.raises(HTTPException) as own:
+        await invites_service.redeem(db_session, alice, link.code)
+    assert own.value.status_code == 400
+
+    with pytest.raises(HTTPException) as unknown:
+        await invites_service.redeem(db_session, bob, "ZZZZZZZZ")
+    assert unknown.value.status_code == 404
+
+    await friends_service.block_user(db_session, alice, bob.id)
+    with pytest.raises(HTTPException) as blocked:
+        await invites_service.redeem(db_session, bob, link.code)
+    assert blocked.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_invite_codes_avoid_lookalike_characters(db_session: AsyncSession, pair) -> None:
+    """Codes get read aloud and retyped off a phone screen."""
+    alice, _bob = pair
+    code = (await invites_service.get_or_create_link(db_session, alice)).code
+    assert not set(code) & set("O0I1L")
+    assert code == code.upper()
 
 
 @pytest.mark.asyncio

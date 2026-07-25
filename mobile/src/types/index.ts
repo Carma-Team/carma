@@ -129,6 +129,17 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
+// Matches server's InviteLinkOut / RedeemInviteOut.
+export interface InviteLink {
+  code: string;
+  url: string;
+}
+
+export interface RedeemedInvite {
+  inviter: { id: string; name?: string | null; city?: string | null; level: number };
+  status: FollowStatus;
+}
+
 // Matches server's ContactMatchOut — one address-book entry that turned out to
 // be a CARMA driver. `phoneHash` identifies which contact matched.
 export interface ContactMatch {

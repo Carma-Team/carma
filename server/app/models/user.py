@@ -48,6 +48,9 @@ class User(Base, TimestampMixin):
     # shadow mode; not exposed by any API schema until the v2 rollout.
     driver_score: Mapped[float | None] = mapped_column(Float)
 
+    # Short code behind this user's invite link. Minted on first use, then stable.
+    invite_code: Mapped[str | None] = mapped_column(String(12), unique=True)
+
     is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     drive_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     bluetooth_device_id: Mapped[str | None] = mapped_column(String(120))

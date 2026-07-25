@@ -181,6 +181,33 @@ async def remove_friend(db: AsyncSession, current: User, user_id: str) -> None:
         await db.commit()
 
 
+async def befriend(db: AsyncSession, initiator_id: str, other_id: str) -> FriendshipStatus:
+    """Make two users friends with no request step — for invite redemption.
+
+    The inviter handed out the link, which is the same consent as tapping accept,
+    so this skips `pending`. A block on either side still wins.
+    """
+    edges = await _edges_between(db, initiator_id, other_id)
+
+    if any(e.status == FriendStatus.BLOCKED for e in edges):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot befriend this user")
+    if any(e.status == FriendStatus.ACCEPTED for e in edges):
+        return "accepted"
+
+    pending = next((e for e in edges if e.status == FriendStatus.PENDING), None)
+    if pending is not None:
+        pending.status = FriendStatus.ACCEPTED  # an open request between them — settle it
+    else:
+        db.add(UserFriend(follower_id=initiator_id, followee_id=other_id, status=FriendStatus.ACCEPTED))
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return _strongest(await _edges_between(db, initiator_id, other_id))
+    return "accepted"
+
+
 async def friend_ids(db: AsyncSession, user_id: str) -> set[str]:
     """Ids of everyone `user_id` is actually friends with, both directions."""
     rows = await db.execute(
