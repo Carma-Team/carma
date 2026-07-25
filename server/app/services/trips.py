@@ -238,12 +238,26 @@ def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
 
 
 def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
+    """Verify the telemetry digest's HMAC.
+
+    Three paths still accept an unverified payload (issue #24). Each is audited so
+    the rate of unsigned traffic can be measured before enforcement is switched on
+    — flipping any of these to a hard reject without that data would 403 every
+    client already in the field.
+
+    Note the ceiling on what enforcement buys: the mobile signing key is currently
+    hardcoded in the app bundle, so a verified signature proves the payload came
+    from *a* copy of the client, not from a trusted device. Per-device keys via
+    app attestation are what make this a real control.
+    """
     if not signature:
+        audit("trips.signature.absent", reason="no-signature-sent")
         return
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
         return
     if not secret:
+        audit("trips.signature.unenforced", reason="trip-signing-secret-unset")
         return
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
