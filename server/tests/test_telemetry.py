@@ -142,3 +142,33 @@ class TestApplyConfidence:
     def test_reported_events_never_diluted(self) -> None:
         # Below the rolling score = positive evidence — passes through even at c=0.
         assert apply_confidence(40.0, 80.0, 0.0) == 40.0
+
+
+class TestTraceDistance:
+    """Trace-derived distance — the witness against an inflated digest (issue #56)."""
+
+    def test_steady_cruise_matches_speed_times_time(self) -> None:
+        # 60 km/h for 600 s of samples = 10 km. _cruise emits n = seconds/dt points,
+        # so the trace spans (n-1)*dt = 597 s → 9.95 km.
+        a = telemetry.analyze(_cruise(600, 60.0), 600)
+        assert a.distance_km == round(60.0 * 597 / 3600 * 1000) / 1000
+
+    def test_gaps_are_credited_not_dropped(self) -> None:
+        """A >15 s hole still contributes, or sparse-GPS devices under-witness (#17)."""
+        trace = [_wp(0, 80.0), _wp(3, 80.0), _wp(60, 80.0), _wp(63, 80.0)]
+        a = telemetry.analyze(trace, 63)
+        assert a.distance_km == round(80.0 * 63 / 3600 * 1000) / 1000
+
+    def test_stationary_trace_witnesses_no_distance(self) -> None:
+        a = telemetry.analyze(_cruise(300, 0.0), 300)
+        assert a.distance_km == 0.0
+
+    def test_unusable_trace_reports_zero(self) -> None:
+        assert telemetry.analyze([_wp(0, 50.0)], 60).distance_km == 0.0
+        assert telemetry.analyze(None, 60).distance_km == 0.0
+
+    def test_deceleration_is_integrated_by_trapezoid(self) -> None:
+        # 100 → 0 km/h over 10 s averages 50 km/h → 0.139 km.
+        trace = [_wp(0, 100.0), _wp(5, 50.0), _wp(10, 0.0)]
+        a = telemetry.analyze(trace, 10)
+        assert a.distance_km == round(50.0 * 10 / 3600 * 1000) / 1000

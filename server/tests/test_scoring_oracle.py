@@ -12,7 +12,12 @@ import pytest
 
 from app.schemas.trip import SaveTripIn
 from app.services.scoring import calculate_score
-from app.services.trips import _check_timestamp_drift, _validate_plausibility, _verify_signature
+from app.services.trips import (
+    _check_timestamp_drift,
+    _validate_plausibility,
+    _verify_signature,
+    _witness_distance,
+)
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -472,3 +477,34 @@ class TestValidatePlausibilityDigestPhysics:
                 )
             )
         assert e.value.status_code == 422
+
+
+# ─── _witness_distance (issue #56) ────────────────────────────────────────────
+
+
+class TestWitnessDistance:
+    def test_claim_within_witness_is_untouched(self) -> None:
+        assert _witness_distance(10.0, 10.0) == 10.0
+
+    def test_claim_inside_tolerance_is_untouched(self) -> None:
+        # 10 km witnessed → cap is 10 * 1.35 + 1 = 14.5
+        assert _witness_distance(14.0, 10.0) == 14.0
+
+    def test_inflated_claim_is_capped(self) -> None:
+        assert _witness_distance(150.0, 10.0) == pytest.approx(14.5)
+
+    def test_sparse_trace_still_gets_generous_headroom(self) -> None:
+        """A trace that witnesses only half the real drive must not halve the score."""
+        # Honest 20 km trip whose gappy trace only accounts for 15 km.
+        assert _witness_distance(20.0, 15.0) == 20.0
+
+    def test_short_trip_grace_floor(self) -> None:
+        """Coarse sampling on a 1 km trip witnesses almost nothing — grace covers it."""
+        assert _witness_distance(1.5, 0.2) == pytest.approx(1.27)
+
+    def test_no_trace_is_not_capped(self) -> None:
+        """Clients that send no waypoints still work — the case is audited, not blocked."""
+        assert _witness_distance(150.0, 0.0) == 150.0
+
+    def test_zero_claim_with_no_trace(self) -> None:
+        assert _witness_distance(0.0, 0.0) == 0.0
