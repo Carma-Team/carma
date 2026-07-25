@@ -20,6 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **`pointsCapped`** on the trip-save response (`TripOut` + `mobile/src/types/index.ts`) — tells the client the daily anti-grind caps reduced the award, instead of a silent 0.
 - **`python -m app.seed --driver-scores-only`** — backfills NULL `users.driver_score` (v2 §7 formula over each user's history) without reseeding; also runs automatically at the end of a full seed.
 
+### Fixed
+- **`LOCAL_SERVER_URL` no longer falls back to the placeholder `carma-api.example.com`** when `USE_REAL_SERVER` is true — it now mirrors `STAGING_SERVER_URL`, so a stray call through the wrong constant reaches the real server instead of a domain nobody owns.
+
 ### Removed
 - **Instagram-style follow endpoints** (`GET`/`POST`/`DELETE /api/leaderboard/follow/:id`, `/api/leaderboard/requests…`). Nothing called them, and their auto-accept-on-public rule is what made friend requests invisible to public accounts. `mobile/src/services/api/leaderboard.api.ts` drops the matching dead methods; `userApi.sendFriendRequest` moved to `friendsApi.send`.
 
