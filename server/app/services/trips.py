@@ -16,9 +16,9 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.audit import audit
-from app.models import Event, EventType, Trip, TripStatus, User
+from app.models import NOTIFICATION_LEVEL_UP, Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import scoring_v2, telemetry
+from app.services import notifications, scoring_v2, telemetry
 from app.services.scoring import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -501,7 +501,20 @@ async def save(
         }
         # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
         values["driver_score"] = new_driver_score
-        await db.execute(update(User).where(User.id == user.id).values(**values))
+        level_before = user.level
+        result = await db.execute(update(User).where(User.id == user.id).values(**values).returning(User.level))
+        # RETURNING gives the level the CASE actually resolved to, rather than
+        # recomputing the thresholds in Python and risking the two drifting.
+        level_after = result.scalar_one()
+        # Strictly greater: levels only climb today (demotion is issue #37), and a
+        # `!=` would fire a "you levelled up" notification on a future demotion.
+        if level_after > level_before:
+            notifications.create(
+                db,
+                user.id,
+                NOTIFICATION_LEVEL_UP,
+                {"level": level_after, "previousLevel": level_before},
+            )
 
     try:
         await db.commit()

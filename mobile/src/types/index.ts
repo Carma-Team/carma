@@ -163,13 +163,30 @@ export interface DrivingStats {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export interface Notification {
+// Matches server's NotificationOut (server/app/schemas/notification.py).
+// The server sends `type` + `payload`, never rendered text, so the strings are
+// resolved here through i18n and old rows follow a language switch.
+interface NotificationBase {
   id: string;
-  title: string;
-  body: string;
-  type: 'info' | 'reward' | 'trip';
-  timestamp: string;
+  readAt: string | null;
+  createdAt: string;
 }
+
+// Adding a kind means adding a member here — the union then forces every
+// consumer to handle it.
+export interface LevelUpNotification extends NotificationBase {
+  type: 'level_up';
+  payload: { level: number; previousLevel: number };
+}
+
+/** Sent to the follower when a private account accepts their follow request. */
+export interface FollowAcceptedNotification extends NotificationBase {
+  type: 'follow_accepted';
+  payload: { userId: string; userName: string | null };
+}
+
+export type Notification = LevelUpNotification | FollowAcceptedNotification;
+export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
 // String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts

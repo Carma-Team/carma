@@ -99,6 +99,12 @@ const en: TranslationMap = {
     selectCity: 'Select city',
     removeFriendConfirm: 'Remove',
   },
+  notifications: {
+    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    levelUp: 'Well done! You reached level {level}',
+    followAccepted: '{name} accepted your follow request',
+    followAcceptedAnon: 'Your follow request was accepted',
+  },
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',
     tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',

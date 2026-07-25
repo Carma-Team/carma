@@ -99,6 +99,12 @@ const he = {
     selectCity: 'בחר עיר',
     removeFriendConfirm: 'האם ברצונך להסיר את',
   },
+  notifications: {
+    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    levelUp: 'כל הכבוד! עלית לרמה {level}',
+    followAccepted: '{name} אישר/ה את בקשת המעקב שלך',
+    followAcceptedAnon: 'בקשת המעקב שלך אושרה',
+  },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',

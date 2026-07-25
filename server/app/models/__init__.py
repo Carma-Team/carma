@@ -13,6 +13,7 @@ from app.models.event import Event
 from app.models.fraud import FraudReport
 from app.models.friendship import UserFriend
 from app.models.level import Level
+from app.models.notification import NOTIFICATION_FOLLOW_ACCEPTED, NOTIFICATION_LEVEL_UP, Notification
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
 from app.models.reward import Reward
@@ -20,6 +21,8 @@ from app.models.trip import Trip
 from app.models.user import User
 
 __all__ = [
+    "NOTIFICATION_FOLLOW_ACCEPTED",
+    "NOTIFICATION_LEVEL_UP",
     "Base",
     "Business",
     "BusinessCategory",
@@ -29,6 +32,7 @@ __all__ = [
     "FraudReport",
     "Language",
     "Level",
+    "Notification",
     "OtpCode",
     "Redemption",
     "RedemptionStatus",

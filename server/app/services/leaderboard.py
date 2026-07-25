@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import FriendStatus, User, UserFriend, UserRole
+from app.models import NOTIFICATION_FOLLOW_ACCEPTED, FriendStatus, User, UserFriend, UserRole
 from app.schemas.leaderboard import (
     FollowRequestOut,
     FollowStatus,
@@ -15,6 +15,7 @@ from app.schemas.leaderboard import (
     LeaderboardType,
     LeaderboardUserSummary,
 )
+from app.services import notifications
 
 
 def _status_for(edge: UserFriend | None) -> FollowStatus:
@@ -200,6 +201,16 @@ async def accept_request(db: AsyncSession, current: User, follower_id: str) -> F
     if edge is None or edge.status != FriendStatus.PENDING:
         raise HTTPException(404, "No pending request from this user")
     edge.status = FriendStatus.ACCEPTED
+    # Tell the follower they were let in — the one social event with no other
+    # surface in the app (an incoming request already has FriendRequestsTab).
+    # The accepter's name is denormalised into the payload: a notification is a
+    # point-in-time record, and the client has no way to resolve a bare user id.
+    notifications.create(
+        db,
+        follower_id,
+        NOTIFICATION_FOLLOW_ACCEPTED,
+        {"userId": current.id, "userName": current.name},
+    )
     await db.commit()
     return FollowStatusOut(status="accepted")
 
