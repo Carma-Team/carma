@@ -6,6 +6,7 @@ from pydantic import EmailStr, Field
 
 from app.models.enums import Language, UserRole
 from app.schemas._base import CamelModel
+from app.schemas.friend import FriendshipStatus
 
 
 class UserOut(CamelModel):
@@ -28,6 +29,40 @@ class UserOut(CamelModel):
     bluetooth_device_id: str | None = None
     bluetooth_device_name: str | None = None
     created_at: datetime
+
+
+class FoundUserOut(CamelModel):
+    """Deliberately narrow: phone search is a lookup, not a profile read."""
+
+    id: str
+    name: str | None = None
+    city: str | None = None
+
+
+class UserSearchOut(CamelModel):
+    user: FoundUserOut
+
+
+class MatchContactsIn(CamelModel):
+    """SHA-256 hex digests of canonical (E.164) phone numbers — never raw numbers.
+
+    The cap bounds both the work per call and how much of an address book can be
+    probed at once; the client pages through a large book.
+    """
+
+    phone_hashes: list[str] = Field(max_length=1000)
+
+
+class ContactMatchOut(CamelModel):
+    phone_hash: str
+    id: str
+    name: str | None = None
+    city: str | None = None
+    friend_status: FriendshipStatus = "none"
+
+
+class MatchContactsOut(CamelModel):
+    matches: list[ContactMatchOut]
 
 
 class UpdateProfileIn(CamelModel):

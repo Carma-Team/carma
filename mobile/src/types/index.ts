@@ -2,6 +2,8 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+// Friendship between the viewer and another user. `pending` covers a request in
+// either direction — one they sent, or one they were sent.
 export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -127,18 +129,33 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
-export interface FollowRequest {
-  followerId: string;
-  followerName?: string;
-  followerLevel: number;
-  followerCity?: string;
-  requestedAt: string;
+// Matches server's InviteLinkOut / RedeemInviteOut.
+export interface InviteLink {
+  code: string;
+  url: string;
 }
 
+export interface RedeemedInvite {
+  inviter: { id: string; name?: string | null; city?: string | null; level: number };
+  status: FollowStatus;
+}
+
+// Matches server's ContactMatchOut — one address-book entry that turned out to
+// be a CARMA driver. `phoneHash` identifies which contact matched.
+export interface ContactMatch {
+  phoneHash: string;
+  id: string;
+  name?: string | null;
+  city?: string | null;
+  friendStatus: FollowStatus;
+}
+
+// Matches server's FriendRequestOut. `id` is the request id — what accept and
+// reject address, not the sender's user id.
 export interface FriendRequest {
   id: string;
   fromUserId: string;
-  fromUserName: string;
+  fromUserName?: string | null;
   fromUserLevel: number;
   fromUserCity?: string | null;
   createdAt: string;
