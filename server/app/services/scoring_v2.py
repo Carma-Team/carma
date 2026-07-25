@@ -1,8 +1,8 @@
 """CARMA Scoring Algorithm v2 — server-side engine (stages 3–7).
 
 Spec: docs/scoring-algorithm-v2.md. v2 is now the **authoritative, user-facing**
-scoring engine (trip score, driver score, points). v1 (`scoring.py`) is retired;
-only its `get_risk_multiplier` time-of-day factor is still reused.
+scoring engine (trip score, driver score, points). v1 is retired and deleted
+(#53); only its `get_risk_multiplier` time-of-day factor survives, in `risk.py`.
 
 v2.1 (2026-07): the decay constants were re-fit from the live fleet's
 recency-weighted rate distributions (see docs/scoring-v2-calibration-status.md)

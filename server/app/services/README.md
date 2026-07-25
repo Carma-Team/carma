@@ -1,7 +1,7 @@
 # CARMA Scoring Engine — Algorithm Reference
 
 > **Audience:** Students, professors, and external developers evaluating the CARMA platform.  
-> **Source of truth:** [`scoring.py`](scoring.py) — the FastAPI server is the sole scoring oracle.  
+> **Source of truth:** [`scoring_v2.py`](scoring_v2.py) — the FastAPI server is the sole scoring oracle.  
 > All values produced here are authoritative; the mobile client never computes or stores a final score.
 
 ---

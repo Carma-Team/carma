@@ -24,7 +24,7 @@
 | Inflated score or points | ✅ Yes | Server | `_validate_plausibility` — range check [0, 100] / max 10,000 pts |
 | Impossible average speed | ✅ Yes | Server | `_validate_plausibility` — rejects avg > 250 km/h |
 | Impossible distance | ✅ Yes | Server | `_validate_plausibility` — rejects distance > 2,000 km |
-| Negative event counts | ✅ Yes | Server | `scoring.py` — `max(0, count)` floor on all inputs |
+| Negative event counts | ✅ Yes | Server | `_validate_plausibility` — 422 on any count < 0 |
 | Replay attack (resending old trip) | ✅ Yes | Server | `_check_timestamp_drift` — ±5 min window on telemetry digest |
 | Tampered telemetry digest | ✅ Yes (when signed) | Server | `_verify_signature` — HMAC-SHA256 |
 | Duplicate trip submission | ✅ Yes | Server | `idempotency_key` unique constraint in DB |
@@ -165,8 +165,9 @@ Rejects payloads that are physically impossible:
 | Average speed (distance / duration) | max 250 km/h | 422 |
 | Average speed from digest | same 250 km/h cap | 422 |
 
-Negative event counts are also floored to 0 inside `scoring.py` (`max(0, count)`) as a
-defense-in-depth layer — the scoring formula cannot be gamed with negative values.
+Two defense-in-depth layers sit behind that 422: counts read from the telemetry digest
+are floored with `max(0, …)` in `trips._compute_v2`, and `scoring_v2` clamps the derived
+event rate with `max(0.0, rate)`. A negative value cannot reduce a penalty at any stage.
 
 ### Gate 2 — Timestamp drift (`_check_timestamp_drift`)
 
