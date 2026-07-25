@@ -85,6 +85,7 @@ class TelemetryAnalysis:
     speeding_weight: float  # severity-weighted minutes over threshold (§3.3)
     has_speed_data: bool
     confidence: float  # [0, 1] — how much the trace can prove
+    distance_km: float  # trace-derived distance — an independent witness (issue #56)
     events: list[GpsEvent]
 
 
@@ -95,6 +96,7 @@ EMPTY_ANALYSIS = TelemetryAnalysis(
     speeding_weight=0.0,
     has_speed_data=False,
     confidence=0.0,
+    distance_km=0.0,
     events=[],
 )
 
@@ -185,11 +187,20 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
     turn_hits: list[tuple[float, _Point, float]] = []  # (ts, at-point, deg/s)
     dts: list[float] = []
     covered_s = 0.0
+    distance_km = 0.0
 
     for i in range(1, len(pts)):
         prev, cur = pts[i - 1], pts[i]
         dt = cur.ts - prev.ts
         dts.append(dt)
+
+        # Trace distance (§ issue #56): trapezoid-integrate speed over *every*
+        # segment, including gaps longer than the kinematic limit. Excluding gaps
+        # would under-witness badly on the devices from issue #17 that emit a 6 s
+        # median with >15 s holes, and this value is only ever used as an upper
+        # bound on the client's claim — under-witnessing would penalise honest users.
+        distance_km += ((prev.speed_kmh + cur.speed_kmh) / 2.0 / 3600.0) * dt
+
         if dt > _MAX_KINEMATIC_GAP_S:
             continue
         covered_s += dt
@@ -297,5 +308,6 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         speeding_weight=round(speeding_weight * 1000) / 1000,
         has_speed_data=has_speed_data,
         confidence=confidence,
+        distance_km=round(distance_km * 1000) / 1000,
         events=events,
     )

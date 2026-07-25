@@ -34,6 +34,13 @@ _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
 _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
+# Slack allowed between the claimed distance and what the GPS trace witnesses
+# (issue #56). Generous on purpose: a sampled trace cuts corners and misses
+# segments, so it structurally under-reports. Tightening these without first
+# reading the trips.distance.capped audit rate would reject honest trips.
+_DISTANCE_TOLERANCE = 0.35  # +35% over the witnessed distance
+_DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
+
 # Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
 # Listed highest-first so the CASE expression short-circuits correctly.
 _LEVEL_THRESHOLDS: list[tuple[int, int]] = [
@@ -268,6 +275,40 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
         raise HTTPException(403, "Invalid payload signature")
 
 
+def _witness_distance(claimed_km: float, gps_km: float) -> float:
+    """Cap a claimed distance at what the GPS trace can witness (issue #56).
+
+    Distance was the one scoring input with no independent check, and it multiplies
+    points directly — event counts are already cross-checked upward against the
+    trace, but a payload could inflate `distanceKm` freely.
+
+    The bound is deliberately loose. A sampled trace cuts corners and drops
+    segments, so it structurally under-reports true odometer distance; a tight cap
+    would punish the sparse-sampling devices of issue #17 rather than fraud. Only
+    claims the trace cannot come close to supporting are trimmed.
+
+    A trip with no usable trace is not capped — that would break clients that send
+    no waypoints at all — but it is audited, so the rate is measurable before
+    anyone decides to tighten it.
+    """
+    if gps_km <= 0:
+        if claimed_km > _DISTANCE_GRACE_KM:
+            audit("trips.distance.unwitnessed", claimed_km=round(claimed_km, 2))
+        return claimed_km
+
+    cap = gps_km * (1.0 + _DISTANCE_TOLERANCE) + _DISTANCE_GRACE_KM
+    if claimed_km <= cap:
+        return claimed_km
+
+    audit(
+        "trips.distance.capped",
+        claimed_km=round(claimed_km, 2),
+        witnessed_km=round(gps_km, 2),
+        capped_to_km=round(cap, 2),
+    )
+    return cap
+
+
 async def _compute_v2(
     db: AsyncSession,
     user: User,
@@ -439,6 +480,8 @@ async def save(
     scored_hard_brakes = max(scored_hard_brakes, gps.hard_brakes)
     scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
     scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)
+
+    distance = _witness_distance(distance, gps.distance_km)
 
     # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
     # is a time-of-day factor reused from v1; the score, driver score, and points
