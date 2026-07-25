@@ -4,10 +4,14 @@ name: CI · server
 # Heavier jobs (mypy, pytest, smoke) sit behind `workflow_dispatch` and the
 # "run-full-ci" label so a flaky pipeline can't block merges before it's
 # proven stable. After ~1 green week, flip them to standard `on: pull_request`.
+#
+# develop guard (issue #25): pushes to develop run only the cheap `lint` job
+# (ruff check + ruff format). The heavy jobs (mypy/pytest/Postgres, smoke,
+# docker-build) stay gated to main / PR-label — see their `if:` conditions.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'server/**'
       - '.github/workflows/ci-server.yml'
@@ -43,7 +47,7 @@ jobs:
   # Heavier jobs — gated. To run on a PR, add the "run-full-ci" label.
   # Manual trigger: Actions tab → "CI · server" → Run workflow.
   typecheck-test:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -143,6 +147,8 @@ jobs:
         run: cat /tmp/uvicorn.log
 
   docker-build:
+    # Heavy — keep off develop pushes (issue #25). Runs on main push, any PR, or manual dispatch.
+    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15

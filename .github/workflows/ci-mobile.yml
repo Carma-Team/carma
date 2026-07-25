@@ -2,10 +2,14 @@ name: CI · mobile
 
 # Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
 # are gated behind workflow_dispatch / the "run-full-ci" label until proven.
+#
+# develop guard (issue #25): pushes to develop run Jest. `tsc --noEmit` is
+# skipped on develop until the 941-error toolchain break (#18) is fixed; it
+# still blocks main / PRs. contract-check stays gated to main / PR-label.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'mobile/**'
       - '.github/workflows/ci-mobile.yml'
@@ -30,6 +34,10 @@ jobs:
       - run: npm ci
       - name: TypeScript (no emit)
         working-directory: ./mobile
+        # Skipped on develop until #18 (941 tsc errors) is fixed — issue #25.
+        # The job still succeeds, so Jest (needs: install-typecheck) runs on develop.
+        # tsc stays required on main and every PR.
+        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/develop') }}
         run: npx tsc --noEmit
 
   test:
