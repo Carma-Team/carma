@@ -1,25 +1,29 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
+import { userApi } from '@/services/api/user.api';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 
 /**
  * Settings screen.
- * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * All actions here are local (AsyncStorage / AppContext) — no server calls.
+ * Includes: drive mode + Bluetooth selection, language, history reset,
+ * account deletion, logout.
+ * Everything here is local (AsyncStorage / AppContext) except account
+ * deletion, which calls the server.
  */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, setUser, clearTripHistory } = useApp();
   const { t, lang, setLang } = useTranslation();
+  const [deleting, setDeleting] = useState(false);
 
   if (!user) return null;
 
@@ -44,6 +48,37 @@ export default function SettingsScreen() {
       ]
     );
   }
+
+  /**
+   * Deletes the account for good — required by both app stores for any app
+   * that lets you sign up.
+   * [server] DELETE /api/users/me. The row goes with its trips and vouchers;
+   * setUser(null) then clears the local token and returns to login.
+   */
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      t('profile.deleteAccount'),
+      t('profile.deleteAccountConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('profile.deleteAccount'),
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await userApi.deleteAccount();
+              await setUser(null);
+            } catch {
+              Alert.alert(t('common.error'), t('profile.deleteAccountFailed'));
+            } finally {
+              setDeleting(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   /**
    * Shows a confirmation dialog then hides trip history.
@@ -158,6 +193,20 @@ export default function SettingsScreen() {
                 <Text style={styles.actionTextDanger}>{t('profile.clearHistory')}</Text>
                 <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
               </TouchableOpacity>
+
+              <View style={styles.actionDivider} />
+
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={handleDeleteAccount}
+                disabled={deleting}
+              >
+                <Text style={styles.actionTextDanger}>{t('profile.deleteAccount')}</Text>
+                {deleting
+                  ? <ActivityIndicator size="small" color={COLORS.danger} />
+                  : <Ionicons name="person-remove-outline" size={20} color={COLORS.danger} />
+                }
+              </TouchableOpacity>
             </Card>
           </View>
 
@@ -200,6 +249,7 @@ const styles = StyleSheet.create({
   langTextActive: { color: '#fff' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   actionTextDanger: { color: COLORS.danger, fontWeight: '600' },
+  actionDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
   logoutBtn: { marginTop: 20 },
   versionText: { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 30, color: COLORS.textMuted }
 });

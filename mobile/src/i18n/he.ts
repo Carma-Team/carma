@@ -130,6 +130,9 @@ const he = {
     dataManagement: 'ניהול נתונים',
     clearHistory: 'איפוס היסטוריית נסיעות',
     clearHistoryConfirm: 'האם אתה בטוח שברצונך למחוק את כל היסטוריית הנסיעות המקומית?',
+    deleteAccount: 'מחיקת חשבון',
+    deleteAccountConfirm: 'הפעולה תמחק לצמיתות את החשבון, הנסיעות והנקודות שלך. לא ניתן לשחזר.',
+    deleteAccountFailed: 'מחיקת החשבון נכשלה. נסה/י שוב.',
     version: 'גרסה',
   },
   stats: {

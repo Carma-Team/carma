@@ -13,6 +13,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CARMA uses your location to track driving safety and distance.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CARMA tracks your trips in the background to reward safe driving.",
+        "NSBluetoothAlwaysUsageDescription": "CARMA connects to your car's Bluetooth to start and end trips automatically.",
+        "NSBluetoothPeripheralUsageDescription": "CARMA connects to your car's Bluetooth to start and end trips automatically.",
         "UIBackgroundModes": [
           "location",
           "fetch"

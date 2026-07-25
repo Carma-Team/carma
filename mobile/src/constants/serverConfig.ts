@@ -42,6 +42,8 @@ function getMetroOrigin(): string {
   return 'http://localhost:8081';
 }
 
+// Unused when USE_REAL_SERVER is true — requests go to STAGING_SERVER_URL. The
+// value only matters in Metro-proxy mode, where it follows the dev server.
 export const LOCAL_SERVER_URL = USE_REAL_SERVER
-  ? 'https://carma-api.example.com'
+  ? STAGING_SERVER_URL
   : getMetroOrigin();

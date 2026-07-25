@@ -129,6 +129,10 @@ const en: TranslationMap = {
     dataManagement: 'Data Management',
     clearHistory: 'Reset Trip History',
     clearHistoryConfirm: 'Are you sure you want to delete all local trip history?',
+    deleteAccount: 'Delete Account',
+    deleteAccountConfirm:
+      'This permanently deletes your account, your trips and your points. It cannot be undone.',
+    deleteAccountFailed: 'Could not delete the account. Please try again.',
     version: 'Version',
   },
   stats: {
