@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.core.limiter import limiter
 from app.middlewares.request_id import RequestIdMiddleware
 from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
@@ -35,14 +35,16 @@ from app.routers import (
     users,
 )
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["500/hour", "30/minute"])
-
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logging.getLogger(__name__).info(
-        "CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider
-    )
+    log = logging.getLogger(__name__)
+    log.info("CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider)
+    if settings.env == "production" and not settings.cors_allows_credentials:
+        log.warning(
+            "CORS_ORIGINS is '*' in production — credentialed cross-origin requests are refused. "
+            "Set an explicit comma-separated origin list."
+        )
     yield
 
 
@@ -64,10 +66,13 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestLogMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
+# Wildcard origins and credentials are mutually exclusive under the CORS spec.
+# Asking for both used to be harmless only because Starlette quietly dropped the
+# credentials — protection by accident. Say it out loud instead.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    allow_credentials=settings.cors_allows_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

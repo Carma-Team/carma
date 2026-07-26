@@ -12,7 +12,7 @@ live Postgres for the typecheck-test job, so these tests do run there.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 import pytest_asyncio
@@ -20,6 +20,32 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.core.limiter import limiter
+
+
+@pytest.fixture(autouse=True)
+def _no_rate_limiting() -> Iterator[None]:
+    """Keep the limiter out of everyone else's way.
+
+    The auth routes allow 5 requests a minute from one address, and the whole
+    suite shares one. Tests that exercise a limit turn it back on themselves —
+    see `rate_limited`.
+    """
+    limiter.enabled = False
+    yield
+    limiter.enabled = False
+
+
+@pytest.fixture
+def rate_limited() -> Iterator[None]:
+    """Turn the limiter on for one test, with a clean counter either side."""
+    limiter.reset()
+    limiter.enabled = True
+    try:
+        yield
+    finally:
+        limiter.enabled = False
+        limiter.reset()
 
 
 @pytest_asyncio.fixture

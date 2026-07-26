@@ -1,8 +1,12 @@
-from __future__ import annotations
+# No `from __future__ import annotations` here, unlike the other routers.
+# SlowAPI's decorator re-exports the handler from its own module, so FastAPI
+# would try to resolve string annotations like "RegisterIn" against SlowAPI's
+# namespace and fail at import. Real annotation objects need no resolving.
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 
 from app.core.deps import CurrentUser, DbSession
+from app.core.limiter import limiter
 from app.schemas.auth import (
     AuthOut,
     LoginIn,
@@ -17,6 +21,15 @@ from app.services import auth as auth_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# The global default is 30/minute per IP, which is generous for an endpoint that
+# either sends a billed SMS or runs bcrypt. These are the routes where a caller
+# repeating themselves is already a bad sign, so they get their own ceiling.
+# Keyed on the caller's address; the per-phone cap that survives IP rotation
+# lives in `services.auth._assert_otp_quota`.
+SENSITIVE_LIMIT = "5/minute"
+# `request` is unused in the handlers below, but SlowAPI reads the limit key off
+# it — the decorator raises at import time if the parameter is missing.
+
 
 # ─── Email + password (mobile app's primary flow) ────────────────────────────
 
@@ -28,12 +41,14 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user with email+password",
 )
-async def register(dto: RegisterIn, db: DbSession) -> AuthOut:
+@limiter.limit(SENSITIVE_LIMIT)
+async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
     return await auth_service.register_with_password(db, dto)
 
 
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
-async def login(dto: LoginIn, db: DbSession) -> AuthOut:
+@limiter.limit(SENSITIVE_LIMIT)
+async def login(request: Request, dto: LoginIn, db: DbSession) -> AuthOut:
     return await auth_service.login_with_password(db, dto)
 
 
@@ -51,7 +66,8 @@ async def me(user: CurrentUser) -> UserOut:
     response_model_by_alias=True,
     summary="Register a driver profile by phone and send a verification OTP",
 )
-async def otp_register(dto: OtpRegisterIn, db: DbSession) -> OtpSent:
+@limiter.limit(SENSITIVE_LIMIT)
+async def otp_register(request: Request, dto: OtpRegisterIn, db: DbSession) -> OtpSent:
     return await auth_service.register_with_otp(db, dto)
 
 
@@ -61,10 +77,12 @@ async def otp_register(dto: OtpRegisterIn, db: DbSession) -> OtpSent:
     response_model_by_alias=True,
     summary="Send a login OTP to a phone that has previously registered",
 )
-async def otp_request(dto: OtpRequestIn, db: DbSession) -> OtpSent:
+@limiter.limit(SENSITIVE_LIMIT)
+async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> OtpSent:
     return await auth_service.request_login_otp(db, dto.phone)
 
 
 @router.post("/otp/verify", response_model=AuthOut, response_model_by_alias=True, summary="Exchange an OTP for a JWT")
-async def otp_verify(dto: OtpVerifyIn, db: DbSession) -> AuthOut:
+@limiter.limit(SENSITIVE_LIMIT)
+async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
     return await auth_service.verify_otp(db, dto)

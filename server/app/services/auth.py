@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -25,6 +25,12 @@ from app.services.sms import sms_sender
 log = logging.getLogger(__name__)
 
 OTP_PURPOSE = "LOGIN"
+
+# One answer for every way an OTP can fail to let you in. A different status or
+# wording for "no such phone" turns this endpoint into a directory of who has a
+# CARMA account — which `request_login_otp` already goes out of its way to hide.
+# The caller's next move is the same in every case: ask for a new code.
+OTP_REJECTED = "Invalid or expired code — request a new one"
 
 
 def _now() -> datetime:
@@ -91,7 +97,29 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
 
 
+async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
+    """Cap the codes a single phone number can trigger in an hour.
+
+    The per-route limit in the router is keyed on the caller's IP, which is one
+    proxy away from useless. This is keyed on the thing that actually costs
+    money — every code is a billed SMS, so the destination number is the budget
+    line, and it stays the same however many addresses the caller rotates
+    through. Counts registration and login codes together, because both send.
+    """
+    since = _now() - timedelta(hours=1)
+    recent = await db.scalar(
+        select(func.count()).select_from(OtpCode).where(OtpCode.phone == phone, OtpCode.created_at >= since)
+    )
+    if (recent or 0) >= settings.otp_max_per_hour:
+        audit("auth.otp.throttled", phone_masked=mask_phone(phone), sent_last_hour=recent)
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many verification codes requested for this number. Try again later.",
+        )
+
+
 async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
+    await _assert_otp_quota(db, phone)
     code = random_digits(settings.otp_length)
     expires_at = _now() + timedelta(seconds=settings.otp_ttl_seconds)
 
@@ -149,11 +177,26 @@ async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     return await _issue_otp(db, phone)
 
 
+def _rejected(phone: str, reason: str, user: User | None = None) -> HTTPException:
+    """Log precisely, answer vaguely.
+
+    The audit trail keeps the distinction so an operator can still tell an
+    unknown number from an expired code; the response does not.
+    """
+    audit("auth.otp.failure", user_id=user.id if user else None, phone_masked=mask_phone(phone), reason=reason)
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, OTP_REJECTED)
+
+
 async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     user = await db.scalar(select(User).where(User.phone == dto.phone))
     if user is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No user with this phone")
-    _assert_not_locked(user)
+        raise _rejected(dto.phone, "no_user")
+    # A locked account answers like every other failure here. The lockout is
+    # explained on `otp/request`, where the caller is the account's owner —
+    # saying it here would make five wrong guesses a test for "is this number
+    # registered?".
+    if user.locked_until and user.locked_until > _now():
+        raise _rejected(dto.phone, "locked", user)
 
     otp = await db.scalar(
         select(OtpCode)
@@ -161,15 +204,14 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No active OTP — request a new one")
+        raise _rejected(dto.phone, "no_active_otp", user)
     if otp.expires_at < _now():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "OTP expired — request a new one")
+        raise _rejected(dto.phone, "expired", user)
 
     if not verify_code(dto.code, otp.code_hash):
         otp.attempts += 1
         await _record_failure(db, user)
-        audit("auth.otp.failure", user_id=user.id, attempts=user.failed_otp_count)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect OTP")
+        raise _rejected(dto.phone, "bad_code", user)
 
     otp.consumed_at = _now()
     user.is_phone_verified = True

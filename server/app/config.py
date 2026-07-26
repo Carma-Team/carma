@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = 300
     otp_max_attempts: int = 5
     otp_lockout_seconds: int = 900
+    # Codes one phone number may trigger per hour, across login and registration.
+    # Every code is a billed SMS, so the destination number is the budget line.
+    otp_max_per_hour: int = 5
 
     sms_provider: Literal["console", "twilio"] = "console"
     twilio_account_sid: str | None = None
@@ -81,6 +84,15 @@ class Settings(BaseSettings):
         if self.cors_origins == "*":
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def cors_allows_credentials(self) -> bool:
+        """False while origins are a wildcard — the CORS spec forbids the pair.
+
+        The mobile app never sends a cross-origin request, so this only affects
+        browser tooling. Naming an explicit origin list turns it back on.
+        """
+        return self.cors_origin_list != ["*"]
 
 
 @lru_cache
