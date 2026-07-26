@@ -5,6 +5,7 @@ import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { useTranslation } from '@/hooks/useTranslation';
 import { localize } from '@/lib/utils';
+import { rewardPrice, isDiscounted } from '@/lib/rewards';
 import type { Reward } from '@/types';
 
 interface RedeemConfirmSheetProps {
@@ -41,7 +42,9 @@ export const RedeemConfirmSheet: React.FC<RedeemConfirmSheetProps> = ({
         </Text>
         <View style={styles.confirmCostRow}>
           <Ionicons name={ICONS.points} size={14} color={COLORS.brandLight} style={{ marginEnd: 4 }} />
-          <Text style={styles.confirmCost}>{reward.costPoints} {t('common.points')}</Text>
+          {/* Must match the card the driver tapped, and what the server charges. */}
+          {isDiscounted(reward) && <Text style={styles.listPrice}>{reward.costPoints}</Text>}
+          <Text style={styles.confirmCost}>{rewardPrice(reward)} {t('common.points')}</Text>
         </View>
 
         <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm} disabled={loading}>
@@ -79,6 +82,7 @@ const styles = StyleSheet.create({
   confirmTitle:   { ...TYPOGRAPHY.h3, textAlign: 'center' },
   confirmCostRow: { flexDirection: 'row', alignItems: 'center' },
   confirmCost:    { color: COLORS.brandLight, fontSize: 15 },
+  listPrice:      { color: COLORS.textMuted, fontSize: 13, textDecorationLine: 'line-through', marginEnd: 6 },
   confirmBtn:     {
     backgroundColor: COLORS.brand, borderRadius: 12,
     paddingHorizontal: 32, paddingVertical: 14, marginTop: 8,

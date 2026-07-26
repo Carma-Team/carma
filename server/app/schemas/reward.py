@@ -16,16 +16,23 @@ class RewardOut(CamelModel):
     description_he: str
     description_en: str | None
     category: str
+    #: The business's list price — the same for everyone.
     cost_points: int
+    #: What the requesting driver pays after their level discount. Present only
+    #: where a viewer is in scope (the rewards catalogue); absent on the reward
+    #: embedded in a voucher, which is the catalogue entry rather than the
+    #: transaction. The price actually charged is in the audit log.
+    effective_cost_points: int | None = None
     image_icon: str
     is_active: bool
     stock: int
     expires_at: datetime | None
 
     @classmethod
-    def from_orm_reward(cls, reward: Any) -> RewardOut:
+    def from_orm_reward(cls, reward: Any, effective_cost_points: int | None = None) -> RewardOut:
         return cls.model_validate(
             {
+                "effective_cost_points": effective_cost_points,
                 "id": reward.id,
                 "business_id": reward.business_id,
                 "business": reward.business.name,

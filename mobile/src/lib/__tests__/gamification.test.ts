@@ -44,9 +44,9 @@ describe('levelDisplay', () => {
     const original = [...LEVELS]
     const custom: LevelConfig[] = [
       { level: 1, name: 'א', nameEn: 'Renamed', minPoints: 0, maxPoints: 41,
-        discountPct: 0, bonusMultiplier: 1, color: '#000', icon: 'leaf-outline', perks: [] },
+        discountPct: 0, bonusMultiplier: 1, color: '#000', icon: 'leaf-outline', unlocks: [] },
       { level: 2, name: 'ב', nameEn: 'Second', minPoints: 42, maxPoints: 2147483647,
-        discountPct: 0, bonusMultiplier: 1, color: '#000', icon: 'leaf-outline', perks: [] },
+        discountPct: 0, bonusMultiplier: 1, color: '#000', icon: 'leaf-outline', unlocks: [] },
     ]
     try {
       setLevels(custom)

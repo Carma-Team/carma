@@ -5,10 +5,10 @@ import { Card } from '@/components/ui/Card';
 import { Progress } from '@/components/ui/Progress';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
-import { getUserLevelData } from '@/lib/constants';
+import { getUserLevelData, isTopLevel } from '@/lib/constants';
 import { localize } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LevelConfig, Language } from '@/types';
+import type { LevelConfig, LevelUnlock, Language } from '@/types';
 
 interface RoadmapLevelItemProps {
   lvl: LevelConfig;
@@ -21,6 +21,14 @@ interface RoadmapLevelItemProps {
 
 export function RoadmapLevelItem({ lvl, idx, totalLevels, currentLevel, currentPoints, lang }: RoadmapLevelItemProps) {
   const { t } = useTranslation();
+
+  // The server derives `unlocks` from the ladder's own numbers, so anything
+  // listed here is enforced somewhere. A kind this build does not recognise is
+  // dropped rather than rendered raw — an older app must not show a stray line.
+  const describeUnlock = (u: LevelUnlock): string | null =>
+    u.kind === 'discount' ? `${u.value}% ${t('roadmap.unlockDiscount')}` : null;
+
+  const unlockLines = lvl.unlocks.map(describeUnlock).filter((s): s is string => s !== null);
 
   const isCompleted = currentLevel > lvl.level;
   const isCurrent   = currentLevel === lvl.level;
@@ -77,18 +85,25 @@ export function RoadmapLevelItem({ lvl, idx, totalLevels, currentLevel, currentP
           </View>
         </View>
 
-        {lvl.perks.length > 0 && (
-          <View style={styles.perks}>
-            {lvl.perks.map(perk => (
-              <View key={perk} style={styles.perkRow}>
-                <Text style={styles.perkDot}>•</Text>
-                <Text style={[styles.perkText, isLocked && { color: COLORS.textMuted }]}>{perk}</Text>
-              </View>
-            ))}
+        {/* Every level pays more than the one below it, so the multiplier is a
+            property of the level, shown on all of them. Only a rung where the
+            discount actually moves gets an unlock line under it. */}
+        <View style={styles.perks}>
+          <View style={styles.perkRow}>
+            <Text style={styles.perkDot}>•</Text>
+            <Text style={[styles.perkText, isLocked && { color: COLORS.textMuted }]}>
+              {t('roadmap.pointsMultiplier')} ×{lvl.bonusMultiplier.toFixed(2)}
+            </Text>
           </View>
-        )}
+          {unlockLines.map(line => (
+            <View key={line} style={styles.perkRow}>
+              <Text style={styles.perkDot}>•</Text>
+              <Text style={[styles.perkText, isLocked && { color: COLORS.textMuted }]}>{line}</Text>
+            </View>
+          ))}
+        </View>
 
-        {isCurrent && currentLevel < 10 && (
+        {isCurrent && !isTopLevel(lvl.level) && (
           <View style={styles.progressRow}>
             <View style={{ paddingHorizontal: 15 }}>
               <Progress
@@ -98,7 +113,7 @@ export function RoadmapLevelItem({ lvl, idx, totalLevels, currentLevel, currentP
               />
             </View>
             <Text style={styles.progressLabel}>
-              {currentPoints.toLocaleString()} / {lvl.maxPoints === Infinity ? '∞' : lvl.maxPoints.toLocaleString()}
+              {currentPoints.toLocaleString()} / {lvl.maxPoints.toLocaleString()}
             </Text>
           </View>
         )}

@@ -11,6 +11,7 @@ import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { REWARD_CATEGORIES } from '@/lib/constants'
+import { rewardPrice } from '@/lib/rewards'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import type { IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
@@ -75,7 +76,9 @@ export default function MarketplaceScreen() {
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      await setUser({ ...user, points: (user.points || 0) - selectedReward.costPoints })
+      // The discounted price, or the optimistic balance disagrees with the
+      // server's until the next refresh — the shrinking-number bug from #29.
+      await setUser({ ...user, points: (user.points || 0) - rewardPrice(selectedReward) })
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
       setTab('vouchers')

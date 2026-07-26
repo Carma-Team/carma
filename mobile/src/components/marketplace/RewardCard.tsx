@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS } from '@/constants/theme'
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons'
 import { localize } from '@/lib/utils'
+import { rewardPrice, isDiscounted } from '@/lib/rewards'
 import type { Reward, Voucher } from '@/types'
 
 // ─── RewardCard ───────────────────────────────────────────────────────────────
@@ -20,7 +21,8 @@ interface RewardCardProps {
 
 export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
-  const canAfford = userPoints >= reward.costPoints
+  const price     = rewardPrice(reward)
+  const canAfford = userPoints >= price
   const inStock   = reward.stock > 0
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
@@ -41,7 +43,10 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
       <View style={styles.footerRow}>
         <View style={styles.costBadge}>
           <Ionicons name={ICONS.points} size={12} color={COLORS.brandLight} style={{ marginRight: 4 }} />
-          <Text style={styles.rewardCost}>{reward.costPoints} {t('common.points')}</Text>
+          {/* The level discount is only real if the driver can see it before
+              paying, so the list price stays visible next to what they pay. */}
+          {isDiscounted(reward) && <Text style={styles.listPrice}>{reward.costPoints}</Text>}
+          <Text style={styles.rewardCost}>{price} {t('common.points')}</Text>
         </View>
 
         <Button
@@ -62,7 +67,7 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
 
       {!canAfford && inStock && (
         <Text style={styles.missingPointsHint}>
-          {t('marketplace.missingPoints')} {(reward.costPoints - userPoints).toLocaleString()} {t('common.points')}
+          {t('marketplace.missingPoints')} {(price - userPoints).toLocaleString()} {t('common.points')}
         </Text>
       )}
     </Card>
@@ -135,6 +140,7 @@ const styles = StyleSheet.create({
   },
   costBadge:        { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(99, 102, 241, 0.08)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   rewardCost:       { color: COLORS.brandLight, fontSize: 12, fontWeight: '700' },
+  listPrice:        { color: COLORS.textMuted, fontSize: 11, textDecorationLine: 'line-through', marginEnd: 5 },
   redeemBtn:        { minWidth: 70, height: 32, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 8, alignSelf: 'flex-end' },
   redeemBtnText:    { fontSize: 13, fontWeight: '700' },
   missingPointsHint: { color: '#f59e0b', fontSize: 11, fontWeight: '600', textAlign: 'right', marginTop: 6 },

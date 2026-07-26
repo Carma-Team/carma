@@ -80,7 +80,12 @@ export interface Reward {
   descriptionHe: string;
   descriptionEn?: string;
   category: string;
+  /** The business's list price — the same for everyone. */
   costPoints: number;
+  /** What this driver pays after their level discount. Present in the rewards
+   *  catalogue; absent on the reward embedded in a voucher. Fall back to
+   *  `costPoints` when absent — never compute the discount on the client. */
+  effectiveCostPoints?: number;
   imageIcon: string;
   isActive: boolean;
   stock: number;
@@ -207,6 +212,14 @@ export interface TripValidationResult {
 // Matches server's LevelOut (server/app/routers/levels.py), which serves the
 // single ladder in app/services/levels.py. The client holds no ladder of its
 // own — see constants.ts for the first-paint fallback.
+/** Something a level gives that the level below it did not. Derived on the
+ *  server from the ladder's own values, so it cannot advertise a benefit the
+ *  server does not enforce. Unknown kinds are ignored, not rendered raw. */
+export interface LevelUnlock {
+  kind: 'discount' | (string & {});
+  value: number;
+}
+
 export interface LevelConfig {
   level: number;
   name: string;
@@ -219,7 +232,7 @@ export interface LevelConfig {
   bonusMultiplier: number;
   color: string;
   icon: string;
-  perks: string[];
+  unlocks: LevelUnlock[];
 }
 
 // ─── UI ───────────────────────────────────────────────────────────────────────

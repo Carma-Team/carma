@@ -6,17 +6,20 @@ import type { LevelConfig } from '@/types'
 //
 // Kept byte-for-byte in step with that module so a cold start does not flash
 // different numbers. If the two ever disagree, the server is right.
+// `unlocks` mirrors what the server derives in `levels.unlocks_for` — a line
+// only where the discount actually moves. Levels 4, 6, 8 unlock nothing and
+// that is deliberate: they still pay more, through the multiplier.
 const DEFAULT_LEVELS: LevelConfig[] = [
-  { level: 1,  name: 'מתחיל',      nameEn: 'Beginner',     minPoints: 0,     maxPoints: 499,    discountPct: 0,  bonusMultiplier: 1.00, color: '#94a3b8', icon: 'leaf-outline',             perks: [] },
-  { level: 2,  name: 'זהיר',       nameEn: 'Cautious',     minPoints: 500,   maxPoints: 1499,   discountPct: 0,  bonusMultiplier: 1.02, color: '#22c55e', icon: 'compass-outline',          perks: ['גישה לטבלת המובילים'] },
-  { level: 3,  name: 'מרוכז',      nameEn: 'Focused',      minPoints: 1500,  maxPoints: 3499,   discountPct: 5,  bonusMultiplier: 1.04, color: '#16a34a', icon: 'aperture-outline',         perks: ['5% הנחה בחנות הפרסים'] },
-  { level: 4,  name: 'מיומן',      nameEn: 'Skilled',      minPoints: 3500,  maxPoints: 6999,   discountPct: 5,  bonusMultiplier: 1.06, color: '#0d9488', icon: 'flash-outline',            perks: ['5% הנחה בחנות הפרסים', 'פרסים בלעדיים'] },
-  { level: 5,  name: 'חד',         nameEn: 'Sharp',        minPoints: 7000,  maxPoints: 11999,  discountPct: 10, bonusMultiplier: 1.08, color: '#3b82f6', icon: 'shield-checkmark-outline', perks: ['10% הנחה', 'מכפיל נקודות x1.08'] },
-  { level: 6,  name: 'מומחה',      nameEn: 'Expert',       minPoints: 12000, maxPoints: 19999,  discountPct: 10, bonusMultiplier: 1.10, color: '#6366f1', icon: 'flame-outline',            perks: ['10% הנחה', 'גישה VIP לפרסים'] },
-  { level: 7,  name: 'אשף',        nameEn: 'Wizard',       minPoints: 20000, maxPoints: 31999,  discountPct: 15, bonusMultiplier: 1.12, color: '#8b5cf6', icon: 'star-outline',             perks: ['15% הנחה', 'מכפיל נקודות x1.12'] },
-  { level: 8,  name: 'מאסטר',      nameEn: 'Master',       minPoints: 32000, maxPoints: 49999,  discountPct: 15, bonusMultiplier: 1.15, color: '#f59e0b', icon: 'diamond-outline',          perks: ['15% הנחה', 'תג מאסטר'] },
-  { level: 9,  name: 'גנרל הכביש', nameEn: 'Road General', minPoints: 50000, maxPoints: 74999,  discountPct: 20, bonusMultiplier: 1.18, color: '#ef4444', icon: 'trophy-outline',           perks: ['20% הנחה', 'VIP לכל הפרסים'] },
-  { level: 10, name: 'אגדה',       nameEn: 'Legend',       minPoints: 75000, maxPoints: 2147483647, discountPct: 25, bonusMultiplier: 1.25, color: '#f97316', icon: 'ribbon-outline',      perks: ['25% הנחה', 'מכפיל נקודות x1.25'] },
+  { level: 1,  name: 'מתחיל',      nameEn: 'Beginner',     minPoints: 0,     maxPoints: 499,    discountPct: 0,  bonusMultiplier: 1.00, color: '#94a3b8', icon: 'leaf-outline',             unlocks: [] },
+  { level: 2,  name: 'זהיר',       nameEn: 'Cautious',     minPoints: 500,   maxPoints: 1499,   discountPct: 0,  bonusMultiplier: 1.02, color: '#22c55e', icon: 'compass-outline',          unlocks: [] },
+  { level: 3,  name: 'מרוכז',      nameEn: 'Focused',      minPoints: 1500,  maxPoints: 3499,   discountPct: 5,  bonusMultiplier: 1.04, color: '#16a34a', icon: 'aperture-outline',         unlocks: [{ kind: 'discount', value: 5 }] },
+  { level: 4,  name: 'מיומן',      nameEn: 'Skilled',      minPoints: 3500,  maxPoints: 6999,   discountPct: 5,  bonusMultiplier: 1.06, color: '#0d9488', icon: 'flash-outline',            unlocks: [] },
+  { level: 5,  name: 'חד',         nameEn: 'Sharp',        minPoints: 7000,  maxPoints: 11999,  discountPct: 10, bonusMultiplier: 1.08, color: '#3b82f6', icon: 'shield-checkmark-outline', unlocks: [{ kind: 'discount', value: 10 }] },
+  { level: 6,  name: 'מומחה',      nameEn: 'Expert',       minPoints: 12000, maxPoints: 19999,  discountPct: 10, bonusMultiplier: 1.10, color: '#6366f1', icon: 'flame-outline',            unlocks: [] },
+  { level: 7,  name: 'אשף',        nameEn: 'Wizard',       minPoints: 20000, maxPoints: 31999,  discountPct: 15, bonusMultiplier: 1.12, color: '#8b5cf6', icon: 'star-outline',             unlocks: [{ kind: 'discount', value: 15 }] },
+  { level: 8,  name: 'מאסטר',      nameEn: 'Master',       minPoints: 32000, maxPoints: 49999,  discountPct: 15, bonusMultiplier: 1.15, color: '#f59e0b', icon: 'diamond-outline',          unlocks: [] },
+  { level: 9,  name: 'גנרל הכביש', nameEn: 'Road General', minPoints: 50000, maxPoints: 74999,  discountPct: 20, bonusMultiplier: 1.18, color: '#ef4444', icon: 'trophy-outline',           unlocks: [{ kind: 'discount', value: 20 }] },
+  { level: 10, name: 'אגדה',       nameEn: 'Legend',       minPoints: 75000, maxPoints: 2147483647, discountPct: 25, bonusMultiplier: 1.25, color: '#f97316', icon: 'ribbon-outline',      unlocks: [{ kind: 'discount', value: 25 }] },
 ]
 
 let _levels: LevelConfig[] = DEFAULT_LEVELS;
@@ -87,7 +90,7 @@ export function getUserLevelData(totalPoints: number): UserLevelData {
     config,
     progress,
     pointsToNext,
-    isMaxLevel: config.maxPoints === Infinity
+    isMaxLevel: isTopLevel(level)
   };
 }
 

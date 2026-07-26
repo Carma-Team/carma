@@ -69,6 +69,8 @@ const en: TranslationMap = {
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',
     perks: 'Perks', locked: 'Locked', unlocked: 'Unlocked',
     pointsNeeded: 'Points needed', completed: 'Completed',
+    // Rendered from the server's derived `unlocks` — never hand-written per level.
+    pointsMultiplier: 'Points multiplier', unlockDiscount: 'off in the rewards store',
   },
   marketplace: {
     title: 'Rewards Store', subtitle: 'Redeem your points',

@@ -17,7 +17,7 @@ vouchers_router = APIRouter(prefix="/api/vouchers", tags=["vouchers"])
     summary="List active rewards, optionally filtered by category",
 )
 async def list_rewards(user: CurrentUser, db: DbSession, category: str | None = None) -> dict[str, object]:
-    return await rewards_service.list_rewards(db, user.id, category)
+    return await rewards_service.list_rewards(db, user, category)
 
 
 @rewards_router.post(

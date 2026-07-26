@@ -21,6 +21,7 @@ from app.models import Trip, User
 from app.models.enums import UserRole
 from app.schemas.trip import SaveTripIn
 from app.services import levels
+from app.services import rewards as rewards_service
 from app.services import trips as trips_service
 
 # ─── the ladder itself ────────────────────────────────────────────────────────
@@ -53,6 +54,43 @@ class TestLadderShape:
     def test_discounts_never_decrease(self):
         pcts = [lv.discount_pct for lv in levels.LEVELS]
         assert pcts == sorted(pcts)
+
+
+class TestUnlocks:
+    """`unlocks` is derived, and the derivation is the guarantee.
+
+    Levels used to carry hand-written perk strings — "גישה לטבלת המובילים",
+    "פרסים בלעדיים", "תג מאסטר" — that no code anywhere enforced. Deriving each
+    line from the value behind it is what makes that impossible to repeat.
+    """
+
+    def test_the_first_level_unlocks_nothing(self):
+        assert levels.unlocks_for(1) == ()
+
+    def test_a_line_appears_only_where_the_discount_actually_moves(self):
+        for lv in levels.LEVELS[1:]:
+            previous = levels.by_number(lv.number - 1)
+            moved = lv.discount_pct != previous.discount_pct
+            kinds = [u.kind for u in levels.unlocks_for(lv.number)]
+            assert ("discount" in kinds) is moved, f"level {lv.number} advertises a discount that did not change"
+
+    def test_the_advertised_value_is_the_price_the_store_charges(self):
+        # The rule this whole change exists for: a perk is enforced or absent.
+        for lv in levels.LEVELS:
+            for unlock in levels.unlocks_for(lv.number):
+                if unlock.kind == "discount":
+                    assert rewards_service.effective_cost(1_000, lv.number) == 1_000 - int(unlock.value) * 10
+
+    def test_the_multiplier_is_never_an_unlock(self):
+        # It rises at every rung, so presenting it as something that unlocks at
+        # one implies the levels around it do not have it. They all do.
+        kinds = {u.kind for lv in levels.LEVELS for u in levels.unlocks_for(lv.number)}
+        assert "multiplier" not in kinds
+
+    def test_some_rungs_are_deliberately_quiet(self):
+        # If every level unlocked something, no level would be a milestone.
+        quiet = [lv.number for lv in levels.LEVELS if not levels.unlocks_for(lv.number)]
+        assert len(quiet) >= 3
 
 
 class TestLevelForPoints:
@@ -98,6 +136,11 @@ async def test_the_endpoint_serves_the_ladder_and_needs_no_database() -> None:
     assert [row["minPoints"] for row in rows] == [lv.min_points for lv in levels.LEVELS]
     # Exposed so the client can *display* what a level is worth — never apply it.
     assert [row["bonusMultiplier"] for row in rows] == [lv.bonus_multiplier for lv in levels.LEVELS]
+
+    # Unlocks are derived and shipped; the free-text perk list is gone for good.
+    assert all("perks" not in row for row in rows)
+    assert [len(row["unlocks"]) for row in rows] == [len(levels.unlocks_for(lv.number)) for lv in levels.LEVELS]
+    assert rows[2]["unlocks"] == [{"kind": "discount", "value": 5.0}]
 
 
 # ─── the bonus, end to end ────────────────────────────────────────────────────

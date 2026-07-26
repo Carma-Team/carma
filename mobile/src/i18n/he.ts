@@ -69,6 +69,8 @@ const he = {
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
+    // Rendered from the server's derived `unlocks` — never hand-written per level.
+    pointsMultiplier: 'מכפיל נקודות', unlockDiscount: 'הנחה בחנות הפרסים',
   },
   marketplace: {
     title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',

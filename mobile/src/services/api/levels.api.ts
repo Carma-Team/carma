@@ -3,7 +3,7 @@
  * @module services/api/levels
  *
  * @description
- * - `list` — fetch all level configurations (names, point thresholds, color, icon, perks)
+ * - `list` — fetch all level configurations (names, point thresholds, color, icon, unlocks)
  *
  * @server
  * - GET /api/levels — returns the levels table from db.json
