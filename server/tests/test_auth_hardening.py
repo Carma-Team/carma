@@ -13,17 +13,15 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, settings
 from app.core.security import hash_code
-from app.database import get_db
 from app.main import app
 from app.models import OtpCode, User
 from app.models.enums import UserRole
@@ -61,24 +59,9 @@ async def _cleanup(db: AsyncSession, phone: str) -> None:
 # ─── 1. the endpoint stops naming who is registered ──────────────────────────
 
 
-async def _client() -> AsyncClient:
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-
-
-async def _override_db(db_session: AsyncSession) -> None:
-    """Point the app at the test's session.
-
-    Without this the request runs on the app's module-level engine, whose
-    asyncpg connections belong to a different event loop — see conftest.
-    """
-
-    async def _use_the_fixture_session() -> AsyncIterator[AsyncSession]:
-        yield db_session
-
-    app.dependency_overrides[get_db] = _use_the_fixture_session
-
-
-async def test_an_unknown_phone_is_indistinguishable_from_a_wrong_code(db_session: AsyncSession) -> None:
+async def test_an_unknown_phone_is_indistinguishable_from_a_wrong_code(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
     """The whole point of the change: one status, one body, both ways.
 
     Before, a stranger could post any phone number with a junk code and read the
@@ -87,20 +70,19 @@ async def test_an_unknown_phone_is_indistinguishable_from_a_wrong_code(db_sessio
     known = _phone()
     unknown = _phone()
     await _registered_driver(db_session, known)
-    await _override_db(db_session)
     try:
-        async with await _client() as ac:
-            miss = await ac.post("/api/auth/otp/verify", json={"phone": unknown, "code": "000000"})
-            hit = await ac.post("/api/auth/otp/verify", json={"phone": known, "code": "000000"})
+        miss = await db_api_client.post("/api/auth/otp/verify", json={"phone": unknown, "code": "000000"})
+        hit = await db_api_client.post("/api/auth/otp/verify", json={"phone": known, "code": "000000"})
 
         assert miss.status_code == hit.status_code == 401
         assert miss.json()["detail"] == hit.json()["detail"]
     finally:
-        app.dependency_overrides.pop(get_db, None)
         await _cleanup(db_session, known)
 
 
-async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(db_session: AsyncSession) -> None:
+async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
     """The second half of the oracle — a 400 here used to mean "this phone exists".
 
     Collapsing expiry into the same 401 costs the user nothing: whether the code
@@ -117,18 +99,15 @@ async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(db_session:
         )
     )
     await db_session.commit()
-    await _override_db(db_session)
     try:
-        async with await _client() as ac:
-            r = await ac.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
         assert r.status_code == 401
         assert r.json()["detail"] == auth_service.OTP_REJECTED
     finally:
-        app.dependency_overrides.pop(get_db, None)
         await _cleanup(db_session, phone)
 
 
-async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSession) -> None:
+async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
     """A 403 here would make five wrong guesses a test for "is this registered?".
 
     The lockout is still explained on `otp/request`, where the caller has the
@@ -138,17 +117,14 @@ async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSessio
     user = await _registered_driver(db_session, phone)
     user.locked_until = _now() + timedelta(minutes=10)
     await db_session.commit()
-    await _override_db(db_session)
     try:
-        async with await _client() as ac:
-            r = await ac.post("/api/auth/otp/verify", json={"phone": phone, "code": "000000"})
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "000000"})
         assert r.status_code == 401, "a locked account must answer like any other failure"
     finally:
-        app.dependency_overrides.pop(get_db, None)
         await _cleanup(db_session, phone)
 
 
-async def test_a_correct_code_still_logs_you_in(db_session: AsyncSession) -> None:
+async def test_a_correct_code_still_logs_you_in(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
     # Hiding failures is only worth anything if the success path is untouched.
     phone = _phone()
     await _registered_driver(db_session, phone)
@@ -161,14 +137,11 @@ async def test_a_correct_code_still_logs_you_in(db_session: AsyncSession) -> Non
         )
     )
     await db_session.commit()
-    await _override_db(db_session)
     try:
-        async with await _client() as ac:
-            r = await ac.post("/api/auth/otp/verify", json={"phone": phone, "code": "654321"})
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "654321"})
         assert r.status_code == 200
         assert r.json()["token"]
     finally:
-        app.dependency_overrides.pop(get_db, None)
         await _cleanup(db_session, phone)
 
 
@@ -277,23 +250,18 @@ async def test_an_unregistered_phone_never_reaches_the_sms_sender(db_session: As
         await _cleanup(db_session, phone)
 
 
-async def test_the_sensitive_routes_carry_their_own_ceiling(rate_limited: None, db_session: AsyncSession) -> None:
+async def test_the_sensitive_routes_carry_their_own_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
     """Six logins from one address in a minute; the sixth is refused.
 
     Keyed on the address, so it is the blunt half of the defence — it bounds
     someone sweeping many different numbers, which the per-phone cap cannot see.
     """
-    await _override_db(db_session)
-    try:
-        async with await _client() as ac:
-            codes = [
-                (
-                    await ac.post("/api/auth/login", json={"email": "nobody@nowhere.com", "password": "wrongpass"})
-                ).status_code
-                for _ in range(6)
-            ]
-    finally:
-        app.dependency_overrides.pop(get_db, None)
+    codes = [
+        (
+            await db_api_client.post("/api/auth/login", json={"email": "nobody@nowhere.com", "password": "wrongpass"})
+        ).status_code
+        for _ in range(6)
+    ]
 
     assert codes[:5] == [401] * 5, f"the first five must reach the handler, got {codes}"
     assert codes[5] == 429, f"expected the sixth attempt to be refused, got {codes}"

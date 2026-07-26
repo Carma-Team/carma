@@ -8,6 +8,12 @@ so it exercises the same configuration the server runs with.
 When Postgres is unreachable (a plain `git clone` with no Docker) the fixture
 skips rather than fails — the same contract the smoke test uses. CI provides a
 live Postgres for the typecheck-test job, so these tests do run there.
+
+**Pick the right client.** `api_client` for a request that never reaches the
+database — an auth gate, a routing check, `/health/live`. `db_api_client` the
+moment a request touches a table. Building `AsyncClient(ASGITransport(app))` by
+hand and letting it fall through to the app's own engine is the one mistake this
+file exists to prevent; see `db_api_client` for why.
 """
 
 from __future__ import annotations
@@ -16,11 +22,14 @@ from collections.abc import AsyncIterator, Iterator
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.core.limiter import limiter
+from app.database import get_db
+from app.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -71,3 +80,38 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             yield session
     finally:
         await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def api_client() -> AsyncIterator[AsyncClient]:
+    """An in-process client for requests that never reach the database.
+
+    Auth gates, routing checks, `/health/live`. If the request would open a
+    connection, use `db_api_client` instead — this one has no override, so it
+    would fall through to the app's own engine.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def db_api_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """An in-process client whose requests run on the test's own session.
+
+    Without the override, a request would take a connection from the app's
+    module-level engine — which was opened on a different event loop, because
+    pytest-asyncio gives every test its own. The failure is not local: the
+    connection is left in a broken state and the *next* test to use that engine
+    dies with `'NoneType' object has no attribute 'send'`. Two PRs have now been
+    caught by it, which is why this lives here instead of in a test file.
+    """
+
+    async def _use_the_test_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = _use_the_test_session
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
