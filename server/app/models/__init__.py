@@ -12,7 +12,6 @@ from app.models.enums import (
 from app.models.event import Event
 from app.models.fraud import FraudReport
 from app.models.friendship import UserFriend
-from app.models.level import Level
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
 from app.models.reward import Reward
@@ -28,7 +27,6 @@ __all__ = [
     "FriendStatus",
     "FraudReport",
     "Language",
-    "Level",
     "OtpCode",
     "Redemption",
     "RedemptionStatus",

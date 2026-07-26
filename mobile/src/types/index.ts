@@ -55,6 +55,8 @@ export interface Trip {
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
   pointsCapped?: boolean;           // v2.1 — daily anti-grind caps reduced this trip's award (save response only)
+  userLevel?: number;               // driver's level after this trip, as the server resolved it incl. the
+                                    // driver-score cap (#37). Save response only — absent on list/detail reads.
   startLocation?: string;
   endLocation?: string;
   aiInsight?: string;
@@ -202,12 +204,19 @@ export interface TripValidationResult {
 }
 
 // ─── Level ────────────────────────────────────────────────────────────────────
+// Matches server's LevelOut (server/app/routers/levels.py), which serves the
+// single ladder in app/services/levels.py. The client holds no ladder of its
+// own — see constants.ts for the first-paint fallback.
 export interface LevelConfig {
   level: number;
   name: string;
   nameEn: string;
   minPoints: number;
   maxPoints: number;
+  discountPct: number;
+  /** What a trip's points are multiplied by at this level. Display only —
+   *  the server has already applied it to the points it returns. */
+  bonusMultiplier: number;
   color: string;
   icon: string;
   perks: string[];

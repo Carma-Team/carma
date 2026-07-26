@@ -21,7 +21,6 @@ from app.models import (
     Business,
     BusinessCategory,
     FriendStatus,
-    Level,
     Redemption,
     RedemptionStatus,
     Reward,
@@ -33,22 +32,6 @@ from app.models import (
 )
 
 # ---------------------------------------------------------------------------
-# Reference data — levels
-# ---------------------------------------------------------------------------
-
-LEVELS = [
-    {"number": 1, "name_he": "מתחיל", "name_en": "Beginner", "min_points": 0, "discount_pct": 0, "bonus_multiplier": 1.0},
-    {"number": 2, "name_he": "זהיר", "name_en": "Cautious", "min_points": 500, "discount_pct": 0, "bonus_multiplier": 1.0},
-    {"number": 3, "name_he": "מרוכז", "name_en": "Focused", "min_points": 1500, "discount_pct": 5, "bonus_multiplier": 1.0},
-    {"number": 4, "name_he": "מיומן", "name_en": "Skilled", "min_points": 3500, "discount_pct": 5, "bonus_multiplier": 1.0},
-    {"number": 5, "name_he": "חד", "name_en": "Sharp", "min_points": 5500, "discount_pct": 10, "bonus_multiplier": 1.0},
-    {"number": 6, "name_he": "מומחה", "name_en": "Expert", "min_points": 12000, "discount_pct": 10, "bonus_multiplier": 1.0},
-    {"number": 7, "name_he": "אשף", "name_en": "Wizard", "min_points": 20000, "discount_pct": 15, "bonus_multiplier": 1.0},
-    {"number": 8, "name_he": "מאסטר", "name_en": "Master", "min_points": 32000, "discount_pct": 15, "bonus_multiplier": 1.0},
-    {"number": 9, "name_he": "גנרל הכביש", "name_en": "Road General", "min_points": 50000, "discount_pct": 20, "bonus_multiplier": 1.1},
-    {"number": 10, "name_he": "אגדה", "name_en": "Legend", "min_points": 75000, "discount_pct": 25, "bonus_multiplier": 1.2},
-]
-
 # ---------------------------------------------------------------------------
 # Reference data — businesses (existing + new demo partners)
 # ---------------------------------------------------------------------------
@@ -351,15 +334,6 @@ async def backfill_driver_scores(db: AsyncSession) -> None:
 
 async def run() -> None:
     async with SessionLocal() as db:
-
-        # --- Levels ---
-        for lv in LEVELS:
-            existing = await db.scalar(select(Level).where(Level.number == lv["number"]))
-            if existing is None:
-                db.add(Level(**lv))
-            else:
-                for k, v in lv.items():
-                    setattr(existing, k, v)
 
         # --- Businesses ---
         biz_by_name: dict[str, Business] = {}
