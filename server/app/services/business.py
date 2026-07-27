@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
-from app.models import Business, BusinessCategory, Redemption, Reward
-from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, RewardOut
+from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward
+from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, RewardOut, VoucherOut
+from app.services import rewards as rewards_service
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
@@ -109,3 +112,76 @@ async def delete_reward(db: AsyncSession, business: Business, reward_id: str) ->
     await db.delete(reward)
     await db.commit()
     audit("business.reward.deleted", business_id=business.id, reward_id=reward_id)
+
+
+# ── Vouchers ─────────────────────────────────────────────────────────────────
+
+
+async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Redemption:
+    """Load a voucher issued against one of this business's rewards, or 404.
+
+    Settles the TTL first, so a caller always sees a voucher's true current state
+    rather than a PENDING row that lapsed minutes ago. A voucher belonging to
+    another business is a 404 like an unknown code — a distinct error would let
+    one business probe another's codes.
+    """
+    await rewards_service.expire_overdue(db, Redemption.qr_code == code)
+
+    voucher = await db.scalar(
+        select(Redemption)
+        .where(Redemption.qr_code == code)
+        .options(selectinload(Redemption.reward).selectinload(Reward.business))
+    )
+    if voucher is None or voucher.reward.business_id != business.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Voucher not found")
+    return voucher
+
+
+async def peek_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+    """What a scan shows before anyone commits to handing over the goods.
+
+    Read-only on purpose: an employee scanning to check validity must not burn
+    the voucher, and a scan that fails halfway must not leave it consumed.
+    """
+    return VoucherOut.from_orm_redemption(await _owned_voucher(db, business, code))
+
+
+async def consume_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+    """Mark a voucher USED — the step that finally closes the redemption loop."""
+    voucher = await _owned_voucher(db, business, code)
+
+    # Conditional UPDATE rather than a read-then-write: two tills scanning the
+    # same QR at once must not both come back "valid, serve the customer".
+    now = datetime.now(UTC)
+    # Held as a plain value: the rollback below expires every instance in the
+    # session, and reading voucher.id afterwards would trigger a lazy load.
+    voucher_id = voucher.id
+    used = await db.execute(
+        update(Redemption)
+        .where(
+            Redemption.id == voucher_id,
+            Redemption.status == RedemptionStatus.PENDING,
+            Redemption.expires_at > now,
+        )
+        .values(status=RedemptionStatus.USED, used_at=now)
+    )
+    if used.rowcount == 0:
+        await db.rollback()
+        # Re-read rather than trusting the status loaded a moment ago: whoever won
+        # the race is the reason this lost, and the client deserves the real one.
+        current = await db.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Voucher already used" if current == RedemptionStatus.USED else "Voucher expired",
+        )
+
+    await db.commit()
+    await db.refresh(voucher, attribute_names=["status", "used_at"])
+    audit(
+        "business.voucher.consumed",
+        business_id=business.id,
+        voucher_id=voucher.id,
+        reward_id=voucher.reward_id,
+        user_id=voucher.user_id,
+    )
+    return VoucherOut.from_orm_redemption(voucher)

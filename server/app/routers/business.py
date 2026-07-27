@@ -8,6 +8,7 @@ from app.schemas.reward import (
     BusinessRewardListOut,
     BusinessRewardPatchIn,
     BusinessRewardResponse,
+    VoucherResponse,
 )
 from app.services import business as business_service
 
@@ -58,3 +59,26 @@ async def update_reward(
 async def delete_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
     await business_service.delete_reward(db, business, reward_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Vouchers ─────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/vouchers/{code}",
+    response_model=VoucherResponse,
+    response_model_by_alias=True,
+    summary="Inspect a scanned voucher without consuming it. 404 unless it is this business's.",
+)
+async def peek_voucher(code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
+    return VoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
+
+
+@router.post(
+    "/vouchers/{code}/redeem",
+    response_model=VoucherResponse,
+    response_model_by_alias=True,
+    summary="Consume a voucher. 409 if it was already used or has expired.",
+)
+async def consume_voucher(code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
+    return VoucherResponse(voucher=await business_service.consume_voucher(db, business, code))
