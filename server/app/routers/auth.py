@@ -27,6 +27,14 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Keyed on the caller's address; the per-phone cap that survives IP rotation
 # lives in `services.auth._assert_otp_quota`.
 SENSITIVE_LIMIT = "5/minute"
+# Login and register get a looser ceiling than the OTP routes. An address is a
+# poor proxy for a person — mobile carriers put thousands of subscribers behind
+# one address via CGNAT, so 5/minute there is a shared budget a household can
+# exhaust by accident. Brute force is held off per *account* instead
+# (`services.auth._record_failure` locks after `OTP_MAX_ATTEMPTS`), which is the
+# control that does not care how many addresses the guesser rotates through.
+# The OTP routes keep the tight limit: each one spends money on an SMS.
+CREDENTIAL_LIMIT = "20/minute"
 # `request` is unused in the handlers below, but SlowAPI reads the limit key off
 # it — the decorator raises at import time if the parameter is missing.
 
@@ -41,13 +49,13 @@ SENSITIVE_LIMIT = "5/minute"
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user with email+password",
 )
-@limiter.limit(SENSITIVE_LIMIT)
+@limiter.limit(CREDENTIAL_LIMIT)
 async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
     return await auth_service.register_with_password(db, dto)
 
 
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
-@limiter.limit(SENSITIVE_LIMIT)
+@limiter.limit(CREDENTIAL_LIMIT)
 async def login(request: Request, dto: LoginIn, db: DbSession) -> AuthOut:
     return await auth_service.login_with_password(db, dto)
 

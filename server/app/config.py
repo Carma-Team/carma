@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
 
+    # How many reverse proxies sit in front of the app. Behind Azure Container
+    # Apps this is 1 (its ingress). 0 means "no proxy" — read the socket peer.
+    # See `core.limiter.client_ip` for why the count matters rather than a bool.
+    trusted_proxy_count: int = Field(default=0, ge=0, le=4)
+
     # Base of the invite links users share. Must be a host that serves the App
     # Links / Universal Links well-known files, or the link opens a browser
     # instead of the app.
@@ -61,6 +66,21 @@ class Settings(BaseSettings):
             raise ValueError("ENV=production requires TRIP_SIGNING_SECRET to be set")
         if len(self.trip_signing_secret) < 32:
             raise ValueError("TRIP_SIGNING_SECRET must be at least 32 characters")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_proxy_count(self) -> Settings:
+        """Production runs behind an ingress, so leaving the count at 0 is a bug.
+
+        Every request would then be counted against the ingress address and the
+        whole user base would share one rate-limit bucket — 30 requests a minute
+        for everyone, together. Silent, and indistinguishable from an outage.
+        """
+        if self.env == "production" and self.trusted_proxy_count == 0:
+            raise ValueError(
+                "ENV=production requires TRUSTED_PROXY_COUNT to be set "
+                "(1 behind Azure Container Apps ingress) — see core/limiter.py"
+            )
         return self
 
     @model_validator(mode="after")

@@ -85,8 +85,14 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
     _assert_not_locked(user)
     if not verify_password(dto.password, user.password_hash):
         audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="bad_password")
+        # Counts towards the same lockout the OTP door uses. Without this the
+        # `_assert_not_locked` above can never fire for a password caller, and
+        # the per-address limit in the router is the only thing standing between
+        # a guesser and the account — one shared address away from nothing.
+        await _record_failure(db, user)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
+    user.failed_otp_count = 0
     user.last_logged_at = _now()
     await db.commit()
     await db.refresh(user)
@@ -147,6 +153,11 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
     if existing and existing.is_phone_verified:
         raise HTTPException(status.HTTP_409_CONFLICT, "A verified user with this phone already exists")
 
+    # Check the quota before writing, not inside `_issue_otp` after. A caller who
+    # is over their hourly cap should change nothing: otherwise the 429 still
+    # leaves the profile fields of an unverified account rewritten, over and over.
+    await _assert_otp_quota(db, dto.phone)
+
     if existing:
         existing.name = dto.name
         existing.language = dto.language or Language.HE
@@ -166,14 +177,21 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
     return await _issue_otp(db, dto.phone)
 
 
+_OTP_SENT_OR_NOT = "If the phone is registered an OTP has been sent"
+
+
 async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     user = await db.scalar(select(User).where(User.phone == phone))
-    if user is None:
-        # don't leak account existence — same shape, no SMS
-        return OtpSent(
-            message="If the phone is registered an OTP has been sent", expires_in_seconds=settings.otp_ttl_seconds
-        )
-    _assert_not_locked(user)
+
+    # Unknown number and locked account answer identically, and neither sends an
+    # SMS. An earlier version explained the lockout here, reasoning that whoever
+    # asks for a code holds the number anyway. That does not hold for someone
+    # probing numbers they do not own: a lockout is something an attacker can
+    # *cause* (five wrong codes), so a distinct answer turns it into a test for
+    # "is this number registered?". The locked user still learns why on verify.
+    if user is None or (user.locked_until and user.locked_until > _now()):
+        return OtpSent(message=_OTP_SENT_OR_NOT, expires_in_seconds=settings.otp_ttl_seconds)
+
     return await _issue_otp(db, phone)
 
 
@@ -225,6 +243,13 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
 
 
 async def _record_failure(db: AsyncSession, user: User) -> None:
+    """Count a failed sign-in and lock the account once there are too many.
+
+    Called from both doors — wrong password and wrong OTP. `locked_until` was
+    always account-wide (`_assert_not_locked` guards both), so the counter is
+    too. The column is still named `failed_otp_count` because renaming it needs
+    a migration, and this branch deliberately carries none.
+    """
     user.failed_otp_count += 1
     if user.failed_otp_count >= settings.otp_max_attempts:
         user.locked_until = _now() + timedelta(seconds=settings.otp_lockout_seconds)

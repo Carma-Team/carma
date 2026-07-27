@@ -21,7 +21,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, settings
-from app.core.security import hash_code
+from app.core.security import hash_code, hash_password
 from app.main import app
 from app.models import OtpCode, User
 from app.models.enums import UserRole
@@ -108,11 +108,7 @@ async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(
 
 
 async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
-    """A 403 here would make five wrong guesses a test for "is this registered?".
-
-    The lockout is still explained on `otp/request`, where the caller has the
-    number in hand and is almost certainly its owner.
-    """
+    """A 403 here would make five wrong guesses a test for "is this registered?"."""
     phone = _phone()
     user = await _registered_driver(db_session, phone)
     user.locked_until = _now() + timedelta(minutes=10)
@@ -250,11 +246,26 @@ async def test_an_unregistered_phone_never_reaches_the_sms_sender(db_session: As
         await _cleanup(db_session, phone)
 
 
-async def test_the_sensitive_routes_carry_their_own_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
-    """Six logins from one address in a minute; the sixth is refused.
+async def test_the_otp_route_carries_its_own_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
+    """Six code requests from one address in a minute; the sixth is refused.
 
     Keyed on the address, so it is the blunt half of the defence — it bounds
     someone sweeping many different numbers, which the per-phone cap cannot see.
+    Every one of these would have spent money on an SMS.
+    """
+    codes = [
+        (await db_api_client.post("/api/auth/otp/request", json={"phone": _phone()})).status_code for _ in range(6)
+    ]
+
+    assert codes[5] == 429, f"expected the sixth attempt to be refused, got {codes}"
+
+
+async def test_login_is_not_held_to_the_sms_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
+    """Login costs us nothing per attempt, and one address is not one person.
+
+    Mobile carriers put thousands of subscribers behind a single address, so a
+    5/minute cap here is a budget a household can exhaust between them. Guessing
+    is stopped per account instead — see the lockout test below.
     """
     codes = [
         (
@@ -263,5 +274,128 @@ async def test_the_sensitive_routes_carry_their_own_ceiling(rate_limited: None, 
         for _ in range(6)
     ]
 
-    assert codes[:5] == [401] * 5, f"the first five must reach the handler, got {codes}"
-    assert codes[5] == 429, f"expected the sixth attempt to be refused, got {codes}"
+    assert codes == [401] * 6, f"a sixth attempt from one address must still be served, got {codes}"
+
+
+# ─── 4. guessing a password now costs the guesser the account ────────────────
+
+
+async def _password_driver(db: AsyncSession, email: str, password: str) -> User:
+    user = User(
+        id=uuid.uuid4().hex,
+        email=email,
+        password_hash=hash_password(password),
+        name="Lockout Test",
+        role=UserRole.DRIVER,
+    )
+    db.add(user)
+    await db.commit()
+    return user
+
+
+async def _cleanup_email(db: AsyncSession, email: str) -> None:
+    await db.execute(delete(User).where(User.email == email))
+    await db.commit()
+
+
+async def test_repeated_wrong_passwords_lock_the_account(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """`_assert_not_locked` was checked on this path but nothing ever set the lock.
+
+    The counter only ever moved on the OTP door, so a password guesser had no
+    account-level limit at all — only the per-address one, which is the same
+    address for everyone behind a carrier NAT and is gone entirely if the proxy
+    depth is misconfigured. Two independent things had to be right for password
+    login to be protected; now the account itself pushes back.
+    """
+    email = f"lock-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        for _ in range(settings.otp_max_attempts):
+            r = await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+            assert r.status_code == 401
+
+        blocked = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert blocked.status_code == 403, "the right password must not open a locked account"
+        assert "locked" in blocked.json()["detail"].lower()
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_a_successful_login_clears_the_counter(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """Otherwise four typos spread over a month would eventually lock a real user."""
+    email = f"clear-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        for _ in range(settings.otp_max_attempts - 1):
+            await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+
+        ok = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert ok.status_code == 200
+
+        await db_session.refresh(await db_session.scalar(select(User).where(User.email == email)))
+        again = await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+        assert again.status_code == 401, "the count should have restarted, not carried over into a lockout"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+# ─── 5. a locked account is no longer a way to test a phone number ───────────
+
+
+async def test_requesting_a_code_for_a_locked_account_looks_like_an_unknown_number(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The reasoning that left this open — "the caller holds the number" — was wrong.
+
+    An attacker does not hold it; they are guessing it. And a lockout is
+    something they can *cause*, with five wrong codes. A distinct answer here
+    turned that into a two-step test for whether a number is registered.
+    """
+    locked = _phone()
+    unknown = _phone()
+    user = await _registered_driver(db_session, locked)
+    user.locked_until = _now() + timedelta(minutes=10)
+    await db_session.commit()
+    try:
+        hit = await db_api_client.post("/api/auth/otp/request", json={"phone": locked})
+        miss = await db_api_client.post("/api/auth/otp/request", json={"phone": unknown})
+
+        assert hit.status_code == miss.status_code == 200
+        assert hit.json() == miss.json()
+
+        rows = (await db_session.scalars(select(OtpCode).where(OtpCode.phone == locked))).all()
+        assert rows == [], "a locked account must not trigger a billed SMS either"
+    finally:
+        await _cleanup(db_session, locked)
+
+
+# ─── 6. being over the SMS quota changes nothing else ────────────────────────
+
+
+async def test_a_throttled_registration_does_not_rewrite_the_profile(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The quota check used to run after the write, inside `_issue_otp`.
+
+    So a caller past their hourly cap still got their name, age and city applied
+    to an unverified account — repeatedly, at no cost, for as long as they liked.
+    """
+    phone = _phone()
+    body = {"phone": phone, "name": "Original", "language": "HE", "age": 30, "city": "Tel Aviv"}
+    try:
+        # Spend the hour's whole allowance, sending the same name every time so
+        # that anything different in the row afterwards can only be the refused
+        # request talking.
+        for _ in range(settings.otp_max_per_hour):
+            allowed = await db_api_client.post("/api/auth/otp/register", json=body)
+            assert allowed.status_code in (200, 201)
+
+        refused = await db_api_client.post("/api/auth/otp/register", json={**body, "name": "Overwritten"})
+        assert refused.status_code == 429, "the cap should already be spent"
+
+        await db_session.commit()  # drop this session's snapshot, re-read what the API wrote
+        user = await db_session.scalar(select(User).where(User.phone == phone))
+        assert user is not None
+        assert user.name == "Original", "a refused request must not have touched the row"
+    finally:
+        await _cleanup(db_session, phone)
