@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Notification
@@ -22,6 +22,41 @@ def create(db: AsyncSession, user_id: str, type_: str, payload: dict[str, Any]) 
     notification = Notification(user_id=user_id, type=type_, payload=payload)
     db.add(notification)
     return notification
+
+
+async def has_unread_from(db: AsyncSession, user_id: str, type_: str, actor_id: str) -> bool:
+    """True when an unread notification of this kind, about this actor, is already waiting.
+
+    Callers use this to keep an action that can be repeated indefinitely — follow,
+    unfollow, follow again — from stacking one row per repetition.
+    """
+    existing = await db.scalar(
+        select(Notification.id)
+        .where(
+            Notification.user_id == user_id,
+            Notification.type == type_,
+            Notification.read_at.is_(None),
+            Notification.payload["userId"].astext == actor_id,
+        )
+        .limit(1)
+    )
+    return existing is not None
+
+
+async def delete_from_actor(db: AsyncSession, user_id: str, type_: str, actor_id: str) -> None:
+    """Drop notifications of this kind about this actor, read or not.
+
+    For notifications that point at something actionable: once the underlying
+    thing is gone, the row is worse than useless — it sends the user to a screen
+    where the item no longer appears. Staged, not committed.
+    """
+    await db.execute(
+        delete(Notification).where(
+            Notification.user_id == user_id,
+            Notification.type == type_,
+            Notification.payload["userId"].astext == actor_id,
+        )
+    )
 
 
 async def list_for_user(db: AsyncSession, user_id: str, limit: int = MAX_LIMIT) -> list[Notification]:

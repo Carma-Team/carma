@@ -8,42 +8,51 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { notificationsApi } from '@/services/api/notifications.api';
 import type { Notification } from '@/types';
 
-/** Renders the message for a notification from its type + payload — never from server text.
- *  `t` has no interpolation and returns the key itself when missing, so the
- *  placeholder is substituted here. */
-function useNotificationText() {
+type RenderedNotification = { text: string; icon: 'trophy' | 'person-add' | 'person-circle' };
+
+/** Describes a notification from its type + payload — never from server text.
+ *
+ *  Returns null for a kind this build does not know about. That is not a
+ *  theoretical branch: `type` is a plain varchar server-side precisely so a new
+ *  kind ships without a migration, and store rollout leaves installed apps weeks
+ *  behind the server. The union below is exhaustive as *declared*, so TypeScript
+ *  cannot help here — the value arrives at runtime. Unknown rows are skipped by
+ *  the caller rather than rendered blank.
+ *
+ *  `t` has no interpolation and returns the key itself when missing, so
+ *  placeholders are substituted here. */
+function useDescribeNotification() {
   const { t } = useTranslation();
   return useCallback(
-    (n: Notification): string => {
+    (n: Notification): RenderedNotification | null => {
       switch (n.type) {
         case 'level_up':
-          return t('notifications.levelUp').replace('{level}', String(n.payload.level));
+          return {
+            text: t('notifications.levelUp').replace('{level}', String(n.payload.level)),
+            icon: 'trophy',
+          };
         case 'follow_accepted':
           // The other user may have no name set — fall back to a nameless phrasing
           // rather than printing "null".
-          return n.payload.userName
-            ? t('notifications.followAccepted').replace('{name}', n.payload.userName)
-            : t('notifications.followAcceptedAnon');
+          return {
+            text: n.payload.userName
+              ? t('notifications.followAccepted').replace('{name}', n.payload.userName)
+              : t('notifications.followAcceptedAnon'),
+            icon: 'person-add',
+          };
         case 'follow_requested':
-          return n.payload.userName
-            ? t('notifications.followRequested').replace('{name}', n.payload.userName)
-            : t('notifications.followRequestedAnon');
+          return {
+            text: n.payload.userName
+              ? t('notifications.followRequested').replace('{name}', n.payload.userName)
+              : t('notifications.followRequestedAnon'),
+            icon: 'person-circle',
+          };
+        default:
+          return null;
       }
     },
     [t]
   );
-}
-
-/** Icon per kind — keeps the switch above about text only. */
-function iconFor(n: Notification): 'trophy' | 'person-add' | 'person-circle' {
-  switch (n.type) {
-    case 'level_up':
-      return 'trophy';
-    case 'follow_accepted':
-      return 'person-add';
-    case 'follow_requested':
-      return 'person-circle';
-  }
 }
 
 function formatWhen(iso: string): string {
@@ -53,7 +62,7 @@ function formatWhen(iso: string): string {
 
 export function NotificationsTab() {
   const { t } = useTranslation();
-  const renderText = useNotificationText();
+  const describe = useDescribeNotification();
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -83,7 +92,14 @@ export function NotificationsTab() {
     return <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />;
   }
 
-  if (items.length === 0) {
+  // Drop kinds this build cannot describe. Checked before the empty state so a
+  // page of nothing but unknown kinds reads as "no notifications" rather than a
+  // blank list.
+  const visible = items
+    .map(n => ({ n, rendered: describe(n) }))
+    .filter((row): row is { n: Notification; rendered: RenderedNotification } => row.rendered !== null);
+
+  if (visible.length === 0) {
     return (
       <Card style={COMMON_STYLES.emptyState}>
         <Ionicons name={ICONS.noNotifs} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
@@ -97,13 +113,13 @@ export function NotificationsTab() {
 
   return (
     <View style={styles.list}>
-      {items.map(n => (
+      {visible.map(({ n, rendered }) => (
         <View key={n.id} style={styles.row}>
           <View style={styles.icon}>
-            <Ionicons name={iconFor(n)} size={22} color={COLORS.brand} />
+            <Ionicons name={rendered.icon} size={22} color={COLORS.brand} />
           </View>
           <View style={styles.info}>
-            <Text style={styles.message}>{renderText(n)}</Text>
+            <Text style={styles.message}>{rendered.text}</Text>
             <Text style={styles.when}>{formatWhen(n.createdAt)}</Text>
           </View>
           {n.readAt === null ? <View style={styles.unreadDot} /> : null}

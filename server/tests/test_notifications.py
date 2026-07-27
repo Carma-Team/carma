@@ -251,6 +251,77 @@ async def test_re_following_the_same_private_account_does_not_pile_up_requests(d
 
 
 @pytest.mark.asyncio
+async def test_follow_unfollow_cycles_cannot_stack_requests(db_session: AsyncSession) -> None:
+    """The unfollow deletes the edge, so without a guard each cycle stages a fresh row.
+
+    This is the abuse path that matters: it targets precisely the accounts that
+    went private to avoid unwanted contact, and nothing else bounds it.
+    """
+    follower = await _make_user(db_session)
+    followee = await _make_user(db_session)
+    followee.is_private = True
+    await db_session.commit()
+
+    try:
+        for _ in range(5):
+            await leaderboard_service.follow(db_session, follower, followee.id)
+            await leaderboard_service.unfollow(db_session, follower, followee.id)
+
+        # Unfollow clears the stale row, so the inbox is empty rather than holding five.
+        assert await _notifications_of(db_session, followee) == []
+
+        # And a final follow leaves exactly one.
+        await leaderboard_service.follow(db_session, follower, followee.id)
+        assert len(await _notifications_of(db_session, followee)) == 1
+    finally:
+        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
+        await _cleanup(db_session, follower, followee)
+
+
+@pytest.mark.asyncio
+async def test_rejecting_clears_the_stale_request_notification(db_session: AsyncSession) -> None:
+    follower = await _make_user(db_session)
+    followee = await _make_user(db_session)
+    followee.is_private = True
+    await db_session.commit()
+
+    try:
+        await leaderboard_service.follow(db_session, follower, followee.id)
+        assert len(await _notifications_of(db_session, followee)) == 1
+
+        await leaderboard_service.reject_request(db_session, followee, follower.id)
+
+        # The request is gone, so a notification pointing at it would send the
+        # user to a tab that no longer lists it.
+        assert await _notifications_of(db_session, followee) == []
+    finally:
+        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
+        await _cleanup(db_session, follower, followee)
+
+
+@pytest.mark.asyncio
+async def test_a_second_requester_still_gets_through(db_session: AsyncSession) -> None:
+    """The guard is per-actor — it must not suppress a different user's request."""
+    first = await _make_user(db_session)
+    second = await _make_user(db_session)
+    followee = await _make_user(db_session)
+    followee.is_private = True
+    await db_session.commit()
+
+    try:
+        await leaderboard_service.follow(db_session, first, followee.id)
+        await leaderboard_service.follow(db_session, second, followee.id)
+
+        actors = {r.payload["userId"] for r in await _notifications_of(db_session, followee)}
+        assert actors == {first.id, second.id}
+    finally:
+        await db_session.execute(
+            delete(UserFriend).where(UserFriend.follower_id.in_([first.id, second.id, followee.id]))
+        )
+        await _cleanup(db_session, first, second, followee)
+
+
+@pytest.mark.asyncio
 async def test_following_a_public_account_notifies_nobody(db_session: AsyncSession) -> None:
     follower = await _make_user(db_session)
     followee = await _make_user(db_session)  # is_private defaults to False

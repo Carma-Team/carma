@@ -148,10 +148,15 @@ async def follow(db: AsyncSession, current: User, target_id: str) -> FollowStatu
         edge.status = new_status
     else:
         db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=new_status))
-    if new_status == FriendStatus.PENDING:
-        # Only a private account gets asked — a public follow is already done and
-        # there is nothing to act on. Staged on this transaction so the IntegrityError
-        # rollback below discards the notification along with the edge.
+    # Only a private account gets asked — a public follow is already done and there
+    # is nothing to act on. The unread guard bounds follow → unfollow → follow: the
+    # edge is gone each time round, so without it every cycle would stack another
+    # row on exactly the users who went private to avoid unwanted contact.
+    # Staged on this transaction so the IntegrityError rollback below discards the
+    # notification along with the edge.
+    if new_status == FriendStatus.PENDING and not await notifications.has_unread_from(
+        db, target_id, NOTIFICATION_FOLLOW_REQUESTED, current.id
+    ):
         notifications.create(
             db,
             target_id,
@@ -173,6 +178,9 @@ async def unfollow(db: AsyncSession, current: User, target_id: str) -> FollowSta
     edge = await _edge(db, current.id, target_id)
     if edge and edge.status != FriendStatus.BLOCKED:
         await db.delete(edge)
+        # The request this announced no longer exists, so leaving the row would
+        # send the followee to a FriendRequestsTab that no longer lists it.
+        await notifications.delete_from_actor(db, target_id, NOTIFICATION_FOLLOW_REQUESTED, current.id)
         await db.commit()
     return FollowStatusOut(status="none")
 
@@ -236,6 +244,10 @@ async def reject_request(db: AsyncSession, current: User, follower_id: str) -> F
     edge = await _edge(db, follower_id, current.id)
     if edge and edge.status == FriendStatus.PENDING:
         await db.delete(edge)
+        # Same staleness as unfollow: the request is gone, so its notification
+        # would point at a row FriendRequestsTab no longer shows. Rejecting stays
+        # silent toward the follower — only the stale row is cleared.
+        await notifications.delete_from_actor(db, current.id, NOTIFICATION_FOLLOW_REQUESTED, follower_id)
         await db.commit()
     return FollowStatusOut(status="none")
 
