@@ -676,6 +676,7 @@ ContainerAppConsoleLogs_CL
 - **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
 - **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
 - **Friendships:** spec doesn't define a friends table. We use `user_friends` — one row per mutual friendship, requester → recipient, with a `pending`/`accepted`/`blocked` status.
+- **Automatic drive-mode (BT auto start/stop) is currently admin-gated:** the mechanism (`User.drive_mode_enabled` + `bluetooth_device_id`/`bluetooth_device_name`, written via `PATCH /api/users/me`) exists end-to-end, but automatic end-trip on BT disconnect is still being stabilized. Until it's verified reliable, enabling it from the mobile Settings screen is restricted to `role=ADMIN` accounts — everyone else sees an apology message and the feature stays off. Manual and automatic start/end both work regardless of role; only the BT-triggered path is gated. See issue #7.
 
 ---
 

@@ -9,11 +9,14 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+import { isAdmin } from '@/lib/utils';
+import { userApi } from '@/services/api/user.api';
 
 /**
  * Settings screen.
  * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * All actions here are local (AsyncStorage / AppContext) — no server calls.
+ * Drive mode changes are persisted via PATCH /api/users/me; everything else here is local
+ * (AsyncStorage / AppContext).
  */
 export default function SettingsScreen() {
   const router = useRouter();
@@ -22,6 +25,39 @@ export default function SettingsScreen() {
   const { t, lang, setLang } = useTranslation();
 
   if (!user) return null;
+
+  /**
+   * Drive mode toggle button. Disabling is always allowed and persists immediately.
+   * Enabling always shows the "feature not fully working yet" apology first — for
+   * non-admins the message is the end of the road (feature stays off); admins get
+   * routed into the Bluetooth picker after acknowledging it, so the mechanism can
+   * keep being tested while it's still unreliable for real drivers.
+   */
+  const handleDriveModeToggle = () => {
+    if (user.driveModeEnabled) {
+      setUser({ ...user, driveModeEnabled: false });
+      userApi.updateProfile({ driveModeEnabled: false }).catch(e =>
+        console.error('[SettingsScreen] Failed to persist drive mode disable', e)
+      );
+      return;
+    }
+
+    Alert.alert(
+      t('profile.driveModeUnavailableTitle'),
+      t('profile.driveModeUnavailableMessage'),
+      [
+        {
+          text: t('common.confirm'),
+          onPress: () => {
+            if (isAdmin(user)) {
+              router.push({ pathname: '/(home)/bluetooth-settings', params: { activating: '1' } });
+            }
+          },
+        },
+      ],
+      { cancelable: false }
+    );
+  };
 
   /**
    * Shows a confirmation dialog then logs out.
@@ -101,7 +137,7 @@ export default function SettingsScreen() {
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
-                  onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
+                  onPress={handleDriveModeToggle}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
                 </Button>

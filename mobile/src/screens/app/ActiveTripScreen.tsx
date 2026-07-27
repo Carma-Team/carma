@@ -6,6 +6,8 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { ActiveTripMonitor } from '@/components/driving/ActiveTripMonitor';
 import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
+import { useDriveMode } from '@/hooks/useDriveMode';
+import { isAdmin } from '@/lib/utils';
 
 /**
  * Active trip screen.
@@ -16,9 +18,10 @@ export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
   const { tripState, endTrip, user, debugAddDistance } = useApp();
   const { t } = useTranslation();
+  const { driveModeEnabled } = useDriveMode();
 
   // Debug distance button is shown only to admin users
-  const showDebug = user?.role === 'admin';
+  const showDebug = isAdmin(user);
 
   /**
    * Shows a confirmation dialog before ending the trip.
@@ -61,6 +64,7 @@ export default function ActiveTripScreen() {
         <ActiveTripMonitor
           tripState={tripState}
           onEnd={handleEndTrip}
+          showEndButton={!driveModeEnabled}
           showDebug={showDebug}
           onDebugAddDistance={debugAddDistance}
         />

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
+import { isBusiness } from '@/lib/utils';
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 
@@ -45,7 +46,7 @@ export default function LoginScreen() {
       const data = await authApi.login(email, password);
       await loginUser(data);
 
-      if (data.user.role === 'business') router.replace('/(business)');
+      if (isBusiness(data.user)) router.replace('/(business)');
       else router.replace('/(tabs)');
     } catch (e: any) {
       setError(e.message || t('auth.errors.invalidCredentials'));

@@ -21,11 +21,12 @@ interface ActiveTripMonitorProps {
     };
   };
   onEnd: () => void;
+  showEndButton?: boolean;
   showDebug?: boolean;
   onDebugAddDistance?: (km: number) => void;
 }
 
-export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDistance }: ActiveTripMonitorProps) {
+export function ActiveTripMonitor({ tripState, onEnd, showEndButton = true, showDebug, onDebugAddDistance }: ActiveTripMonitorProps) {
   const { t } = useTranslation();
 
   const events = [
@@ -69,16 +70,18 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
         ))}
       </View>
 
-      {/* Main Action - End Trip */}
-      <Button
-        variant="danger"
-        fullWidth
-        size="xl"
-        onPress={onEnd}
-        style={styles.inlineEndBtn}
-      >
-        {t('trip.endBtn')}
-      </Button>
+      {/* Main Action - End Trip. Hidden in drive mode: the trip ends automatically on BT disconnect. */}
+      {showEndButton && (
+        <Button
+          variant="danger"
+          fullWidth
+          size="xl"
+          onPress={onEnd}
+          style={styles.inlineEndBtn}
+        >
+          {t('trip.endBtn')}
+        </Button>
+      )}
 
       {/* Admin Debug Tools */}
       {showDebug && onDebugAddDistance && (

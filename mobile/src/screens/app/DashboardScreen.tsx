@@ -9,6 +9,7 @@ import { TripSummaryModal } from '@/components/driving/TripSummaryModal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { RecentTripsSection } from '@/components/dashboard/RecentTripsSection';
 import { useApp } from '@/context/AppContext';
+import { useDriveMode } from '@/hooks/useDriveMode';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
@@ -19,6 +20,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
+  const { driveModeEnabled } = useDriveMode();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
 
@@ -93,15 +95,17 @@ export default function DashboardScreen() {
           ]}
         />
 
-        {/* Start Trip Action */}
-        <Button
-          fullWidth
-          size="xl"
-          onPress={startTrip}
-          style={styles.ctaBtn}
-        >
-          {t('dashboard.startTrip')}
-        </Button>
+        {/* Start Trip Action. Hidden in drive mode: the trip starts automatically on BT connect. */}
+        {!driveModeEnabled && (
+          <Button
+            fullWidth
+            size="xl"
+            onPress={startTrip}
+            style={styles.ctaBtn}
+          >
+            {t('dashboard.startTrip')}
+          </Button>
+        )}
 
         {/* Recent History List */}
         <RecentTripsSection trips={recentTrips} />

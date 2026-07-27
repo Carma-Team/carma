@@ -581,17 +581,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async function loadInitialData() {
       const serverOnline = await pingServer();
       try {
-        const [l, u, t, btId, token, levelsRes] = await Promise.all([
+        const [l, u, t, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
           AsyncStorage.getItem('carma_trips'),
-          AsyncStorage.getItem('carma_bt_device_id'),
           AsyncStorage.getItem('carma_token'),
           levelsApi.list().catch(() => null),
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
         if (l === 'he' || l === 'en') setLangState(l as Language)
-        if (btId) sdk.updateTargetDevice(btId)
+        // BT target device is driven by useDriveMode() reacting to user.bluetoothDeviceId — not read here.
 
         if (!serverOnline) {
           const tr = l === 'en' ? en : he;
