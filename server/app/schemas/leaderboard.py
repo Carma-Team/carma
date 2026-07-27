@@ -32,3 +32,15 @@ class LeaderboardOut(CamelModel):
     entries: list[LeaderboardEntry]
     current_user_id: str
     my_rank: int | None = None
+
+
+class LocationsOut(CamelModel):
+    """Filter options for the leaderboard's city picker.
+
+    Shaped as countries + cities-per-country because the client was written
+    against a mock server that had both. CARMA operates in one country, so
+    `countries` is a single fixed entry — see leaderboard.COUNTRY.
+    """
+
+    countries: list[str]
+    cities_by_country: dict[str, list[str]]
