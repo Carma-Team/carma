@@ -23,6 +23,7 @@ from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
 from app.routers import (
     auth,
+    business,
     fraud,
     friends,
     health,
@@ -90,6 +91,7 @@ app.include_router(trips.router)
 app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
+app.include_router(business.router)
 app.include_router(leaderboard.router)
 app.include_router(friends.router)
 app.include_router(invites.router)

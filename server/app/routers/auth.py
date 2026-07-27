@@ -14,6 +14,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserOut
 from app.services import auth as auth_service
+from app.services import users as users_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -38,8 +39,8 @@ async def login(dto: LoginIn, db: DbSession) -> AuthOut:
 
 
 @router.get("/me", response_model=UserOut, response_model_by_alias=True, summary="Get the authenticated user profile")
-async def me(user: CurrentUser) -> UserOut:
-    return UserOut.model_validate(user)
+async def me(user: CurrentUser, db: DbSession) -> UserOut:
+    return await users_service.profile_out(db, user)
 
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────

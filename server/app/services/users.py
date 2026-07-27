@@ -9,10 +9,32 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
-from app.models import Trip, TripStatus, User, UserRole
+from app.models import Business, Trip, TripStatus, User, UserRole
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
-from app.schemas.user import ContactMatchOut, MatchContactsOut, UpdateLocationIn, UpdateProfileIn
+from app.schemas.user import (
+    ContactMatchOut,
+    MatchContactsOut,
+    UpdateLocationIn,
+    UpdateProfileIn,
+    UserOut,
+)
 from app.services import friends
+
+
+async def profile_out(db: AsyncSession, user: User) -> UserOut:
+    """UserOut plus the business fields, which only a BUSINESS account has.
+
+    Looked up on demand rather than eager-loaded in `current_user`: this costs one
+    indexed query on the handful of business requests instead of a join on every
+    authenticated request in the app.
+    """
+    out = UserOut.model_validate(user)
+    if user.role == UserRole.BUSINESS:
+        business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
+        if business is not None:
+            out.business_id = business.id
+            out.business_category = business.category.value.lower()
+    return out
 
 
 async def update_profile(db: AsyncSession, user: User, dto: UpdateProfileIn) -> User:
