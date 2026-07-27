@@ -25,6 +25,7 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
+import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
@@ -453,6 +454,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (prev.isActive) return prev;
         return { ...INITIAL_TRIP_STATE, isActive: true, startTime: new Date(), sessionId: tripId };
       });
+      // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
+      maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
     };
 
     sdk.onUpdate = (data: TripData) => {
@@ -474,7 +477,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         processEndTrip();
       }
     };
-  }, [sdk, processEndTrip]);
+  }, [sdk, processEndTrip, lang]);
 
   // ─── CARMA Scoring Event Listeners ───────────────────────────────────────────
   // Register conditional listeners on the generic DrivingSDK.

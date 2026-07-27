@@ -60,6 +60,10 @@ const he = {
     addDistanceSmall: '+100 מטר',
     btConnected: 'מחובר — נסיעה החלה',
     defaultDeviceName: 'הרכב',
+    batteryOptimizationTitle: 'שיפור דיוק מעקב הנסיעה',
+    batteryOptimizationMessage: 'חלק ממכשירי האנדרואיד מגבילים עדכוני מיקום ברקע כדי לחסוך בסוללה, מה שעלול לפגוע בדיוק מעקב הנסיעות של CARMA. לתוצאה הטובה ביותר, אפשרו ל-CARMA לפעול ללא הגבלות סוללה בהגדרות הטלפון.',
+    batteryOptimizationNotNow: 'לא עכשיו',
+    batteryOptimizationOpenSettings: 'פתיחת הגדרות',
   },
   rewards: {
     iconLabel: 'בחר אייקון',

@@ -60,6 +60,10 @@ const en: TranslationMap = {
     addDistanceSmall: '+100 m',
     btConnected: 'connected — trip started',
     defaultDeviceName: 'Vehicle',
+    batteryOptimizationTitle: 'Improve trip tracking accuracy',
+    batteryOptimizationMessage: "Some Android phones limit location updates in the background to save battery, which can make CARMA's trip tracking less accurate. For best results, allow CARMA to run without battery restrictions in your phone's settings.",
+    batteryOptimizationNotNow: 'Not now',
+    batteryOptimizationOpenSettings: 'Open settings',
   },
   rewards: {
     iconLabel: 'Choose icon',
