@@ -39,6 +39,7 @@ class Notification(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Covers the only read path: this user's rows, newest first. No DESC needed —
-    # Postgres scans a btree index backwards for the reversed ORDER BY.
-    __table_args__ = (Index("ix_notifications_user_created", "user_id", "created_at"),)
+    # Covers the only read path: this user's rows, newest first, including the id
+    # tiebreaker the list query sorts on. No DESC needed — Postgres scans a btree
+    # index backwards for the reversed ORDER BY.
+    __table_args__ = (Index("ix_notifications_user_created", "user_id", "created_at", "id"),)

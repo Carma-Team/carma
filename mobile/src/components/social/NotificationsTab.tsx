@@ -55,13 +55,26 @@ function useDescribeNotification() {
   );
 }
 
-function formatWhen(iso: string): string {
+/** Formats the timestamp in the app's language, not the device's.
+ *
+ *  Today's notifications show a time — without it everything from today
+ *  collapsed onto one indistinguishable date. Older ones keep the date. */
+function formatWhen(iso: string, lang: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+  if (Number.isNaN(d.getTime())) return '';
+
+  const locale = lang === 'he' ? 'he-IL' : 'en-US';
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+
+  return isToday
+    ? d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString(locale);
 }
 
 export function NotificationsTab() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const describe = useDescribeNotification();
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +133,7 @@ export function NotificationsTab() {
           </View>
           <View style={styles.info}>
             <Text style={styles.message}>{rendered.text}</Text>
-            <Text style={styles.when}>{formatWhen(n.createdAt)}</Text>
+            <Text style={styles.when}>{formatWhen(n.createdAt, lang)}</Text>
           </View>
           {n.readAt === null ? <View style={styles.unreadDot} /> : null}
         </View>

@@ -31,7 +31,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_notifications_user_created", "notifications", ["user_id", "created_at"])
+    # id trails created_at because the list query orders by both — created_at
+    # alone leaves the tiebreaker to a sort step.
+    op.create_index("ix_notifications_user_created", "notifications", ["user_id", "created_at", "id"])
 
 
 def downgrade() -> None:
