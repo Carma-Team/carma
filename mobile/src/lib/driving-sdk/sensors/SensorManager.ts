@@ -93,6 +93,7 @@ export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;
   private lastLocation: any = null;
+  private lastValidSpeedMs = 0; // carries forward across expo's -1 "unavailable" ticks
   private isRunning = false;
   private accelAvailable = false;
   private thresholds: MotionThresholds;
@@ -146,6 +147,7 @@ export class SensorManager {
     if (this.isRunning) return;
     this.isRunning = true;
     this.gravity = { x: 0, y: 0, z: 1 };
+    this.lastValidSpeedMs = 0;
     this.latestAccelX = 0;
     this.latestGyroZ  = 0;
     this.motionPrevMs = 0;
@@ -180,13 +182,14 @@ export class SensorManager {
         // are hints, not guarantees; Android's FusedLocationProviderClient can defer
         // updates under battery-saver/Doze or aggressive OEM power management, and a
         // foreground service raises priority but doesn't fully override it.
-        // BestForNavigation raises request priority further, at a real battery cost —
-        // accepted here since it only runs for the duration of an active trip. Not a
-        // full fix on every device: some OEMs (Xiaomi/Huawei/Samsung, etc.) throttle
-        // background location regardless of requested accuracy unless the user
-        // manually exempts the app from battery optimization in device settings.
+        // Tried raising accuracy to BestForNavigation to push cadence further, but on
+        // Android expo-location's mapAccuracyToPriority maps both High and
+        // BestForNavigation to the same PRIORITY_HIGH_ACCURACY, and the caller-supplied
+        // timeInterval/distanceInterval still override the accuracy-derived defaults —
+        // so it's a no-op there and only costs battery on iOS, where it is a distinct,
+        // higher-power tier. Staying on High; #17 remains open, not fixed by this tier.
         await Location.startLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK, {
-          accuracy: Location.Accuracy.BestForNavigation,
+          accuracy: Location.Accuracy.High,
           timeInterval: 2000,
           distanceInterval: 5,
           pausesUpdatesAutomatically: false,
@@ -257,10 +260,16 @@ export class SensorManager {
       timeDeltaS = Math.max(0.5, (loc.timestamp - this.lastLocation.timestamp) / 1000);
       // this.detectSwerve(loc);  // EVT_SWERVE disabled — uncomment to re-enable
     }
+    // expo returns -1 (not 0) for "speed unavailable" — e.g. a momentary loss of
+    // speed lock at highway speed. Clamping that to 0 reads as a real deceleration
+    // to zero, so hold the last known-good speed instead of reporting a phantom 0.
+    const rawSpeed = loc.coords.speed;
+    if (rawSpeed !== null && rawSpeed >= 0) this.lastValidSpeedMs = rawSpeed;
+
     this.lastLocation = loc;
     this.onUpdate({
       distanceKm:   distance,
-      currentSpeed: Math.max(0, loc.coords.speed ?? 0) * 3.6,
+      currentSpeed: this.lastValidSpeedMs * 3.6,
       timeDeltaS,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
@@ -268,17 +277,21 @@ export class SensorManager {
       lng:          loc.coords.longitude,
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
-    this.detectMotionEvents(loc);
+    this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
   }
 
   /**
    * GPS-triggered brake / accel / turn detection, cross-confirmed by the IMU.
    * Evaluated over a stable ≥ MOTION_EVAL_MIN_S window to avoid Doppler-jitter noise.
    */
-  private detectMotionEvents(loc: Location.LocationObject) {
+  private detectMotionEvents(loc: Location.LocationObject, speedMs: number | null) {
     const now       = loc.timestamp;
-    const speedMs   = Math.max(0, loc.coords.speed ?? 0);
     const headingDeg = loc.coords.heading ?? -1; // expo returns -1 when unavailable
+
+    // Speed unavailable this tick (expo sentinel, see handleLocation) — skip the
+    // window rather than treating it as 0, which would read as a fake hard brake
+    // followed by a fake aggressive accel once GPS speed lock recovers.
+    if (speedMs === null) return;
 
     // First fix in this trip — just seed the window.
     if (this.motionPrevMs === 0) {
