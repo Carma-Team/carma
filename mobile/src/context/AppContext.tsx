@@ -19,7 +19,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { InteractionManager, AppState, I18nManager } from 'react-native'
+import { AppState, I18nManager } from 'react-native'
 import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
@@ -53,7 +53,6 @@ export interface TripState {
     AGGRESSIVE_ACCEL: number;
     SHARP_TURN: number;
     SWERVE: number;
-    PHONE_TOUCH: number; // UI display only — not used for scoring
   };
 }
 
@@ -66,7 +65,7 @@ const INITIAL_TRIP_STATE: TripState = {
   currentSpeedKmH: 0,
   touchEpochs: 0,
   screenInteractionSeconds: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0, PHONE_TOUCH: 0 },
+  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 },
 };
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
@@ -236,7 +235,6 @@ interface AppContextValue {
   lastTripSummary: any | null
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
-  registerPhoneTouch: () => void
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
@@ -269,8 +267,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
   const lastTripDataRef = useRef<TripData | null>(null);
 
-  const lastTouchTimeRef = useRef(0);
-
   const addToast = useCallback((t: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { ...t, id }])
@@ -278,22 +274,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
-
-  const registerPhoneTouch = useCallback(() => {
-    const now = Date.now();
-    if (tripRef.current.isActive && now - lastTouchTimeRef.current > 1000) {
-      lastTouchTimeRef.current = now;
-      InteractionManager.runAfterInteractions(() => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: {
-            ...prev.eventCounts,
-            PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1
-          }
-        }));
-      });
-    }
-  }, []);
 
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
@@ -507,14 +487,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       //     eventCounts: { ...prev.eventCounts, SWERVE: prev.eventCounts.SWERVE + 1 },
       //   }));
       // }),
-      // Fires when the user leaves the app (Home button / task switcher) during a trip.
-      // No condition guard needed — any background transition while driving counts.
-      sdk.on(DrivingEventType.PHONE_USAGE, {}, () => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: { ...prev.eventCounts, PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1 },
-        }));
-      }),
+      // PHONE_USAGE has no listener here — "phone touches" for scoring/display comes
+      // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
+      // event count. See #43.
     ];
     return () => tokens.forEach(token => sdk.off(token));
   }, [sdk]);
@@ -711,7 +686,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
-      lastTripSummary, setLastTripSummary, registerPhoneTouch,
+      lastTripSummary, setLastTripSummary,
       debugAddDistance,
       clearTripHistory,
       sdk,
