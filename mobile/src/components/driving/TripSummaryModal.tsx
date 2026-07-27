@@ -24,6 +24,7 @@ interface TripSummaryModalProps {
     durationSeconds?: number;
     points: number;
     eventCounts?: Record<string, number>;
+    touchEpochs?: number;
     isTooShort?: boolean;
     routeWaypoints?: RouteWaypoint[];
     tripEvents?: DrivingEvent[];
@@ -90,7 +91,7 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                     <EventRow icon={ICONS.aggressiveAccel} label={t('trip.aggressiveAccels')} count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0} />
                     <EventRow icon={ICONS.sharpTurn}  label={t('trip.sharpTurns')}   count={trip.eventCounts?.SHARP_TURN || 0} />
                     {/* <EventRow icon={ICONS.swerve} label={t('trip.swerve')} count={trip.eventCounts?.SWERVE || 0} /> */}{/* EVT_SWERVE disabled */}
-                    <EventRow icon={ICONS.phoneUsage} label={t('trip.phoneTouches')} count={trip.eventCounts?.PHONE_TOUCH || 0} />
+                    <EventRow icon={ICONS.phoneUsage} label={t('trip.phoneTouches')} count={trip.touchEpochs || 0} />
                   </View>
 
                   {/* Route + bad-event markers on the map (route shown when GPS waypoints exist) */}
