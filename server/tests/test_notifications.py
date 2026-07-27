@@ -181,6 +181,40 @@ async def test_mark_all_read_counts_only_the_unread(db_session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_mark_all_read_is_not_scoped_to_the_returned_page(db_session: AsyncSession) -> None:
+    """The client derives its unread indicator from one page, so this is what makes that safe.
+
+    read-all sweeps every row, not just the MAX_LIMIT the list returns. If it were
+    page-scoped, rows past the first page could stay unread out of sight forever.
+
+    Note this proves the endpoint, not an invariant: `POST /{id}/read` also exists,
+    so a caller marking individual rows could leave an older one unread beyond the
+    page. No caller does that today — the tab only ever calls read-all — but a
+    numeric unread badge would need a real COUNT rather than the page.
+    """
+    user = await _make_user(db_session)
+    total = svc.MAX_LIMIT + 5
+    try:
+        for _ in range(total):
+            svc.create(db_session, user.id, NOTIFICATION_LEVEL_UP, {"level": 2, "previousLevel": 1})
+        await db_session.commit()
+
+        # The page genuinely cannot show them all — otherwise the test proves nothing.
+        assert len(await svc.list_for_user(db_session, user.id)) == svc.MAX_LIMIT
+
+        assert await svc.mark_all_read(db_session, user.id) == total
+
+        remaining_unread = await db_session.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == user.id, Notification.read_at.is_(None))
+        )
+        assert remaining_unread == 0, "rows beyond the first page must also be marked read"
+    finally:
+        await _cleanup(db_session, user)
+
+
+@pytest.mark.asyncio
 async def test_accepting_a_follow_request_notifies_the_follower(db_session: AsyncSession) -> None:
     follower = await _make_user(db_session)
     followee = await _make_user(db_session)
