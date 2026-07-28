@@ -141,14 +141,24 @@ async def test_a_correct_code_still_logs_you_in(db_session: AsyncSession, db_api
         await _cleanup(db_session, phone)
 
 
-async def test_the_password_door_was_already_generic() -> None:
-    # `login_with_password` answers "Invalid email or password" for both an
-    # unknown address and a wrong password. Pinned so a future edit that splits
-    # them into helpful messages fails here instead of in production.
-    import inspect
+async def test_the_password_door_answers_the_same_either_way(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    # An unknown address and a wrong password must be indistinguishable, or the
+    # endpoint is a directory of who has an account. Checked through the API
+    # rather than by reading the source, so it holds however the code is spelled.
+    email = f"generic-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        wrong_password = await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+        no_such_user = await db_api_client.post(
+            "/api/auth/login", json={"email": f"nobody-{uuid.uuid4().hex[:8]}@carmatest.com", "password": "wrongpass"}
+        )
 
-    source = inspect.getsource(auth_service.login_with_password)
-    assert source.count("Invalid email or password") == 2
+        assert wrong_password.status_code == no_such_user.status_code == 401
+        assert wrong_password.json()["detail"] == no_such_user.json()["detail"]
+    finally:
+        await _cleanup_email(db_session, email)
 
 
 # ─── 2. CORS ─────────────────────────────────────────────────────────────────
@@ -260,6 +270,23 @@ async def test_the_otp_route_carries_its_own_ceiling(rate_limited: None, db_api_
     assert codes[5] == 429, f"expected the sixth attempt to be refused, got {codes}"
 
 
+async def test_a_throttled_caller_is_answered_like_a_person(rate_limited: None, db_api_client: AsyncClient) -> None:
+    """SlowAPI's own reply reached the user as-is, and it is not written for one.
+
+    The mobile client renders `detail` verbatim, so the default
+    "Rate limit exceeded: 5 per 1 minute" appeared on screen — developer wording,
+    in English, in an app that is otherwise Hebrew. `Retry-After` also lets the
+    client name the wait instead of guessing at it.
+    """
+    for _ in range(6):
+        r = await db_api_client.post("/api/auth/otp/request", json={"phone": _phone()})
+
+    assert r.status_code == 429
+    assert "detail" in r.json(), "the client reads `detail`; `error` never reaches the screen"
+    assert "Rate limit exceeded" not in r.json()["detail"]
+    assert int(r.headers["retry-after"]) > 0
+
+
 async def test_login_is_not_held_to_the_sms_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
     """Login costs us nothing per attempt, and one address is not one person.
 
@@ -315,8 +342,7 @@ async def test_repeated_wrong_passwords_lock_the_account(db_session: AsyncSessio
             assert r.status_code == 401
 
         blocked = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
-        assert blocked.status_code == 403, "the right password must not open a locked account"
-        assert "locked" in blocked.json()["detail"].lower()
+        assert blocked.status_code == 401, "the right password must not open a locked account"
     finally:
         await _cleanup_email(db_session, email)
 
@@ -337,6 +363,32 @@ async def test_a_successful_login_clears_the_counter(db_session: AsyncSession, d
         assert again.status_code == 401, "the count should have restarted, not carried over into a lockout"
     finally:
         await _cleanup_email(db_session, email)
+
+
+async def test_a_locked_email_is_indistinguishable_from_an_unknown_one(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """Six requests used to be enough to tell whether an email is registered.
+
+    The lockout answered 403 while every other failure answered 401, so an
+    attacker guessed wrong five times and read the sixth reply. Both doors now
+    answer identically — the account-level lock still holds, it just stops
+    confirming that the account is there.
+    """
+    known = f"known-{uuid.uuid4().hex[:8]}@carmatest.com"
+    unknown = f"nobody-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, known, "CorrectHorse1")
+    try:
+        for _ in range(settings.otp_max_attempts):
+            await db_api_client.post("/api/auth/login", json={"email": known, "password": "wrongpass"})
+
+        locked = await db_api_client.post("/api/auth/login", json={"email": known, "password": "wrongpass"})
+        stranger = await db_api_client.post("/api/auth/login", json={"email": unknown, "password": "wrongpass"})
+
+        assert locked.status_code == stranger.status_code
+        assert locked.json()["detail"] == stranger.json()["detail"]
+    finally:
+        await _cleanup_email(db_session, known)
 
 
 # ─── 5. a locked account is no longer a way to test a phone number ───────────

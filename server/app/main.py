@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -59,8 +58,28 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
+def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Answer a throttled caller in the shape the app already understands.
+
+    SlowAPI's own handler returns `{"error": "Rate limit exceeded: 20 per 1
+    minute"}`. The mobile client reads `detail` and shows it verbatim, so that
+    string reached the user as-is — developer wording, in English, in an app
+    that is otherwise Hebrew. `Retry-After` gives the client something concrete
+    to say instead of "try again later".
+    """
+    # `exc.limit` is optional in slowapi's own typing; a minute is the shortest
+    # window we declare anywhere, so it is the honest fallback.
+    seconds = exc.limit.limit.get_expiry() if exc.limit else 60
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": "Too many attempts. Try again shortly.", "retryAfterSeconds": seconds},
+        headers={"Retry-After": str(seconds)},
+    )
+
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
 
 # Order matters: RequestId runs first (sets contextvar), then RequestLog uses it.

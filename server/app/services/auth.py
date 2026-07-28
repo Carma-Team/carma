@@ -32,15 +32,26 @@ OTP_PURPOSE = "LOGIN"
 # The caller's next move is the same in every case: ask for a new code.
 OTP_REJECTED = "Invalid or expired code — request a new one"
 
+# The same idea one door over: every way password login can fail answers alike.
+LOGIN_REJECTED = "Invalid email or password"
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
 def _assert_not_locked(user: User) -> None:
+    """Answer a locked account exactly like a wrong password.
+
+    A distinct 403 here made six requests enough to tell a registered email from
+    an unknown one: guess wrong five times, then read the reply. The lockout
+    itself is unchanged — the right password still does not open the account —
+    it just no longer announces that the account exists. The audit log keeps the
+    distinction so an operator can still see why a caller was turned away.
+    """
     if user.locked_until and user.locked_until > _now():
-        remaining = int((user.locked_until - _now()).total_seconds())
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Account locked. Try again in {remaining}s")
+        audit("auth.login.failure", user_id=user.id, reason="locked")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
 
 def _token_for(user: User) -> str:
@@ -81,7 +92,7 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
     user = await db.scalar(select(User).where(User.email == dto.email.lower()))
     if user is None or not user.password_hash:
         audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     _assert_not_locked(user)
     if not verify_password(dto.password, user.password_hash):
         audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="bad_password")
@@ -90,7 +101,7 @@ async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
         # the per-address limit in the router is the only thing standing between
         # a guesser and the account — one shared address away from nothing.
         await _record_failure(db, user)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
     user.failed_otp_count = 0
     user.last_logged_at = _now()

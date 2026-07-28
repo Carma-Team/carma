@@ -21,7 +21,12 @@ class Settings(BaseSettings):
 
     otp_length: int = 6
     otp_ttl_seconds: int = 300
-    otp_max_attempts: int = 5
+    # Failures on either door — wrong password or wrong code — before the account
+    # locks. 10 is NIST SP 800-63B's floor (§5.2.2); we were at 5, which locked
+    # real users who mistyped roughly twice as often as the standard expects. Ten
+    # tries is still nothing against a password, and 10 in a million against a
+    # 6-digit code.
+    otp_max_attempts: int = 10
     otp_lockout_seconds: int = 900
     # Codes one phone number may trigger per hour, across login and registration.
     # Every code is a billed SMS, so the destination number is the budget line.
