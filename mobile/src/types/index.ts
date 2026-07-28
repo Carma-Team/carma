@@ -213,7 +213,6 @@ export interface LevelConfig {
   nameEn: string;
   minPoints: number;
   maxPoints: number;
-  discountPct: number;
   /** What a trip's points are multiplied by at this level. Display only —
    *  the server has already applied it to the points it returns. */
   bonusMultiplier: number;

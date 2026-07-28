@@ -50,9 +50,12 @@ class TestLadderShape:
         # The old table gave 1.0 for levels 1-8 — eight rungs with no reward.
         assert all(lv.bonus_multiplier > 1.0 for lv in levels.LEVELS[1:])
 
-    def test_discounts_never_decrease(self):
-        pcts = [lv.discount_pct for lv in levels.LEVELS]
-        assert pcts == sorted(pcts)
+    def test_no_level_advertises_a_discount(self):
+        # Levels 3-10 used to promise 5%-25% off and nothing ever charged less.
+        # The perk list is the only place a driver sees what a level is worth,
+        # so it may not promise what the code does not do (#83).
+        promises = [p for lv in levels.LEVELS for p in lv.perks_he if "הנחה" in p]
+        assert promises == []
 
 
 class TestLevelForPoints:

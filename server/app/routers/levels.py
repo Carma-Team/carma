@@ -14,7 +14,6 @@ class LevelOut(CamelModel):
     name_en: str
     min_points: int
     max_points: int
-    discount_pct: int
     bonus_multiplier: float
     color: str
     icon: str
@@ -41,7 +40,6 @@ async def list_levels() -> LevelsListOut:
                 name_en=lv.name_en,
                 min_points=lv.min_points,
                 max_points=svc.max_points_for(lv.number),
-                discount_pct=lv.discount_pct,
                 bonus_multiplier=lv.bonus_multiplier,
                 color=lv.color,
                 icon=lv.icon,
