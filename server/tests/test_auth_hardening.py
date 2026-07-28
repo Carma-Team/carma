@@ -270,6 +270,23 @@ async def test_the_otp_route_carries_its_own_ceiling(rate_limited: None, db_api_
     assert codes[5] == 429, f"expected the sixth attempt to be refused, got {codes}"
 
 
+async def test_a_throttled_caller_is_answered_like_a_person(rate_limited: None, db_api_client: AsyncClient) -> None:
+    """SlowAPI's own reply reached the user as-is, and it is not written for one.
+
+    The mobile client renders `detail` verbatim, so the default
+    "Rate limit exceeded: 5 per 1 minute" appeared on screen — developer wording,
+    in English, in an app that is otherwise Hebrew. `Retry-After` also lets the
+    client name the wait instead of guessing at it.
+    """
+    for _ in range(6):
+        r = await db_api_client.post("/api/auth/otp/request", json={"phone": _phone()})
+
+    assert r.status_code == 429
+    assert "detail" in r.json(), "the client reads `detail`; `error` never reaches the screen"
+    assert "Rate limit exceeded" not in r.json()["detail"]
+    assert int(r.headers["retry-after"]) > 0
+
+
 async def test_login_is_not_held_to_the_sms_ceiling(rate_limited: None, db_api_client: AsyncClient) -> None:
     """Login costs us nothing per attempt, and one address is not one person.
 
