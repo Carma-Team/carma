@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql import ColumnElement
 
 from app.core.audit import audit
 from app.core.security import random_voucher_code
@@ -17,9 +18,27 @@ VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
 
-async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    from sqlalchemy.sql import ColumnElement
+async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
+    """Flip PENDING vouchers whose TTL has run out to EXPIRED.
 
+    Nothing runs on a timer, so the transition happens lazily on the next read of
+    the rows in question — the driver listing their vouchers, or a business
+    scanning one. `where` narrows it to those rows so a single scan never sweeps
+    the whole table.
+    """
+    await db.execute(
+        update(Redemption)
+        .where(
+            Redemption.status == RedemptionStatus.PENDING,
+            Redemption.expires_at < datetime.now(UTC),
+            *where,
+        )
+        .values(status=RedemptionStatus.EXPIRED)
+    )
+    await db.commit()
+
+
+async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
     where: list[ColumnElement[bool]] = [Reward.is_active.is_(True)]
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
@@ -88,6 +107,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
 
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:
+    # Both listing endpoints go through here, so this is the one place a driver's
+    # own stale vouchers get settled before they are shown.
+    await expire_overdue(db, Redemption.user_id == user_id)
     rows = await db.scalars(
         select(Redemption)
         .where(Redemption.user_id == user_id)

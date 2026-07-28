@@ -10,6 +10,24 @@ name: Deploy to Azure
 #   AZURE_CONTAINER_APP            - e.g. carma-api
 #   AZURE_CONTAINER_REGISTRY       - e.g. carmaregistry  (without .azurecr.io)
 #
+# Required Container App environment variables — these are what the *server*
+# needs to boot, which is a different list from the secrets above. With ENV set
+# to production, a missing one is a startup ValueError and a crash loop, by
+# design (app/config.py). Set them on the app itself, not here:
+#   ENV=production                 - turns on the production-only guards below
+#   DATABASE_URL                   - secretref, Postgres (asyncpg driver)
+#   JWT_SECRET                     - secretref, 16+ chars
+#   TRIP_SIGNING_SECRET            - secretref, 32+ chars; without it the trip
+#                                    scoring oracle is open to anyone (#24)
+#   TRUSTED_PROXY_COUNT=1          - set by this workflow, see the update step
+#   SMS_PROVIDER + TWILIO_*        - only when sending real SMS
+#
+# IMPORTANT: this workflow does not currently run — the subscription is an Azure
+# for Students account, so no service principal exists and AZURE_CREDENTIALS is
+# unset. Deployment is manual today; see SYSTEM.md §11 for the commands, and
+# note that the TRUSTED_PROXY_COUNT step below is skipped along with everything
+# else, so a manual deployer has to set it by hand.
+#
 # Trigger: pushed to main, or manually via the "Run workflow" button.
 
 on:
@@ -64,7 +82,15 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
+            # TRUSTED_PROXY_COUNT describes our own topology rather than holding a
+            # secret, so it belongs here instead of in the portal where it would be
+            # one more thing to remember. 1 = the Container Apps ingress. The server
+            # refuses to start in production without it, because the alternative is
+            # counting every request against the ingress address and rate-limiting
+            # the whole user base as one caller. `--set-env-vars` merges; the other
+            # variables set on the app are left alone.
             az containerapp update \
               --name ${{ secrets.AZURE_CONTAINER_APP }} \
               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-              --image ${{ steps.build.outputs.image }}
+              --image ${{ steps.build.outputs.image }} \
+              --set-env-vars TRUSTED_PROXY_COUNT=1

@@ -10,9 +10,9 @@
  * - `deleteReward` — delete a reward (server returns 204)
  *
  * @server
- * - GET/POST/PATCH/DELETE /api/business/rewards — not intercepted by mock interceptor.
- *   USE_REAL_SERVER=false → local server (carma-local-server, db.json)
- *   USE_REAL_SERVER=true  → real server
+ * - GET/POST/PATCH/DELETE /api/business/rewards — implemented on FastAPI
+ *   (server/app/routers/business.py). Scoped to the caller's own business;
+ *   DELETE returns 409 once any voucher has been issued for the reward.
  */
 import { request } from './client';
 
@@ -20,6 +20,7 @@ export interface BusinessReward {
   id: string;
   businessId: string;
   business: string;
+  businessHe?: string | null;
   titleHe: string;
   titleEn?: string | null;
   descriptionHe: string;

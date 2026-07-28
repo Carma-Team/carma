@@ -41,7 +41,7 @@ Both paths produce the same JWT — a client holding a token can call every API 
 **CI/CD:** Two workflows under `.github/workflows/`:
 - `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
 - `ci-mobile.yml` — tsc always; npm test gated.
-- `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
+- `deploy.yml` — gated on the Azure secret, and skipped on every run so far. The subscription is an Azure for Students account and holds no service principal, so deployment is manual — see §11.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
 
@@ -236,8 +236,8 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 
 ### Global middleware (in `app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`).
-2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour.
+1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`). Credentials are allowed only when the origins are named explicitly — a wildcard plus credentials is forbidden by the spec, so `settings.cors_allows_credentials` turns them off together.
+2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour; the auth routes tighten this to 5/min. The limiter lives in `app/core/limiter.py` so routers can import it without a cycle. A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
 3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
 
 Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.
@@ -320,7 +320,9 @@ Mobile App                                   Server                 Twilio (prod
 | OTP stored as bcrypt hash (never plaintext!) | `services/auth.py::_issue_otp` |
 | Only one active OTP per phone (older ones auto-consumed) | `UPDATE otp_codes SET consumed_at = now()` before insert |
 | 5 failed attempts → 15-minute lockout | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit on register/login/verify | `slowapi` global + extendable per-route |
+| Rate-limit on register/login/verify | `slowapi` global (30/min) + 5/min on the auth routes |
+| One phone may trigger 5 codes an hour | `services/auth.py::_assert_otp_quota` — counted from `otp_codes`, so it holds however many addresses the caller rotates through |
+| `otp/verify` never says whether a phone is registered | `services/auth.py::_rejected` — unknown number, no pending code, expired code, wrong code and locked account all answer the same 401. The audit log keeps the real reason |
 | Passwords with bcrypt salt (passlib auto) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination at Azure Container Apps ingress |
 | Full account deletion (GDPR) | `DELETE /api/users/me` — cascade on trips/redemptions |
@@ -569,7 +571,30 @@ When it runs:
 1. `azure/login@v2` with a service principal.
 2. `az acr login` to ACR.
 3. `docker build` + `docker push` of an image tagged `:${{ github.sha }}`.
-4. `az containerapp update --image` to roll out.
+4. `az containerapp update --image` to roll out, setting `TRUSTED_PROXY_COUNT=1`.
+
+> **It does not run today.** The subscription is an Azure for Students account,
+> which cannot hold the service principal the workflow logs in with, so
+> `AZURE_CREDENTIALS` is unset and every run ends `deploy=skipped`. Releases are
+> deployed by hand — see [Manual deployment](#manual-deployment) below. Anything
+> the workflow would have done, a person has to do instead.
+
+### Container App environment variables
+
+These are what the **server** needs to boot, and they are a different list from
+the GitHub secrets further down. With `ENV=production`, a missing one is a
+startup `ValueError` and a crash loop — deliberate, so a misconfigured server
+never serves traffic while looking healthy (`app/config.py`).
+
+| Variable | Required | Why it fails loudly |
+|---|---|---|
+| `ENV=production` | yes | Turns on the two guards below. Without it they never fire. |
+| `DATABASE_URL` | yes | Postgres, `asyncpg` driver. Use a secret reference. |
+| `JWT_SECRET` | yes | 16+ characters. Use a secret reference. |
+| `TRIP_SIGNING_SECRET` | yes in production | 32+ characters. Empty means the trip-scoring oracle accepts anything — see #24. |
+| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. |
+| `SMS_PROVIDER`, `TWILIO_*` | only for real SMS | Defaults to the console sender. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | optional | Silent no-op when unset. |
 
 ### Azure setup (one-time)
 
@@ -598,9 +623,59 @@ az containerapp create -n $APP -g $RG --environment carma-env \
   --target-port 3000 --ingress external \
   --registry-server $ACR.azurecr.io \
   --secrets db-url="postgresql+asyncpg://..." jwt-secret="<random>" \
+            trip-secret="<random, 32+ chars>" \
   --env-vars ENV=production DATABASE_URL=secretref:db-url \
-             JWT_SECRET=secretref:jwt-secret SMS_PROVIDER=twilio
+             JWT_SECRET=secretref:jwt-secret \
+             TRIP_SIGNING_SECRET=secretref:trip-secret \
+             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=twilio
 ```
+
+### Manual deployment
+
+**Owner: Naveh** — he deploys the server and ships the mobile app releases. Until
+a service principal exists, this is how a release actually reaches production.
+Run it from a machine logged in with `az login`.
+
+> Worth ten minutes before accepting this as permanent: a student subscription
+> uses the same access-control engine as a paid one and limits budget and
+> regions, not automation. The usual blocker is a university-managed tenant that
+> does not let students register applications. `az ad app create --display-name
+> carma-ci` answers it — if it succeeds, the whole workflow can be switched on
+> with federated credentials and no stored password.
+
+```bash
+RG=carma-rg
+ACR=carmaregistry
+APP=carma-api
+TAG=$(git rev-parse --short HEAD)
+
+az acr login -n $ACR
+docker build -t $ACR.azurecr.io/carma-server:$TAG ./server
+docker push $ACR.azurecr.io/carma-server:$TAG
+
+az containerapp update -n $APP -g $RG \
+  --image $ACR.azurecr.io/carma-server:$TAG
+```
+
+Before the first deploy that includes the rate-limiting work, and any time the
+app is recreated, set the variables that the workflow would otherwise have set:
+
+```bash
+az containerapp update -n $APP -g $RG \
+  --set-env-vars TRUSTED_PROXY_COUNT=1
+```
+
+Then confirm the server actually came up, rather than assuming it did:
+
+```bash
+az containerapp revision list -n $APP -g $RG -o table   # is the new revision healthy?
+curl -fsS https://<app-fqdn>/health                      # does it answer?
+az containerapp logs show -n $APP -g $RG --tail 50       # ValueError = a missing variable
+```
+
+A crash loop right after a deploy almost always means one of the variables in
+the table above is missing. That is the intended failure — read the log, set the
+variable, redeploy.
 
 ### GitHub secrets
 

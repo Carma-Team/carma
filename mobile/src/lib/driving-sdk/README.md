@@ -46,7 +46,7 @@ npx expo install react-native-maps
 | `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | Monitors `AppState` changes; emits `PHONE_USAGE` events while a trip is active |
+| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (`AppState` + accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---
@@ -151,7 +151,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | Accelerometer | Sudden deceleration — planar force > 0.45g |
 | `AGGRESSIVE_ACCEL` | Accelerometer | Sudden acceleration — planar force > 0.45g |
 | `SHARP_TURN` | Gyroscope | Fast rotation — magnitude > 2.0 rad/s |
-| `PHONE_USAGE` | AppState | App moved to background (Home button / app switch) while trip is active — counts as one phone-touch event |
+| `PHONE_USAGE` | AppState + IMU variance cross-confirm | App backgrounded (Home button / app switch / Siri / call / Control Center) **and** accelerometer variance indicates the phone is hand-held, not just mounted — fires once per pickup, not per background transition |
 
 ### Multiple listeners
 

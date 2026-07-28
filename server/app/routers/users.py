@@ -20,14 +20,14 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("/me", response_model=UserOut, response_model_by_alias=True, summary="Get the authenticated user profile")
-async def me(user: CurrentUser) -> UserOut:
-    return UserOut.model_validate(user)
+async def me(user: CurrentUser, db: DbSession) -> UserOut:
+    return await users_service.profile_out(db, user)
 
 
 @router.patch("/me", response_model=UserOut, response_model_by_alias=True, summary="Update profile fields")
 async def update_profile(dto: UpdateProfileIn, user: CurrentUser, db: DbSession) -> UserOut:
     updated = await users_service.update_profile(db, user, dto)
-    return UserOut.model_validate(updated)
+    return await users_service.profile_out(db, updated)
 
 
 @router.put(
