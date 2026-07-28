@@ -236,8 +236,8 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 
 ### Global middleware (in `app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`).
-2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour.
+1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`). Credentials are allowed only when the origins are named explicitly — a wildcard plus credentials is forbidden by the spec, so `settings.cors_allows_credentials` turns them off together.
+2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour; the auth routes tighten this to 5/min. The limiter lives in `app/core/limiter.py` so routers can import it without a cycle. A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
 3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
 
 Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.
@@ -320,7 +320,9 @@ Mobile App                                   Server                 Twilio (prod
 | OTP stored as bcrypt hash (never plaintext!) | `services/auth.py::_issue_otp` |
 | Only one active OTP per phone (older ones auto-consumed) | `UPDATE otp_codes SET consumed_at = now()` before insert |
 | 5 failed attempts → 15-minute lockout | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit on register/login/verify | `slowapi` global + extendable per-route |
+| Rate-limit on register/login/verify | `slowapi` global (30/min) + 5/min on the auth routes |
+| One phone may trigger 5 codes an hour | `services/auth.py::_assert_otp_quota` — counted from `otp_codes`, so it holds however many addresses the caller rotates through |
+| `otp/verify` never says whether a phone is registered | `services/auth.py::_rejected` — unknown number, no pending code, expired code, wrong code and locked account all answer the same 401. The audit log keeps the real reason |
 | Passwords with bcrypt salt (passlib auto) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination at Azure Container Apps ingress |
 | Full account deletion (GDPR) | `DELETE /api/users/me` — cascade on trips/redemptions |

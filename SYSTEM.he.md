@@ -236,8 +236,8 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 
 ### Middleware גלובלי (ב-`app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`).
-2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה.
+1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`). הרשאות נשלחות רק כשהמקורות מפורטים במפורש — התקן אוסר על שילוב של כוכבית עם הרשאות, ולכן `settings.cors_allows_credentials` מכבה אותן יחד.
+2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה; מסלולי האימות מוגבלים ל-5/דקה. ה-limiter יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
 3. **Unhandled-exception handler** — תופס כל מה שבורח מ-route ומחזיר 500 נקי עם הנתיב בלוג.
 
 האימות הוא **לא** middleware — הוא ה-`CurrentUser` dependency שמוטמע בכל route מוגן.
@@ -320,7 +320,9 @@ Mobile App                                   Server                 Twilio (prod
 | OTP מאוחסן כ-bcrypt hash (אף פעם לא בטקסט!) | `services/auth.py::_issue_otp` |
 | OTP אחד פעיל בלבד (קודמים נצרכים אוטומטית) | טרנזקציית `UPDATE otp_codes SET consumed_at = now()` |
 | 5 כשלונות → נעילה ל-15 דק' | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit על register/login/verify | `slowapi` גלובלי + ניתן להרחיב לכל route |
+| Rate-limit על register/login/verify | `slowapi` גלובלי (30/דקה) + 5/דקה על מסלולי האימות |
+| מספר טלפון יכול להזמין 5 קודים בשעה | `services/auth.py::_assert_otp_quota` — נספר מ-`otp_codes`, ולכן מחזיק גם כשהפונה מחליף כתובות |
+| ‏`otp/verify` לא מגלה אם מספר רשום | `services/auth.py::_rejected` — מספר לא מוכר, קוד שפג, קוד שגוי וחשבון נעול מחזירים את אותו 401. הסיבה האמיתית נשמרת בלוג הביקורת |
 | סיסמאות עם bcrypt salt (passlib אוטומטי) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination ב-Azure Container Apps ingress |
 | מחיקת חשבון מלאה (GDPR) | `DELETE /api/users/me` — cascade על trips/redemptions |

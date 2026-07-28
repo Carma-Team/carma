@@ -64,7 +64,15 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
+            # TRUSTED_PROXY_COUNT describes our own topology rather than holding a
+            # secret, so it belongs here instead of in the portal where it would be
+            # one more thing to remember. 1 = the Container Apps ingress. The server
+            # refuses to start in production without it, because the alternative is
+            # counting every request against the ingress address and rate-limiting
+            # the whole user base as one caller. `--set-env-vars` merges; the other
+            # variables set on the app are left alone.
             az containerapp update \
               --name ${{ secrets.AZURE_CONTAINER_APP }} \
               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-              --image ${{ steps.build.outputs.image }}
+              --image ${{ steps.build.outputs.image }} \
+              --set-env-vars TRUSTED_PROXY_COUNT=1
