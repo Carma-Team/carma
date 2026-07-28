@@ -18,7 +18,7 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import scoring_v2, telemetry
+from app.services import levels, scoring_v2, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -40,20 +40,6 @@ _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 # reading the trips.distance.capped audit rate would reject honest trips.
 _DISTANCE_TOLERANCE = 0.35  # +35% over the witnessed distance
 _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
-
-# Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
-# Listed highest-first so the CASE expression short-circuits correctly.
-_LEVEL_THRESHOLDS: list[tuple[int, int]] = [
-    (75000, 10),
-    (50000, 9),
-    (32000, 8),
-    (20000, 7),
-    (12000, 6),
-    (7000, 5),
-    (3500, 4),
-    (1500, 3),
-    (500, 2),
-]
 
 # Level demotion (#37). `total_points` is cumulative and never falls, so the
 # ladder above can only climb: a driver who earned level 8 and then started
@@ -538,6 +524,19 @@ async def save(
         gps=gps,
     )
 
+    # Level bonus (#61). Measured at the level the driver *entered* the trip at,
+    # not the one they leave with: the trip's points feed total_points, which
+    # sets the level, which would then scale the same points — circular. Entering
+    # level is also the honest reading of "you earned this at level 7".
+    #
+    # The *capped* level, so demotion (#37) has real consequence rather than
+    # being a cosmetic badge change.
+    entering_level = min(
+        levels.level_for_points(user.total_points),
+        _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
+    )
+    points_v2 *= levels.by_number(entering_level).bonus_multiplier
+
     trip = Trip(
         user_id=user.id,
         idempotency_key=idempotency_key,
@@ -582,7 +581,7 @@ async def save(
     if trip.points > 0 or trip.distance_km > 0:
         new_total = User.total_points + trip.points
         earned_level = case(
-            *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
+            *((new_total >= pts, lvl) for pts, lvl in levels.thresholds_desc()),
             else_=1,
         )
         # Demotion (#37): show the lower of what was earned and what current
@@ -599,7 +598,15 @@ async def save(
         }
         # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
         values["driver_score"] = new_driver_score
-        await db.execute(update(User).where(User.id == user.id).values(**values))
+        # RETURNING so the response can carry the level the database actually
+        # resolved, rather than the client re-deriving it from points and
+        # missing the cap (#61). Note for PR #55: that branch adds the same
+        # RETURNING for its level-up notification — one of us resolves it.
+        result = await db.execute(update(User).where(User.id == user.id).values(**values).returning(User.level))
+        level_after = result.scalar_one()
+    else:
+        # No points and no distance — the user row is untouched.
+        level_after = user.level
 
     try:
         await db.commit()
@@ -624,4 +631,4 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped)
+    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
