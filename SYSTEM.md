@@ -41,7 +41,7 @@ Both paths produce the same JWT — a client holding a token can call every API 
 **CI/CD:** Two workflows under `.github/workflows/`:
 - `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
 - `ci-mobile.yml` — tsc always; npm test gated.
-- `deploy.yml` — gated on the Azure secret, and skipped on every run so far. The subscription is an Azure for Students account and holds no service principal, so deployment is manual — see §11.
+- `deploy.yml` — builds and rolls out to Azure Container Apps, authenticating via GitHub OIDC against a managed identity. No stored password. See §11.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
 
@@ -117,7 +117,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 │   ├── workflows/
 │   │   ├── ci-server.yml             # lint always; mypy/pytest/smoke gated by label or workflow_dispatch
 │   │   ├── ci-mobile.yml             # tsc always; npm test gated by label
-│   │   └── deploy.yml                # Azure Container Apps — gated on AZURE_CREDENTIALS
+│   │   └── deploy.yml                # Azure Container Apps — OIDC, gated on AZURE_CLIENT_ID
 │   └── pull_request_template.md
 │
 ├── server/                           # Python backend (FastAPI)
@@ -564,20 +564,61 @@ Runs on every PR and push to main (tiered):
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 
-Runs on push to main or manually. **Gated** on the existence of the `AZURE_CREDENTIALS` secret — skips silently otherwise.
+Runs on push to main or manually. **Gated** on the existence of the `AZURE_CLIENT_ID` secret — skips silently otherwise.
 
 When it runs:
 
-1. `azure/login@v2` with a service principal.
+1. `azure/login@v2` via **GitHub OIDC** — no stored password (see below).
 2. `az acr login` to ACR.
 3. `docker build` + `docker push` of an image tagged `:${{ github.sha }}`.
 4. `az containerapp update --image` to roll out, setting `TRUSTED_PROXY_COUNT=1`.
+5. Prints the resulting revision and image, so the run log records what shipped.
 
-> **It does not run today.** The subscription is an Azure for Students account,
-> which cannot hold the service principal the workflow logs in with, so
-> `AZURE_CREDENTIALS` is unset and every run ends `deploy=skipped`. Releases are
-> deployed by hand — see [Manual deployment](#manual-deployment) below. Anything
-> the workflow would have done, a person has to do instead.
+### Auth: OIDC against a managed identity (not a service principal)
+
+The old note here said the deploy could not run because an Azure for Students
+subscription "cannot hold a service principal". That was the wrong diagnosis.
+The subscription was never the blocker — we are **Owner** on it. The blocker is
+MTA's *directory*: it sets `defaultUserRolePermissions.allowedToCreateApps: false`
+and our account holds no directory role, so both `az ad app create` and
+`az ad sp create-for-rbac` fail with `Insufficient privileges`.
+
+The way around it, without involving MTA IT: a **user-assigned managed identity**
+is an Azure *resource*, not a directory app registration. It is created under the
+subscription Owner role by the resource provider, and it accepts the same
+federated credentials an app registration would. Nothing is stored in GitHub but
+identifiers, and there is no secret to rotate.
+
+One-time setup, already applied:
+
+```bash
+az provider register -n Microsoft.ManagedIdentity --wait
+
+# NOTE: westeurope is rejected on this subscription — see the region trap below.
+az identity create -n carma-ci -g carma-rg -l germanywestcentral
+
+az identity federated-credential create --name github-main \
+  --identity-name carma-ci -g carma-rg \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:Carma-Team/carma:environment:production" \
+  --audiences "api://AzureADTokenExchange"
+```
+
+Plus `AcrPush` on the registry and `Contributor` on the container app — scoped to
+those two resources, not the subscription.
+
+Two things the workflow depends on and that are easy to break by accident:
+
+- `permissions: id-token: write` at the workflow level. Without it there is no OIDC token.
+- `environment: production` on the deploy job. The credential's subject is
+  `repo:Carma-Team/carma:environment:production`; drop the environment key and the
+  subject silently becomes `...:ref:refs/heads/main`, which will not match.
+
+> **Before the first deploy reaches `main`:** `TRIP_SIGNING_SECRET` is not set on
+> the live app, and with `ENV=production` the server refuses to start without it
+> (32+ chars). The app is up today only because it runs an older image built
+> before that guard existed. Provision it as a secret reference first, or the
+> first automated deploy will crash-loop. See #13.
 
 ### Container App environment variables
 
@@ -598,9 +639,15 @@ never serves traffic while looking healthy (`app/config.py`).
 
 ### Azure setup (one-time)
 
+> **Region trap.** `westeurope` is **rejected** on this subscription by the
+> "Allowed resource deployment regions" policy (`RequestDisallowedByAzure`) —
+> this is the one thing the student account genuinely does restrict. The live
+> resources are in `israelcentral` (ACR, Postgres) and `germanywestcentral`
+> (Container App), not `westeurope` as this block used to say.
+
 ```bash
 RG=carma-rg
-LOC=westeurope
+LOC=germanywestcentral    # NOT westeurope — blocked by subscription policy
 ACR=carmaregistry         # globally unique
 APP=carma-api
 DB=carma-pg
@@ -627,21 +674,24 @@ az containerapp create -n $APP -g $RG --environment carma-env \
   --env-vars ENV=production DATABASE_URL=secretref:db-url \
              JWT_SECRET=secretref:jwt-secret \
              TRIP_SIGNING_SECRET=secretref:trip-secret \
-             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=twilio
+             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=console
 ```
+
+> This block used to end `SMS_PROVIDER=twilio`, which makes the server refuse to
+> start unless `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER`
+> are all set too (`app/config.py`). The live app runs `console`. Use `twilio`
+> only when you are actually wiring Twilio, and set the three variables with it.
 
 ### Manual deployment
 
-**Owner: Naveh** — he deploys the server and ships the mobile app releases. Until
-a service principal exists, this is how a release actually reaches production.
+**Superseded by the OIDC deploy above — kept as the break-glass path.** Use it
+when the workflow itself is broken, or to roll back faster than a merge to main.
 Run it from a machine logged in with `az login`.
 
-> Worth ten minutes before accepting this as permanent: a student subscription
-> uses the same access-control engine as a paid one and limits budget and
-> regions, not automation. The usual blocker is a university-managed tenant that
-> does not let students register applications. `az ad app create --display-name
-> carma-ci` answers it — if it succeeds, the whole workflow can be switched on
-> with federated credentials and no stored password.
+> The question this section used to pose has been answered. `az ad app create`
+> fails, but not for the reason assumed: it is MTA's directory blocking app
+> registration, not the student subscription. A user-assigned managed identity
+> sidesteps it entirely, and the automated deploy is switched on. (#58)
 
 ```bash
 RG=carma-rg
@@ -679,12 +729,17 @@ variable, redeploy.
 
 ### GitHub secrets
 
+All six are set. None of them is a password — the first three are identifiers,
+useless to anyone without the federated trust, so there is nothing to rotate.
+
 | Secret | What it is |
 |---|---|
-| `AZURE_CREDENTIALS` | JSON output of `az ad sp create-for-rbac --sdk-auth` |
-| `AZURE_RESOURCE_GROUP` | e.g. `carma-rg` |
-| `AZURE_CONTAINER_APP` | e.g. `carma-api` |
-| `AZURE_CONTAINER_REGISTRY` | e.g. `carmaregistry` (without `.azurecr.io`) |
+| `AZURE_CLIENT_ID` | Client ID of the `carma-ci` managed identity. Also the gate: unset ⇒ deploy skips. |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription ID |
+| `AZURE_RESOURCE_GROUP` | `carma-rg` |
+| `AZURE_CONTAINER_APP` | `carma-api` |
+| `AZURE_CONTAINER_REGISTRY` | `carmaregistry3819` (without `.azurecr.io`) |
 
 ### Migrations in production
 
