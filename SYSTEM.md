@@ -632,8 +632,16 @@ az containerapp create -n $APP -g $RG --environment carma-env \
 
 ### Manual deployment
 
-Until a service principal exists, this is how a release actually reaches
-production. Run it from a machine logged in with `az login`.
+**Owner: Naveh** — he deploys the server and ships the mobile app releases. Until
+a service principal exists, this is how a release actually reaches production.
+Run it from a machine logged in with `az login`.
+
+> Worth ten minutes before accepting this as permanent: a student subscription
+> uses the same access-control engine as a paid one and limits budget and
+> regions, not automation. The usual blocker is a university-managed tenant that
+> does not let students register applications. `az ad app create --display-name
+> carma-ci` answers it — if it succeeds, the whole workflow can be switched on
+> with federated credentials and no stored password.
 
 ```bash
 RG=carma-rg
