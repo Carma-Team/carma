@@ -109,7 +109,9 @@ Why the rule exists: the two are connected by Linear's GitHub integration, and t
 
 That asymmetry is the whole problem, and the whole fix.
 
-**Do not bulk-close the old GitHub issues.** Status syncs both ways, so closing them there marks their Linear twins Done and wipes the board. The 42 pre-existing pairs stay open on both sides and age out naturally; the GitHub Issues *feature* is turned off so no new ones can be filed.
+**Do not bulk-close the old GitHub issues.** Status syncs both ways, so closing them there marks their Linear twins Done and wipes the board. The 42 pre-existing pairs stay open on both sides and age out naturally.
+
+**GitHub Issues stays switched on, deliberately.** Turning the feature off hides the Issues tab, and with it the ~150 `#NN` references in this codebase, 83 more in commit messages, and 15 in PR descriptions — git history cannot be edited, so those break for good. The rule above already prevents new duplicates, because the sync only auto-creates in one direction.
 
 **Linking a PR to its issue:** put the `CAR-` id in the branch name or the PR title (`ofridan/car-39-...`). Linear advances the issue on its own — no manual status updates.
 
