@@ -31,7 +31,6 @@ class LevelDef:
     bonus_multiplier: float
     color: str
     icon: str
-    perks_he: tuple[str, ...]
 
 
 # Point thresholds are the ones that were already deciding `user.level`
@@ -45,23 +44,17 @@ class LevelDef:
 # all — a ladder that pays nothing until the very top does not motivate anyone.
 # The daily points cap in scoring_v2 (§8) already bounds what this can be worth,
 # so the top multiplier is an engagement lever, not a grind risk.
-#
-# No level carries a discount. Levels 3-10 used to advertise 5%-25% off in the
-# reward shop, and nothing in the code ever charged less — the perk text was the
-# only place it existed. #83 replaces it with access: a business decides which
-# rewards need a minimum level. Until that lands a level buys a faster points
-# rate, and the perk text says only what is true.
 LEVELS: tuple[LevelDef, ...] = (
-    LevelDef(1, "מתחיל", "Beginner", 0, 1.00, "#94a3b8", "leaf-outline", ()),
-    LevelDef(2, "זהיר", "Cautious", 500, 1.02, "#22c55e", "compass-outline", ("גישה לטבלת המובילים",)),
-    LevelDef(3, "מרוכז", "Focused", 1_500, 1.04, "#16a34a", "aperture-outline", ()),
-    LevelDef(4, "מיומן", "Skilled", 3_500, 1.06, "#0d9488", "flash-outline", ("פרסים בלעדיים",)),
-    LevelDef(5, "חד", "Sharp", 7_000, 1.08, "#3b82f6", "shield-checkmark-outline", ("מכפיל נקודות x1.08",)),
-    LevelDef(6, "מומחה", "Expert", 12_000, 1.10, "#6366f1", "flame-outline", ("גישה VIP לפרסים",)),
-    LevelDef(7, "אשף", "Wizard", 20_000, 1.12, "#8b5cf6", "star-outline", ("מכפיל נקודות x1.12",)),
-    LevelDef(8, "מאסטר", "Master", 32_000, 1.15, "#f59e0b", "diamond-outline", ("תג מאסטר",)),
-    LevelDef(9, "גנרל הכביש", "Road General", 50_000, 1.18, "#ef4444", "trophy-outline", ("VIP לכל הפרסים",)),
-    LevelDef(10, "אגדה", "Legend", 75_000, 1.25, "#f97316", "ribbon-outline", ("מכפיל נקודות x1.25",)),
+    LevelDef(1, "מתחיל", "Beginner", 0, 1.00, "#94a3b8", "leaf-outline"),
+    LevelDef(2, "זהיר", "Cautious", 500, 1.02, "#22c55e", "compass-outline"),
+    LevelDef(3, "מרוכז", "Focused", 1_500, 1.04, "#16a34a", "aperture-outline"),
+    LevelDef(4, "מיומן", "Skilled", 3_500, 1.06, "#0d9488", "flash-outline"),
+    LevelDef(5, "חד", "Sharp", 7_000, 1.08, "#3b82f6", "shield-checkmark-outline"),
+    LevelDef(6, "מומחה", "Expert", 12_000, 1.10, "#6366f1", "flame-outline"),
+    LevelDef(7, "אשף", "Wizard", 20_000, 1.12, "#8b5cf6", "star-outline"),
+    LevelDef(8, "מאסטר", "Master", 32_000, 1.15, "#f59e0b", "diamond-outline"),
+    LevelDef(9, "גנרל הכביש", "Road General", 50_000, 1.18, "#ef4444", "trophy-outline"),
+    LevelDef(10, "אגדה", "Legend", 75_000, 1.25, "#f97316", "ribbon-outline"),
 )
 
 MAX_LEVEL = LEVELS[-1].number
@@ -93,3 +86,22 @@ def max_points_for(number: int) -> int:
     if number >= MAX_LEVEL:
         return 2_147_483_647
     return by_number(number + 1).min_points - 1
+
+
+def perks_for(number: int) -> tuple[str, ...]:
+    """What a level actually gives, for the roadmap screen.
+
+    Built from the ladder instead of written by hand. Levels used to carry free
+    text — "5% הנחה בחנות הפרסים", "גישה לטבלת המובילים", "תג מאסטר" — and no
+    code enforced any of it: the store always charged full price and the
+    leaderboard was never gated. A driver was being shown things that did not
+    exist.
+
+    The faster points rate is the one thing a level really changes today, so it
+    is the one thing listed. #83 adds rewards that need a minimum level; those
+    join here when they are real.
+    """
+    lv = by_number(number)
+    if lv.bonus_multiplier <= 1.0:
+        return ()
+    return (f"מכפיל נקודות x{lv.bonus_multiplier:.2f}",)

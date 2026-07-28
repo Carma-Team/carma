@@ -1,18 +1,11 @@
 /**
  * Gamification — level presentation.
  *
- * This module used to hold its own 10-level ladder with its own point
- * multipliers, and `AppContext` applied that multiplier to the server's points.
- * The result was a parallel, inflated points economy: the trip summary showed
- * one number and the next refresh from the server showed a smaller one (#29).
- * The ladder also disagreed with the server's — at 20,000 lifetime points the
- * server said level 7 and this file said level 10 (#61).
- *
- * The server now owns the ladder in full (`app/services/levels.py`, served by
- * `GET /api/levels`). Nothing here computes a level or applies a multiplier;
+ * The server owns the ladder (`app/services/levels.py`, served by
+ * `GET /api/levels`). Nothing here computes a level or applies a multiplier —
  * these are lookups into what the server sent, for display only.
  *
- * Points arrive from the server already multiplied. Never scale them again.
+ * Points arrive already multiplied. Never scale them again (#29).
  */
 
 import { LEVELS, getLevelConfig, isTopLevel } from './constants';

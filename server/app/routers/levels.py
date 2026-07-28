@@ -43,7 +43,7 @@ async def list_levels() -> LevelsListOut:
                 bonus_multiplier=lv.bonus_multiplier,
                 color=lv.color,
                 icon=lv.icon,
-                perks=list(lv.perks_he),
+                perks=list(svc.perks_for(lv.number)),
             )
             for lv in svc.LEVELS
         ]

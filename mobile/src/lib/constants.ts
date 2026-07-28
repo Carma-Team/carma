@@ -8,14 +8,14 @@ import type { LevelConfig } from '@/types'
 // different numbers. If the two ever disagree, the server is right.
 const DEFAULT_LEVELS: LevelConfig[] = [
   { level: 1,  name: 'מתחיל',      nameEn: 'Beginner',     minPoints: 0,     maxPoints: 499,    bonusMultiplier: 1.00, color: '#94a3b8', icon: 'leaf-outline',             perks: [] },
-  { level: 2,  name: 'זהיר',       nameEn: 'Cautious',     minPoints: 500,   maxPoints: 1499,   bonusMultiplier: 1.02, color: '#22c55e', icon: 'compass-outline',          perks: ['גישה לטבלת המובילים'] },
-  { level: 3,  name: 'מרוכז',      nameEn: 'Focused',      minPoints: 1500,  maxPoints: 3499,   bonusMultiplier: 1.04, color: '#16a34a', icon: 'aperture-outline',         perks: [] },
-  { level: 4,  name: 'מיומן',      nameEn: 'Skilled',      minPoints: 3500,  maxPoints: 6999,   bonusMultiplier: 1.06, color: '#0d9488', icon: 'flash-outline',            perks: ['פרסים בלעדיים'] },
+  { level: 2,  name: 'זהיר',       nameEn: 'Cautious',     minPoints: 500,   maxPoints: 1499,   bonusMultiplier: 1.02, color: '#22c55e', icon: 'compass-outline',          perks: ['מכפיל נקודות x1.02'] },
+  { level: 3,  name: 'מרוכז',      nameEn: 'Focused',      minPoints: 1500,  maxPoints: 3499,   bonusMultiplier: 1.04, color: '#16a34a', icon: 'aperture-outline',         perks: ['מכפיל נקודות x1.04'] },
+  { level: 4,  name: 'מיומן',      nameEn: 'Skilled',      minPoints: 3500,  maxPoints: 6999,   bonusMultiplier: 1.06, color: '#0d9488', icon: 'flash-outline',            perks: ['מכפיל נקודות x1.06'] },
   { level: 5,  name: 'חד',         nameEn: 'Sharp',        minPoints: 7000,  maxPoints: 11999,  bonusMultiplier: 1.08, color: '#3b82f6', icon: 'shield-checkmark-outline', perks: ['מכפיל נקודות x1.08'] },
-  { level: 6,  name: 'מומחה',      nameEn: 'Expert',       minPoints: 12000, maxPoints: 19999,  bonusMultiplier: 1.10, color: '#6366f1', icon: 'flame-outline',            perks: ['גישה VIP לפרסים'] },
+  { level: 6,  name: 'מומחה',      nameEn: 'Expert',       minPoints: 12000, maxPoints: 19999,  bonusMultiplier: 1.10, color: '#6366f1', icon: 'flame-outline',            perks: ['מכפיל נקודות x1.10'] },
   { level: 7,  name: 'אשף',        nameEn: 'Wizard',       minPoints: 20000, maxPoints: 31999,  bonusMultiplier: 1.12, color: '#8b5cf6', icon: 'star-outline',             perks: ['מכפיל נקודות x1.12'] },
-  { level: 8,  name: 'מאסטר',      nameEn: 'Master',       minPoints: 32000, maxPoints: 49999,  bonusMultiplier: 1.15, color: '#f59e0b', icon: 'diamond-outline',          perks: ['תג מאסטר'] },
-  { level: 9,  name: 'גנרל הכביש', nameEn: 'Road General', minPoints: 50000, maxPoints: 74999,  bonusMultiplier: 1.18, color: '#ef4444', icon: 'trophy-outline',           perks: ['VIP לכל הפרסים'] },
+  { level: 8,  name: 'מאסטר',      nameEn: 'Master',       minPoints: 32000, maxPoints: 49999,  bonusMultiplier: 1.15, color: '#f59e0b', icon: 'diamond-outline',          perks: ['מכפיל נקודות x1.15'] },
+  { level: 9,  name: 'גנרל הכביש', nameEn: 'Road General', minPoints: 50000, maxPoints: 74999,  bonusMultiplier: 1.18, color: '#ef4444', icon: 'trophy-outline',           perks: ['מכפיל נקודות x1.18'] },
   { level: 10, name: 'אגדה',       nameEn: 'Legend',       minPoints: 75000, maxPoints: 2147483647, bonusMultiplier: 1.25, color: '#f97316', icon: 'ribbon-outline',      perks: ['מכפיל נקודות x1.25'] },
 ]
 
