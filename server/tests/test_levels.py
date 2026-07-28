@@ -46,17 +46,30 @@ class TestLadderShape:
         assert multipliers == sorted(multipliers)
         assert multipliers[0] == 1.0, "level 1 is the baseline, not a penalty"
 
-    def test_every_level_above_the_first_pays_something(self):
-        # The old table gave 1.0 for levels 1-8 — eight rungs with no reward.
-        assert all(lv.bonus_multiplier > 1.0 for lv in levels.LEVELS[1:])
+    def test_the_reward_bands_stay_inside_the_range_that_motivates(self):
+        # Tiered-loyalty practice is 3-5 bands. Fewer stops feeling like a
+        # ladder; more turns every rung into noise.
+        bands = sorted({lv.bonus_multiplier for lv in levels.LEVELS})
+        assert 3 <= len(bands) <= 5
+
+    def test_a_step_a_driver_cannot_feel_is_not_a_step(self):
+        # The ladder used to rise 2% per level. Level 5 to 6 was worth nothing
+        # anyone would notice, so it gave nobody a reason to climb.
+        bands = sorted({lv.bonus_multiplier for lv in levels.LEVELS})
+        for lower, higher in zip(bands, bands[1:], strict=False):
+            assert higher / lower >= 1.10, f"{lower} -> {higher} is under 10%"
+
+    def test_the_top_of_the_ladder_is_worth_reaching(self):
+        assert levels.LEVELS[-1].bonus_multiplier >= 2.0
 
     def test_a_perk_line_only_appears_where_the_code_backs_it(self):
         # Levels used to promise discounts, leaderboard access and badges that
         # nothing enforced. A perk line is now built from the multiplier, so it
         # cannot claim more than the ladder actually does (#83).
         assert levels.perks_for(1) == ()
-        for lv in levels.LEVELS[1:]:
-            assert levels.perks_for(lv.number) == (f"מכפיל נקודות x{lv.bonus_multiplier:.2f}",)
+        for lv in levels.LEVELS:
+            expected = () if lv.bonus_multiplier <= 1.0 else (f"מכפיל נקודות x{lv.bonus_multiplier:.2f}",)
+            assert levels.perks_for(lv.number) == expected
 
 
 class TestLevelForPoints:

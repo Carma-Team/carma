@@ -39,22 +39,37 @@ class LevelDef:
 # against 7,000 — which only ever affected the roadmap screen, never the level
 # a driver actually held.
 #
-# Multipliers ramp at every level. The old table gave 1.0 for levels 1-8 and
-# only moved at 9 and 10, so eight of ten levels carried no economic reward at
-# all — a ladder that pays nothing until the very top does not motivate anyone.
-# The daily points cap in scoring_v2 (§8) already bounds what this can be worth,
-# so the top multiplier is an engagement lever, not a grind risk.
+# The multiplier moves on five rungs, not ten, and it moves hard when it moves.
+#
+# It used to rise 2% per level, topping out at 1.25. Two percent is below what a
+# driver can feel: climbing from level 5 to level 6 was worth nothing they would
+# notice, so the ladder gave them no reason to climb. Tiered-loyalty practice is
+# 3-5 tiers with a top multiplier of 2x-3x — the rule being that a step nobody
+# notices does not motivate. Ten rungs stay, because the progress bar is worth
+# having; the reward bands underneath are five.
+#
+# Levels 3, 5, 8 and 10 are therefore milestones and the rungs between them are
+# not. That is the intent: if every level paid more, no level would be an
+# achievement. A quiet rung still moves the driver toward the next milestone.
+#
+# The daily points cap in scoring_v2 (§8) bounds what 2x can be worth, so the
+# top of the ladder is an engagement lever rather than a grind risk.
+#
+# One caveat worth revisiting: the standard also wants the top band held by
+# 10-15% of active drivers. 75,000 points was set before a single real driver
+# existed, so the thresholds — not the multipliers — are what to recalibrate
+# once the pilot has a distribution to look at.
 LEVELS: tuple[LevelDef, ...] = (
     LevelDef(1, "מתחיל", "Beginner", 0, 1.00, "#94a3b8", "leaf-outline"),
-    LevelDef(2, "זהיר", "Cautious", 500, 1.02, "#22c55e", "compass-outline"),
-    LevelDef(3, "מרוכז", "Focused", 1_500, 1.04, "#16a34a", "aperture-outline"),
-    LevelDef(4, "מיומן", "Skilled", 3_500, 1.06, "#0d9488", "flash-outline"),
-    LevelDef(5, "חד", "Sharp", 7_000, 1.08, "#3b82f6", "shield-checkmark-outline"),
-    LevelDef(6, "מומחה", "Expert", 12_000, 1.10, "#6366f1", "flame-outline"),
-    LevelDef(7, "אשף", "Wizard", 20_000, 1.12, "#8b5cf6", "star-outline"),
-    LevelDef(8, "מאסטר", "Master", 32_000, 1.15, "#f59e0b", "diamond-outline"),
-    LevelDef(9, "גנרל הכביש", "Road General", 50_000, 1.18, "#ef4444", "trophy-outline"),
-    LevelDef(10, "אגדה", "Legend", 75_000, 1.25, "#f97316", "ribbon-outline"),
+    LevelDef(2, "זהיר", "Cautious", 500, 1.00, "#22c55e", "compass-outline"),
+    LevelDef(3, "מרוכז", "Focused", 1_500, 1.25, "#16a34a", "aperture-outline"),
+    LevelDef(4, "מיומן", "Skilled", 3_500, 1.25, "#0d9488", "flash-outline"),
+    LevelDef(5, "חד", "Sharp", 7_000, 1.50, "#3b82f6", "shield-checkmark-outline"),
+    LevelDef(6, "מומחה", "Expert", 12_000, 1.50, "#6366f1", "flame-outline"),
+    LevelDef(7, "אשף", "Wizard", 20_000, 1.50, "#8b5cf6", "star-outline"),
+    LevelDef(8, "מאסטר", "Master", 32_000, 1.75, "#f59e0b", "diamond-outline"),
+    LevelDef(9, "גנרל הכביש", "Road General", 50_000, 1.75, "#ef4444", "trophy-outline"),
+    LevelDef(10, "אגדה", "Legend", 75_000, 2.00, "#f97316", "ribbon-outline"),
 )
 
 MAX_LEVEL = LEVELS[-1].number
@@ -100,6 +115,9 @@ def perks_for(number: int) -> tuple[str, ...]:
     The faster points rate is the one thing a level really changes today, so it
     is the one thing listed. #83 adds rewards that need a minimum level; those
     join here when they are real.
+
+    A rung between two milestones returns nothing, because it gives nothing —
+    the driver still sees the level and the progress toward the next milestone.
     """
     lv = by_number(number)
     if lv.bonus_multiplier <= 1.0:
