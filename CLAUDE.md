@@ -98,6 +98,23 @@ The rule: `develop` is the buffer that protects `main`. Keep it green.
 
 ---
 
+## Issue Tracking — Linear only
+
+**Every issue lives in Linear. GitHub is for code.** Open a task in Linear, refer to it by its `CAR-` number, and never open one in GitHub Issues.
+
+Why the rule exists: the two are connected by Linear's GitHub integration, and the connection is **one-way for creation**.
+
+- Open it in **GitHub** → Linear silently creates a twin with a different number. `#83` is `CAR-49`; `#69` is `CAR-39`. Nothing maps one to the other, so the same work ends up discussed in two places under two names.
+- Open it in **Linear** → nothing is created in GitHub. No twin, no confusion.
+
+That asymmetry is the whole problem, and the whole fix.
+
+**Do not bulk-close the old GitHub issues.** Status syncs both ways, so closing them there marks their Linear twins Done and wipes the board. The 42 pre-existing pairs stay open on both sides and age out naturally; the GitHub Issues *feature* is turned off so no new ones can be filed.
+
+**Linking a PR to its issue:** put the `CAR-` id in the branch name or the PR title (`ofridan/car-39-...`). Linear advances the issue on its own — no manual status updates.
+
+---
+
 ## Engineering Rules
 
 1. **Shared Types:** Any change to API contracts or DTOs MUST be manually synchronized between `server/app/schemas/` and `mobile/src/types/index.ts`. Never let the two drift. The `gen:api` script in mobile (`openapi-typescript`) is available to automate this once the OpenAPI schema is stable — until then, sync manually. The CI (`ci-mobile.yml`) enforces this automatically on every merge to `main`.
