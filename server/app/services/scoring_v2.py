@@ -17,9 +17,9 @@ results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
   * Per-event severity (peak_g, duration_ms, speed_at_event) — needs the SDK
-    change (docs/scoring-v2-handoff.md). Until then weighted counts collapse to
-    raw counts (each event weight 1.0). `event_severity()` is implemented and
-    tested now so the downstream math is unchanged the day the SDK lands.
+    change (CAR-6). Until then weighted counts collapse to raw counts (each
+    event weight 1.0). `event_severity()` is implemented and tested now so the
+    downstream math is unchanged the day the SDK lands.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
     speeding weight is redistributed across the other components (§6.2).
 """
