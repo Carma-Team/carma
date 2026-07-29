@@ -1,376 +1,270 @@
-# CARMA Scoring Algorithm v2 — Next Generation
+# How the CARMA score works
 
-> **Status: LIVE — v2 is the sole authoritative, user-facing scoring engine.**
-> v1 ([scoring-algorithm.md](archive/scoring-algorithm.md)) is retired; only its
-> `get_risk_multiplier` time-of-day factor is still reused. Remaining SDK and UI work
-> (severity capture, driver-score UI) is tracked in
-> [scoring-v2-handoff.md](scoring-v2-handoff.md). See **§13 Implementation status**.
->
-> This document specifies the next-generation scoring engine, aligned with industry practice
-> in usage-based insurance (UBI) and smartphone telematics (Cambridge Mobile Telematics,
-> Zendrive/Credit Karma, Geotab, Samsara, Damoov).
+**Status: live.** This is the only scoring engine. Version 2.1.
+
+This document explains what a driver's score means, how it is calculated, and why each choice was made. It is written to be read once, start to finish, by anyone on the team.
+
+Where this document and the code disagree, **the code is right** — `server/app/services/scoring_v2.py`.
 
 ---
 
-## 1. Why v1 needs to evolve
+## The short version
 
-The v1 formula (`score = 100 − Σ event_count × fixed_penalty`) is simple and shippable, but has
-five structural weaknesses that every serious telematics program has already solved:
-
-| # | v1 weakness | Consequence |
-|---|---|---|
-| 1 | **Raw event counts, no exposure normalization** | A 200 km highway trip with 3 hard brakes scores *worse* than a 2 km trip with 2 — the opposite of actual risk. Industry standard is events **per 100 km**. |
-| 2 | **Binary events, no severity** | A 0.31 g brake and a 0.75 g emergency stop both cost −5. Severity (peak g, duration, speed at event) is the strongest risk signal in the data. |
-| 3 | **Linear penalty with hard clamp at 0** | After ~20 penalty points of events, additional bad behavior is free ("saturation cliff"). No gradient → no incentive to improve once you're bad. |
-| 4 | **No speeding component** | At-risk speeding is one of the top two crash predictors (with phone distraction) in CMT's claims-correlation studies. v1 ignores it entirely. |
-| 5 | **Trip score = driver score** | One bad trip whipsaws the user's profile. Industry uses recency-weighted rolling aggregation (e.g. 28-day window) plus a credibility prior for new drivers. |
-
-v2 fixes all five while keeping the parts of v1 that work: the 0–100 scale, the logarithmic
-distance factor, the Israeli-calendar risk multiplier, and the server-as-sole-oracle architecture.
+- **Every trip gets a score from 0 to 100.** Five things go into it: phone distraction, speeding, braking, acceleration, cornering.
+- **Distraction counts most**, because phone use is the single biggest cause of crashes in the industry data.
+- **We count rates, not totals.** Three hard brakes over 200 km is good driving. Three over 2 km is not. Everything is measured per 100 km, so a long trip is never punished for being long.
+- **The driver's own score is separate** and moves slowly. One bad trip fades in about two weeks. It is what the leaderboard, the levels and any future insurer see.
+- **The server decides.** The phone collects sensor data and nothing else. It never calculates a score anyone can see.
 
 ---
 
-## 2. Pipeline overview
+## How a trip becomes a score
 
 ```
- Raw telemetry (SDK)                                SERVER (sole oracle)
-┌─────────────────────┐      ┌──────────────┐     ┌──────────────────┐
-│ accel xyz @ ≥25 Hz  │      │ 1. EVENT     │     │ 4. COMPONENT     │
-│ GPS speed + posted  │ ───► │   DETECTION  │ ──► │    SUBSCORES     │
-│ limit (map-matched) │      │   + SEVERITY │     │  (exp. decay)    │
-│ screen/touch state  │      └──────────────┘     └────────┬─────────┘
-└─────────────────────┘      ┌──────────────┐              ▼
-                             │ 2. LOW-SPEED │     ┌──────────────────┐
-                             │    FILTER    │     │ 5. TRIP SCORE    │
-                             └──────────────┘     │  (weighted sum)  │
-                             ┌──────────────┐     └────────┬─────────┘
-                             │ 3. EXPOSURE  │              ▼
-                             │ NORMALIZATION│     ┌──────────────────┐
-                             │  (per 100km) │     │ 6. DRIVER SCORE  │
-                             └──────────────┘     │ (EWMA+credibility)│
-                                                  └────────┬─────────┘
-                                                           ▼
-                                                  ┌──────────────────┐
-                                                  │ 7. POINTS ENGINE │
-                                                  └──────────────────┘
+   Phone                          Server
+┌──────────────┐        ┌────────────────────────┐
+│ accelerometer│        │ 1. Throw out anything  │
+│ gyroscope    │  ───►  │    under 5 km/h        │
+│ GPS          │        │ 2. Convert to rates    │
+│ phone handling│       │    per 100 km          │
+└──────────────┘        │ 3. Rate → subscore     │
+                        │ 4. Blend the five      │
+                        │ 5. Update driver score │
+                        │ 6. Award points        │
+                        └────────────────────────┘
 ```
 
-Stages 1–2 can run on-device (inside the Driving SDK) for real-time feedback;
-stages 3–7 run **server-side only**, from raw event records. The client never
-computes an authoritative score (consistent with the v1.5 oracle decision).
+The phone can show live feedback during a drive, but that number is a preview. Only the server's number is real.
 
 ---
 
-## 3. Stage 1 — Event detection with severity tiers
+## The five things we measure
 
-### 3.1 Kinematic events
+### 1. Phone distraction — weight 0.30
 
-Instead of one binary threshold per event type, v2 uses **tiered g-force thresholds**
-(industry convention: ~0.3 g = harsh, ~0.45 g = severe, ~0.6 g+ = extreme; Geotab/Samsara
-detect a second "abrupt" tier separately):
+**The rule: how many seconds the driver was handling the phone while the car was moving faster than 15 km/h.** Reported as seconds per driving hour.
 
-| Event | Axis | Tier 1 (moderate) | Tier 2 (severe) | Tier 3 (extreme) |
-|---|---|---|---|---|
-| Hard brake | longitudinal − | 0.30–0.44 g | 0.45–0.59 g | ≥ 0.60 g |
-| Aggressive accel | longitudinal + | 0.27–0.39 g | 0.40–0.54 g | ≥ 0.55 g |
-| Sharp turn | lateral | 0.35–0.49 g | 0.50–0.64 g | ≥ 0.65 g |
+This is Cambridge Mobile Telematics' definition, copied deliberately and without changes. CMT carry 30 million drivers and over 100 billion miles, and their models are validated against real insurance claims.
 
-Each detected event is recorded with:
+**Why copy instead of invent:**
 
-```
-{ type, peak_g, duration_ms, speed_kmh_at_event, timestamp, lat, lng }
-```
+- A method built by the industry leader is far harder to argue with than one of our own.
+- CMT publish population averages. If our number is wildly different from theirs, our sensors are broken — and we find out immediately, without waiting years for claims data.
+- An insurer already reads these units.
 
-### 3.2 Continuous severity weight
+**Be careful how this is described.** Using their definition makes our numbers *comparable* to theirs. It does not make them *validated*. Their figures are validated because they matched their measurements against claims on their own book. We have no claims. Never say the CARMA score predicts crash risk.
 
-Rather than counting tiers, each event gets a continuous severity weight — this removes
-threshold-gaming ("brake at 0.29 g is free") and rewards smoothness everywhere:
+The honest sentence: *"We measure using CMT's definition, so our numbers are comparable to the industry standard. Validating against claims requires claims — that comes after the pilot."*
 
-```
-severity(e) = g_factor × duration_factor × speed_factor
+**Decided along the way:**
 
-g_factor        = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)^1.5 + 1
-                  # 1.0 at threshold → 2.0 at extreme; superlinear in g
+- **Time, not taps.** Counting taps is unanswerable — what is one tap? Typing a message is dozens. Counting seconds makes the question disappear.
+- **Holding without touching still counts.** The hand and the eyes are the danger, not the tap.
+- **Below 15 km/h is free.** A red light costs nothing, and no special rule had to be written for it.
+- **Nothing about screen lock.** Android can tell whether the screen is unlocked; iOS cannot. Using it would score the same behaviour differently on two phones, and we could not explain that to either driver.
 
-duration_factor = 1 + min(duration_ms / 2000, 0.5)
-                  # sustained events up to +50%
+### 2. Speeding — weight 0.25
 
-speed_factor    = 1 + min(speed_kmh / 120, 1) × 0.5
-                  # same maneuver at 100 km/h is worse than at 30 km/h
-```
+Measured as **time spent over the limit**, not as a count of incidents, and weighted by how far over:
 
-Per-type ranges: brakes `g_min=0.30, g_max=0.60`; accels `0.27–0.55`; turns `0.35–0.65`.
-Weighted event count per type: `W_type = Σ severity(e)`.
+| How far over the limit | Weight |
+|---|---|
+| under 10 km/h | ignored — GPS noise and traffic flow |
+| 10–19 km/h | 1 |
+| 20–29 km/h | 3 |
+| 30 km/h and above | 8 |
 
-### 3.3 Speeding (new in v2)
+**Today this runs against a flat 120 km/h national maximum**, not the actual posted limit of the road. Real posted limits need map data we do not have yet. Until then, speeding's weight is shared out across the other four (see below).
 
-Speeding is measured **contextually** against the map-matched posted limit, as
-*time-over-threshold* rather than discrete events:
+### 3, 4, 5. Braking, acceleration, cornering
 
-```
-For each GPS sample (1 Hz):
-  over = speed − posted_limit
-  band = none      if over < 10 km/h          # GPS noise / flow-of-traffic buffer
-         minor     if 10 ≤ over < 20  (w=1)
-         major     if 20 ≤ over < 30  (w=3)
-         extreme   if over ≥ 30       (w=8)
+Detected from the accelerometer, in g-force:
 
-W_speed = Σ band_weight × sample_duration_s / 60        # severity-weighted minutes
-```
-
-> **Dependency:** posted speed limits require a map-matching source (OpenStreetMap
-> `maxspeed` via on-device tiles, or a snap-to-road API). Until that lands, the speeding
-> component weight is redistributed to the other components (see §6) — the formula is
-> forward-compatible.
-
-### 3.4 Phone distraction (upgraded)
-
-v1's "touch epochs + screen ratio" stays, but each interaction is weighted by vehicle speed
-at the time — handling the phone at 90 km/h is categorically worse than at a red light:
-
-```
-For each touch epoch:
-  w = 0                    if speed < 8 km/h        # standstill / crawling — ignore
-      1 × speed_factor     otherwise
-
-W_distraction = Σ w  +  (handheld_motion_detected ? 1.5 × per_event : 0)
-```
-
-`handheld_motion_detected` (phone physically picked up while driving, from IMU pattern) is
-a CMT-style signal the SDK can add later; the formula accepts it from day one.
-
----
-
-## 4. Stage 2 — Low-speed filter
-
-All kinematic events at `speed < 5 km/h` are discarded (parking maneuvers, speed bumps,
-phone drops). This is standard practice (Geotab, Motive) and eliminates the largest source
-of false positives in smartphone telematics.
-
----
-
-## 5. Stage 3 — Exposure normalization
-
-Every weighted count is normalized to **per 100 km**, with a floor that prevents tiny trips
-from producing absurd rates (1 brake in 0.5 km ≠ 200 brakes/100 km):
-
-```
-exposure_km = max(distance_km, 4)                  # minimum-exposure floor
-R_type      = W_type × 100 / exposure_km           # severity-weighted rate per 100 km
-```
-
-For distraction, exposure is *time*, not distance:
-
-```
-R_distraction = W_distraction × 60 / max(duration_min, 5)    # per driving-hour
-```
-
----
-
-## 6. Stage 4+5 — Component subscores and composite trip score
-
-### 6.1 Exponential decay subscores
-
-Each component maps its rate to a 0–100 subscore via exponential decay — smooth, never
-saturates, always leaves a gradient to improve:
-
-```
-subscore_c = 100 × exp(−k_c × R_c)
-```
-
-`k_c` is calibrated so that the **fleet median rate ≈ 80 points** and the
-90th-percentile-worst rate ≈ 45 points. Initial values (to be recalibrated from real
-CARMA data after 3 months — see §10):
-
-| Component | k (initial) | Rate at score 80 | Rate at score 45 |
+| Event | Moderate | Severe | Extreme |
 |---|---|---|---|
-| Braking | 0.075 | 3.0 /100 km | 10.6 /100 km |
-| Acceleration | 0.089 | 2.5 /100 km | 9.0 /100 km |
-| Cornering | 0.064 | 3.5 /100 km | 12.5 /100 km |
-| Speeding | 0.045 | 5.0 min-wt/100 km | 17.7 |
-| Distraction | 0.112 | 2.0 /hour | 7.1 /hour |
+| Hard brake | 0.30–0.44 g | 0.45–0.59 g | 0.60 g+ |
+| Aggressive acceleration | 0.27–0.39 g | 0.40–0.54 g | 0.55 g+ |
+| Sharp turn | 0.35–0.49 g | 0.50–0.64 g | 0.65 g+ |
 
-### 6.2 Composite weights (crash-risk-aligned)
+**Anything under 5 km/h is discarded** — parking, speed bumps, a dropped phone. This is standard practice and removes the largest source of false alarms in phone-based telematics.
 
-Weights follow the published risk hierarchy — phone distraction and speeding are the top
-two crash predictors, then hard braking:
-
-```
-trip_score = 0.30 × S_distraction
-           + 0.25 × S_speeding
-           + 0.20 × S_braking
-           + 0.15 × S_acceleration
-           + 0.10 × S_cornering
-```
-
-**Until speed-limit data is available**, redistribute proportionally:
-`distraction 0.40, braking 0.27, acceleration 0.20, cornering 0.13`.
-
-### 6.3 Short-trip dampening
-
-Trips under 2 km or 5 minutes get their score blended 50/50 with the driver's current
-rolling score — too little exposure to judge.
+**Severity is designed but not switched on.** The intent is that a 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps — so there is no "brake at 0.29 g and it's free" gap to game. The code for this exists and is tested (`event_severity()`), but the phone does not yet send the peak force of each event, so today **every event counts as one**. The day the SDK sends it, nothing downstream changes.
 
 ---
 
-## 7. Stage 6 — Driver score (new layer)
+## Turning measurements into a score
 
-The driver-level score is a separate, persistent quantity — what the leaderboard, levels,
-and any future insurance partner consume. Two mechanisms, both industry-standard:
+### Rates, not totals
 
-### 7.1 Recency-weighted aggregation (EWMA over exposure)
+Every count is divided by how much driving it happened across:
 
-Trips are aggregated with exponential time decay (half-life **14 days**, ≈ a 28-day
-effective window — the rolling window used by major UBI scores), weighted by exposure:
+- **Kinematic events:** per 100 km, with a floor of 4 km. Without the floor, one brake in a 500 m trip would read as 200 brakes per 100 km.
+- **Distraction:** per driving hour, with a floor of 5 minutes.
 
-```
-driver_raw = Σ (trip_score_i × km_i × 0.5^(age_days_i / 14))
-           / Σ (km_i × 0.5^(age_days_i / 14))
-```
+### Rate to subscore
 
-A bad trip fades in two weeks instead of haunting a lifetime average; a good streak shows
-up quickly. Sustained behavior, not single trips, moves the number.
-
-### 7.2 Credibility blending (cold start)
-
-New drivers have too little data for a trustworthy score. Standard actuarial credibility:
+Each of the five gets its own 0–100 subscore:
 
 ```
-credibility   = min(total_km_in_window / 300, 1)            # full credibility at 300 km
-driver_score  = credibility × driver_raw + (1 − credibility) × 75   # prior = fleet median
+subscore = 100 × exp(−k × rate)
 ```
 
-A brand-new user starts at 75 ("good, unproven") rather than a meaningless 100 or
-an unstable raw value. The prior updates yearly to the actual fleet median.
+The curve never hits zero and never flattens out, so there is always something to gain by improving — even for a driver who is currently scoring badly. A straight-line penalty stops mattering once you are bad enough, which removes the incentive exactly where it is needed most.
 
----
+The constants were re-fitted in July 2026 against real CARMA driving data, so that a typical trip lands near 80 and one of the worst 10% lands near 50:
 
-## 8. Stage 7 — Points engine
-
-Points remain the gamification currency, decoupled from the score. v2 keeps the v1 skeleton
-and adds two anti-grind/engagement mechanics:
-
-```
-points = trip_score_factor × distance_factor × risk_multiplier × streak_bonus
-
-trip_score_factor = trip_score                       # unchanged scale
-distance_factor   = log(distance_km + 1) / log(11)   # unchanged (1.0 at 10 km)
-risk_multiplier   = unchanged from v1 (Israeli weekend nights ×2.0, weeknights ×1.5)
-streak_bonus      = 1 + 0.05 × min(consecutive_days_with_score≥80, 5)   # up to ×1.25
-```
-
-**Anti-grind caps** (protects the rewards economy):
-
-- Daily points cap: **300** (≈ 3 excellent 10 km night trips).
-- Per-day distance counted toward points: max **150 km** (commercial drivers can't farm).
-- Trips flagged by `FraudDetector` (transport-mode mismatch, impossible kinematics,
-  GPS teleportation) earn **0 points** and are excluded from the driver score window.
-
----
-
-## 9. Score display (unchanged)
-
-Grade bands and colors stay identical to v1 (`excellent ≥ 90`, `good ≥ 75`, `fair ≥ 55`,
-else `poor`) so existing UI code in `scoreToGrade` / `scoreToColor` is untouched. The app
-shows **two numbers** from v2 onward: the trip score (per drive) and the driver score
-(profile/leaderboard).
-
----
-
-## 10. Calibration, versioning, rollout
-
-1. **Parameters live server-side** in a versioned config table (spec Appendix C-VI already
-   anticipates admin tuning endpoints). Every persisted trip records `scoring_version`.
-2. **Shadow mode first:** run v2 alongside v1 for ≥ 4 weeks, persist both scores, compare
-   distributions. No user-facing change until the v2 distribution is sane
-   (median ≈ 80, no cliff at 0/100).
-3. **Recalibrate `k_c`** from the shadow-period percentiles before activation.
-4. **Switch points to v2** only at a level-season boundary, so nobody's balance jumps
-   mid-progression.
-5. The client SDK change (event severity capture, speed-at-event) ships before the server
-   flips — old clients sending v1-shaped telemetry keep getting v1 scoring until they update
-   (`scoring_version` negotiated per request).
-
----
-
-## 11. What we deliberately did NOT adopt
-
-Keeping the CARMA "simplicity is the advantage" principle, the following industry techniques
-were evaluated and rejected for this version:
-
-- **ML crash-probability models** (GBM / multilevel claims models): need claims data we don't
-  have; opaque to users; revisit only if an insurance partnership materializes.
-- **Bayesian network driver profiles** (per the TrueMotion/Allstate patents): heavy
-  machinery for marginal gain at our scale; EWMA + credibility achieves 90% of the benefit
-  in 10 lines of code.
-- **Road-type / weather context multipliers:** real signal, but each adds an external data
-  dependency. Deferred until map-matching (needed anyway for speeding) is in place.
-
----
-
-## 12. File impact map (when implemented)
-
-| File | Change |
+| Component | k |
 |---|---|
-| `server/app/services/scoring.py` | Rewrite: stages 3–7, parameter table, `scoring_version` |
-| `server/app/models/` | `Event`: add `peak_g`, `duration_ms`, `speed_kmh`; `User`: add `driver_score`; new `ScoringConfig` |
-| `mobile/src/lib/driving-sdk/SensorManager.ts` | Tiered thresholds, severity capture, low-speed filter (generic — belongs in SDK) |
-| `mobile/src/lib/scoring.ts` | Mirror stages 1–5 for local real-time preview only |
-| `mobile/src/lib/FraudDetector.ts` | Emit exclusion flag consumed by points engine |
-| `mobile/src/types/index.ts` | Regenerate after server schema change (`npm run gen:api`) |
+| Braking | 0.018 |
+| Acceleration | 0.022 |
+| Cornering | 0.012 |
+| Speeding | 0.012 |
+| Distraction | 0.020 |
+
+### Blending the five
+
+```
+trip score = 0.30 × distraction
+           + 0.25 × speeding
+           + 0.20 × braking
+           + 0.15 × acceleration
+           + 0.10 × cornering
+```
+
+**While posted speed limits are unavailable**, speeding's share is redistributed: distraction 0.40, braking 0.27, acceleration 0.20, cornering 0.13.
+
+### Two adjustments
+
+- **Short trips are not judged harshly.** Under 2 km or under 5 minutes, the trip score is blended half-and-half with the driver's standing score. Too little happened to draw a conclusion.
+- **Bad GPS caps the upside, never the downside.** When the location trace is sparse or full of gaps, a trip cannot score far above the driver's rolling average. Reported events still count in full — a weak signal should not let a bad trip look good, but it also should not invent a good one.
 
 ---
 
-## 13. Implementation status
+## The driver's own score
 
-**Implemented and live:**
+The trip score is about one drive. The **driver score** is the persistent number — what the leaderboard, the levels and any insurance partner would use.
 
-| Piece | File |
+**Recent trips matter more.** Trips are averaged with a 14-day half-life, weighted by distance. A bad trip fades in about two weeks instead of haunting a lifetime average; a good run shows up quickly. Sustained behaviour moves the number, not single drives.
+
+**New drivers start at 75.** With only a few trips there is not enough evidence for a real score, so the number is blended with a starting assumption of 75 — "good, unproven". Full confidence arrives at 300 km of driving. This is standard actuarial practice, and it beats both a meaningless 100 and a wildly swinging real number.
+
+---
+
+## Points
+
+Points are the game currency. They are deliberately **not** the score.
+
+```
+points = trip score
+       × distance factor       (log scale — 1.0 at 10 km)
+       × risk multiplier       (Israeli weekend nights ×2.0, weeknights ×1.5)
+       × streak bonus          (+5% per consecutive day scoring 80+, up to ×1.25)
+```
+
+**Limits that protect the rewards economy:**
+
+- **300 points a day**, maximum.
+- **150 km a day** counted toward points — a delivery driver cannot farm the system.
+- **Fraudulent trips earn nothing** and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps.
+
+---
+
+## What is live and what is not
+
+**Working today:**
+
+- The full pipeline — rates, subscores, blending, driver score, points, anti-grind caps.
+- Server-side GPS analysis as an independent second opinion on braking, acceleration and cornering. Where the phone and the GPS disagree, the higher count wins.
+- Speeding against a flat national limit.
+- The telemetry-confidence cap.
+- Unit tests on every stage.
+
+**Designed, waiting on the phone:**
+
+| What | Waiting on |
 |---|---|
-| Stages 3–7 as pure functions (exposure normalization, exp-decay subscores, composite weights, EWMA+credibility driver score, points engine with anti-grind caps) | `server/app/services/scoring_v2.py` |
-| Continuous severity weight `event_severity()` (§3.2) — implemented and unit-tested, **dormant** until the SDK emits per-event `peak_g`/`duration`/`speed` | `server/app/services/scoring_v2.py` |
-| v2 is sole engine: trip score, driver score, and points written by `_compute_v2()`; no v1 fallback | `server/app/services/trips.py` |
-| DB columns: `trips.score_v2`, `trips.scoring_version`, `users.driver_score` | migration `a1c2e3f4d5b6` |
-| Unit tests for every stage | `server/tests/test_scoring_v2.py` |
-| **v2.1:** server-side GPS analysis of `route_waypoints` — independent brake/accel/turn detection (`max(digest, gps)` merge), speeding vs. conservative absolute limit, telemetry-confidence metric, `server-gps` Event rows | `server/app/services/telemetry.py` + `server/tests/test_telemetry.py` |
-| **v2.1:** confidence cap `apply_confidence()` — sparse traces limit score upside above the rolling score, never dilute reported events | `server/app/services/scoring_v2.py` |
-| **v2.1:** decay constants re-fit from live fleet percentiles; `scoring_version` 2.1.0 | [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md) |
+| Distraction as CMT define it | CAR-54, which needs the signal work first |
+| Per-event severity | The SDK sending peak g-force |
+| Speeding against real posted limits | Map data |
 
-**Current approximations (upstream signals not yet available — see [scoring-v2-handoff.md](scoring-v2-handoff.md)):**
+**Distraction is the honest weak point right now.** The current formula is `touch_epochs + screen_seconds / 60` — two different signals added together at a ratio nobody chose. Thirty seconds of typing scores like twenty minutes of phone handling. It is being replaced; see the section above for what replaces it.
 
-- **Severity:** weighted counts collapse to raw counts (each event weight 1.0). The
-  moment the SDK provides per-event severity, the trips service sums `event_severity()`
-  instead of counting — no downstream change.
-- **Speeding:** active since v2.1 against a conservative absolute limit (120 km/h
-  national max + 10 buffer, GPS-derived). Contextual posted-limit bands (§3.3)
-  still need map-matching.
-- **Distraction:** weighted as `touch_epochs + screen_seconds/60` (per-epoch speed
-  weighting from §3.4 awaits the SDK).
+---
 
-**Not implemented yet (blocked on other owners — see [scoring-v2-handoff.md](scoring-v2-handoff.md)):**
+## What we chose not to do
 
-- SDK: tiered thresholds, severity capture, low-speed filter, speed-at-event. *(SDK owner)*
-- Mobile UI: surfacing the second number (driver score) alongside the trip score. *(Mai)*
-- `mobile/src/lib/scoring.ts` real-time preview mirror — kept on v1 deliberately; it
-  depends on SDK severity data, and per the §10.5 rollout order the SDK ships first.
-- Speeding against **posted** limits: map-matching source (absolute-limit detection ships in v2.1).
-- Full percentile calibration of `k_c` (severity-weighted) — partial re-fit done in v2.1; the rest deferred (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
+- **Machine-learning crash models.** They need claims data we do not have, and they cannot be explained to a driver. Revisit if an insurance partnership happens.
+- **Bayesian driver profiles.** Heavy machinery for a small gain at our size. A recency-weighted average with a starting prior gets most of the benefit in ten lines.
+- **Weather and road-type adjustments.** Real signal, but each one adds an outside data dependency. Deferred until map data is in place for speeding anyway.
+
+---
+
+## Known limits, stated plainly
+
+**We cannot see phone touches.** No app can see touches delivered to another app, on either platform — including CMT's. Handling is inferred from how the device moves.
+
+**A phone being typed on in a mount is invisible to us.** CMT's method looks for the phone *moving* before anything else, and a phone clamped to a mount moves with the car. We inherit the blind spot by copying them. It matters more here than in the US, because Israeli regulation 28(b) bans texting whether the phone is mounted or not. We accept it because the alternative — using screen state, which only Android exposes — would create a blind spot for half our users instead of all of them.
+
+**A phone loose on a seat still reads as a phone in a hand.** This is the largest known source of false distraction today, and the one that most needs fixing.
+
+**No claims validation.** Repeated here because it is the limitation most likely to get lost in a pitch.
 
 ---
 
 ## Sources
 
-Industry methodology research behind this design:
+**Cambridge Mobile Telematics** — the primary reference for the distraction metric:
 
-- [Cambridge Mobile Telematics — How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/)
-- [CMT × TransUnion — portable driving scores (28-day rolling window)](https://beinsure.com/news/cambridge-mobile-telematics-portable-driving-scores/)
-- [CMT study — Motivating Safer Driving with Telematics (PDF)](https://m.cmtelematics.com/hubfs/CMT%20Study%20-%20UBI%20Engagement%20Impact.pdf)
-- [Geotab — What is g-force and how is it related to harsh driving?](https://www.geotab.com/blog/what-is-g-force/)
-- [Samsara — Harsh event detection](https://kb.samsara.com/hc/en-us/articles/5321169919501-Harsh-Event-Detection)
-- [Motive — Harsh driving detection (low-speed filtering)](https://helpcenter.gomotive.com/hc/en-us/articles/31054170471837-Harsh-Driving)
-- [Damoov — Safety score documentation](https://docs.damoov.com/docs/safety-score)
-- [Journal of Big Data — Survey on driving behavior analysis in usage-based insurance](https://journalofbigdata.springeropen.com/articles/10.1186/s40537-019-0249-5)
-- [arXiv — Can Telematics Improve Driving Style? Behavioural data in motor insurance](https://arxiv.org/pdf/2309.02814)
-- [arXiv — Nightly automobile claims prediction from telematics-derived features](https://arxiv.org/pdf/2205.04616)
-- [American Academy of Actuaries — Toward the regulatory adequacy of usage-based insurance](https://actuary.org/article/toward-the-regulatory-adequacy-of-usage-based-insurance/)
-- [USPTO — Two-stage Bayesian networks for portable driving scores (patent 10,210,479)](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/10210479)
+- [How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/)
+- [Rising phone distraction calls for new methods of measurement](https://www.cmtelematics.com/blog/rising-phone-distraction-calls-for-new-methods-of-measurement/)
+- [State of Distracted Driving 2023](https://www.cmtelematics.com/distracted-driving-report-2023/)
+- [Patent 11,485,369 — determining, scoring and reporting phone distraction](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11485369)
+- [Motivating safer driving with telematics (study, PDF)](https://m.cmtelematics.com/hubfs/CMT%20Study%20-%20UBI%20Engagement%20Impact.pdf)
+- [Portable driving scores with TransUnion — the 28-day rolling window](https://beinsure.com/news/cambridge-mobile-telematics-portable-driving-scores/)
+- [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent)
+
+**Event detection thresholds and low-speed filtering:**
+
+- [Geotab — what g-force means for harsh driving](https://www.geotab.com/blog/what-is-g-force/)
+- [Samsara — harsh event detection](https://kb.samsara.com/hc/en-us/articles/5321169919501-Harsh-Event-Detection)
+- [Motive — harsh driving detection](https://helpcenter.gomotive.com/hc/en-us/articles/31054170471837-Harsh-Driving)
+- [Damoov — safety score documentation](https://docs.damoov.com/docs/safety-score)
+
+**Method and regulation:**
+
+- [Journal of Big Data — survey of driving behaviour analysis in usage-based insurance](https://journalofbigdata.springeropen.com/articles/10.1186/s40537-019-0249-5)
+- [American Academy of Actuaries — regulatory adequacy of usage-based insurance](https://actuary.org/article/toward-the-regulatory-adequacy-of-usage-based-insurance/)
+- [arXiv — can telematics improve driving style?](https://arxiv.org/pdf/2309.02814)
+
+---
+
+## Where the old section numbers went
+
+This document used to be numbered, and about fifty comments in the code still point at those numbers (`# see §6.1`). Rather than keep the numbering and lose the readability, here is the map. Search this table for the number in the comment.
+
+| Old | Now |
+|---|---|
+| §1 | *(gone — it argued against the v1 formula, which no longer exists)* |
+| §3.1 | Braking, acceleration, cornering — the g-force table |
+| §3.2 | Braking, acceleration, cornering — "Severity is designed but not switched on" |
+| §3.3 | Speeding |
+| §3.4 | Phone distraction |
+| §4 | Braking, acceleration, cornering — the under-5 km/h rule |
+| §4.3 | Turning measurements into a score — "Bad GPS caps the upside" |
+| §5, §5.2 | Turning measurements into a score — "Rates, not totals" |
+| §6, §6.1 | Turning measurements into a score — "Rate to subscore" |
+| §6.2 | Turning measurements into a score — "Blending the five" |
+| §6.3 | Turning measurements into a score — "Short trips are not judged harshly" |
+| §7 | The driver's own score |
+| §8 | Points |
+
+When you next touch one of those comments, replace the `§` reference with the section name. The numbering is not coming back.
+
+---
+
+## Related documents
+
+- [How CARMA measures phone distraction](https://linear.app/carma-app/document/how-carma-measures-phone-distraction-the-design-and-why-6f8361ad1dcc) — the full reasoning behind the distraction design
+- [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md) — where the decay constants came from
+- [scoring-v2-handoff.md](scoring-v2-handoff.md) — the SDK work the score is waiting on
+- [archive/scoring-algorithm.md](archive/scoring-algorithm.md) — the retired v1
