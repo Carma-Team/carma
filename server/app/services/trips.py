@@ -23,8 +23,9 @@ from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
-# Driver-score aggregation window (scoring.md §7 — ~28-day effective
-# window from a 14-day half-life; query a 30-day slice to cover the long tail).
+# Driver-score aggregation window (scoring.md "The driver's own score") —
+# ~28-day effective window from a 14-day half-life, matching CMT's rolling
+# window; query a 30-day slice to cover the long tail.
 _DRIVER_SCORE_WINDOW_DAYS = 30
 
 _MAX_POINTS_PER_TRIP = 10_000
@@ -54,7 +55,7 @@ _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
 # prior (75, "good but unproven") and is credibility-weighted toward it until a
 # driver has real distance, so a newcomer cannot be capped on thin evidence.
 # Re-fit against the live distribution before treating these as settled —
-# same caveat as the v2 constants (docs/scoring-calibration.md).
+# same caveat as the scoring constants (CAR-102).
 # Listed highest-first, like the ladder above.
 _LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
     (80.0, 10),  # no effective cap — 10 is the top level
@@ -357,7 +358,7 @@ async def _compute_score(
     Returns (trip_score, driver_score, points, points_capped).
     """
     # Proxy for the distraction weight until the SDK emits per-epoch speed:
-    # each touch epoch is weight 1, plus screen-on minutes (scoring.md §3.4).
+    # each touch epoch is weight 1, plus screen-on minutes (scoring.md "Phone distraction").
     w_distraction = touch_epochs + screen_interaction_seconds / 60.0
     rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
@@ -398,13 +399,13 @@ async def _compute_score(
     history.append(scoring.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
     driver_score = scoring.compute_driver_score(history)
 
-    # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps (§8).
+    # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps.
     today = now.astimezone(_TZ_IL).date()
     points_today = sum((pts or 0.0) for _s, _km, start, pts in rows if start.astimezone(_TZ_IL).date() == today)
     distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
 
     # Streak: consecutive days (including today, counting the trip being saved)
-    # with at least one trip (scoring.md §8).
+    # with at least one trip (scoring.md "Points").
     trip_days = {start.astimezone(_TZ_IL).date() for _s, _km, start, _p in rows}
     trip_days.add(today)
     streak_days = 0
@@ -423,7 +424,7 @@ async def _compute_score(
         fraud_flagged=False,
     )
     # Same formula minus the daily anti-grind caps — if the caps reduced the
-    # award, the save response says so instead of showing a silent 0 (§8).
+    # award, the save response says so instead of showing a silent 0.
     points_uncapped = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
@@ -596,7 +597,7 @@ async def save(
             "total_distance": User.total_distance + trip.distance_km,
             "level": level_expr,
         }
-        # v2 driver score (scoring.md §7) — the user's headline score.
+        # Driver score (scoring.md "The driver's own score") — the headline number.
         values["driver_score"] = new_driver_score
         # RETURNING so the response can carry the level the database actually
         # resolved, rather than the client re-deriving it from points and

@@ -37,7 +37,7 @@ When in doubt: choose the simpler solution.
 carma/
 ├── mobile/                  ← React Native (Expo) — workspace: "carma-app"
 ├── server/                  ← FastAPI + PostgreSQL — Python, outside npm workspaces
-├── docs/                    ← Architecture & algorithm docs (docs/archive/ for retired specs)
+├── docs/                    ← Architecture & algorithm docs (current only — retired specs live in git history)
 ├── scripts/                 ← dev.ps1, setup.ps1, dev-tunnel.ps1, smoke.sh
 └── .github/workflows/       ← ci-server.yml, ci-mobile.yml, deploy.yml
 ```

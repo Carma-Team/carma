@@ -36,8 +36,8 @@ class Trip(Base):
     points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     risk_multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
 
-    # v2 scoring shadow columns — computed alongside avg_score, never user-facing
-    # until the v2 rollout (docs/scoring.md §10). NULL on v1-only trips.
+    # score_v2 holds the same value as avg_score — one engine writes both
+    # (docs/scoring.md). NULL only on rows scored before the engines merged.
     score_v2: Mapped[float | None] = mapped_column(Float)
     scoring_version: Mapped[str] = mapped_column(String(16), server_default="1.0", nullable=False)
     status: Mapped[TripStatus] = mapped_column(

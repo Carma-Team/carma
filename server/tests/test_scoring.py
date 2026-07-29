@@ -1,9 +1,8 @@
 """Unit tests for CARMA Scoring Algorithm v2 (server/app/services/scoring.py).
 
-Covers the pure-formula stages: continuous severity (§3.2), exposure-normalized
-exponential-decay subscores (§5–§6), composite trip score with short-trip
-dampening (§6), driver score via EWMA + credibility (§7), and the points engine
-with anti-grind caps (§8).
+Covers the pure-formula stages: continuous severity, exposure-normalized
+exponential-decay subscores, composite trip score with short-trip dampening,
+driver score via EWMA + credibility, and the points engine with anti-grind caps.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from app.services.scoring import (
     event_severity,
 )
 
-# ─── §3.2 continuous severity weight ────────────────────────────────────────────
+# ─── continuous severity weight ─────────────────────────────────────────────────
 
 
 class TestEventSeverity:
@@ -44,7 +43,7 @@ class TestEventSeverity:
         assert math.isclose(fast, slow * 1.5)
 
 
-# ─── §5–§6 trip score ───────────────────────────────────────────────────────────
+# ─── trip score ─────────────────────────────────────────────────────────────────
 
 
 class TestComputeTripScore:
@@ -108,7 +107,7 @@ class TestComputeTripScore:
 
     def test_no_saturation_cliff_keeps_gradient(self) -> None:
         # v1 clamps both of these to 0 (penalties ≫ 100); v2 keeps them distinct
-        # and positive, so there is always an incentive to improve (§1 weakness #3).
+        # and positive, so there is always an incentive to improve.
         bad = compute_trip_score(
             w_brake=25,
             w_accel=21,
@@ -128,7 +127,7 @@ class TestComputeTripScore:
         assert 0.0 < worse.score < bad.score
 
 
-# ─── §7 driver score ────────────────────────────────────────────────────────────
+# ─── driver score ───────────────────────────────────────────────────────────────
 
 
 class TestComputeDriverScore:
@@ -174,7 +173,7 @@ class TestComputeDriverScore:
         assert math.isclose(score, round((100.0 * 300.0) / (300.0 + 150.0) * 10) / 10, abs_tol=0.1)
 
 
-# ─── §8 points engine ───────────────────────────────────────────────────────────
+# ─── points engine ──────────────────────────────────────────────────────────────
 
 
 class TestComputePoints:
