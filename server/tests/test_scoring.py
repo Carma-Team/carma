@@ -1,4 +1,4 @@
-"""Unit tests for CARMA Scoring Algorithm v2 (server/app/services/scoring_v2.py).
+"""Unit tests for CARMA Scoring Algorithm v2 (server/app/services/scoring.py).
 
 Covers the pure-formula stages: continuous severity (§3.2), exposure-normalized
 exponential-decay subscores (§5–§6), composite trip score with short-trip
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from app.services.scoring_v2 import (
+from app.services.scoring import (
     CONFIG,
     TripHistoryPoint,
     compute_driver_score,

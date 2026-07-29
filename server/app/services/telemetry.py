@@ -6,7 +6,7 @@ counts and score a flat 100 (see docs/scoring-calibration.md and
 issue #13). The route waypoints (`{ts, lat, lng, speedKmh}`) the client already
 sends are an independent witness the server can analyze itself.
 
-This module is pure (no I/O, no DB) like scoring_v2. It turns a raw waypoint
+This module is pure (no I/O, no DB) like scoring. It turns a raw waypoint
 array into:
 
   * GPS-detected kinematic events (hard brakes, aggressive accels, sharp turns)

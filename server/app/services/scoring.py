@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class ScoringConfigV2:
+class ScoringConfig:
     """Versioned v2 parameters. Decay constants re-fit 2026-07 from the live
     fleet's recency-weighted rate percentiles (docs/scoring-calibration.md):
     anchored so a single event on a median trip costs ~5–10 composite points and
@@ -80,7 +80,7 @@ class ScoringConfigV2:
     daily_distance_cap_km: float = 150.0
 
 
-CONFIG = ScoringConfigV2()
+CONFIG = ScoringConfig()
 
 # Per-type g-force ranges for the continuous severity weight (§3.2).
 _SEVERITY_RANGES = {
@@ -145,7 +145,7 @@ def compute_trip_score(
     duration_min: float,
     has_speed_data: bool = False,
     rolling_score: float | None = None,
-    config: ScoringConfigV2 = CONFIG,
+    config: ScoringConfig = CONFIG,
 ) -> TripScoreV2:
     """Composite 0–100 trip score from severity-weighted event counts (§5–§6).
 
@@ -226,7 +226,7 @@ class TripHistoryPoint:
     age_days: float
 
 
-def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfigV2 = CONFIG) -> float:
+def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig = CONFIG) -> float:
     """Persistent driver-level score (§7): recency- and exposure-weighted average
     of recent trip scores, blended with a fleet-median prior for cold start.
 
@@ -264,7 +264,7 @@ def compute_points(
     points_today: float = 0.0,
     distance_today_km: float = 0.0,
     fraud_flagged: bool = False,
-    config: ScoringConfigV2 = CONFIG,
+    config: ScoringConfig = CONFIG,
 ) -> float:
     """Gamification points for a trip (§8), with anti-grind caps.
 

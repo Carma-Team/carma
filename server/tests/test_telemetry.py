@@ -8,7 +8,7 @@ digest reported as zero events.
 from __future__ import annotations
 
 from app.services import telemetry
-from app.services.scoring_v2 import apply_confidence
+from app.services.scoring import apply_confidence
 
 
 def _wp(ts_s: float, speed: float, lat: float = 32.0, lng: float = 34.8) -> dict:

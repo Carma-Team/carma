@@ -18,7 +18,7 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, scoring_v2, telemetry
+from app.services import levels, scoring, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -330,7 +330,7 @@ def _witness_distance(claimed_km: float, gps_km: float) -> float:
     return cap
 
 
-async def _compute_v2(
+async def _compute_score(
     db: AsyncSession,
     user: User,
     *,
@@ -348,7 +348,7 @@ async def _compute_v2(
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
-    lives in scoring_v2; this only sources the inputs. Severity is unavailable
+    lives in scoring; this only sources the inputs. Severity is unavailable
     (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
     speeding weight is time-over-threshold against a conservative absolute
@@ -359,9 +359,9 @@ async def _compute_v2(
     # Proxy for the distraction weight until the SDK emits per-epoch speed:
     # each touch epoch is weight 1, plus screen-on minutes (scoring.md §3.4).
     w_distraction = touch_epochs + screen_interaction_seconds / 60.0
-    rolling = user.driver_score if user.driver_score is not None else scoring_v2.CONFIG.prior_score
+    rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
-    trip_v2 = scoring_v2.compute_trip_score(
+    trip_v2 = scoring.compute_trip_score(
         w_brake=hard_brakes,
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
@@ -372,7 +372,7 @@ async def _compute_v2(
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
-    trip_score = scoring_v2.apply_confidence(trip_v2.score, rolling, gps.confidence)
+    trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
 
     cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
     rows = (
@@ -386,7 +386,7 @@ async def _compute_v2(
 
     # Driver score: recency- and exposure-weighted history (only scored trips).
     history = [
-        scoring_v2.TripHistoryPoint(
+        scoring.TripHistoryPoint(
             trip_score=score,
             distance_km=km,
             age_days=max(0.0, (now - start).total_seconds() / 86400.0),
@@ -395,8 +395,8 @@ async def _compute_v2(
         if score is not None
     ]
     # Include the trip being saved (age 0) so a first trip yields a real number.
-    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
-    driver_score = scoring_v2.compute_driver_score(history)
+    history.append(scoring.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
+    driver_score = scoring.compute_driver_score(history)
 
     # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps (§8).
     today = now.astimezone(_TZ_IL).date()
@@ -413,7 +413,7 @@ async def _compute_v2(
         streak_days += 1
         cursor -= timedelta(days=1)
 
-    points = scoring_v2.compute_points(
+    points = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
@@ -424,7 +424,7 @@ async def _compute_v2(
     )
     # Same formula minus the daily anti-grind caps — if the caps reduced the
     # award, the save response says so instead of showing a silent 0 (§8).
-    points_uncapped = scoring_v2.compute_points(
+    points_uncapped = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
@@ -509,7 +509,7 @@ async def save(
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
     now = datetime.now(UTC)
     risk_multiplier = get_risk_multiplier(start)
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_v2(
+    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -546,7 +546,7 @@ async def save(
         distance_km=distance,
         avg_score=score_v2,
         score_v2=score_v2,
-        scoring_version=scoring_v2.CONFIG.version,
+        scoring_version=scoring.CONFIG.version,
         points=round(points_v2),
         risk_multiplier=risk_multiplier,
         hard_brakes=scored_hard_brakes,

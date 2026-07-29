@@ -50,7 +50,7 @@ class TestLevelCap:
     def test_the_cold_start_prior_permits_level_8(self):
         # A driver with no history scores the prior (75). They must be able to
         # climb without their unproven score holding them down.
-        from app.services.scoring_v2 import CONFIG
+        from app.services.scoring import CONFIG
 
         assert _level_cap(CONFIG.prior_score) == 8
 
@@ -65,7 +65,7 @@ class TestLevelCap:
 async def _make_user(db: AsyncSession, *, total_points: int, history_score: float | None) -> User:
     """A driver with `total_points` earned, and recent trips all scoring `history_score`.
 
-    The history matters, not the stored `driver_score` column: `_compute_v2`
+    The history matters, not the stored `driver_score` column: `_compute_score`
     recomputes the rolling score from trips inside the window and writes the
     column as an output. Seeding the column alone would prove nothing — the
     first save would overwrite it with the recomputed value.

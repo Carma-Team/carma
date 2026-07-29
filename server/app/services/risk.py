@@ -1,7 +1,7 @@
 """Time-of-day risk multiplier.
 
 All that survives of the v1 scoring engine (retired in `a1a5e73`, the rest
-deleted in #53). `scoring_v2` is the authoritative scoring engine; this factor
+deleted in #53). `scoring` is the authoritative scoring engine; this factor
 is orthogonal to it — it scales *points*, not the score, because when you drove
 is a property of exposure rather than of how you drove.
 
