@@ -46,7 +46,7 @@ _ACCEL_MS2 = 2.5
 _TURN_RATE_DEG_S = 18.0  # bearing change rate at speed
 _TURN_MIN_SPEED_KMH = 25.0
 _TURN_MAX_DT_S = 8.0
-_KINEMATIC_MIN_SPEED_KMH = 15.0  # under-5 km/h filter, with margin for GPS noise
+_KINEMATIC_MIN_SPEED_KMH = 15.0  # low-speed floor for brake/accel detection (CAR-103)
 _EVENT_MERGE_WINDOW_S = 5.0  # one physical maneuver, not N samples of it
 
 # ── Speeding (scoring.md "Speeding") — conservative absolute limit, no maps ─────

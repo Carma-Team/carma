@@ -11,7 +11,7 @@ Where this document and the code disagree, **the code is right**: [`server/app/s
 ## The short version
 
 - **Every trip scores 0 to 100**, from five things: phone distraction, speeding, braking, acceleration, cornering. The same five Cambridge Mobile Telematics measure in DriveWell.
-- **Distraction counts most.** Phone use is the biggest behavioural crash factor in the industry data.
+- **Distraction counts most.** CMT measured a 240% rise in crash risk from phone distraction, against 103% for hard braking and 71% for speeding.
 - **We count rates, not totals.** Three hard brakes over 200 km is good driving; three over 2 km is not. Everything is per 100 km or per driving hour, so a long trip is never punished for being long.
 - **The driver's score is separate** and moves slowly. One bad trip fades in about two weeks.
 - **The server decides.** The phone collects sensor data. It never calculates a score anyone can see.
@@ -45,7 +45,7 @@ The honest sentence, which is stronger than overclaiming:
    Phone                            Server
 ┌───────────────┐        ┌──────────────────────────────┐
 │ accelerometer │        │ 1. Re-detect events from GPS │
-│ gyroscope     │  ───►  │ 2. Discard anything <5 km/h  │
+│ gyroscope     │  ───►  │ 2. Drop low-speed events     │
 │ GPS trace     │        │ 3. Convert to rates          │
 │ phone handling│        │ 4. Rate → subscore           │
 └───────────────┘        │ 5. Blend the five            │
@@ -68,6 +68,8 @@ Where we stand against CMT, component by component:
 | Phone distraction (0.30) | Two metrics, seconds per driving hour, counted only while the vehicle moves | One blended metric, same unit, counted above 15 km/h | We collapse their two into one |
 | Speeding (0.25) | Time over the road's actual limit | Time over a flat 120 km/h national maximum | No map data for posted limits |
 | Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | Same, plus independent GPS re-detection | No per-event severity yet |
+
+**The weights themselves are the largest gap, and it is not a row above.** CMT's crash data puts distraction about 3.4x above speeding; our weights put them nearly level at 0.30 and 0.25. Normalising their figures would give distraction roughly 0.58. Re-weighting is CAR-53 — deliberately not before the distraction signal is trustworthy, because raising the weight of a noisy measurement amplifies the noise along with it.
 
 ### Phone distraction
 
@@ -114,7 +116,15 @@ Detected twice, independently: by the phone's accelerometer, and by the server f
 | Aggressive acceleration | 0.408 g | 2.5 m/s² |
 | Sharp turn | 0.357 g lateral | 18°/s bearing change above 25 km/h |
 
-- **Under 5 km/h is discarded** — parking, speed bumps, a dropped phone. Standard practice across the industry, and it removes the largest source of false alarms in phone-based telematics.
+- **Low-speed events are dropped** — parking, speed bumps, a dropped phone. Standard practice across the industry, and it removes the largest source of false alarms in phone-based telematics. The floor differs by event and by which side detected it:
+
+  | Event | Phone drops below | Server drops below |
+  |---|---|---|
+  | Hard brake | 15 km/h | 15 km/h |
+  | Aggressive acceleration | 5 km/h | 15 km/h |
+  | Sharp turn | 10 km/h | 25 km/h |
+
+  The two sides disagree on acceleration and cornering, and because counts merge as `max(phone, server)` the looser floor wins — a 6 km/h pull-out counts as an aggressive acceleration. Tracked in CAR-103.
 - **Where the two disagree, the higher count wins.** GPS sampling every 3–6 seconds misses short events an accelerometer catches, so the server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way.
 - **Severity is built but switched off.** A 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps, so there is no "brake at 0.29 g and it's free" gap to game. `event_severity()` is written and tested, but the phone does not send each event's peak force, so **today every event counts as one** (CAR-6).
 
@@ -208,8 +218,10 @@ Points are the game currency, and deliberately **not** the score. This part is o
 points = trip score
        × distance factor    (log scale — 1.0 at 10 km)
        × risk multiplier    (Israeli weekend nights ×2.0, weeknights ×1.5)
-       × streak bonus       (+5% per consecutive day scoring 80+, up to ×1.25)
+       × streak bonus       (+5% per consecutive day with a trip, up to ×1.25)
 ```
+
+**The streak rewards showing up, not driving well.** It counts consecutive days with any trip, at any score — a driver averaging 40 builds the same ×1.25 as one averaging 95. Tying it to the score is CAR-104.
 
 **Limits that protect the rewards economy:**
 

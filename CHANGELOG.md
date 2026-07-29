@@ -16,7 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - **Telemetry confidence cap:** sparse/gappy GPS traces limit how far a trip can score above the driver's rolling score (upside only — reported events are never diluted). `apply_confidence()` in `scoring.py`.
 - **Server-detected events persisted:** `Event` rows tagged `{"source": "server-gps"}` (incl. `SPEEDING` runs) give the trip map markers even before mobile sends its events array (issue #12).
 - **`pointsCapped`** on the trip-save response (`TripOut` + `mobile/src/types/index.ts`) — tells the client the daily anti-grind caps reduced the award, instead of a silent 0.
-- **`python -m app.seed --driver-scores-only`** — backfills NULL `users.driver_score` (v2 §7 formula over each user's history) without reseeding; also runs automatically at the end of a full seed.
+- **`python -m app.seed --driver-scores-only`** — backfills NULL `users.driver_score` (the driver-score formula over each user's history) without reseeding; also runs automatically at the end of a full seed.
 
 ### Removed
 - **Instagram-style follow endpoints** (`GET`/`POST`/`DELETE /api/leaderboard/follow/:id`, `/api/leaderboard/requests…`). Nothing called them, and their auto-accept-on-public rule is what made friend requests invisible to public accounts. `mobile/src/services/api/leaderboard.api.ts` drops the matching dead methods; `userApi.sendFriendRequest` moved to `friendsApi.send`.
