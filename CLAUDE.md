@@ -76,7 +76,9 @@ Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator i
 
 ## CI/CD
 
-All three workflows trigger on push or PR to `main` only — pushing to `develop` does not run CI.
+`ci-server.yml` and `ci-mobile.yml` run on pushes to **`main` and `develop`**. `deploy.yml` runs on `main` only, or manually.
+
+**One gap you need to know about:** `tsc --noEmit` is skipped on `develop` while the mobile toolchain is broken (CAR-8). It is only enforced on `main` — and nothing has merged to `main` since 21 June, so the mobile app has not been type-checked in over 100 commits. Restore the check as soon as CAR-8 lands.
 
 | Workflow | What it does |
 |---|---|
