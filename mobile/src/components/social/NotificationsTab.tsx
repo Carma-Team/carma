@@ -31,20 +31,20 @@ function useDescribeNotification() {
             text: t('notifications.levelUp').replace('{level}', String(n.payload.level)),
             icon: 'trophy',
           };
-        case 'follow_accepted':
+        case 'friend_accepted':
           // The other user may have no name set — fall back to a nameless phrasing
           // rather than printing "null".
           return {
             text: n.payload.userName
-              ? t('notifications.followAccepted').replace('{name}', n.payload.userName)
-              : t('notifications.followAcceptedAnon'),
+              ? t('notifications.friendAccepted').replace('{name}', n.payload.userName)
+              : t('notifications.friendAcceptedAnon'),
             icon: 'person-add',
           };
-        case 'follow_requested':
+        case 'friend_requested':
           return {
             text: n.payload.userName
-              ? t('notifications.followRequested').replace('{name}', n.payload.userName)
-              : t('notifications.followRequestedAnon'),
+              ? t('notifications.friendRequested').replace('{name}', n.payload.userName)
+              : t('notifications.friendRequestedAnon'),
             icon: 'person-circle',
           };
         default:

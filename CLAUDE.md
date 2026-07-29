@@ -98,6 +98,25 @@ The rule: `develop` is the buffer that protects `main`. Keep it green.
 
 ---
 
+## Issue Tracking — Linear only
+
+**Every issue lives in Linear. GitHub is for code.** Open a task in Linear, refer to it by its `CAR-` number, and never open one in GitHub Issues.
+
+Why the rule exists: the two are connected by Linear's GitHub integration, and the connection is **one-way for creation**.
+
+- Open it in **GitHub** → Linear silently creates a twin with a different number. `#83` is `CAR-49`; `#69` is `CAR-39`. Nothing maps one to the other, so the same work ends up discussed in two places under two names.
+- Open it in **Linear** → nothing is created in GitHub. No twin, no confusion.
+
+That asymmetry is the whole problem, and the whole fix.
+
+**Do not bulk-close the old GitHub issues.** Status syncs both ways, so closing them there marks their Linear twins Done and wipes the board. The 42 pre-existing pairs stay open on both sides and age out naturally.
+
+**GitHub Issues stays switched on, deliberately.** Turning the feature off hides the Issues tab, and with it the ~150 `#NN` references in this codebase, 83 more in commit messages, and 15 in PR descriptions — git history cannot be edited, so those break for good. The rule above already prevents new duplicates, because the sync only auto-creates in one direction.
+
+**Linking a PR to its issue:** put the `CAR-` id in the branch name or the PR title (`ofridan/car-39-...`). Linear advances the issue on its own — no manual status updates.
+
+---
+
 ## Engineering Rules
 
 1. **Shared Types:** Any change to API contracts or DTOs MUST be manually synchronized between `server/app/schemas/` and `mobile/src/types/index.ts`. Never let the two drift. The `gen:api` script in mobile (`openapi-typescript`) is available to automate this once the OpenAPI schema is stable — until then, sync manually. The CI (`ci-mobile.yml`) enforces this automatically on every merge to `main`.
@@ -120,6 +139,20 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 1. **Full CTO Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
 2. **One-Shot Execution:** Do not halt tasks to request micro-confirmations or generate abstract implementation plans unless extreme ambiguity is present.
 3. **Guardrails Action:** If local test suites pass successfully, you are authorized to auto-commit and merge local feature branches. Do NOT force-push directly to remote `main` if shared team history is modified without direct user input.
+4. **Always check the industry standard.** For any substantive question — a product decision, an architectural choice, a scoring threshold, a disagreement over approach in a PR — search for how the telematics industry already solves it and present that alongside your recommendation. Do this unprompted. Search for real; do not rely on recall. Name the players (CMT, DriveKit/DriveQuant, Damoov, Zendrive, Sentiance, LETSTOP) and give concrete numbers where they exist. If there genuinely is no standard, say so plainly rather than hedging. When the finding is useful to the team, put it in the GitHub comment too — not only in chat.
+
+### Communication Style (Dan's preference — applies to chat AND to anything drafted for GitHub)
+
+Applies to replies in chat, and to every PR description, PR review, issue body, and issue comment written on Dan's behalf.
+
+1. **Plain and at eye level.** Write so a smart person who is not deep in this subsystem understands it on first read. Explain the impact, not the mechanism.
+2. **Concise, in short bullets.** Prefer a short list over a paragraph. No walls of text, no tables where three bullets do the job.
+   - **GitHub length ceiling:** a PR description, review, or issue comment should fit on one screen — roughly 300 words. Longer only when the extra length is load-bearing (a migration plan, a security finding that needs reproduction steps).
+   - Cut the reasoning that led you to the conclusion. State the conclusion and the one fact that supports it. Dan can ask for the rest.
+   - Every finding does not need its own section. Findings that don't change a decision go in a follow-up issue, not in the comment.
+3. **No needless jargon.** Only use a technical term when it is the actual subject — never as decoration. When a term is unavoidable, define it in half a sentence.
+4. **Lead with what matters.** State the conclusion or the decision first, then the reasoning. Do not build up to the point.
+5. **Language:** Hebrew or English per sentence — never both inside one sentence (RTL/LTR direction conflict makes it hard to read).
 
 *Other team members can add their own persona section here.*
 

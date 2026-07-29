@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,8 +18,8 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import NOTIFICATION_LEVEL_UP, Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import notifications, scoring_v2, telemetry
-from app.services.scoring import get_risk_multiplier
+from app.services import levels, notifications, scoring_v2, telemetry
+from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
@@ -34,19 +34,35 @@ _MAX_HARD_BRAKES = 500
 _RISK_MULTIPLIER_RANGE = (0.5, 3.0)
 _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
-# Level thresholds — must stay in sync with the `levels` table (seed.py / migrations).
-# Listed highest-first so the CASE expression short-circuits correctly.
-_LEVEL_THRESHOLDS: list[tuple[int, int]] = [
-    (75000, 10),
-    (50000, 9),
-    (32000, 8),
-    (20000, 7),
-    (12000, 6),
-    (7000, 5),
-    (3500, 4),
-    (1500, 3),
-    (500, 2),
+# Slack allowed between the claimed distance and what the GPS trace witnesses
+# (issue #56). Generous on purpose: a sampled trace cuts corners and misses
+# segments, so it structurally under-reports. Tightening these without first
+# reading the trips.distance.capped audit rate would reject honest trips.
+_DISTANCE_TOLERANCE = 0.35  # +35% over the witnessed distance
+_DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
+
+# Level demotion (#37). `total_points` is cumulative and never falls, so the
+# ladder above can only climb: a driver who earned level 8 and then started
+# driving badly would display 8 forever. The ladder still records what was
+# earned; this table caps what is *shown* by how the driver is behaving now.
+#
+# A cap rather than a separate ladder, so nothing is destroyed — the moment
+# `driver_score` recovers, the earned level comes straight back with no points
+# to re-accumulate.
+#
+# First calibration, not fitted to the fleet. `driver_score` starts at the
+# prior (75, "good but unproven") and is credibility-weighted toward it until a
+# driver has real distance, so a newcomer cannot be capped on thin evidence.
+# Re-fit against the live distribution before treating these as settled —
+# same caveat as the v2 constants (docs/scoring-v2-calibration-status.md).
+# Listed highest-first, like the ladder above.
+_LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
+    (80.0, 10),  # no effective cap — 10 is the top level
+    (70.0, 8),
+    (60.0, 6),
+    (50.0, 4),
 ]
+_LEVEL_CAP_FLOOR = 2  # worst case; demotion never takes a driver back to 1
 
 # Per-trip cap on persisted event rows — bounds the INSERT a malformed or hostile
 # client can trigger. A genuine 30-min trip yields tens of events, not thousands.
@@ -238,12 +254,26 @@ def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
 
 
 def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
+    """Verify the telemetry digest's HMAC.
+
+    Three paths still accept an unverified payload (issue #24). Each is audited so
+    the rate of unsigned traffic can be measured before enforcement is switched on
+    — flipping any of these to a hard reject without that data would 403 every
+    client already in the field.
+
+    Note the ceiling on what enforcement buys: the mobile signing key is currently
+    hardcoded in the app bundle, so a verified signature proves the payload came
+    from *a* copy of the client, not from a trusted device. Per-device keys via
+    app attestation are what make this a real control.
+    """
     if not signature:
+        audit("trips.signature.absent", reason="no-signature-sent")
         return
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
         return
     if not secret:
+        audit("trips.signature.unenforced", reason="trip-signing-secret-unset")
         return
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
@@ -252,6 +282,52 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
+
+
+def _level_cap(driver_score: float) -> int:
+    """Highest level a driver may display at their current driver score (#37).
+
+    Separate from what they earned: the cap is applied with LEAST() over the
+    points ladder, so a demotion is a lock rather than a loss.
+    """
+    for threshold, cap in _LEVEL_CAP_BY_DRIVER_SCORE:
+        if driver_score >= threshold:
+            return cap
+    return _LEVEL_CAP_FLOOR
+
+
+def _witness_distance(claimed_km: float, gps_km: float) -> float:
+    """Cap a claimed distance at what the GPS trace can witness (issue #56).
+
+    Distance was the one scoring input with no independent check, and it multiplies
+    points directly — event counts are already cross-checked upward against the
+    trace, but a payload could inflate `distanceKm` freely.
+
+    The bound is deliberately loose. A sampled trace cuts corners and drops
+    segments, so it structurally under-reports true odometer distance; a tight cap
+    would punish the sparse-sampling devices of issue #17 rather than fraud. Only
+    claims the trace cannot come close to supporting are trimmed.
+
+    A trip with no usable trace is not capped — that would break clients that send
+    no waypoints at all — but it is audited, so the rate is measurable before
+    anyone decides to tighten it.
+    """
+    if gps_km <= 0:
+        if claimed_km > _DISTANCE_GRACE_KM:
+            audit("trips.distance.unwitnessed", claimed_km=round(claimed_km, 2))
+        return claimed_km
+
+    cap = gps_km * (1.0 + _DISTANCE_TOLERANCE) + _DISTANCE_GRACE_KM
+    if claimed_km <= cap:
+        return claimed_km
+
+    audit(
+        "trips.distance.capped",
+        claimed_km=round(claimed_km, 2),
+        witnessed_km=round(gps_km, 2),
+        capped_to_km=round(cap, 2),
+    )
+    return cap
 
 
 async def _compute_v2(
@@ -426,6 +502,8 @@ async def save(
     scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
     scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)
 
+    distance = _witness_distance(distance, gps.distance_km)
+
     # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
     # is a time-of-day factor reused from v1; the score, driver score, and points
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
@@ -445,6 +523,19 @@ async def save(
         now=now,
         gps=gps,
     )
+
+    # Level bonus (#61). Measured at the level the driver *entered* the trip at,
+    # not the one they leave with: the trip's points feed total_points, which
+    # sets the level, which would then scale the same points — circular. Entering
+    # level is also the honest reading of "you earned this at level 7".
+    #
+    # The *capped* level, so demotion (#37) has real consequence rather than
+    # being a cosmetic badge change.
+    entering_level = min(
+        levels.level_for_points(user.total_points),
+        _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
+    )
+    points_v2 *= levels.by_number(entering_level).bonus_multiplier
 
     trip = Trip(
         user_id=user.id,
@@ -489,10 +580,16 @@ async def save(
 
     if trip.points > 0 or trip.distance_km > 0:
         new_total = User.total_points + trip.points
-        level_expr = case(
-            *((new_total >= pts, lvl) for pts, lvl in _LEVEL_THRESHOLDS),
+        earned_level = case(
+            *((new_total >= pts, lvl) for pts, lvl in levels.thresholds_desc()),
             else_=1,
         )
+        # Demotion (#37): show the lower of what was earned and what current
+        # driving supports. LEAST rather than a Python min() so the level is
+        # still resolved by the database in the same statement — RETURNING then
+        # reports the value that was actually written, with no read-modify-write
+        # race against a concurrent save.
+        level_expr = func.least(earned_level, _level_cap(new_driver_score))
         values: dict[str, Any] = {
             "points": User.points + trip.points,
             "total_points": new_total,
@@ -501,20 +598,32 @@ async def save(
         }
         # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
         values["driver_score"] = new_driver_score
-        level_before = user.level
+        # RETURNING so the response can carry the level the database actually
+        # resolved, rather than the client re-deriving it from points and
+        # missing the cap (#61). The level-up notification below reads the same
+        # value — it needs the level the CASE and the demotion cap settled on,
+        # not one re-derived in Python.
         result = await db.execute(update(User).where(User.id == user.id).values(**values).returning(User.level))
-        # RETURNING gives the level the CASE actually resolved to, rather than
-        # recomputing the thresholds in Python and risking the two drifting.
         level_after = result.scalar_one()
-        # Strictly greater: levels only climb today (demotion is issue #37), and a
-        # `!=` would fire a "you levelled up" notification on a future demotion.
-        if level_after > level_before:
+        # `entering_level` rather than `user.level`: this UPDATE writes the level
+        # column, which expires it on the instance, and re-reading it here would
+        # lazy-load inside async context. The two agree by construction — the
+        # stored level was written by this same points-and-cap formula.
+        #
+        # Strictly greater, which now matters rather than being defensive: with
+        # demotion live (#37) `level_expr` can resolve *below* the entering level,
+        # and a `!=` would congratulate a driver on being demoted. Staged on this
+        # transaction, so the IntegrityError rollback below discards it with the trip.
+        if level_after > entering_level:
             notifications.create(
                 db,
                 user.id,
                 NOTIFICATION_LEVEL_UP,
-                {"level": level_after, "previousLevel": level_before},
+                {"level": level_after, "previousLevel": entering_level},
             )
+    else:
+        # No points and no distance — the user row is untouched.
+        level_after = user.level
 
     try:
         await db.commit()
@@ -539,4 +648,4 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped)
+    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)

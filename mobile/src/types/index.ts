@@ -2,6 +2,8 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+// Friendship between the viewer and another user. `pending` covers a request in
+// either direction — one they sent, or one they were sent.
 export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -53,6 +55,8 @@ export interface Trip {
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
   pointsCapped?: boolean;           // v2.1 — daily anti-grind caps reduced this trip's award (save response only)
+  userLevel?: number;               // driver's level after this trip, as the server resolved it incl. the
+                                    // driver-score cap (#37). Save response only — absent on list/detail reads.
   startLocation?: string;
   endLocation?: string;
   aiInsight?: string;
@@ -127,18 +131,33 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
-export interface FollowRequest {
-  followerId: string;
-  followerName?: string;
-  followerLevel: number;
-  followerCity?: string;
-  requestedAt: string;
+// Matches server's InviteLinkOut / RedeemInviteOut.
+export interface InviteLink {
+  code: string;
+  url: string;
 }
 
+export interface RedeemedInvite {
+  inviter: { id: string; name?: string | null; city?: string | null; level: number };
+  status: FollowStatus;
+}
+
+// Matches server's ContactMatchOut — one address-book entry that turned out to
+// be a CARMA driver. `phoneHash` identifies which contact matched.
+export interface ContactMatch {
+  phoneHash: string;
+  id: string;
+  name?: string | null;
+  city?: string | null;
+  friendStatus: FollowStatus;
+}
+
+// Matches server's FriendRequestOut. `id` is the request id — what accept and
+// reject address, not the sender's user id.
 export interface FriendRequest {
   id: string;
   fromUserId: string;
-  fromUserName: string;
+  fromUserName?: string | null;
   fromUserLevel: number;
   fromUserCity?: string | null;
   createdAt: string;
@@ -180,21 +199,21 @@ export interface LevelUpNotification extends NotificationBase {
 }
 
 /** Sent to the follower when a private account accepts their follow request. */
-export interface FollowAcceptedNotification extends NotificationBase {
-  type: 'follow_accepted';
+export interface FriendAcceptedNotification extends NotificationBase {
+  type: 'friend_accepted';
   payload: { userId: string; userName: string | null };
 }
 
 /** Sent to a private account when someone asks to follow them. */
-export interface FollowRequestedNotification extends NotificationBase {
-  type: 'follow_requested';
+export interface FriendRequestedNotification extends NotificationBase {
+  type: 'friend_requested';
   payload: { userId: string; userName: string | null };
 }
 
 export type Notification =
   | LevelUpNotification
-  | FollowAcceptedNotification
-  | FollowRequestedNotification;
+  | FriendAcceptedNotification
+  | FriendRequestedNotification;
 export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
@@ -210,34 +229,19 @@ export interface TripValidationResult {
   invalidReason?: string;            // human-readable, sent to fraud.api
 }
 
-// ─── Scoring (local SDK) ──────────────────────────────────────────────────────
-export interface ScoringResult {
-  score: number;
-  points: number;
-  riskMultiplier: number;
-  penalties: number;
-  distanceFactor: number;
-}
-
-export interface ScoringInput {
-  hardBrakes: number;
-  aggressiveAccels: number;
-  sharpTurns: number;
-  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
-  touchEpochs: number;              // v1.7 — glass-tap proxy count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
-  durationSeconds: number;
-  distanceKm: number;
-  startTime: Date;
-}
-
 // ─── Level ────────────────────────────────────────────────────────────────────
+// Matches server's LevelOut (server/app/routers/levels.py), which serves the
+// single ladder in app/services/levels.py. The client holds no ladder of its
+// own — see constants.ts for the first-paint fallback.
 export interface LevelConfig {
   level: number;
   name: string;
   nameEn: string;
   minPoints: number;
   maxPoints: number;
+  /** What a trip's points are multiplied by at this level. Display only —
+   *  the server has already applied it to the points it returns. */
+  bonusMultiplier: number;
   color: string;
   icon: string;
   perks: string[];

@@ -1,0 +1,290 @@
+"""Business-side voucher validation — the far end of the redemption loop.
+
+A voucher is issued with a 5-minute TTL and, until now, nothing ever moved it off
+PENDING. These cover the three ways that must not go wrong:
+
+  1. A voucher can be consumed exactly once, and the second attempt is refused.
+  2. A lapsed voucher settles to EXPIRED and cannot be consumed afterwards.
+  3. A business can only see and consume vouchers issued against its own rewards.
+
+Guards run in-process (no DB); the state machine needs real rows and skips when
+no Postgres is reachable.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.main import app
+from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
+from app.services import business as business_service
+from app.services import rewards as rewards_service
+
+# ─── Auth guards (no DB) ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/business/vouchers/ABC123"),
+        ("POST", "/api/business/vouchers/ABC123/redeem"),
+    ],
+)
+async def test_voucher_endpoints_require_auth(method: str, path: str) -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.request(method, path)
+    assert r.status_code == 401, f"{method} {path} must reject anonymous callers"
+
+
+# ─── Fixtures ────────────────────────────────────────────────────────────────
+
+
+async def _make_business(db: AsyncSession) -> Business:
+    owner = User(
+        email=f"_vbiz_{uuid.uuid4().hex[:10]}@carmatest.co.il",
+        password_hash="x",
+        role=UserRole.BUSINESS,
+        name="Voucher Biz",
+    )
+    db.add(owner)
+    await db.flush()
+
+    business = Business(
+        owner_user_id=owner.id,
+        name=f"Voucher Biz {uuid.uuid4().hex[:6]}",
+        category=BusinessCategory.FOOD,
+        location_lat=32.07,
+        location_lng=34.78,
+    )
+    db.add(business)
+    await db.commit()
+    await db.refresh(business)
+    return business
+
+
+async def _make_driver(db: AsyncSession) -> User:
+    driver = User(
+        email=f"_vdrv_{uuid.uuid4().hex[:10]}@carmatest.co.il",
+        password_hash="x",
+        name="Voucher Driver",
+        points=1000,
+    )
+    db.add(driver)
+    await db.commit()
+    await db.refresh(driver)
+    return driver
+
+
+async def _issue(
+    db: AsyncSession, business: Business, driver: User, *, ttl: timedelta = timedelta(minutes=5)
+) -> Redemption:
+    reward = Reward(
+        business_id=business.id,
+        title_he="שובר בדיקה",
+        description_he="תיאור",
+        category=business.category,
+        cost_points=10,
+        stock=5,
+    )
+    db.add(reward)
+    await db.flush()
+
+    code = uuid.uuid4().hex[:12].upper()
+    voucher = Redemption(
+        user_id=driver.id,
+        reward_id=reward.id,
+        qr_code=code,
+        qr_data=code,
+        status=RedemptionStatus.PENDING,
+        expires_at=datetime.now(UTC) + ttl,
+    )
+    db.add(voucher)
+    await db.commit()
+    await db.refresh(voucher)
+    return voucher
+
+
+async def _cleanup(db: AsyncSession, *businesses: Business, drivers: tuple[User, ...] = ()) -> None:
+    # Drivers first: redemptions cascade with the user, and Redemption.reward_id
+    # has no cascade, so a reward cannot be dropped while a voucher still cites it.
+    for driver in drivers:
+        await db.delete(driver)
+    await db.commit()
+
+    for business in businesses:
+        # A test that ended in a rollback left every instance expired; reload
+        # before reading attributes, or the read itself attempts sync IO.
+        await db.refresh(business)
+        owner_id = business.owner_user_id
+        await db.delete(business)  # rewards cascade with the business
+        await db.commit()
+        if owner_id:
+            owner = await db.get(User, owner_id)
+            if owner is not None:
+                await db.delete(owner)
+                await db.commit()
+
+
+# ─── Peek ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_peek_reports_a_valid_voucher_without_consuming_it(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        out = await business_service.peek_voucher(db_session, business, voucher.qr_code)
+        assert out.status == "pending" and out.is_used is False
+
+        # The whole point of a separate peek: the row must be untouched.
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.PENDING
+        assert voucher.used_at is None
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_unknown_code_is_not_found(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await business_service.peek_voucher(db_session, business, "NOSUCHCODE")
+        assert exc.value.status_code == 404
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_another_businesss_voucher_is_not_found(db_session: AsyncSession) -> None:
+    issuer = await _make_business(db_session)
+    other = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        voucher = await _issue(db_session, issuer, driver)
+
+        # 404, not 403 — a distinct error would let one business probe another's codes.
+        with pytest.raises(HTTPException) as peek_exc:
+            await business_service.peek_voucher(db_session, other, voucher.qr_code)
+        assert peek_exc.value.status_code == 404
+
+        with pytest.raises(HTTPException) as use_exc:
+            await business_service.consume_voucher(db_session, other, voucher.qr_code)
+        assert use_exc.value.status_code == 404
+
+        # And the attempt left it usable for the business that actually issued it.
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.PENDING
+    finally:
+        await _cleanup(db_session, issuer, other, drivers=(driver,))
+
+
+# ─── Consume ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_consume_marks_it_used_once_and_refuses_the_second_time(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        out = await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        assert out.status == "used" and out.is_used is True
+        assert out.redeemed_at is not None, "the client shows when it was redeemed"
+
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.USED and voucher.used_at is not None
+
+        # Same QR presented at a second till.
+        with pytest.raises(HTTPException) as exc:
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        assert exc.value.status_code == 409
+        assert "already used" in str(exc.value.detail)
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+# ─── Expiry ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_peek_settles_a_lapsed_voucher_to_expired(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(minutes=-1))
+
+        out = await business_service.peek_voucher(db_session, business, voucher.qr_code)
+        assert out.status == "expired", "a lapsed voucher must not still read as pending"
+
+        # Settled in the database, not just in the response.
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.EXPIRED
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expired_voucher_cannot_be_consumed(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(seconds=-1))
+
+        with pytest.raises(HTTPException) as exc:
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        assert exc.value.status_code == 409
+        assert "expired" in str(exc.value.detail)
+
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.EXPIRED
+        assert voucher.used_at is None, "a refused redemption must not stamp used_at"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_driver_listing_settles_their_own_stale_vouchers(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        stale = await _issue(db_session, business, driver, ttl=timedelta(minutes=-10))
+        live = await _issue(db_session, business, driver, ttl=timedelta(minutes=5))
+
+        result = await rewards_service.list_my_vouchers(db_session, driver.id)
+        by_code = {v.code: v.status for v in result["vouchers"]}  # type: ignore[union-attr]
+        assert by_code[stale.qr_code] == "expired"
+        assert by_code[live.qr_code] == "pending", "a voucher inside its TTL must be left alone"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expire_overdue_only_touches_the_rows_it_is_scoped_to(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    mine = await _make_driver(db_session)
+    someone_else = await _make_driver(db_session)
+    try:
+        my_stale = await _issue(db_session, business, mine, ttl=timedelta(minutes=-10))
+        their_stale = await _issue(db_session, business, someone_else, ttl=timedelta(minutes=-10))
+
+        await rewards_service.expire_overdue(db_session, Redemption.user_id == mine.id)
+
+        await db_session.refresh(my_stale)
+        await db_session.refresh(their_stale)
+        assert my_stale.status == RedemptionStatus.EXPIRED
+        assert their_stale.status == RedemptionStatus.PENDING, "one driver's read must not sweep another's rows"
+    finally:
+        await _cleanup(db_session, business, drivers=(mine, someone_else))

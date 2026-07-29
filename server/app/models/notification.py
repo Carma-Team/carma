@@ -15,8 +15,8 @@ from app.models.base import Base
 # client maps `type` to an i18n key, so the wire values are part of the contract —
 # rename one only alongside mobile/src/i18n.
 NOTIFICATION_LEVEL_UP = "level_up"
-NOTIFICATION_FOLLOW_ACCEPTED = "follow_accepted"
-NOTIFICATION_FOLLOW_REQUESTED = "follow_requested"
+NOTIFICATION_FRIEND_REQUESTED = "friend_requested"
+NOTIFICATION_FRIEND_ACCEPTED = "friend_accepted"
 
 
 class Notification(Base):

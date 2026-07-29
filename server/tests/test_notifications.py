@@ -1,15 +1,14 @@
-"""Notifications: both triggers, the read endpoints, and per-user isolation.
+"""Notifications: every trigger, the read endpoints, and per-user isolation.
 
-Two writers today: a level-up inside trips.save, and a follow request being
-accepted inside leaderboard.accept_request. Both stage their row
-on the triggering action's transaction, so these exercise the real services
-against Postgres rather than mocking the session — what is worth proving is
-that RETURNING reports the level the CASE expression actually resolved to, and
-that the follow notification reaches the follower rather than the accepter.
-Neither is observable through a mock. Skipped automatically when no Postgres is
-reachable (see conftest).
+Three writers: a level-up inside trips.save, and a friend request being sent or
+answered inside the friends service. All stage their row on the triggering
+action's transaction, so these exercise the real services against Postgres
+rather than mocking the session. What is worth proving needs a database:
+that RETURNING reports the level the CASE and the demotion cap actually settled
+on, and that each social notification reaches the right side of the pair.
 
 The auth guards at the bottom are pure in-process ASGI — no DB.
+Skipped automatically when no Postgres is reachable (see conftest).
 """
 
 from __future__ import annotations
@@ -18,14 +17,15 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from app.models import (
-    NOTIFICATION_FOLLOW_ACCEPTED,
-    NOTIFICATION_FOLLOW_REQUESTED,
+    NOTIFICATION_FRIEND_ACCEPTED,
+    NOTIFICATION_FRIEND_REQUESTED,
     NOTIFICATION_LEVEL_UP,
+    FriendStatus,
     Notification,
     Trip,
     User,
@@ -33,12 +33,13 @@ from app.models import (
 )
 from app.models.enums import UserRole
 from app.schemas.trip import SaveTripIn
-from app.services import leaderboard as leaderboard_service
+from app.services import friends, levels
 from app.services import notifications as svc
 from app.services import trips as trips_service
 
-# Level 2 starts at 500 total points (trips._LEVEL_THRESHOLDS).
-_LEVEL_2_THRESHOLD = 500
+# Read from the ladder rather than hardcoded — the thresholds moved once already
+# (#62) and a stale constant here would silently stop testing the boundary.
+_LEVEL_2_MIN_POINTS = next(pts for pts, lvl in levels.thresholds_desc() if lvl == 2)
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ async def test_crossing_a_threshold_creates_one_level_up_notification(
     db_session: AsyncSession, clean_trip: SaveTripIn
 ) -> None:
     # One point short of level 2, so any scoring trip crosses the boundary.
-    user = await _make_user(db_session, total_points=_LEVEL_2_THRESHOLD - 1)
+    user = await _make_user(db_session, total_points=_LEVEL_2_MIN_POINTS - 1)
     try:
         await trips_service.save(db_session, user, clean_trip, idempotency_key=uuid.uuid4().hex)
 
@@ -214,123 +215,136 @@ async def test_mark_all_read_is_not_scoped_to_the_returned_page(db_session: Asyn
         await _cleanup(db_session, user)
 
 
+# ── Friend triggers ──────────────────────────────────────────────────────────
+
+
+async def _pending_edge_id(db: AsyncSession, requester: User, recipient: User) -> str:
+    edge = await db.scalar(
+        select(UserFriend).where(
+            UserFriend.follower_id == requester.id,
+            UserFriend.followee_id == recipient.id,
+            UserFriend.status == FriendStatus.PENDING,
+        )
+    )
+    assert edge is not None, "expected a pending request to exist"
+    return edge.id
+
+
+async def _drop_edges(db: AsyncSession, *users: User) -> None:
+    ids = [u.id for u in users]
+    await db.execute(delete(UserFriend).where(or_(UserFriend.follower_id.in_(ids), UserFriend.followee_id.in_(ids))))
+
+
 @pytest.mark.asyncio
-async def test_accepting_a_follow_request_notifies_the_follower(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
-    followee.name = "Dana"
+async def test_a_request_notifies_the_recipient_only(db_session: AsyncSession) -> None:
+    requester = await _make_user(db_session)
+    requester.name = "Yoni"
+    recipient = await _make_user(db_session)
     await db_session.commit()
 
     try:
-        # Private account → the follow lands as pending, not accepted.
-        assert (await leaderboard_service.follow(db_session, follower, followee.id)).status == "pending"
-        assert await _notifications_of(db_session, follower) == []
+        assert (await friends.send_request(db_session, requester, recipient.id)).status == "pending"
 
-        await leaderboard_service.accept_request(db_session, followee, follower.id)
-
-        # The acceptance goes to the follower. The accepter keeps only the
-        # follow_requested row the follow above created for them.
-        rows = await _notifications_of(db_session, follower)
+        assert await _notifications_of(db_session, requester) == []
+        rows = await _notifications_of(db_session, recipient)
         assert len(rows) == 1
-        assert rows[0].type == NOTIFICATION_FOLLOW_ACCEPTED
-        assert rows[0].payload == {"userId": followee.id, "userName": "Dana"}
-
-        accepter_types = [r.type for r in await _notifications_of(db_session, followee)]
-        assert accepter_types == [NOTIFICATION_FOLLOW_REQUESTED]
+        assert rows[0].type == NOTIFICATION_FRIEND_REQUESTED
+        assert rows[0].payload == {"userId": requester.id, "userName": "Yoni"}
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, requester, recipient)
+        await _cleanup(db_session, requester, recipient)
 
 
 @pytest.mark.asyncio
-async def test_requesting_to_follow_a_private_account_notifies_the_followee(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    follower.name = "Yoni"
-    followee = await _make_user(db_session)
-    followee.is_private = True
+async def test_accepting_notifies_the_requester_and_clears_the_request_row(db_session: AsyncSession) -> None:
+    requester = await _make_user(db_session)
+    recipient = await _make_user(db_session)
+    recipient.name = "Dana"
     await db_session.commit()
 
     try:
-        assert (await leaderboard_service.follow(db_session, follower, followee.id)).status == "pending"
+        await friends.send_request(db_session, requester, recipient.id)
+        request_id = await _pending_edge_id(db_session, requester, recipient)
 
-        # The request goes to the account being asked, not to the asker.
-        assert await _notifications_of(db_session, follower) == []
-        rows = await _notifications_of(db_session, followee)
+        await friends.accept_request(db_session, recipient, request_id)
+
+        rows = await _notifications_of(db_session, requester)
         assert len(rows) == 1
-        assert rows[0].type == NOTIFICATION_FOLLOW_REQUESTED
-        assert rows[0].payload == {"userId": follower.id, "userName": "Yoni"}
+        assert rows[0].type == NOTIFICATION_FRIEND_ACCEPTED
+        assert rows[0].payload == {"userId": recipient.id, "userName": "Dana"}
+
+        # The accepter's own "wants to be friends" row is answered, so it goes.
+        assert await _notifications_of(db_session, recipient) == []
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, requester, recipient)
+        await _cleanup(db_session, requester, recipient)
 
 
 @pytest.mark.asyncio
-async def test_re_following_the_same_private_account_does_not_pile_up_requests(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
+async def test_requesting_back_counts_as_accepting(db_session: AsyncSession) -> None:
+    """send_request settles an incoming request instead of opening a second one."""
+    first = await _make_user(db_session)
+    second = await _make_user(db_session)
+    second.name = "Maya"
     await db_session.commit()
 
     try:
-        await leaderboard_service.follow(db_session, follower, followee.id)
-        # A second call finds the edge already pending and returns early, so a
-        # client retrying must not spam the followee.
-        await leaderboard_service.follow(db_session, follower, followee.id)
+        await friends.send_request(db_session, first, second.id)
+        # Adding back rather than tapping accept — same outcome, so same notification.
+        assert (await friends.send_request(db_session, second, first.id)).status == "accepted"
 
-        assert len(await _notifications_of(db_session, followee)) == 1
+        rows = await _notifications_of(db_session, first)
+        assert [r.type for r in rows] == [NOTIFICATION_FRIEND_ACCEPTED]
+        assert rows[0].payload == {"userId": second.id, "userName": "Maya"}
+
+        assert await _notifications_of(db_session, second) == []
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, first, second)
+        await _cleanup(db_session, first, second)
 
 
 @pytest.mark.asyncio
-async def test_follow_unfollow_cycles_cannot_stack_requests(db_session: AsyncSession) -> None:
-    """The unfollow deletes the edge, so without a guard each cycle stages a fresh row.
+async def test_send_cancel_cycles_cannot_stack_requests(db_session: AsyncSession) -> None:
+    """cancel_request deletes the edge, so without a guard each cycle stages a fresh row.
 
-    This is the abuse path that matters: it targets precisely the accounts that
-    went private to avoid unwanted contact, and nothing else bounds it.
+    This is the abuse path that matters — the notification list would itself
+    become the way to harass someone.
     """
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
-    await db_session.commit()
-
+    requester = await _make_user(db_session)
+    recipient = await _make_user(db_session)
     try:
         for _ in range(5):
-            await leaderboard_service.follow(db_session, follower, followee.id)
-            await leaderboard_service.unfollow(db_session, follower, followee.id)
+            await friends.send_request(db_session, requester, recipient.id)
+            await friends.cancel_request(db_session, requester, recipient.id)
 
-        # Unfollow clears the stale row, so the inbox is empty rather than holding five.
-        assert await _notifications_of(db_session, followee) == []
+        # Cancelling clears the row, so nothing accumulates.
+        assert await _notifications_of(db_session, recipient) == []
 
-        # And a final follow leaves exactly one.
-        await leaderboard_service.follow(db_session, follower, followee.id)
-        assert len(await _notifications_of(db_session, followee)) == 1
+        await friends.send_request(db_session, requester, recipient.id)
+        assert len(await _notifications_of(db_session, recipient)) == 1
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, requester, recipient)
+        await _cleanup(db_session, requester, recipient)
 
 
 @pytest.mark.asyncio
-async def test_rejecting_clears_the_stale_request_notification(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
-    await db_session.commit()
-
+async def test_rejecting_is_silent_and_clears_the_stale_row(db_session: AsyncSession) -> None:
+    requester = await _make_user(db_session)
+    recipient = await _make_user(db_session)
     try:
-        await leaderboard_service.follow(db_session, follower, followee.id)
-        assert len(await _notifications_of(db_session, followee)) == 1
+        await friends.send_request(db_session, requester, recipient.id)
+        request_id = await _pending_edge_id(db_session, requester, recipient)
+        assert len(await _notifications_of(db_session, recipient)) == 1
 
-        await leaderboard_service.reject_request(db_session, followee, follower.id)
+        await friends.reject_request(db_session, recipient, request_id)
 
-        # The request is gone, so a notification pointing at it would send the
-        # user to a tab that no longer lists it.
-        assert await _notifications_of(db_session, followee) == []
+        # Telling someone they were turned down is worse than saying nothing.
+        assert await _notifications_of(db_session, requester) == []
+        # But the rejecter's own row pointed at a request that no longer exists.
+        assert await _notifications_of(db_session, recipient) == []
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, requester, recipient)
+        await _cleanup(db_session, requester, recipient)
 
 
 @pytest.mark.asyncio
@@ -338,54 +352,36 @@ async def test_a_second_requester_still_gets_through(db_session: AsyncSession) -
     """The guard is per-actor — it must not suppress a different user's request."""
     first = await _make_user(db_session)
     second = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
-    await db_session.commit()
-
+    recipient = await _make_user(db_session)
     try:
-        await leaderboard_service.follow(db_session, first, followee.id)
-        await leaderboard_service.follow(db_session, second, followee.id)
+        await friends.send_request(db_session, first, recipient.id)
+        await friends.send_request(db_session, second, recipient.id)
 
-        actors = {r.payload["userId"] for r in await _notifications_of(db_session, followee)}
+        actors = {r.payload["userId"] for r in await _notifications_of(db_session, recipient)}
         assert actors == {first.id, second.id}
     finally:
-        await db_session.execute(
-            delete(UserFriend).where(UserFriend.follower_id.in_([first.id, second.id, followee.id]))
-        )
-        await _cleanup(db_session, first, second, followee)
+        await _drop_edges(db_session, first, second, recipient)
+        await _cleanup(db_session, first, second, recipient)
 
 
 @pytest.mark.asyncio
-async def test_following_a_public_account_notifies_nobody(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)  # is_private defaults to False
+async def test_removing_a_friend_notifies_nobody(db_session: AsyncSession) -> None:
+    first = await _make_user(db_session)
+    second = await _make_user(db_session)
     try:
-        # Auto-accepted, so there is no request to accept and nothing to announce.
-        assert (await leaderboard_service.follow(db_session, follower, followee.id)).status == "accepted"
-        assert await _notifications_of(db_session, follower) == []
-        assert await _notifications_of(db_session, followee) == []
+        await friends.send_request(db_session, first, second.id)
+        request_id = await _pending_edge_id(db_session, first, second)
+        await friends.accept_request(db_session, second, request_id)
+        await svc.mark_all_read(db_session, first.id)
+
+        await friends.remove_friend(db_session, second, first.id)
+
+        # Unfriending is not an event either side gets told about.
+        assert [r.type for r in await _notifications_of(db_session, first)] == [NOTIFICATION_FRIEND_ACCEPTED]
+        assert await _notifications_of(db_session, second) == []
     finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
-
-
-@pytest.mark.asyncio
-async def test_rejecting_a_follow_request_notifies_nobody(db_session: AsyncSession) -> None:
-    follower = await _make_user(db_session)
-    followee = await _make_user(db_session)
-    followee.is_private = True
-    await db_session.commit()
-
-    try:
-        await leaderboard_service.follow(db_session, follower, followee.id)
-        await leaderboard_service.reject_request(db_session, followee, follower.id)
-
-        # A rejection is deliberately silent — telling someone they were turned
-        # down is worse than saying nothing.
-        assert await _notifications_of(db_session, follower) == []
-    finally:
-        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id.in_([follower.id, followee.id])))
-        await _cleanup(db_session, follower, followee)
+        await _drop_edges(db_session, first, second)
+        await _cleanup(db_session, first, second)
 
 
 # ── Auth guards (in-process ASGI, no DB) ─────────────────────────────────────

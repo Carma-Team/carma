@@ -102,10 +102,10 @@ const he = {
   notifications: {
     // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
     levelUp: 'כל הכבוד! עלית לרמה {level}',
-    followAccepted: '{name} אישר/ה את בקשת המעקב שלך',
-    followAcceptedAnon: 'בקשת המעקב שלך אושרה',
-    followRequested: '{name} מבקש/ת לעקוב אחריך',
-    followRequestedAnon: 'התקבלה בקשת מעקב חדשה',
+    friendAccepted: '{name} אישר/ה את בקשת החברות שלך',
+    friendAcceptedAnon: 'בקשת החברות שלך אושרה',
+    friendRequested: '{name} רוצה להתחבר איתך',
+    friendRequestedAnon: 'התקבלה בקשת חברות חדשה',
   },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',

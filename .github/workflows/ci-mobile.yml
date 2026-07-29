@@ -2,19 +2,29 @@ name: CI · mobile
 
 # Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
 # are gated behind workflow_dispatch / the "run-full-ci" label until proven.
+#
+# develop guard (issue #25): pushes to develop run Jest. `tsc --noEmit` is
+# skipped on develop until the 941-error toolchain break (#18) is fixed; it
+# still blocks main / PRs. contract-check stays gated to main / PR-label.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'mobile/**'
       - '.github/workflows/ci-mobile.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'mobile/**'
       - '.github/workflows/ci-mobile.yml'
   workflow_dispatch:
+
+# One run per branch/PR. Superseded runs on develop and feature branches are
+# cancelled; main is never cancelled so every deployable commit keeps its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   install-typecheck:
@@ -30,10 +40,18 @@ jobs:
       - run: npm ci
       - name: TypeScript (no emit)
         working-directory: ./mobile
+        # Skipped on develop until #18 (941 tsc errors) is fixed — issue #25.
+        # Covers both develop pushes and PRs into develop, otherwise opening a PR
+        # against develop goes red on #18. The job still succeeds, so Jest
+        # (needs: install-typecheck) still runs. tsc stays required on main.
+        if: ${{ !(github.ref == 'refs/heads/develop' || github.base_ref == 'develop') }}
         run: npx tsc --noEmit
 
   test:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || github.event_name == 'push' }}
+    # Cheap (~13s) — runs on every push and on PRs into develop, where it is the
+    # only real gate while tsc is disabled. PRs into main stay label-gated until
+    # the pipeline is proven (see header).
+    if: ${{ github.event_name != 'pull_request' || github.base_ref == 'develop' || contains(github.event.pull_request.labels.*.name, 'run-full-ci') }}
     needs: install-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15

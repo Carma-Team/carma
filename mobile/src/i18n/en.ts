@@ -102,10 +102,10 @@ const en: TranslationMap = {
   notifications: {
     // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
     levelUp: 'Well done! You reached level {level}',
-    followAccepted: '{name} accepted your follow request',
-    followAcceptedAnon: 'Your follow request was accepted',
-    followRequested: '{name} wants to follow you',
-    followRequestedAnon: 'You have a new follow request',
+    friendAccepted: '{name} accepted your friend request',
+    friendAcceptedAnon: 'Your friend request was accepted',
+    friendRequested: '{name} wants to be friends',
+    friendRequestedAnon: 'You have a new friend request',
   },
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',

@@ -122,9 +122,10 @@ Production: Azure Container Apps, deployed by `deploy.yml` on push to `main`
    `max(client, server)` per type — counts only ever go up, so a client that
    under-reports (buggy or malicious) is corrected. Server-detected events are stored
    with `sensor_data.source="server-gps"`.
-5. **Scoring** — v1 formula (`services/scoring.py`) is what users currently see;
-   v2.1 (`services/scoring_v2.py`, `docs/scoring-algorithm-v2.md`) runs alongside,
-   stored in `score_v2`. A confidence cap keeps sparse-GPS trips from inflating.
+5. **Scoring** — v2.1 (`services/scoring_v2.py`, `docs/scoring-algorithm-v2.md`) is the
+   sole engine; v1 was retired and its code deleted (#53). All that survives of it is
+   the night-risk multiplier, in `services/risk.py`. A confidence cap keeps sparse-GPS
+   trips from inflating.
 6. **Points** — score × log-distance factor × night-risk multiplier, with daily
    anti-grind caps (300 pts / 150 km per day). The save response includes
    `pointsCapped: true` when a cap kicked in.

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
+
 from app.schemas._base import CamelModel
 
 
@@ -74,6 +76,49 @@ class VoucherOut(CamelModel):
                 "reward": RewardOut.from_orm_reward(r.reward),
             }
         )
+
+
+class BusinessRewardIn(CamelModel):
+    """Create payload for a business-owned reward.
+
+    `business_id` is deliberately absent — the server takes it from the caller's
+    own business, so a client cannot post a reward into someone else's catalog.
+    `category` defaults to the business's category when omitted.
+    """
+
+    title_he: str = Field(min_length=1, max_length=120)
+    title_en: str | None = Field(default=None, max_length=120)
+    description_he: str = Field(min_length=1, max_length=500)
+    description_en: str | None = Field(default=None, max_length=500)
+    category: str | None = None
+    cost_points: int = Field(ge=1)
+    image_icon: str = Field(default="gift-outline", max_length=40)
+    is_active: bool = True
+    stock: int = Field(default=0, ge=0)
+    expires_at: datetime | None = None
+
+
+class BusinessRewardPatchIn(CamelModel):
+    """Partial update — only the fields actually sent are applied."""
+
+    title_he: str | None = Field(default=None, min_length=1, max_length=120)
+    title_en: str | None = Field(default=None, max_length=120)
+    description_he: str | None = Field(default=None, min_length=1, max_length=500)
+    description_en: str | None = Field(default=None, max_length=500)
+    category: str | None = None
+    cost_points: int | None = Field(default=None, ge=1)
+    image_icon: str | None = Field(default=None, max_length=40)
+    is_active: bool | None = None
+    stock: int | None = Field(default=None, ge=0)
+    expires_at: datetime | None = None
+
+
+class BusinessRewardListOut(CamelModel):
+    rewards: list[RewardOut]
+
+
+class BusinessRewardResponse(CamelModel):
+    reward: RewardOut
 
 
 class RewardListOut(CamelModel):

@@ -1,7 +1,7 @@
 """add_notifications
 
-Revision ID: 0010_add_notifications
-Revises: 69f71b086e26
+Revision ID: 0012_add_notifications
+Revises: 0011_drop_levels_table
 Create Date: 2026-07-25 00:00:00.000000
 """
 
@@ -12,8 +12,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "0010_add_notifications"
-down_revision: str | None = "69f71b086e26"
+revision: str = "0012_add_notifications"
+down_revision: str | None = "0011_drop_levels_table"
 branch_labels: str | None = None
 depends_on: str | None = None
 
