@@ -625,10 +625,9 @@ Two things the workflow depends on and that are easy to break by accident:
 > `_verify_signature` deliberately lets through. Enforcement is #13, and it waits
 > on the mobile signing path (#96).
 >
-> `TRUSTED_PROXY_COUNT` is still missing from the app and has the same guard.
-> The deploy workflow sets it in the same update that ships the image, so the
-> automated path boots — but a manual `az containerapp update --image` will not.
-> See #99.
+> `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
+> passes it on every update, which is now belt-and-braces rather than the only
+> thing supplying it — so a bare `az containerapp update --image` boots as well.
 
 ### Container App environment variables
 
@@ -643,7 +642,7 @@ never serves traffic while looking healthy (`app/config.py`).
 | `DATABASE_URL` | yes | Postgres, `asyncpg` driver. Use a secret reference. |
 | `JWT_SECRET` | yes | 16+ characters. Use a secret reference. |
 | `TRIP_SIGNING_SECRET` | yes in production | 32+ characters. Empty means the trip-scoring oracle accepts anything — see #24. **Set** on the live app as `secretref:trip-secret` (#95). |
-| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. **Not set** on the live app; the deploy workflow supplies it (#99). |
+| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. **Set** on the live app, and passed again by the deploy workflow (#99). |
 | `SMS_PROVIDER`, `TWILIO_*` | only for real SMS | Defaults to the console sender. |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | optional | Silent no-op when unset. |
 
@@ -705,7 +704,8 @@ Run it from a machine logged in with `az login`.
 
 ```bash
 RG=carma-rg
-ACR=carmaregistry
+ACR=carmaregistry3819    # the live registry — not `carmaregistry`, which is a
+                         # placeholder in the one-time setup block above
 APP=carma-api
 TAG=$(git rev-parse --short HEAD)
 
@@ -717,13 +717,10 @@ az containerapp update -n $APP -g $RG \
   --image $ACR.azurecr.io/carma-server:$TAG
 ```
 
-Before the first deploy that includes the rate-limiting work, and any time the
-app is recreated, set the variables that the workflow would otherwise have set:
-
-```bash
-az containerapp update -n $APP -g $RG \
-  --set-env-vars TRUSTED_PROXY_COUNT=1
-```
+That is the whole path now — `ENV`, `DATABASE_URL`, `JWT_SECRET`,
+`TRIP_SIGNING_SECRET` and `TRUSTED_PROXY_COUNT` all live on the app, so an image
+swap carries no extra variables with it. Recreate the app and you are setting
+them all again from the table above.
 
 Then confirm the server actually came up, rather than assuming it did:
 
