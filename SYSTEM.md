@@ -614,11 +614,21 @@ Two things the workflow depends on and that are easy to break by accident:
   `repo:Carma-Team/carma:environment:production`; drop the environment key and the
   subject silently becomes `...:ref:refs/heads/main`, which will not match.
 
-> **Before the first deploy reaches `main`:** `TRIP_SIGNING_SECRET` is not set on
-> the live app, and with `ENV=production` the server refuses to start without it
-> (32+ chars). The app is up today only because it runs an older image built
-> before that guard existed. Provision it as a secret reference first, or the
-> first automated deploy will crash-loop. See #13.
+> **`TRIP_SIGNING_SECRET` is provisioned.** It exists on the app as the secret
+> `trip-secret` (64 chars, random), referenced by `TRIP_SIGNING_SECRET`. The
+> value is not recorded anywhere outside the Container App — read it back with
+> `az containerapp secret show` if you ever need it. This was the last thing
+> stopping the first automated deploy from crash-looping. (#95)
+>
+> Setting it only makes the server *able* to verify signatures. It does not
+> enforce them: the mobile client still sends a `ph:`-prefixed placeholder that
+> `_verify_signature` deliberately lets through. Enforcement is #13, and it waits
+> on the mobile signing path (#96).
+>
+> `TRUSTED_PROXY_COUNT` is still missing from the app and has the same guard.
+> The deploy workflow sets it in the same update that ships the image, so the
+> automated path boots — but a manual `az containerapp update --image` will not.
+> See #99.
 
 ### Container App environment variables
 
@@ -632,8 +642,8 @@ never serves traffic while looking healthy (`app/config.py`).
 | `ENV=production` | yes | Turns on the two guards below. Without it they never fire. |
 | `DATABASE_URL` | yes | Postgres, `asyncpg` driver. Use a secret reference. |
 | `JWT_SECRET` | yes | 16+ characters. Use a secret reference. |
-| `TRIP_SIGNING_SECRET` | yes in production | 32+ characters. Empty means the trip-scoring oracle accepts anything — see #24. |
-| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. |
+| `TRIP_SIGNING_SECRET` | yes in production | 32+ characters. Empty means the trip-scoring oracle accepts anything — see #24. **Set** on the live app as `secretref:trip-secret` (#95). |
+| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. **Not set** on the live app; the deploy workflow supplies it (#99). |
 | `SMS_PROVIDER`, `TWILIO_*` | only for real SMS | Defaults to the console sender. |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | optional | Silent no-op when unset. |
 
