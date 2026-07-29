@@ -2,8 +2,9 @@
 
 The client's telemetry digest is the primary scoring input, but live data showed
 it under-reports: devices with mis-calibrated SDK detection send all-zero event
-counts and score a flat 100 (see CAR-6). The route waypoints (`{ts, lat, lng, speedKmh}`) the client already
-sends are an independent witness the server can analyze itself.
+counts and score a flat 100 (see CAR-6). The route waypoints
+(`{ts, lat, lng, speedKmh}`) the client already sends are an independent
+witness the server can analyze itself.
 
 This module is pure (no I/O, no DB) like scoring. It turns a raw waypoint
 array into:
@@ -12,7 +13,7 @@ array into:
     — a *lower bound* on what happened: 3–6 s GPS sampling misses short events
     an IMU would catch, so counts here only ever raise the digest counts
     (`max(digest, gps)` in the trips service), never lower them.
-  * A speeding weight per scoring.md §3.3 (time-over-threshold),
+  * A speeding weight per scoring.md "Speeding" (time-over-threshold),
     measured against a conservative absolute limit rather than map-matched
     posted limits: nothing in Israel allows more than 120 km/h, so only speed
     beyond 120 + the spec's 10 km/h GPS-noise buffer is counted. This catches
@@ -39,19 +40,19 @@ _MIN_SAMPLE_GAP_S = 0.5  # closer pairs are GPS duplicates — keep the first
 _MAX_KINEMATIC_GAP_S = 15.0  # no acceleration/bearing math across longer gaps
 _MAX_PLAUSIBLE_SPEED_KMH = 250.0
 
-# ── Kinematic detection (thresholds mirror the SDK's intent, spec §3.1/§4) ──────
+# ── Kinematic detection (thresholds mirror the SDK's intent — scoring.md) ──────
 _BRAKE_DECEL_MS2 = 3.0  # sustained GPS-visible decel; IMU threshold is lower
 _ACCEL_MS2 = 2.5
 _TURN_RATE_DEG_S = 18.0  # bearing change rate at speed
 _TURN_MIN_SPEED_KMH = 25.0
 _TURN_MAX_DT_S = 8.0
-_KINEMATIC_MIN_SPEED_KMH = 15.0  # low-speed filter (§4) with margin for GPS noise
+_KINEMATIC_MIN_SPEED_KMH = 15.0  # under-5 km/h filter, with margin for GPS noise
 _EVENT_MERGE_WINDOW_S = 5.0  # one physical maneuver, not N samples of it
 
-# ── Speeding (§3.3 against a conservative absolute limit, no map-matching) ──────
+# ── Speeding (scoring.md "Speeding") — conservative absolute limit, no maps ─────
 _ASSUMED_LIMIT_KMH = 120.0  # national maximum — conservative on every road
 _SPEED_BUFFER_KMH = 10.0  # spec's GPS-noise / flow-of-traffic buffer
-_SPEED_BANDS = (  # (km/h over limit+buffer, band weight) — spec §3.3, highest first
+_SPEED_BANDS = (  # (km/h over limit+buffer, band weight) — highest first
     (20.0, 8.0),  # extreme: ≥150 measured (≥30 over the 120 limit)
     (10.0, 3.0),  # major:   140–150
     (0.0, 1.0),  # minor:   130–140
@@ -81,7 +82,7 @@ class TelemetryAnalysis:
     hard_brakes: int
     aggressive_accels: int
     sharp_turns: int
-    speeding_weight: float  # severity-weighted minutes over threshold (§3.3)
+    speeding_weight: float  # severity-weighted minutes over the threshold
     has_speed_data: bool
     confidence: float  # [0, 1] — how much the trace can prove
     distance_km: float  # trace-derived distance — an independent witness (issue #56)
@@ -193,7 +194,7 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         dt = cur.ts - prev.ts
         dts.append(dt)
 
-        # Trace distance (§ issue #56): trapezoid-integrate speed over *every*
+        # Trace distance (issue #56): trapezoid-integrate speed over *every*
         # segment, including gaps longer than the kinematic limit. Excluding gaps
         # would under-witness badly on the devices from issue #17 that emit a 6 s
         # median with >15 s holes, and this value is only ever used as an upper

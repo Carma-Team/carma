@@ -65,7 +65,7 @@ class TestKinematicDetection:
         assert telemetry.analyze(trace, 10).aggressive_accels == 1
 
     def test_low_speed_filter_ignores_parking_maneuvers(self) -> None:
-        # A hard stop from 12 km/h is a parking maneuver, not an event (§4).
+        # A hard stop from 12 km/h is a parking maneuver, not an event.
         trace = [_wp(0, 12.0), _wp(3, 0.0), _wp(6, 0.0)]
         assert telemetry.analyze(trace, 10).hard_brakes == 0
 

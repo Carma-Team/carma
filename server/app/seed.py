@@ -297,7 +297,7 @@ _DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
 
 
 async def backfill_driver_scores(db: AsyncSession) -> None:
-    """Fill driver_score (v2 §7) for users where it is NULL.
+    """Fill driver_score (scoring.md "The driver's own score") where it is NULL.
 
     Seeded users get their trips inserted directly, bypassing the live save path
     that normally maintains driver_score — leaving the demo leaderboard blank.

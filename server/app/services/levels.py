@@ -52,7 +52,7 @@ class LevelDef:
 # not. That is the intent: if every level paid more, no level would be an
 # achievement. A quiet rung still moves the driver toward the next milestone.
 #
-# The daily points cap in scoring (§8) bounds what 2x can be worth, so the
+# The daily points cap (scoring.md "Points") bounds what 2x can be worth, so the
 # top of the ladder is an engagement lever rather than a grind risk.
 #
 # One caveat worth revisiting: the standard also wants the top band held by

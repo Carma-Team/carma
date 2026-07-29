@@ -260,28 +260,6 @@ points = trip score
 
 ---
 
-## Where the old section numbers went
-
-This document used to be numbered, and 46 code comments still point at those numbers (`# see §6.1`). Search this table for the number in the comment, then replace the `§` reference with the section name as you go. The numbering is not coming back.
-
-| Old | Now |
-|---|---|
-| §1 | *(gone — it argued against a formula that no longer exists)* |
-| §3.1 | Braking, acceleration, cornering — the detection table |
-| §3.2 | Braking, acceleration, cornering — "Severity is built but switched off" |
-| §3.3 | Speeding |
-| §3.4 | Phone distraction |
-| §4 | Braking, acceleration, cornering — the under-5 km/h rule |
-| §4.3 | Three adjustments — "Bad GPS caps the upside" |
-| §5, §5.2 | Rates, not totals |
-| §6, §6.1 | Rate to subscore |
-| §6.2 | Blending the five |
-| §6.3 | Three adjustments — "Short trips are judged gently" |
-| §7 | The driver's own score |
-| §8 | Points |
-
----
-
 ## Related
 
 - [How CARMA measures phone distraction](https://linear.app/carma-app/document/how-carma-measures-phone-distraction-the-design-and-why-6f8361ad1dcc) — the full reasoning behind the distraction design

@@ -23,7 +23,7 @@ What is NOT yet available, and how this module copes until it is:
     event weight 1.0). `event_severity()` is implemented and tested now so the
     downstream math is unchanged the day the SDK lands.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
-    speeding weight is redistributed across the other components (§6.2).
+    speeding weight is redistributed across the other components ("Blending the five").
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class ScoringConfig:
     constants re-fit 2026-07 from the live fleet's recency-weighted rate
     percentiles (CAR-102 — provisional until the fleet is bigger):
     anchored so a single event on a median trip costs ~5–10 composite points and
-    the weighted p90-worst trip lands near 50, per spec §6.1."""
+    the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
     version: str = "2.1.0"
 
@@ -49,7 +49,7 @@ class ScoringConfig:
     k_speed: float = 0.012
     k_distraction: float = 0.020
 
-    # Composite weights when speeding data IS available (§6.2).
+    # Composite weights when speeding data IS available ("Blending the five").
     w_distraction: float = 0.30
     w_speed: float = 0.25
     w_brake: float = 0.20
@@ -57,26 +57,26 @@ class ScoringConfig:
     w_corner: float = 0.10
 
     # Composite weights when speeding data is NOT available — speeding's 0.25
-    # redistributed proportionally across the remaining four (§6.2).
+    # redistributed proportionally across the remaining four.
     w_distraction_nospeed: float = 0.40
     w_brake_nospeed: float = 0.27
     w_accel_nospeed: float = 0.20
     w_corner_nospeed: float = 0.13
 
-    # Exposure normalization (§5).
+    # Exposure normalization ("Rates, not totals").
     exposure_floor_km: float = 4.0
     distraction_time_floor_min: float = 5.0
 
-    # Short-trip dampening (§6.3).
+    # Short-trip dampening ("Short trips are judged gently").
     short_trip_km: float = 2.0
     short_trip_min: float = 5.0
 
-    # Driver score (§7).
+    # Driver score ("The driver's own score").
     ewma_halflife_days: float = 14.0
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
 
-    # Points engine (§8).
+    # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
     daily_points_cap: float = 300.0
@@ -85,7 +85,8 @@ class ScoringConfig:
 
 CONFIG = ScoringConfig()
 
-# Per-type g-force ranges for the continuous severity weight (§3.2).
+# Per-type g-force ranges for the continuous severity weight ("Severity is
+# built but switched off").
 _SEVERITY_RANGES = {
     "brake": (0.30, 0.60),
     "accel": (0.27, 0.55),
@@ -101,7 +102,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 
 def event_severity(event_type: str, peak_g: float, duration_ms: float, speed_kmh: float) -> float:
-    """Continuous severity weight for one kinematic event (§3.2).
+    """Continuous severity weight for one kinematic event.
 
     Ranges from 1.0 at the detection threshold to ~3.0 for an extreme, sustained,
     high-speed event. Replaces tier counting so there is no threshold to game.
@@ -133,7 +134,7 @@ class TripScoreV2:
 
 
 def _subscore(rate: float, k: float) -> float:
-    """Exponential-decay map from a per-exposure rate to a 0–100 subscore (§6.1)."""
+    """Exponential-decay map from a per-exposure rate to a 0–100 subscore."""
     return 100.0 * math.exp(-k * max(0.0, rate))
 
 
@@ -150,7 +151,8 @@ def compute_trip_score(
     rolling_score: float | None = None,
     config: ScoringConfig = CONFIG,
 ) -> TripScoreV2:
-    """Composite 0–100 trip score from severity-weighted event counts (§5–§6).
+    """Composite 0–100 trip score from severity-weighted event counts
+    (scoring.md "Rates, not totals" and "Rate to subscore").
 
     `w_*` are severity-weighted counts (Σ severity per type). In shadow mode each
     event contributes weight 1.0, so these equal raw counts. Distance and time
@@ -188,7 +190,7 @@ def compute_trip_score(
             + config.w_corner_nospeed * sub_corner
         )
 
-    # Too little exposure to judge — blend 50/50 with the driver's standing (§6.3).
+    # Too little exposure to judge — blend 50/50 with the driver's standing.
     if rolling_score is not None and (distance_km < config.short_trip_km or duration_min < config.short_trip_min):
         score = 0.5 * score + 0.5 * rolling_score
 
@@ -230,7 +232,7 @@ class TripHistoryPoint:
 
 
 def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig = CONFIG) -> float:
-    """Persistent driver-level score (§7): recency- and exposure-weighted average
+    """Persistent driver-level score: recency- and exposure-weighted average
     of recent trip scores, blended with a fleet-median prior for cold start.
 
     A new driver with no history returns the prior (75) rather than a meaningless
@@ -269,7 +271,7 @@ def compute_points(
     fraud_flagged: bool = False,
     config: ScoringConfig = CONFIG,
 ) -> float:
-    """Gamification points for a trip (§8), with anti-grind caps.
+    """Gamification points for a trip (scoring.md "Points"), with anti-grind caps.
 
     Fraud-flagged trips earn nothing and are excluded from the driver window by
     the caller. Distance counted toward points is capped per day, and the daily
@@ -278,7 +280,7 @@ def compute_points(
     if fraud_flagged:
         return 0.0
 
-    # Per-day distance counted toward points is capped (§8).
+    # Per-day distance counted toward points is capped.
     remaining_km = max(0.0, config.daily_distance_cap_km - max(0.0, distance_today_km))
     counted_km = min(max(0.0, distance_km), remaining_km)
 
@@ -286,6 +288,6 @@ def compute_points(
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
     points = trip_score * distance_factor * risk_multiplier * streak_bonus
 
-    # Daily points cap (§8).
+    # Daily points cap.
     remaining_points = max(0.0, config.daily_points_cap - max(0.0, points_today))
     return round(min(points, remaining_points) * 10) / 10
