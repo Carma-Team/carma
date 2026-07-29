@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -156,7 +157,9 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
     # Held as a plain value: the rollback below expires every instance in the
     # session, and reading voucher.id afterwards would trigger a lazy load.
     voucher_id = voucher.id
-    used = await db.execute(
+    # See the note in rewards.py: a DML execute returns a CursorResult at
+    # runtime, but `execute` is typed as returning a plain Result.
+    used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
         .where(
             Redemption.id == voucher_id,

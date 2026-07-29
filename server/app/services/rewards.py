@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
@@ -73,7 +74,10 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
     # points check above and drive the balance negative.
-    debited = await db.execute(
+    # `execute` is typed as returning a plain Result, which has no rowcount.
+    # A DML statement always yields a CursorResult at runtime — the annotation
+    # tells mypy that, it does not change behaviour.
+    debited: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(User)
         .where(User.id == user.id, User.points >= reward.cost_points)
         .values(points=User.points - reward.cost_points)
