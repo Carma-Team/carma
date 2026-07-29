@@ -1,92 +1,92 @@
-# Scoring v2 — Calibration Status
+# Where the scoring constants came from
 
-> **Decision (2026-07-19, Dan):** partial recalibration executed — **v2.1**. The
-> full percentile fit remains deferred per the original trigger (below), but the
-> shape defects that made scores unusable (flat 100s, single-event cliffs) were
-> fixed now using the data we do have. Original deferral decision (2026-06-15)
-> is preserved at the bottom for the record.
+**Status: current.** Covers the constants in [`scoring.py`](../server/app/services/scoring.py) as they stand today — trips scored with them are stamped `2.1.0`.
 
-## What v2.1 changed (2026-07)
-
-Diagnosis on 57 cloud trips (2026-05-15 → 2026-07-13) showed:
-
-- Devices affected by issue #13 upload **all-zero digest counts** → exact 100.0
-  every trip, regardless of driving.
-- The initial `k_c` estimates produced a **bimodal distribution**: one hard brake
-  on a 7.5 km trip → 54.3; zero events → 100.0. No real trip landed in 85–95.
-- `route_waypoints` (sent by every v2 client) is an **independent witness** the
-  server never used: GPS kinematics found sharp turns and sustained motorway
-  speeding (131.8 km/h max, 304 samples >110) on trips reported as event-free.
-
-The v2.1 response, all server-side (`telemetry.py` + `scoring_v2.py` + `trips.py`):
-
-1. **Server-side GPS detection** — brakes/accels/turns from speed deltas and
-   bearing rates; merged into scoring via `max(digest, gps)` per type (counts
-   only ever go up — anti-fraud is one-way).
-2. **Speeding component activated** — time-over-threshold (§3.3) against a
-   conservative absolute limit (120 national max + 10 buffer; only >130 counts).
-   `has_speed_data=True` whenever waypoint coverage suffices.
-3. **Confidence cap** (`apply_confidence`) — sparse/gappy traces cap how far a
-   trip can score *above* the driver's rolling score. Kills the fake flat 100;
-   never dilutes reported events.
-4. **Decay constants re-fit** from recency-weighted per-component rate
-   percentiles of the real fleet (weights halve every 30 days; sub-1 km bench
-   rides excluded):
-
-   | constant | old (estimate) | v2.1 | anchor range from data |
-   |---|---|---|---|
-   | `k_brake` | 0.075 | 0.018 | 0.008–0.028 |
-   | `k_accel` | 0.089 | 0.022 | 0.012–0.052 |
-   | `k_corner` | 0.064 | 0.012 | 0.007–0.018 |
-   | `k_speed` | 0.045 | 0.012 | no data — kept proportional |
-   | `k_distraction` | 0.112 | 0.020 | 0.018–0.021 |
-
-   Full-history re-score under v2.1 (§10.3 sanity check): median 84.3 → 88.5,
-   p10 38.2 → 72.7, perfect-100 count 6 → 0, gradient preserved (worst 56.1,
-   best 99.3). The spec's p90-worst ≈ 45 anchor is intentionally not hit yet:
-   it assumes severity-weighted counts, which need issue #14.
-
-`scoring_version` bumped to **2.1.0**. History is not rewritten — old rows keep
-their stored scores and version stamp.
-
-## Still deferred (original trigger unchanged)
-
-Full percentile calibration — including severity-weighted rates and per-band
-speeding against map-matched limits — waits for **all** of:
-
-- **≥ ~200 real (non-test) trips** accumulated.
-- SDK detection calibration shipped (issue #13) so client counts are trustworthy.
-- Per-event severity flowing (issues #12 + #14) so we calibrate severity-weighted
-  rates, not raw counts.
-
-Method when the trigger is met: spec §10 — pull real distance/rate
-distributions, set `exposure_floor_km` where rate variance stabilises, solve
-each `k_c` for median ≈ 80 / p90-worst ≈ 45, re-score history, flip at a
-level-season boundary.
-
-## Related
-
-- Issues: #12 (mobile sends events), #13 (SDK detection calibration), #14 (SDK
-  emits `peak_g`/`duration_ms`), and the GPS sampling-density issue (Dan → May,
-  2026-07: 6 s median + >15 s gaps on some devices caps their confidence).
-- `python -m app.seed --driver-scores-only` backfills NULL `driver_score` for
-  seeded users without touching live-computed values.
+The score's shape is set by five decay constants — one per component. This document records what they were fitted to, and what is still waiting on more data.
 
 ---
 
-## Appendix — original deferral decision (2026-06-15, superseded in part)
+## The problem the July 2026 recalibration fixed
 
-The v2 constants were deliberately left at their initial estimates because:
+We looked at 57 real trips from the cloud (May–July 2026) and found the score was not working:
 
-1. **Volume.** ~15 trips total at the time — fitting five decay constants to
-   that fits noise.
+| Symptom | Cause |
+|---|---|
+| Exact 100.0 on every trip, whatever the driving | Some phones upload all-zero event counts (issue #13) |
+| Either 100.0 or a cliff to ~50 — nothing in between | One hard brake on a 7.5 km trip scored 54.3. No real trip ever landed in 85–95. |
+| Motorway speeding not costing anything | The GPS trace showed 131.8 km/h and 304 samples above 110 km/h on trips reported as event-free |
+
+The last one is the important one: **the phone was already sending a GPS trace the server never looked at.** That trace is an independent witness to what happened on a drive.
+
+---
+
+## What changed
+
+All four changes are server-side — no app release was needed.
+
+| Change | Effect |
+|---|---|
+| **Server detects events from the GPS trace** | Brakes, accelerations and turns are re-derived from speed and bearing. Merged as `max(phone, GPS)` per type — counts only ever go up. |
+| **Speeding switched on** | Time over a conservative absolute limit (120 km/h national max + 10 km/h buffer, so only above 130 counts). No map data needed. |
+| **Confidence cap** | A sparse or gappy trace limits how far a trip can score *above* the driver's rolling score. Kills the fake flat 100 without diluting real events. |
+| **Constants re-fitted** | From the fleet's own rate distributions, weighted so recent trips count more (weights halve every 30 days). Bench rides under 1 km excluded. |
+
+### The new constants
+
+| Constant | Old (a guess) | v2.1 | Range the data supported |
+|---|---|---|---|
+| `k_brake` | 0.075 | **0.018** | 0.008–0.028 |
+| `k_accel` | 0.089 | **0.022** | 0.012–0.052 |
+| `k_corner` | 0.064 | **0.012** | 0.007–0.018 |
+| `k_speed` | 0.045 | **0.012** | no data — kept proportional |
+| `k_distraction` | 0.112 | **0.020** | 0.018–0.021 |
+
+### What it did to real scores
+
+Re-scoring the full history under the new constants:
+
+| | Before | After |
+|---|---|---|
+| Median trip | 84.3 | 88.5 |
+| Worst 10% | 38.2 | 72.7 |
+| Trips scoring exactly 100 | 6 | 0 |
+| Spread preserved? | — | yes: worst 56.1, best 99.3 |
+
+**Old scores were not rewritten.** Existing rows keep the score and version stamp they were given.
+
+---
+
+## What is still not calibrated
+
+The target was a median near 80 and a worst-10% near 45. We hit the median but not the tail — the tail figure assumes severity-weighted counts, which we cannot produce yet.
+
+Full calibration needs **all three** of:
+
+- **~200 or more real trips.** Fitting five constants to 57 fits noise as much as signal.
+- **Trustworthy phone-side detection** (issue #13), so client counts mean something.
+- **Per-event severity flowing** (issues #12 and #14), so we calibrate severity-weighted rates rather than raw counts.
+
+**Method when we get there:** pull the real distance and rate distributions, set the exposure floor where rate variance stabilises, solve each constant for median ≈ 80 and worst-10% ≈ 45, re-score history, and flip at a level-season boundary.
+
+**The bigger move after that** is to stop using fixed constants at all. CMT score each component against the driver population rather than against an absolute curve. That is the better method and it becomes possible the moment we have a real fleet distribution.
+
+---
+
+## Notes
+
+- **The same work is tracked under two id schemes.** Per-event severity appears as issue #14 here and as CAR-6 in [scoring.md](scoring.md). Reconcile before either is picked up — new issues go in Linear only.
+- **GPS sampling density varies by device.** Some phones emit a 6-second median with gaps over 15 seconds, which permanently caps their confidence. Raised with May, July 2026.
+- `python -m app.seed --driver-scores-only` backfills a NULL `driver_score` without touching live-computed values.
+
+---
+
+## Appendix — why this was deferred until July
+
+The original decision (2026-06-15) was to leave the constants at their initial guesses:
+
+1. **Volume.** ~15 trips at the time.
 2. **Dirty data.** No way to separate bench rides from real ones.
-3. **Detection still being fixed.** Calibrating on mis-detected counts bakes in
-   the wrong shape.
-4. **Deferring was free.** Constants affect only the displayed score, never the
-   stored raw data.
+3. **Detection still being fixed.** Calibrating on mis-detected counts bakes in the wrong shape.
+4. **Deferring was free.** Constants affect only the displayed score, never the stored raw data.
 
-By 2026-07 points 1–2 had improved (57 trips, bench rides identifiable by
-distance/duration) and point 4 had flipped — the uncalibrated curve was
-actively destroying score trust (flat 100s for the CTO's own commute) — hence
-the partial recalibration above.
+By July, points 1 and 2 had improved and point 4 had flipped: the uncalibrated curve was actively destroying trust in the score — it gave the CTO's own commute a flat 100. That is what triggered the partial recalibration above.
