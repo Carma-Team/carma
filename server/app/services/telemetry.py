@@ -2,7 +2,7 @@
 
 The client's telemetry digest is the primary scoring input, but live data showed
 it under-reports: devices with mis-calibrated SDK detection send all-zero event
-counts and score a flat 100 (see docs/scoring-v2-calibration-status.md and
+counts and score a flat 100 (see docs/scoring-calibration.md and
 issue #13). The route waypoints (`{ts, lat, lng, speedKmh}`) the client already
 sends are an independent witness the server can analyze itself.
 
@@ -13,7 +13,7 @@ array into:
     — a *lower bound* on what happened: 3–6 s GPS sampling misses short events
     an IMU would catch, so counts here only ever raise the digest counts
     (`max(digest, gps)` in the trips service), never lower them.
-  * A speeding weight per scoring-algorithm-v2.md §3.3 (time-over-threshold),
+  * A speeding weight per scoring.md §3.3 (time-over-threshold),
     measured against a conservative absolute limit rather than map-matched
     posted limits: nothing in Israel allows more than 120 km/h, so only speed
     beyond 120 + the spec's 10 km/h GPS-noise buffer is counted. This catches

@@ -70,7 +70,7 @@ carma/
 │       ├── core/          auth deps, JWT, audit log, logging
 │       ├── seed.py        demo data (idempotent; investor-demo users)
 │       └── main.py        app assembly, middleware, rate limiting
-├── docs/              architecture & algorithm docs (start with scoring-algorithm-v2.md)
+├── docs/              architecture & algorithm docs (start with scoring.md)
 ├── scripts/           dev.ps1 (full stack up), setup.ps1, smoke.sh
 └── .github/workflows/ ci-server.yml, ci-mobile.yml, deploy.yml
 ```
@@ -122,7 +122,7 @@ Production: Azure Container Apps, deployed by `deploy.yml` on push to `main`
    `max(client, server)` per type — counts only ever go up, so a client that
    under-reports (buggy or malicious) is corrected. Server-detected events are stored
    with `sensor_data.source="server-gps"`.
-5. **Scoring** — v2.1 (`services/scoring_v2.py`, `docs/scoring-algorithm-v2.md`) is the
+5. **Scoring** — v2.1 (`services/scoring_v2.py`, `docs/scoring.md`) is the
    sole engine; v1 was retired and its code deleted (#53). All that survives of it is
    the night-risk multiplier, in `services/risk.py`. A confidence cap keeps sparse-GPS
    trips from inflating.
@@ -220,8 +220,8 @@ that's the top of your queue (#21).
 
 ## 9. Key docs
 
-- `docs/scoring-algorithm-v2.md` — the scoring spec (the single most important doc).
-- `docs/scoring-v2-calibration-status.md` — why the constants are what they are.
-- `docs/fraud-detection-v2.md` + `docs/RFC-001-Hybrid-Validation.md` — anti-fraud design.
+- `docs/scoring.md` — the scoring spec (the single most important doc).
+- `docs/scoring-calibration.md` — why the constants are what they are.
+- `docs/fraud-detection-roadmap.md` + `docs/RFC-001-Hybrid-Validation.md` — anti-fraud design.
 - `mobile/STRUCTURE.md` — mobile layer rules (read before touching anything there).
 - `CLAUDE.md` — working conventions, branching, and the "keep it simple" philosophy.

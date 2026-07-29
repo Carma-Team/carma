@@ -44,7 +44,7 @@ class User(Base, TimestampMixin):
     total_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
-    # v2 persistent driver score (scoring-algorithm-v2.md §7). Maintained in
+    # v2 persistent driver score (scoring.md §7). Maintained in
     # shadow mode; not exposed by any API schema until the v2 rollout.
     driver_score: Mapped[float | None] = mapped_column(Float)
 

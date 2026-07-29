@@ -1,7 +1,7 @@
 # CARMA — Fraud Detection (v1, current)
 
 > What is actually implemented and running in production today.
-> For the next-version roadmap see [fraud-detection-v2.md](fraud-detection-v2.md).
+> For the next-version roadmap see [fraud-detection-roadmap.md](fraud-detection-roadmap.md).
 
 ---
 

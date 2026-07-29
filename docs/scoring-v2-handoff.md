@@ -2,7 +2,7 @@
 
 This is the work that scoring v2 needs but that lives **outside the backend/scoring
 domain**. The server side is implemented and running in shadow mode
-([scoring-algorithm-v2.md §13](scoring-algorithm-v2.md)); the items below are written
+([scoring.md §13](scoring.md)); the items below are written
 for their owners so nobody has to reverse-engineer the spec.
 
 **Do not start any of this without coordinating the rollout order** — the SDK change
@@ -101,4 +101,4 @@ v2 is the active engine — shadow mode is complete, v1 is retired. Remaining st
 
 1. Ship SDK severity (A) — unblocks the severity dimension (zero server change needed).
 2. Ship Mobile UI (B) — surface driver score alongside trip score.
-3. Recalibrate `k_c` decay constants once ≥ ~200 real trips accumulate (see [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md)).
+3. Recalibrate `k_c` decay constants once ≥ ~200 real trips accumulate (see [scoring-calibration.md](scoring-calibration.md)).

@@ -1,6 +1,6 @@
 # CARMA Scoring Algorithm
 
-> **Status: RETIRED.** Superseded by [scoring-algorithm-v2.md](scoring-algorithm-v2.md), which is now the sole authoritative engine. The `get_risk_multiplier` time-of-day factor from `scoring.py` is still reused by the v2 engine. `scoring.ts` in the mobile client is kept for unit-test reference only — not called at runtime.
+> **Status: RETIRED.** Superseded by [scoring.md](../scoring.md), which is now the sole authoritative engine. The `get_risk_multiplier` time-of-day factor from `scoring.py` is still reused by the v2 engine. `scoring.ts` in the mobile client is kept for unit-test reference only — not called at runtime.
 
 ---
 

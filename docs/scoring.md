@@ -265,6 +265,6 @@ When you next touch one of those comments, replace the `§` reference with the s
 ## Related documents
 
 - [How CARMA measures phone distraction](https://linear.app/carma-app/document/how-carma-measures-phone-distraction-the-design-and-why-6f8361ad1dcc) — the full reasoning behind the distraction design
-- [scoring-v2-calibration-status.md](scoring-v2-calibration-status.md) — where the decay constants came from
+- [scoring-calibration.md](scoring-calibration.md) — where the decay constants came from
 - [scoring-v2-handoff.md](scoring-v2-handoff.md) — the SDK work the score is waiting on
 - [archive/scoring-algorithm.md](archive/scoring-algorithm.md) — the retired v1

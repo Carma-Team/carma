@@ -1,11 +1,11 @@
 """CARMA Scoring Algorithm v2 — server-side engine (stages 3–7).
 
-Spec: docs/scoring-algorithm-v2.md. v2 is now the **authoritative, user-facing**
+Spec: docs/scoring.md. v2 is now the **authoritative, user-facing**
 scoring engine (trip score, driver score, points). v1 is retired and deleted
 (#53); only its `get_risk_multiplier` time-of-day factor survives, in `risk.py`.
 
 v2.1 (2026-07): the decay constants were re-fit from the live fleet's
-recency-weighted rate distributions (see docs/scoring-v2-calibration-status.md)
+recency-weighted rate distributions (see docs/scoring-calibration.md)
 — the initial estimates produced a bimodal score distribution (exact 100 or a
 cliff to ~50 from a single event). v2.1 also adds `apply_confidence`, which
 caps how far a trip can score above the driver's rolling score when the GPS
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ScoringConfigV2:
     """Versioned v2 parameters. Decay constants re-fit 2026-07 from the live
-    fleet's recency-weighted rate percentiles (docs/scoring-v2-calibration-status.md):
+    fleet's recency-weighted rate percentiles (docs/scoring-calibration.md):
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per spec §6.1."""
 

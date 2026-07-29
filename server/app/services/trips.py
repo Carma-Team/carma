@@ -23,7 +23,7 @@ from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
-# Driver-score aggregation window (scoring-algorithm-v2.md §7 — ~28-day effective
+# Driver-score aggregation window (scoring.md §7 — ~28-day effective
 # window from a 14-day half-life; query a 30-day slice to cover the long tail).
 _DRIVER_SCORE_WINDOW_DAYS = 30
 
@@ -54,7 +54,7 @@ _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
 # prior (75, "good but unproven") and is credibility-weighted toward it until a
 # driver has real distance, so a newcomer cannot be capped on thin evidence.
 # Re-fit against the live distribution before treating these as settled —
-# same caveat as the v2 constants (docs/scoring-v2-calibration-status.md).
+# same caveat as the v2 constants (docs/scoring-calibration.md).
 # Listed highest-first, like the ladder above.
 _LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
     (80.0, 10),  # no effective cap — 10 is the top level
@@ -347,7 +347,7 @@ async def _compute_v2(
 ) -> tuple[float, float, float, bool]:
     """Compute the v2 trip score, updated driver score, and points.
 
-    v2 is the sole scoring engine (scoring-algorithm-v2.md). Pure-formula work
+    v2 is the sole scoring engine (scoring.md). Pure-formula work
     lives in scoring_v2; this only sources the inputs. Severity is unavailable
     (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
@@ -357,7 +357,7 @@ async def _compute_v2(
     Returns (trip_score, driver_score, points, points_capped).
     """
     # Proxy for the distraction weight until the SDK emits per-epoch speed:
-    # each touch epoch is weight 1, plus screen-on minutes (scoring-algorithm-v2.md §3.4).
+    # each touch epoch is weight 1, plus screen-on minutes (scoring.md §3.4).
     w_distraction = touch_epochs + screen_interaction_seconds / 60.0
     rolling = user.driver_score if user.driver_score is not None else scoring_v2.CONFIG.prior_score
 
@@ -404,7 +404,7 @@ async def _compute_v2(
     distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
 
     # Streak: consecutive days (including today, counting the trip being saved)
-    # with at least one trip (scoring-algorithm-v2.md §8).
+    # with at least one trip (scoring.md §8).
     trip_days = {start.astimezone(_TZ_IL).date() for _s, _km, start, _p in rows}
     trip_days.add(today)
     streak_days = 0
@@ -504,7 +504,7 @@ async def save(
 
     distance = _witness_distance(distance, gps.distance_km)
 
-    # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
+    # v2 is the sole scoring engine (scoring.md). The risk multiplier
     # is a time-of-day factor reused from v1; the score, driver score, and points
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
     now = datetime.now(UTC)
@@ -596,7 +596,7 @@ async def save(
             "total_distance": User.total_distance + trip.distance_km,
             "level": level_expr,
         }
-        # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
+        # v2 driver score (scoring.md §7) — the user's headline score.
         values["driver_score"] = new_driver_score
         # RETURNING so the response can carry the level the database actually
         # resolved, rather than the client re-deriving it from points and
