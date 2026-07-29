@@ -23,7 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 - **Leaderboard `type=friends`** now lists accepted friendships in either direction — previously only people the viewer had followed, so the user who accepted never saw the requester on their own board. `followStatus` on every entry means friendship status (the wire name is unchanged for the client).
-- **Scoring v2.1 recalibration:** exponential-decay constants re-fit from recency-weighted live-fleet percentiles (`k_brake` 0.075→0.018, `k_accel` 0.089→0.022, `k_corner` 0.064→0.012, `k_speed` 0.045→0.012, `k_distraction` 0.112→0.020); `scoring_version` → `2.1.0`. Full-history re-score: median 84.3→88.5, p10 38.2→72.7, perfect-100 trips 6→0. See `docs/scoring-calibration.md`.
+- **Scoring v2.1 recalibration:** exponential-decay constants re-fit from recency-weighted live-fleet percentiles (`k_brake` 0.075→0.018, `k_accel` 0.089→0.022, `k_corner` 0.064→0.012, `k_speed` 0.045→0.012, `k_distraction` 0.112→0.020); `scoring_version` → `2.1.0`. Full-history re-score: median 84.3→88.5, p10 38.2→72.7, perfect-100 trips 6→0.
 - Monorepo at `Carma-Team/carma` — server, mobile, and mock-server live under one repo.
 
 ## [0.3.0] — 2026-06-13 — Beta improvements (branch: feature/beta-improvements)

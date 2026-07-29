@@ -38,6 +38,30 @@ The phone can show live feedback during a drive, but that is a preview. Only the
 
 ---
 
+## Why this follows CMT
+
+Every significant choice below — which five things to measure, what units to measure them in, what counts as distraction — follows Cambridge Mobile Telematics rather than something we invented. That is deliberate, and it is the strongest thing about the algorithm.
+
+**Why their method carries weight that ours could not:**
+
+| | |
+|---|---|
+| **It is validated against crashes** | The only real proof a driving metric works is that it predicts crashes. CMT matched their measurements against actual insurance claims across tens of millions of drivers. No amount of internal tuning substitutes for that. |
+| **It survives regulatory review** | Insurers use CMT scores in rating plans filed with state regulators. The method has been examined by people whose job is to reject unfair pricing. A self-invented score has passed no such test. |
+| **They publish the population numbers** | Their annual figures let us check our own sensors against a known baseline immediately, instead of waiting years for our own claims data. |
+| **It is in the public record** | Patent 11,485,369 covers the distraction measurement, and their crash-risk findings are published jointly with road-safety bodies. It can be read and challenged. |
+
+**What copying them does and does not buy us.** It makes our numbers *comparable* to the industry standard and auditable by anyone who knows the field. It does not make them *validated* — their figures are validated because they had claims to check against, and we have none.
+
+The honest sentence, which is stronger than overclaiming: *"We measure the way the industry leader measures, so our numbers can be checked against theirs. Validating against claims requires claims — that comes after the pilot."*
+
+**Where we knowingly differ**, in both cases because of data we do not have yet:
+
+- **Distraction is one number, not two.** CMT keep screen interaction and phone handling separate; we currently blend them. See below.
+- **Subscores are scored against a fixed curve, not against the driver population.** CMT compare each driver to everyone else. That is the better method and needs a fleet distribution we do not have.
+
+---
+
 ## The five things we measure
 
 ### 1. Phone distraction — weight 0.30
@@ -51,15 +75,9 @@ CMT publish two separate figures, and both are useful as a sanity check on our o
 | Screen interaction | Typing, tapping, using apps | 1 min 56 s per driving hour |
 | Phone motion | Physically handling the device | 1 min 22 s per driving hour |
 
-**Where we are honest about the gap.** Our live formula is `touch_epochs + screen_seconds / 60`. It collapses CMT's two metrics into one number, at a ratio nobody chose — thirty seconds of typing scores like twenty minutes of handling. We use CMT's *unit*, not yet CMT's *method*. Splitting the two is CAR-54.
+If our number is wildly off theirs, our sensors are broken — and we find that out now, not after years of collecting claims.
 
-**Why follow CMT at all:**
-
-- A method built by the industry leader is far harder to argue with than one of our own.
-- Their population averages give us an immediate sensor sanity check. If our number is wildly off theirs, our sensors are broken — and we find out now, not after years of claims data.
-- An insurer already reads these units.
-
-**Never say the CARMA score predicts crash risk.** CMT's figures are validated because they matched them against claims on their own book. We have no claims. The honest sentence: *"We measure in CMT's units, so our numbers are comparable to the industry standard. Validating against claims requires claims — that comes after the pilot."*
+**Where we fall short of them today.** Our live formula is `touch_epochs + screen_seconds / 60`. It collapses CMT's two metrics into one number, at a ratio nobody chose — thirty seconds of typing scores like twenty minutes of handling. We use CMT's *unit*, not yet CMT's *method*. Splitting the two is CAR-54.
 
 **Decided along the way:**
 
@@ -132,9 +150,7 @@ The curve never hits zero and never flattens, so there is always something to ga
 | Speeding | 0.012 |
 | Distraction | 0.020 |
 
-Re-fitted July 2026 against real CARMA driving so a typical trip lands near 80 and one of the worst 10% lands near 50. See [scoring-calibration.md](scoring-calibration.md).
-
-**This is where we differ from CMT.** CMT compare each subscore against the driver population and then combine. We use a fixed curve with a fixed constant. Population-relative scoring is the better method and it is where we are heading — it needs a fleet distribution we do not have yet.
+**These are provisional.** They were fitted in July 2026 to 57 real trips — enough to fix a curve that was visibly broken (every trip scored exactly 100, or fell off a cliff to 50 on a single event), not enough to call settled. A proper fit needs three things we do not have: around 200 real trips, trustworthy phone-side detection (CAR-6), and per-event severity. Until then, treat the constants as "better than a guess, not yet earned". The before-and-after numbers are in the changelog.
 
 ### Blending the five
 
@@ -286,4 +302,4 @@ When you next touch one of those comments, replace the `§` reference with the s
 ## Related documents
 
 - [How CARMA measures phone distraction](https://linear.app/carma-app/document/how-carma-measures-phone-distraction-the-design-and-why-6f8361ad1dcc) — the full reasoning behind the distraction design
-- [scoring-calibration.md](scoring-calibration.md) — where the decay constants came from
+- CAR-102 — the July 2026 recalibration record, and what unblocks a proper fit

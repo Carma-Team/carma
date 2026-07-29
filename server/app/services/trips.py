@@ -54,7 +54,7 @@ _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
 # prior (75, "good but unproven") and is credibility-weighted toward it until a
 # driver has real distance, so a newcomer cannot be capped on thin evidence.
 # Re-fit against the live distribution before treating these as settled —
-# same caveat as the v2 constants (docs/scoring-calibration.md).
+# same caveat as the scoring constants (CAR-102).
 # Listed highest-first, like the ladder above.
 _LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
     (80.0, 10),  # no effective cap — 10 is the top level

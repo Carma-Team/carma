@@ -2,8 +2,7 @@
 
 The client's telemetry digest is the primary scoring input, but live data showed
 it under-reports: devices with mis-calibrated SDK detection send all-zero event
-counts and score a flat 100 (see docs/scoring-calibration.md and
-issue #13). The route waypoints (`{ts, lat, lng, speedKmh}`) the client already
+counts and score a flat 100 (see CAR-6). The route waypoints (`{ts, lat, lng, speedKmh}`) the client already
 sends are an independent witness the server can analyze itself.
 
 This module is pure (no I/O, no DB) like scoring. It turns a raw waypoint

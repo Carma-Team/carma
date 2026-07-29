@@ -6,11 +6,12 @@ points. The `version` on ScoringConfig is stamped onto every trip row
 moves; it is not a name for the engine.
 
 July 2026 recalibration: the decay constants were re-fit from the live fleet's
-recency-weighted rate distributions (see docs/scoring-calibration.md) — the
-initial estimates produced a bimodal score distribution (exact 100, or a cliff
-to ~50 from a single event). The same round added `apply_confidence`, which
-caps how far a trip can score above the driver's rolling score when the GPS
-trace is too sparse to prove clean driving.
+recency-weighted rate distributions — the initial estimates produced a bimodal
+score distribution (exact 100, or a cliff to ~50 from a single event). They are
+provisional: a proper fit needs ~200 trips, trustworthy client detection
+(CAR-6) and per-event severity. See CAR-102. The same round added
+`apply_confidence`, which caps how far a trip can score above the driver's
+rolling score when the GPS trace is too sparse to prove clean driving.
 
 Everything here is pure: no I/O, no DB, no side effects. The trips service feeds
 it values sourced from the signed telemetry digest (the oracle) and persists the
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 class ScoringConfig:
     """Scoring parameters. `version` is stamped onto each scored trip. Decay
     constants re-fit 2026-07 from the live fleet's recency-weighted rate
-    percentiles (docs/scoring-calibration.md):
+    percentiles (CAR-102 — provisional until the fleet is bigger):
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per spec §6.1."""
 
