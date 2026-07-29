@@ -142,7 +142,9 @@ trip score = 0.30 × distraction
 
 ## The driver's own score
 
-The trip score is about one drive. The **driver score** is the persistent number — what the leaderboard, the levels and any insurance partner would use.
+The trip score is about one drive. The **driver score** is the persistent number: what a leaderboard, a level ladder or an insurance partner should be built on.
+
+> **It is not used by anything yet.** The server calculates it after every trip and stores it on the user, and there it stops — no API returns it and the app has never heard of it. The leaderboard ranks by total points, and levels come from lifetime points. Connecting it is CAR-85.
 
 **Recent trips matter more.** Trips are averaged with a 14-day half-life, weighted by distance. A bad trip fades in about two weeks instead of haunting a lifetime average; a good run shows up quickly. Sustained behaviour moves the number, not single drives.
 
@@ -173,7 +175,7 @@ points = trip score
 
 **Working today:**
 
-- The full pipeline — rates, subscores, blending, driver score, points, anti-grind caps.
+- The full pipeline — rates, subscores, blending, driver score, points, anti-grind caps. The driver score is calculated and stored but not yet exposed to anyone (CAR-85).
 - Server-side GPS analysis as an independent second opinion on braking, acceleration and cornering. Where the phone and the GPS disagree, the higher count wins.
 - Speeding against a flat national limit.
 - The telemetry-confidence cap.
