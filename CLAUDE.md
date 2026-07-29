@@ -78,12 +78,12 @@ Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator i
 
 `ci-server.yml` and `ci-mobile.yml` run on pushes to **`main` and `develop`**. `deploy.yml` runs on `main` only, or manually.
 
-**One gap you need to know about:** `tsc --noEmit` is skipped on `develop` while the mobile toolchain is broken (CAR-8). It is only enforced on `main` — and nothing has merged to `main` since 21 June, so the mobile app has not been type-checked in over 100 commits. Restore the check as soon as CAR-8 lands.
+**A lesson worth keeping:** `tsc --noEmit` used to be skipped on `develop` to work around a broken toolchain (CAR-8). The workaround outlived the problem — the app went 100+ commits without a type check, and nobody noticed because CI was green. CAR-8 is fixed and both `tsc` and ESLint now run on every branch. When a check is noisy, fix the cause; never switch the check off.
 
 | Workflow | What it does |
 |---|---|
 | `ci-server.yml` | Ruff lint, Mypy, DB migrations, pytest, smoke tests |
-| `ci-mobile.yml` | TypeScript check, Jest, API contract drift check (regenerates types from live OpenAPI and diffs against `mobile/src/types/index.ts`) |
+| `ci-mobile.yml` | TypeScript check, ESLint, Jest, API contract drift check (regenerates types from live OpenAPI and diffs against `mobile/src/types/index.ts`) |
 | `deploy.yml` | Builds Docker image → pushes to ACR → deploys to Azure Container App. Has a built-in secrets gate: if `AZURE_CREDENTIALS` is not configured in GitHub Secrets the deploy step is silently skipped — CI stays green. |
 
 **Before merging `develop` → `main`:** run `pytest` and `npx tsc --noEmit` locally. CI is the last line of defense, not the first.
