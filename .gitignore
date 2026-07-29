@@ -54,3 +54,11 @@ mobile/ios/
 *.swp
 *.swo
 Thumbs.db
+
+# ─── Debug / scratch screenshots ─────────────────────────────────────────────
+screen*.png
+demo_shots/
+
+# ─── Claude Code ─────────────────────────────────────────────────────────────
+.claude/settings.local.json
+CLAUDE.local.md

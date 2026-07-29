@@ -113,7 +113,7 @@ export default function LeaderboardScreen() {
   const { t } = useTranslation()
   const { user, addToast } = useApp()
 
-  const [type,          setType]          = useState<LeaderboardType>('national')
+  const [type,          setType]          = useState<LeaderboardType>('city')
   const [entries,       setEntries]       = useState<LeaderboardEntry[]>([])
   const [currentUserId, setCurrentUserId] = useState('')
   const [myRank,        setMyRank]        = useState<number | null>(null)
@@ -211,7 +211,7 @@ export default function LeaderboardScreen() {
   const handleAddFriend = useCallback(async () => {
     if (!foundUser) return
     try {
-      await userApi.sendFriendRequest(foundUser.id)
+      await friendsApi.send(foundUser.id)
       addToast({ type: 'success', message: t('leaderboard.friendRequestSent') })
       setSearchPhone('')
       setSearchState('idle')
@@ -268,7 +268,12 @@ export default function LeaderboardScreen() {
 
     try {
       if (currentStatus === 'none') {
-        await userApi.sendFriendRequest(targetUserId)
+        // If they had already asked us, the server turns this into an acceptance —
+        // so take the status it reports rather than assuming 'pending'.
+        const { status } = await friendsApi.send(targetUserId)
+        setEntries(prev =>
+          prev.map(e => e.userId === targetUserId ? { ...e, followStatus: status } : e)
+        )
       } else {
         await friendsApi.cancel(targetUserId)
       }

@@ -12,7 +12,7 @@ import Constants from 'expo-constants';
 
 export const USE_REAL_SERVER = true;
 
-export const STAGING_SERVER_URL = 'https://carma-app.onrender.com';
+export const STAGING_SERVER_URL = 'https://carma-api.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io';
 
 function getMetroOrigin(): string {
   // manifest2.launchAsset.url is the bundle URL in Expo Go SDK 46+

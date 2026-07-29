@@ -2,19 +2,31 @@ name: CI · mobile
 
 # Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
 # are gated behind workflow_dispatch / the "run-full-ci" label until proven.
+#
+# tsc and ESLint run everywhere, including develop. The develop skip that used
+# to guard the 941-error toolchain break (CAR-8) is gone — CAR-8 is fixed, and
+# the skip is what let the break survive 100+ commits unnoticed. Do not add it
+# back: if these go red, fix the code. contract-check stays gated to main /
+# PR-label.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'mobile/**'
       - '.github/workflows/ci-mobile.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'mobile/**'
       - '.github/workflows/ci-mobile.yml'
   workflow_dispatch:
+
+# One run per branch/PR. Superseded runs on develop and feature branches are
+# cancelled; main is never cancelled so every deployable commit keeps its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   install-typecheck:
@@ -32,8 +44,16 @@ jobs:
         working-directory: ./mobile
         run: npx tsc --noEmit
 
+      # Runs even if tsc failed, so one push reports both problems at once.
+      - name: ESLint
+        working-directory: ./mobile
+        if: ${{ !cancelled() }}
+        run: npm run lint
+
   test:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || github.event_name == 'push' }}
+    # Cheap (~13s) — runs on every push and on PRs into develop. PRs into main
+    # stay label-gated until the pipeline is proven (see header).
+    if: ${{ github.event_name != 'pull_request' || github.base_ref == 'develop' || contains(github.event.pull_request.labels.*.name, 'run-full-ci') }}
     needs: install-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -76,9 +76,17 @@ class TripOut(CamelModel):
     ai_insight: str | None
     status: str
     idempotency_key: str | None = None
+    # True when the daily anti-grind caps (scoring.md "Points") reduced the award —
+    # lets the client explain a low/zero award. Save-response only; defaults
+    # False on list/detail reads where the context is gone.
+    points_capped: bool = False
+    # The driver's level after this trip, as the server resolved it — including
+    # the driver-score cap (#37), which the client cannot reproduce from points
+    # alone. Save-response only, like points_capped; None on list/detail reads.
+    user_level: int | None = None
 
     @classmethod
-    def from_orm_trip(cls, trip: Any) -> TripOut:
+    def from_orm_trip(cls, trip: Any, points_capped: bool = False, user_level: int | None = None) -> TripOut:
         return cls.model_validate(
             {
                 "id": trip.id,
@@ -100,20 +108,59 @@ class TripOut(CamelModel):
                 "ai_insight": trip.ai_insight,
                 "status": trip.status.value.lower(),
                 "idempotency_key": trip.idempotency_key,
+                "points_capped": points_capped,
+                "user_level": user_level,
+            }
+        )
+
+
+class EventOut(CamelModel):
+    """A single driving event on a trip's timeline — map markers + severity readout.
+
+    `type` is the enum value lower-cased to match the wire convention used by the
+    other enums (status, category). Coordinates are nullable: an event detected
+    during a GPS gap has no location.
+    """
+
+    id: str
+    type: str
+    severity: float
+    timestamp: datetime
+    lat: float | None
+    lng: float | None
+
+    @classmethod
+    def from_orm_event(cls, e: Any) -> EventOut:
+        return cls.model_validate(
+            {
+                "id": e.id,
+                "type": e.type.value.lower(),
+                "severity": e.severity,
+                "timestamp": e.timestamp,
+                "lat": e.lat,
+                "lng": e.lng,
             }
         )
 
 
 class TripDetailOut(TripOut):
-    """Extended trip shape for GET /api/trips/:id — includes the GPS route track."""
+    """Extended trip shape for GET /api/trips/:id — adds the GPS route track and
+    the per-event timeline (map markers). `events` defaults to empty for trips
+    saved before event persistence landed."""
 
     route_waypoints: list[dict[str, Any]] | None = None
+    events: list[EventOut] = []
 
     @classmethod
     def from_orm_trip_detail(cls, trip: Any) -> TripDetailOut:
         base = TripOut.from_orm_trip(trip)
+        events = sorted(trip.events, key=lambda e: e.timestamp)
         return cls.model_validate(
-            {**base.model_dump(), "route_waypoints": trip.route_waypoints}
+            {
+                **base.model_dump(),
+                "route_waypoints": trip.route_waypoints,
+                "events": [EventOut.from_orm_event(e) for e in events],
+            }
         )
 
 

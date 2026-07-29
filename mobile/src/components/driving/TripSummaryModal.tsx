@@ -9,6 +9,8 @@ import { ICONS } from '@/constants/icons';
 import { scoreToColor } from '@/lib/scoring';
 import { formatDuration, formatDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
+import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
+import type { RouteWaypoint, DrivingEvent } from '@/lib/driving-sdk/types';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -22,7 +24,10 @@ interface TripSummaryModalProps {
     durationSeconds?: number;
     points: number;
     eventCounts?: Record<string, number>;
+    touchEpochs?: number;
     isTooShort?: boolean;
+    routeWaypoints?: RouteWaypoint[];
+    tripEvents?: DrivingEvent[];
   } | null;
   onViewDetails?: (id: string) => void;
 }
@@ -86,7 +91,12 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                     <EventRow icon={ICONS.aggressiveAccel} label={t('trip.aggressiveAccels')} count={trip.eventCounts?.AGGRESSIVE_ACCEL || 0} />
                     <EventRow icon={ICONS.sharpTurn}  label={t('trip.sharpTurns')}   count={trip.eventCounts?.SHARP_TURN || 0} />
                     {/* <EventRow icon={ICONS.swerve} label={t('trip.swerve')} count={trip.eventCounts?.SWERVE || 0} /> */}{/* EVT_SWERVE disabled */}
-                    <EventRow icon={ICONS.phoneUsage} label={t('trip.phoneTouches')} count={trip.eventCounts?.PHONE_TOUCH || 0} />
+                    <EventRow icon={ICONS.phoneUsage} label={t('trip.phoneTouches')} count={trip.touchEpochs || 0} />
+                  </View>
+
+                  {/* Route + bad-event markers on the map (route shown when GPS waypoints exist) */}
+                  <View style={styles.mapWrapper}>
+                    <TripMapPlaceholder waypoints={trip.routeWaypoints} events={trip.tripEvents} />
                   </View>
                 </View>
 
@@ -162,6 +172,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     padding: 12, borderRadius: 20
   },
+  mapWrapper:  { width: '100%' },
   eventsTitle: { ...TYPOGRAPHY.h3, fontSize: 16, marginBottom: 4 },
   eventRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 },
   eventLabel:  { ...TYPOGRAPHY.body, color: COLORS.textMuted, fontSize: 14, flex: 1, marginStart: 6 },

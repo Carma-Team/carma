@@ -21,7 +21,7 @@ interface DashboardHeroProps {
 
 export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {
   const { t } = useTranslation();
-  const currentPoints = user.points || user.totalPoints;
+  const currentPoints = user.totalPoints;
   const levelData = getUserLevelData(currentPoints);
 
   return (

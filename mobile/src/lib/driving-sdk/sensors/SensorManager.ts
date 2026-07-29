@@ -14,6 +14,8 @@
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
+// Importing this registers the background-location TaskManager task at module load.
+import { CARMA_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
 // ─── EMA for gravity isolation ────────────────────────────────────────────────
 // Slow-moving component (~0.5 s time constant at 10 Hz) tracks static gravity.
@@ -60,7 +62,6 @@ const TURN_THRESHOLD_G   = 3.5 / 9.81;  // 0.357 g
 const SEVERITY_RANGE_G = 1.0;   // e.g. 0.459 g → 0.0 ; 1.459 g → 1.0
 
 export class SensorManager {
-  private locationSub: any = null;
   private accelSub: any = null;
   private gyroSub: any = null;
   private lastLocation: any = null;
@@ -116,12 +117,31 @@ export class SensorManager {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        this.locationSub = await Location.watchPositionAsync(
-          // High accuracy = GPS only. Avoids network/cell location jumps (hundreds of
-          // metres per tick) that inflate distance when the phone is stationary (D-SDK-3).
-          { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 },
-          (loc) => this.handleLocation(loc)
-        );
+        // Best-effort background permission so distance keeps counting when the
+        // phone is locked / app is backgrounded. Foreground still works if denied.
+        try { await Location.requestBackgroundPermissionsAsync(); } catch { /* ignore */ }
+
+        // Feed every location (foreground AND background, via the TaskManager task)
+        // through the same accumulation path. High accuracy = GPS only, avoiding
+        // network/cell jumps that inflate distance when stationary (D-SDK-3).
+        setLocationHandler((loc) => this.handleLocation(loc));
+        const alreadyStarted = await Location
+          .hasStartedLocationUpdatesAsync(CARMA_LOCATION_TASK)
+          .catch(() => false);
+        if (alreadyStarted) {
+          await Location.stopLocationUpdatesAsync(CARMA_LOCATION_TASK).catch(() => {});
+        }
+        await Location.startLocationUpdatesAsync(CARMA_LOCATION_TASK, {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 2000,
+          distanceInterval: 5,
+          pausesUpdatesAutomatically: false,
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: 'Trip in progress',
+            notificationBody: 'Tracking your route and distance',
+          },
+        });
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
@@ -146,9 +166,12 @@ export class SensorManager {
     if (!this.isRunning) return;
     this.isRunning = false;
     try {
-      if (this.locationSub) this.locationSub.remove();
-      if (this.accelSub)    this.accelSub.remove();
-      if (this.gyroSub)     this.gyroSub.remove();
+      setLocationHandler(null);
+      Location.hasStartedLocationUpdatesAsync(CARMA_LOCATION_TASK)
+        .then((started) => { if (started) return Location.stopLocationUpdatesAsync(CARMA_LOCATION_TASK); })
+        .catch(() => {});
+      if (this.accelSub) this.accelSub.remove();
+      if (this.gyroSub)  this.gyroSub.remove();
     } catch (err) {
       console.warn('[SensorManager] Error stopping sensors:', err);
     }

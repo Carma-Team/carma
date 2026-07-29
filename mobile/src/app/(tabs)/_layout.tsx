@@ -6,7 +6,6 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS } from '@/constants/theme';
 import { ICONS, outlineIcon } from '@/constants/icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useApp } from '@/context/AppContext';
 
 const TAB_ITEMS = [
     { name: '(home)',      icon: ICONS.home,        labelKey: 'nav.dashboard'   },
@@ -19,7 +18,6 @@ const TAB_ITEMS = [
 export default function TabsLayout() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { registerPhoneTouch } = useApp();
 
   return (
     <Tabs
@@ -44,12 +42,6 @@ export default function TabsLayout() {
         <Tabs.Screen
           key={item.name}
           name={item.name}
-          listeners={{
-            tabPress: () => {
-              // Register a phone touch when the user taps a tab during a trip
-              registerPhoneTouch();
-            },
-          }}
           options={{
             title: t(item.labelKey),
             tabBarIcon: ({ focused }) => (

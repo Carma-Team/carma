@@ -1,14 +1,52 @@
 name: Deploy to Azure
 
 # Deploys the server image to Azure Container Apps. Only runs when the
-# AZURE_CREDENTIALS secret is configured, so this workflow is safe to merge
+# AZURE_CLIENT_ID secret is configured, so this workflow is safe to merge
 # before any Azure resources exist.
 #
+# Auth is GitHub OIDC against a user-assigned managed identity — GitHub proves
+# its identity to Azure per run and there is no password stored anywhere.
+#
+# It is a managed identity rather than a service principal on purpose. Both
+# `az ad app create` and `az ad sp create-for-rbac` are denied in this tenant:
+# MTA's directory sets allowedToCreateApps=false and our account holds no
+# directory role. That is a *directory* restriction — the Azure for Students
+# subscription was never the blocker, we are Owner on it. A user-assigned
+# managed identity is an Azure resource, created under that Owner role by the
+# resource provider, and it takes the same federated credentials. (#58)
+#
 # Required GitHub secrets (Settings → Secrets and variables → Actions):
-#   AZURE_CREDENTIALS              - JSON output of `az ad sp create-for-rbac --sdk-auth`
+#   AZURE_CLIENT_ID                - client ID of the carma-ci managed identity
+#   AZURE_TENANT_ID                - directory (tenant) ID
+#   AZURE_SUBSCRIPTION_ID          - subscription ID
 #   AZURE_RESOURCE_GROUP           - e.g. carma-rg
 #   AZURE_CONTAINER_APP            - e.g. carma-api
 #   AZURE_CONTAINER_REGISTRY       - e.g. carmaregistry  (without .azurecr.io)
+#
+# Required Container App environment variables — these are what the *server*
+# needs to boot, which is a different list from the secrets above. With ENV set
+# to production, a missing one is a startup ValueError and a crash loop, by
+# design (app/config.py). Set them on the app itself, not here:
+#   ENV=production                 - turns on the production-only guards below
+#   DATABASE_URL                   - secretref, Postgres (asyncpg driver)
+#   JWT_SECRET                     - secretref, 16+ chars
+#   TRIP_SIGNING_SECRET            - secretref, 32+ chars; without it the trip
+#                                    scoring oracle is open to anyone (#24)
+#   TRUSTED_PROXY_COUNT=1          - set by this workflow, see the update step
+#   SMS_PROVIDER + TWILIO_*        - only when sending real SMS
+#
+# TRIP_SIGNING_SECRET is NOT set on the live app today, and with ENV=production
+# the server refuses to start without it (32+ chars). The app currently runs an
+# older image built before that guard existed, so it is up. Provision the secret
+# on the Container App BEFORE the first run of this workflow reaches main, or
+# the new image will crash-loop. See #13.
+#
+# Two things this workflow depends on, which are easy to break by accident:
+#   - `permissions: id-token: write` — without it there is no OIDC token at all.
+#   - `environment: production` on the deploy job — the federated credential's
+#     subject is repo:Carma-Team/carma:environment:production. Drop the
+#     environment key and the subject silently becomes ...:ref:refs/heads/main,
+#     which will not match, and login fails.
 #
 # Trigger: pushed to main, or manually via the "Run workflow" button.
 
@@ -16,6 +54,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   check-secrets:
@@ -25,13 +67,13 @@ jobs:
     steps:
       - id: gate
         env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         run: |
-          if [ -n "$AZURE_CREDENTIALS" ]; then
+          if [ -n "$AZURE_CLIENT_ID" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::AZURE_CREDENTIALS not set — deploy is skipped."
+            echo "::notice::AZURE_CLIENT_ID not set — deploy is skipped."
           fi
 
   deploy:
@@ -44,10 +86,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Login to ACR via Azure CLI
         run: az acr login --name ${{ secrets.AZURE_CONTAINER_REGISTRY }}
@@ -64,7 +108,27 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
+            # TRUSTED_PROXY_COUNT describes our own topology rather than holding a
+            # secret, so it belongs here instead of in the portal where it would be
+            # one more thing to remember. 1 = the Container Apps ingress. The server
+            # refuses to start in production without it, because the alternative is
+            # counting every request against the ingress address and rate-limiting
+            # the whole user base as one caller. `--set-env-vars` merges; the other
+            # variables set on the app are left alone.
             az containerapp update \
               --name ${{ secrets.AZURE_CONTAINER_APP }} \
               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-              --image ${{ steps.build.outputs.image }}
+              --image ${{ steps.build.outputs.image }} \
+              --set-env-vars TRUSTED_PROXY_COUNT=1
+
+      - name: Report what shipped
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            # The image tag is the commit SHA, so this is the answer to
+            # "what version is running?" — which had none while it was :latest.
+            az containerapp show \
+              --name ${{ secrets.AZURE_CONTAINER_APP }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --query "{revision:properties.latestRevisionName,image:properties.template.containers[0].image}" \
+              -o table

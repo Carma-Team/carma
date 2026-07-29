@@ -41,7 +41,7 @@
 **CI/CD:** שני workflows ב-`.github/workflows/`:
 - `ci-server.yml` — ב-PR רץ רק lint (מהיר ובטוח). mypy/pytest/smoke ב-`workflow_dispatch` או label `run-full-ci` עד שהפייפליין מוכח.
 - `ci-mobile.yml` — `npm ci` + tsc תמיד; tests בגייט.
-- `deploy.yml` — מותנה ב-secret של Azure. ידלג בשקט עד שהסודות יוגדרו.
+- `deploy.yml` — מותנה ב-secret של Azure, ודילג בכל הרצה עד היום. המנוי הוא חשבון Azure for Students ואין בו service principal, ולכן ה-deploy ידני — ראו §11.
 
 **נקודה חשובה:** הפרונט מערבב snake_case וcamelCase (כמו `start_time`, `avg_score`, `events_array`). Pydantic schemas משתמשים ב-`alias_generator=to_camel` שיוצא camelCase על החוט, ו-trip-save מקבל את שני הסגנונות דרך `AliasChoices`. הפרונט עובד ללא שינויים.
 
@@ -236,8 +236,8 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 
 ### Middleware גלובלי (ב-`app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`).
-2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה.
+1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`). הרשאות נשלחות רק כשהמקורות מפורטים במפורש — התקן אוסר על שילוב של כוכבית עם הרשאות, ולכן `settings.cors_allows_credentials` מכבה אותן יחד.
+2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה; מסלולי האימות מוגבלים ל-5/דקה. ה-limiter יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
 3. **Unhandled-exception handler** — תופס כל מה שבורח מ-route ומחזיר 500 נקי עם הנתיב בלוג.
 
 האימות הוא **לא** middleware — הוא ה-`CurrentUser` dependency שמוטמע בכל route מוגן.
@@ -320,7 +320,9 @@ Mobile App                                   Server                 Twilio (prod
 | OTP מאוחסן כ-bcrypt hash (אף פעם לא בטקסט!) | `services/auth.py::_issue_otp` |
 | OTP אחד פעיל בלבד (קודמים נצרכים אוטומטית) | טרנזקציית `UPDATE otp_codes SET consumed_at = now()` |
 | 5 כשלונות → נעילה ל-15 דק' | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit על register/login/verify | `slowapi` גלובלי + ניתן להרחיב לכל route |
+| Rate-limit על register/login/verify | `slowapi` גלובלי (30/דקה) + 5/דקה על מסלולי האימות |
+| מספר טלפון יכול להזמין 5 קודים בשעה | `services/auth.py::_assert_otp_quota` — נספר מ-`otp_codes`, ולכן מחזיק גם כשהפונה מחליף כתובות |
+| ‏`otp/verify` לא מגלה אם מספר רשום | `services/auth.py::_rejected` — מספר לא מוכר, קוד שפג, קוד שגוי וחשבון נעול מחזירים את אותו 401. הסיבה האמיתית נשמרת בלוג הביקורת |
 | סיסמאות עם bcrypt salt (passlib אוטומטי) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination ב-Azure Container Apps ingress |
 | מחיקת חשבון מלאה (GDPR) | `DELETE /api/users/me` — cascade על trips/redemptions |
@@ -550,7 +552,29 @@ python -m app.seed                     # reseed
 1. `azure/login@v2` עם service principal.
 2. `az acr login` ל-ACR.
 3. `docker build` + `docker push` עם tag `:${{ github.sha }}`.
-4. `az containerapp update --image` להחלפת ה-image.
+4. `az containerapp update --image` להחלפת ה-image, ומגדיר `TRUSTED_PROXY_COUNT=1`.
+
+> **ה-workflow הזה לא רץ היום.** המנוי הוא חשבון Azure for Students, שלא יכול
+> להחזיק את ה-service principal שה-workflow מתחבר איתו — ולכן `AZURE_CREDENTIALS`
+> ריק וכל הרצה נגמרת ב-`deploy=skipped`. גרסאות עולות לאוויר ידנית, ראו
+> [Deploy ידני](#deploy-ידני) למטה. כל מה שה-workflow היה עושה — מישהו צריך לעשות
+> בעצמו.
+
+### משתני סביבה ב-Container App
+
+אלה מה שה**שרת** צריך כדי לעלות, וזו רשימה אחרת מה-GitHub Secrets שלמטה. כאשר
+`ENV=production`, משתנה חסר גורם ל-`ValueError` בעלייה ולקריסה בלולאה — בכוונה,
+כדי ששרת עם הגדרה שגויה לא יגיש תעבורה בזמן שהוא נראה תקין (`app/config.py`).
+
+| משתנה | נדרש | למה הוא נופל ברעש |
+|---|---|---|
+| `ENV=production` | כן | מפעיל את שתי הבדיקות שלמטה. בלעדיו הן לא נדלקות. |
+| `DATABASE_URL` | כן | Postgres, דרייבר `asyncpg`. דרך secret reference. |
+| `JWT_SECRET` | כן | 16 תווים ומעלה. דרך secret reference. |
+| `TRIP_SIGNING_SECRET` | כן בפרודקשן | 32 תווים ומעלה. ריק פירושו שהחתימה על נסיעות מקבלת כל דבר — ראו #24. |
+| `TRUSTED_PROXY_COUNT=1` | כן בפרודקשן | 1 = ה-ingress של Container Apps. ב-0 כל בקשה נספרת על כתובת ה-ingress, כך שכל המשתמשים חולקים דלי אחד של מגבלת קצב — 30 בקשות בדקה לכולם יחד, ובלתי ניתן להבחנה מהשבתה. |
+| `SMS_PROVIDER`, `TWILIO_*` | רק ל-SMS אמיתי | ברירת המחדל היא שליחה לקונסול. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | אופציונלי | כשלא מוגדר זה no-op שקט. |
 
 ### Setup ב-Azure (חד-פעמי)
 
@@ -579,9 +603,57 @@ az containerapp create -n $APP -g $RG --environment carma-env \
   --target-port 3000 --ingress external \
   --registry-server $ACR.azurecr.io \
   --secrets db-url="postgresql+asyncpg://..." jwt-secret="<random>" \
+            trip-secret="<random, 32+ תווים>" \
   --env-vars ENV=production DATABASE_URL=secretref:db-url \
-             JWT_SECRET=secretref:jwt-secret SMS_PROVIDER=twilio
+             JWT_SECRET=secretref:jwt-secret \
+             TRIP_SIGNING_SECRET=secretref:trip-secret \
+             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=twilio
 ```
+
+### Deploy ידני
+
+**באחריות נוה** — הוא מעלה את השרת וגם משחרר את גרסאות האפליקציה. עד שיהיה
+service principal, כך גרסה באמת מגיעה לפרודקשן. מריצים ממכונה שמחוברת עם
+`az login`.
+
+> שווה עשר דקות לפני שמקבלים את זה כמצב קבוע: מנוי סטודנט משתמש באותו מנגנון
+> הרשאות כמו מנוי בתשלום, ומגביל תקציב ואזורים — לא אוטומציה. מה שחוסם בדרך כלל
+> הוא ארגון שמנוהל על ידי האוניברסיטה ולא מאפשר לסטודנטים לרשום אפליקציות.
+> `az ad app create --display-name carma-ci` נותן את התשובה — אם היא מצליחה,
+> אפשר להדליק את כל ה-workflow עם אימות מבוסס אמון ובלי סוד שמור.
+
+```bash
+RG=carma-rg
+ACR=carmaregistry
+APP=carma-api
+TAG=$(git rev-parse --short HEAD)
+
+az acr login -n $ACR
+docker build -t $ACR.azurecr.io/carma-server:$TAG ./server
+docker push $ACR.azurecr.io/carma-server:$TAG
+
+az containerapp update -n $APP -g $RG \
+  --image $ACR.azurecr.io/carma-server:$TAG
+```
+
+לפני ה-deploy הראשון שכולל את עבודת מגבלות הקצב, וכל פעם שה-app נוצר מחדש, יש
+להגדיר את מה שה-workflow היה מגדיר:
+
+```bash
+az containerapp update -n $APP -g $RG \
+  --set-env-vars TRUSTED_PROXY_COUNT=1
+```
+
+ואז לוודא שהשרת באמת עלה, במקום להניח שכן:
+
+```bash
+az containerapp revision list -n $APP -g $RG -o table   # הרוויזיה החדשה תקינה?
+curl -fsS https://<app-fqdn>/health                      # השרת עונה?
+az containerapp logs show -n $APP -g $RG --tail 50       # ValueError = משתנה חסר
+```
+
+קריסה בלולאה מיד אחרי deploy כמעט תמיד אומרת שאחד המשתנים בטבלה למעלה חסר. זו
+הכשילה המכוונת — קוראים את הלוג, מגדירים את המשתנה, מעלים שוב.
 
 ### GitHub Secrets
 
@@ -674,7 +746,7 @@ ContainerAppConsoleLogs_CL
 
 בכוונה נדחה:
 
-- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v1.5+). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד.
+- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v2.1). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד. מנוע v1 שהוחלף נמחק ב-#53; שרד ממנו רק מכפיל סיכון הלילה, ב-`app/services/risk.py`.
 - **מודלי Notification + Achievement + Friendship**.
 - **העלאת תמונת רישיון** (דורש Azure Blob Storage). השדה `license_img_url` קיים בסכמה.
 - **Refresh tokens** — כרגע JWT יחיד ל-7 ימים.

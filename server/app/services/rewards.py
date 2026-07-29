@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql import ColumnElement
 
 from app.core.audit import audit
 from app.core.security import random_voucher_code
@@ -17,9 +19,27 @@ VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
 
-async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    from sqlalchemy.sql import ColumnElement
+async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
+    """Flip PENDING vouchers whose TTL has run out to EXPIRED.
 
+    Nothing runs on a timer, so the transition happens lazily on the next read of
+    the rows in question — the driver listing their vouchers, or a business
+    scanning one. `where` narrows it to those rows so a single scan never sweeps
+    the whole table.
+    """
+    await db.execute(
+        update(Redemption)
+        .where(
+            Redemption.status == RedemptionStatus.PENDING,
+            Redemption.expires_at < datetime.now(UTC),
+            *where,
+        )
+        .values(status=RedemptionStatus.EXPIRED)
+    )
+    await db.commit()
+
+
+async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
     where: list[ColumnElement[bool]] = [Reward.is_active.is_(True)]
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
@@ -52,7 +72,20 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     code = random_voucher_code()
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
-    user.points -= reward.cost_points
+    # Atomic conditional debit — two concurrent redeems cannot both pass the
+    # points check above and drive the balance negative.
+    # `execute` is typed as returning a plain Result, which has no rowcount.
+    # A DML statement always yields a CursorResult at runtime — the annotation
+    # tells mypy that, it does not change behaviour.
+    debited: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(User)
+        .where(User.id == user.id, User.points >= reward.cost_points)
+        .values(points=User.points - reward.cost_points)
+    )
+    if debited.rowcount == 0:
+        await db.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
+
     redemption = Redemption(
         user_id=user.id,
         reward_id=reward.id,
@@ -63,6 +96,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     )
     db.add(redemption)
     await db.commit()
+    await db.refresh(user)
     await db.refresh(redemption)
     # eager-load reward+business for response
     await db.refresh(redemption, attribute_names=["reward"])
@@ -77,6 +111,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
 
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:
+    # Both listing endpoints go through here, so this is the one place a driver's
+    # own stale vouchers get settled before they are shown.
+    await expire_overdue(db, Redemption.user_id == user_id)
     rows = await db.scalars(
         select(Redemption)
         .where(Redemption.user_id == user_id)
