@@ -98,6 +98,14 @@ Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator i
 
 The rule: `develop` is the buffer that protects `main`. Keep it green.
 
+**The author merges, not the reviewer.** A review ends with an approval and nothing else. The author presses merge.
+
+Why: the author is the only one who knows what else is in flight — which branch has to land first, what needs a sync, whether a sibling PR is waiting on this one. A reviewer merging on their behalf guesses at that, and every merge becomes a round trip through one person. Neither branch is protected, so this is a convention, not a gate — which is exactly why it has to be written down.
+
+Two things follow from it:
+- **Approve means "this is yours to land."** If it is not ready to merge, that is Request Changes, not Approve.
+- **Do not merge over a red check without saying why.** If the failing check is a known-broken one, name it in the PR before merging. The first person to do it silently teaches everyone that red is negotiable.
+
 ---
 
 ## Issue Tracking — Linear only
