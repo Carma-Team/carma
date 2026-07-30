@@ -343,6 +343,7 @@ async def _compute_score(
     distance_km: float,
     duration_seconds: int,
     risk_multiplier: float,
+    level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
 ) -> tuple[float, float, float, bool]:
@@ -375,19 +376,13 @@ async def _compute_score(
     )
     trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
 
-    # Serialise per driver before reading the day's history (CAR-98). The
-    # anti-grind caps in `compute_points` are measured against *committed* trips,
-    # so without this two simultaneous saves read the same daily total, see the
-    # same headroom, and both award against it — a driver at 290/300 firing ten
-    # saves at once collects ten times the remainder instead of ten points. The
-    # caps are the defence against farming the economy; concurrency walked
-    # around them.
+    # Serialise per driver before reading the day's history: the anti-grind caps
+    # below are measured against committed trips, so concurrent saves would each
+    # spend the same headroom (CAR-98).
     #
-    # This is not a new lock. The `UPDATE User` at the end of `save` takes the
-    # same row lock anyway, and two saves already queue there — but by then each
-    # has computed its points from a stale read. All this does is take the lock
-    # ahead of the read it has to protect. Held until `save` commits, and
-    # per-driver, so two drivers never block each other.
+    # Not a new lock — the `UPDATE User` at the end of `save` takes this same row
+    # lock anyway, only after each save has already scored off a stale read. So
+    # it costs nothing, and it is per-driver: two drivers never block each other.
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
 
     cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
@@ -434,6 +429,7 @@ async def _compute_score(
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
         streak_days=streak_days,
+        level_multiplier=level_multiplier,
         points_today=points_today,
         distance_today_km=distance_today_km,
         fraud_flagged=False,
@@ -445,6 +441,7 @@ async def _compute_score(
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
         streak_days=streak_days,
+        level_multiplier=level_multiplier,
     )
     return trip_score, driver_score, points, round(points) < round(points_uncapped)
 
@@ -525,20 +522,6 @@ async def save(
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
     now = datetime.now(UTC)
     risk_multiplier = get_risk_multiplier(start)
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
-        db,
-        user,
-        hard_brakes=scored_hard_brakes,
-        aggressive_accels=scored_aggressive_accels,
-        sharp_turns=scored_sharp_turns,
-        touch_epochs=scored_touch_epochs,
-        screen_interaction_seconds=scored_screen_secs,
-        distance_km=distance,
-        duration_seconds=digest_duration,
-        risk_multiplier=risk_multiplier,
-        now=now,
-        gps=gps,
-    )
 
     # Level bonus (#61). Measured at the level the driver *entered* the trip at,
     # not the one they leave with: the trip's points feed total_points, which
@@ -551,7 +534,22 @@ async def save(
         levels.level_for_points(user.total_points),
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
-    points_v2 *= levels.by_number(entering_level).bonus_multiplier
+
+    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
+        db,
+        user,
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
+        distance_km=distance,
+        duration_seconds=digest_duration,
+        risk_multiplier=risk_multiplier,
+        level_multiplier=levels.by_number(entering_level).bonus_multiplier,
+        now=now,
+        gps=gps,
+    )
 
     trip = Trip(
         user_id=user.id,

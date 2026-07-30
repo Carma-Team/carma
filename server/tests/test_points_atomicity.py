@@ -292,14 +292,8 @@ async def test_a_trip_credit_cannot_erase_a_redeem_that_landed_first(db_session:
 
 # ─── CAR-98: the daily anti-grind caps under concurrency ─────────────────────
 #
-# One level up from everything above. The balance arithmetic is safe, but the
-# *inputs* to the caps — today's points and today's distance — are summed from
-# committed trips in `_compute_score`. Without a lock held across that read,
-# every racer sees the same headroom and every racer awards against it.
-#
-# Both tests seed the day's history directly and leave the driver at level 1, so
-# the level bonus multiplier stays 1.0 and the only thing shaping the award is
-# the cap.
+# Both seed the day's history directly and leave the driver at level 1, so the
+# level bonus stays 1.0 and the only thing shaping the award is the cap.
 
 
 async def _seed_todays_trip(db: AsyncSession, user: User, *, points: int, distance_km: float) -> None:

@@ -266,6 +266,7 @@ def compute_points(
     distance_km: float,
     risk_multiplier: float,
     streak_days: int = 0,
+    level_multiplier: float = 1.0,
     points_today: float = 0.0,
     distance_today_km: float = 0.0,
     fraud_flagged: bool = False,
@@ -276,6 +277,10 @@ def compute_points(
     Fraud-flagged trips earn nothing and are excluded from the driver window by
     the caller. Distance counted toward points is capped per day, and the daily
     points total is capped, so commercial drivers can't farm the economy.
+
+    The level bonus is one of the multipliers here rather than something the
+    caller applies afterwards, so the daily cap lands on the final figure. A cap
+    a level-10 account could double would be exactly the account worth grinding.
     """
     if fraud_flagged:
         return 0.0
@@ -286,8 +291,9 @@ def compute_points(
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = trip_score * distance_factor * risk_multiplier * streak_bonus
+    points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
 
-    # Daily points cap.
+    # Daily points cap — applied last, so the level bonus changes how fast a
+    # driver reaches the ceiling, never where the ceiling sits.
     remaining_points = max(0.0, config.daily_points_cap - max(0.0, points_today))
     return round(min(points, remaining_points) * 10) / 10
