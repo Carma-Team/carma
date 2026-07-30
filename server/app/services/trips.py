@@ -375,6 +375,21 @@ async def _compute_score(
     )
     trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
 
+    # Serialise per driver before reading the day's history (CAR-98). The
+    # anti-grind caps in `compute_points` are measured against *committed* trips,
+    # so without this two simultaneous saves read the same daily total, see the
+    # same headroom, and both award against it — a driver at 290/300 firing ten
+    # saves at once collects ten times the remainder instead of ten points. The
+    # caps are the defence against farming the economy; concurrency walked
+    # around them.
+    #
+    # This is not a new lock. The `UPDATE User` at the end of `save` takes the
+    # same row lock anyway, and two saves already queue there — but by then each
+    # has computed its points from a stale read. All this does is take the lock
+    # ahead of the read it has to protect. Held until `save` commits, and
+    # per-driver, so two drivers never block each other.
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+
     cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
     rows = (
         await db.execute(
