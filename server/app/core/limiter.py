@@ -49,4 +49,21 @@ def client_ip(request: Request) -> str:
     return get_remote_address(request)
 
 
+def business_key(request: Request) -> str:
+    """Count a business's requests against the business, not against its address.
+
+    Several tills in one shop sit behind a single router, and a whole street can
+    sit behind one carrier NAT. Counting by address there gets it wrong in both
+    directions: a busy shop is throttled because of its neighbours, and an abuser
+    spread over a few addresses is not throttled at all.
+
+    `deps.current_business` puts the id on the request for us — a key function
+    only ever receives the Request, so there is no other way to reach it. The
+    address is the fallback for a route that has no business behind it, which
+    today means none: both callers depend on `CurrentBusiness`.
+    """
+    business_id: str | None = getattr(request.state, "business_id", None)
+    return f"business:{business_id}" if business_id else client_ip(request)
+
+
 limiter = Limiter(key_func=client_ip, default_limits=["500/hour", "30/minute"])
