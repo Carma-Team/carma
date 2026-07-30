@@ -76,7 +76,7 @@ class TripOut(CamelModel):
     ai_insight: str | None
     status: str
     idempotency_key: str | None = None
-    # True when the daily anti-grind caps (§8) reduced this trip's award —
+    # True when the daily anti-grind caps (scoring.md "Points") reduced the award —
     # lets the client explain a low/zero award. Save-response only; defaults
     # False on list/detail reads where the context is gone.
     points_capped: bool = False

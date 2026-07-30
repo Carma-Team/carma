@@ -3,9 +3,11 @@ name: CI · mobile
 # Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
 # are gated behind workflow_dispatch / the "run-full-ci" label until proven.
 #
-# develop guard (issue #25): pushes to develop run Jest. `tsc --noEmit` is
-# skipped on develop until the 941-error toolchain break (#18) is fixed; it
-# still blocks main / PRs. contract-check stays gated to main / PR-label.
+# tsc and ESLint run everywhere, including develop. The develop skip that used
+# to guard the 941-error toolchain break (CAR-8) is gone — CAR-8 is fixed, and
+# the skip is what let the break survive 100+ commits unnoticed. Do not add it
+# back: if these go red, fix the code. contract-check stays gated to main /
+# PR-label.
 
 on:
   push:
@@ -40,17 +42,17 @@ jobs:
       - run: npm ci
       - name: TypeScript (no emit)
         working-directory: ./mobile
-        # Skipped on develop until #18 (941 tsc errors) is fixed — issue #25.
-        # Covers both develop pushes and PRs into develop, otherwise opening a PR
-        # against develop goes red on #18. The job still succeeds, so Jest
-        # (needs: install-typecheck) still runs. tsc stays required on main.
-        if: ${{ !(github.ref == 'refs/heads/develop' || github.base_ref == 'develop') }}
         run: npx tsc --noEmit
 
+      # Runs even if tsc failed, so one push reports both problems at once.
+      - name: ESLint
+        working-directory: ./mobile
+        if: ${{ !cancelled() }}
+        run: npm run lint
+
   test:
-    # Cheap (~13s) — runs on every push and on PRs into develop, where it is the
-    # only real gate while tsc is disabled. PRs into main stay label-gated until
-    # the pipeline is proven (see header).
+    # Cheap (~13s) — runs on every push and on PRs into develop. PRs into main
+    # stay label-gated until the pipeline is proven (see header).
     if: ${{ github.event_name != 'pull_request' || github.base_ref == 'develop' || contains(github.event.pull_request.labels.*.name, 'run-full-ci') }}
     needs: install-typecheck
     runs-on: ubuntu-latest

@@ -18,13 +18,14 @@ from app.config import settings
 from app.core.audit import audit
 from app.models import NOTIFICATION_LEVEL_UP, Event, EventType, Trip, TripStatus, User
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring_v2, telemetry
+from app.services import levels, notifications, scoring, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
-# Driver-score aggregation window (scoring-algorithm-v2.md §7 — ~28-day effective
-# window from a 14-day half-life; query a 30-day slice to cover the long tail).
+# Driver-score aggregation window (scoring.md "The driver's own score") —
+# ~28-day effective window from a 14-day half-life, matching CMT's rolling
+# window; query a 30-day slice to cover the long tail.
 _DRIVER_SCORE_WINDOW_DAYS = 30
 
 _MAX_POINTS_PER_TRIP = 10_000
@@ -54,7 +55,7 @@ _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
 # prior (75, "good but unproven") and is credibility-weighted toward it until a
 # driver has real distance, so a newcomer cannot be capped on thin evidence.
 # Re-fit against the live distribution before treating these as settled —
-# same caveat as the v2 constants (docs/scoring-v2-calibration-status.md).
+# same caveat as the scoring constants (CAR-102).
 # Listed highest-first, like the ladder above.
 _LEVEL_CAP_BY_DRIVER_SCORE: list[tuple[float, int]] = [
     (80.0, 10),  # no effective cap — 10 is the top level
@@ -330,7 +331,7 @@ def _witness_distance(claimed_km: float, gps_km: float) -> float:
     return cap
 
 
-async def _compute_v2(
+async def _compute_score(
     db: AsyncSession,
     user: User,
     *,
@@ -342,13 +343,14 @@ async def _compute_v2(
     distance_km: float,
     duration_seconds: int,
     risk_multiplier: float,
+    level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
 ) -> tuple[float, float, float, bool]:
     """Compute the v2 trip score, updated driver score, and points.
 
-    v2 is the sole scoring engine (scoring-algorithm-v2.md). Pure-formula work
-    lives in scoring_v2; this only sources the inputs. Severity is unavailable
+    v2 is the sole scoring engine (scoring.md). Pure-formula work
+    lives in scoring; this only sources the inputs. Severity is unavailable
     (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
     speeding weight is time-over-threshold against a conservative absolute
@@ -357,11 +359,11 @@ async def _compute_v2(
     Returns (trip_score, driver_score, points, points_capped).
     """
     # Proxy for the distraction weight until the SDK emits per-epoch speed:
-    # each touch epoch is weight 1, plus screen-on minutes (scoring-algorithm-v2.md §3.4).
+    # each touch epoch is weight 1, plus screen-on minutes (scoring.md "Phone distraction").
     w_distraction = touch_epochs + screen_interaction_seconds / 60.0
-    rolling = user.driver_score if user.driver_score is not None else scoring_v2.CONFIG.prior_score
+    rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
-    trip_v2 = scoring_v2.compute_trip_score(
+    trip_v2 = scoring.compute_trip_score(
         w_brake=hard_brakes,
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
@@ -372,7 +374,16 @@ async def _compute_v2(
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
-    trip_score = scoring_v2.apply_confidence(trip_v2.score, rolling, gps.confidence)
+    trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
+
+    # Serialise per driver before reading the day's history: the anti-grind caps
+    # below are measured against committed trips, so concurrent saves would each
+    # spend the same headroom (CAR-98).
+    #
+    # Not a new lock — the `UPDATE User` at the end of `save` takes this same row
+    # lock anyway, only after each save has already scored off a stale read. So
+    # it costs nothing, and it is per-driver: two drivers never block each other.
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
 
     cutoff = now - timedelta(days=_DRIVER_SCORE_WINDOW_DAYS)
     rows = (
@@ -386,7 +397,7 @@ async def _compute_v2(
 
     # Driver score: recency- and exposure-weighted history (only scored trips).
     history = [
-        scoring_v2.TripHistoryPoint(
+        scoring.TripHistoryPoint(
             trip_score=score,
             distance_km=km,
             age_days=max(0.0, (now - start).total_seconds() / 86400.0),
@@ -395,16 +406,20 @@ async def _compute_v2(
         if score is not None
     ]
     # Include the trip being saved (age 0) so a first trip yields a real number.
-    history.append(scoring_v2.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
-    driver_score = scoring_v2.compute_driver_score(history)
+    history.append(scoring.TripHistoryPoint(trip_score=trip_score, distance_km=distance_km, age_days=0.0))
+    driver_score = scoring.compute_driver_score(history)
 
-    # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps (§8).
+    # Same-day aggregates (Asia/Jerusalem) for the points anti-grind caps.
     today = now.astimezone(_TZ_IL).date()
     points_today = sum((pts or 0.0) for _s, _km, start, pts in rows if start.astimezone(_TZ_IL).date() == today)
     distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
+    # Rolling-month total for the economic ceiling. `rows` already spans exactly
+    # the window, so this is free — but it does mean the ceiling's window is
+    # `_DRIVER_SCORE_WINDOW_DAYS`; move that and you move this.
+    points_month = sum((pts or 0.0) for _s, _km, _start, pts in rows)
 
     # Streak: consecutive days (including today, counting the trip being saved)
-    # with at least one trip (scoring-algorithm-v2.md §8).
+    # with at least one trip (scoring.md "Points").
     trip_days = {start.astimezone(_TZ_IL).date() for _s, _km, start, _p in rows}
     trip_days.add(today)
     streak_days = 0
@@ -413,22 +428,25 @@ async def _compute_v2(
         streak_days += 1
         cursor -= timedelta(days=1)
 
-    points = scoring_v2.compute_points(
+    points = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
         streak_days=streak_days,
+        level_multiplier=level_multiplier,
         points_today=points_today,
+        points_month=points_month,
         distance_today_km=distance_today_km,
         fraud_flagged=False,
     )
     # Same formula minus the daily anti-grind caps — if the caps reduced the
-    # award, the save response says so instead of showing a silent 0 (§8).
-    points_uncapped = scoring_v2.compute_points(
+    # award, the save response says so instead of showing a silent 0.
+    points_uncapped = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
         streak_days=streak_days,
+        level_multiplier=level_multiplier,
     )
     return trip_score, driver_score, points, round(points) < round(points_uncapped)
 
@@ -504,25 +522,11 @@ async def save(
 
     distance = _witness_distance(distance, gps.distance_km)
 
-    # v2 is the sole scoring engine (scoring-algorithm-v2.md). The risk multiplier
+    # v2 is the sole scoring engine (scoring.md). The risk multiplier
     # is a time-of-day factor reused from v1; the score, driver score, and points
     # are pure v2. There is no v1 fallback — a v2 failure fails the save.
     now = datetime.now(UTC)
     risk_multiplier = get_risk_multiplier(start)
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_v2(
-        db,
-        user,
-        hard_brakes=scored_hard_brakes,
-        aggressive_accels=scored_aggressive_accels,
-        sharp_turns=scored_sharp_turns,
-        touch_epochs=scored_touch_epochs,
-        screen_interaction_seconds=scored_screen_secs,
-        distance_km=distance,
-        duration_seconds=digest_duration,
-        risk_multiplier=risk_multiplier,
-        now=now,
-        gps=gps,
-    )
 
     # Level bonus (#61). Measured at the level the driver *entered* the trip at,
     # not the one they leave with: the trip's points feed total_points, which
@@ -535,7 +539,22 @@ async def save(
         levels.level_for_points(user.total_points),
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
-    points_v2 *= levels.by_number(entering_level).bonus_multiplier
+
+    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
+        db,
+        user,
+        hard_brakes=scored_hard_brakes,
+        aggressive_accels=scored_aggressive_accels,
+        sharp_turns=scored_sharp_turns,
+        touch_epochs=scored_touch_epochs,
+        screen_interaction_seconds=scored_screen_secs,
+        distance_km=distance,
+        duration_seconds=digest_duration,
+        risk_multiplier=risk_multiplier,
+        level_multiplier=levels.by_number(entering_level).bonus_multiplier,
+        now=now,
+        gps=gps,
+    )
 
     trip = Trip(
         user_id=user.id,
@@ -546,7 +565,7 @@ async def save(
         distance_km=distance,
         avg_score=score_v2,
         score_v2=score_v2,
-        scoring_version=scoring_v2.CONFIG.version,
+        scoring_version=scoring.CONFIG.version,
         points=round(points_v2),
         risk_multiplier=risk_multiplier,
         hard_brakes=scored_hard_brakes,
@@ -596,7 +615,7 @@ async def save(
             "total_distance": User.total_distance + trip.distance_km,
             "level": level_expr,
         }
-        # v2 driver score (scoring-algorithm-v2.md §7) — the user's headline score.
+        # Driver score (scoring.md "The driver's own score") — the headline number.
         values["driver_score"] = new_driver_score
         # RETURNING so the response can carry the level the database actually
         # resolved, rather than the client re-deriving it from points and

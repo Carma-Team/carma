@@ -54,7 +54,7 @@ mobile/
 │   │   ├── FraudDetector.ts    # Transport-mode classifier (CARMA-specific thresholds)
 │   │   ├── TripValidationManager.ts  # Trip lifecycle rules (30 s start, 3 min end)
 │   │   ├── gamification.ts     # Level progression engine (10-tier map + multipliers)
-│   │   ├── scoring.ts          # Trip score formula
+│   │   ├── scoring.ts          # Score display helpers + risk multiplier (formula is server-side)
 │   │   ├── constants.ts        # Runtime level config (loaded from server via setLevels)
 │   │   └── utils.ts            # Pure utility helpers
 │   ├── screens/          # Full-screen views (auth/ and app/)

@@ -297,14 +297,14 @@ _DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
 
 
 async def backfill_driver_scores(db: AsyncSession) -> None:
-    """Fill driver_score (v2 §7) for users where it is NULL.
+    """Fill driver_score (scoring.md "The driver's own score") where it is NULL.
 
     Seeded users get their trips inserted directly, bypassing the live save path
     that normally maintains driver_score — leaving the demo leaderboard blank.
     v1-era trips (score_v2 NULL) contribute their avg_score. Never overwrites a
     score the live path already computed.
     """
-    from app.services import scoring_v2
+    from app.services import scoring
 
     now = datetime.now(UTC)
     users = (await db.scalars(select(User).where(User.driver_score.is_(None)))).all()
@@ -323,13 +323,13 @@ async def backfill_driver_scores(db: AsyncSession) -> None:
                 continue
             aware_start = start if start.tzinfo else start.replace(tzinfo=UTC)
             history.append(
-                scoring_v2.TripHistoryPoint(
+                scoring.TripHistoryPoint(
                     trip_score=score,
                     distance_km=km or 0.0,
                     age_days=max(0.0, (now - aware_start).total_seconds() / 86400.0),
                 )
             )
-        user.driver_score = scoring_v2.compute_driver_score(history)
+        user.driver_score = scoring.compute_driver_score(history)
 
 
 async def run() -> None:

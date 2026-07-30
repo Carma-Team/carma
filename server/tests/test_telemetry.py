@@ -8,7 +8,7 @@ digest reported as zero events.
 from __future__ import annotations
 
 from app.services import telemetry
-from app.services.scoring_v2 import apply_confidence
+from app.services.scoring import apply_confidence
 
 
 def _wp(ts_s: float, speed: float, lat: float = 32.0, lng: float = 34.8) -> dict:
@@ -65,7 +65,7 @@ class TestKinematicDetection:
         assert telemetry.analyze(trace, 10).aggressive_accels == 1
 
     def test_low_speed_filter_ignores_parking_maneuvers(self) -> None:
-        # A hard stop from 12 km/h is a parking maneuver, not an event (§4).
+        # A hard stop from 12 km/h is a parking maneuver, not an event.
         trace = [_wp(0, 12.0), _wp(3, 0.0), _wp(6, 0.0)]
         assert telemetry.analyze(trace, 10).hard_brakes == 0
 

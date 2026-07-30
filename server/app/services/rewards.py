@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
@@ -25,6 +26,11 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
     the rows in question — the driver listing their vouchers, or a business
     scanning one. `where` narrows it to those rows so a single scan never sweeps
     the whole table.
+
+    Transaction-neutral: issues the UPDATE and nothing else. Callers commit, so
+    settling expiry can sit inside a wider transaction — holding a row lock while
+    checking stock, or crediting points in the same breath as the status flip.
+    A commit in here would end that transaction and drop those locks.
     """
     await db.execute(
         update(Redemption)
@@ -35,7 +41,6 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
         )
         .values(status=RedemptionStatus.EXPIRED)
     )
-    await db.commit()
 
 
 async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
@@ -73,7 +78,10 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
     # points check above and drive the balance negative.
-    debited = await db.execute(
+    # `execute` is typed as returning a plain Result, which has no rowcount.
+    # A DML statement always yields a CursorResult at runtime — the annotation
+    # tells mypy that, it does not change behaviour.
+    debited: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(User)
         .where(User.id == user.id, User.points >= reward.cost_points)
         .values(points=User.points - reward.cost_points)
@@ -108,8 +116,11 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:
     # Both listing endpoints go through here, so this is the one place a driver's
-    # own stale vouchers get settled before they are shown.
+    # own stale vouchers get settled before they are shown. expire_overdue leaves
+    # the commit to us — this is a read path with nothing else in flight, so the
+    # settle stands on its own.
     await expire_overdue(db, Redemption.user_id == user_id)
+    await db.commit()
     rows = await db.scalars(
         select(Redemption)
         .where(Redemption.user_id == user_id)

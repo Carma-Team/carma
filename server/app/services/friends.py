@@ -311,6 +311,14 @@ async def block_user(db: AsyncSession, current: User, target_id: str) -> FriendS
     else:
         db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=FriendStatus.BLOCKED))
 
+    # A block settles any pending request between the pair, in whichever direction
+    # it ran: an incoming one is deleted above, an outgoing one turns BLOCKED. Both
+    # leave a notification pointing at a request that can no longer be accepted or
+    # rejected — and unlike a cancel, the blocker cannot clear it by acting on it,
+    # so the name of the person they just blocked would sit in their list forever.
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, target_id)
+    await notifications.delete_from_actor(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id)
+
     try:
         await db.commit()
     except IntegrityError:

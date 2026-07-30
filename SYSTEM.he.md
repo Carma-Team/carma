@@ -746,7 +746,7 @@ ContainerAppConsoleLogs_CL
 
 בכוונה נדחה:
 
-- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring_v2.py` (v2.1). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד. מנוע v1 שהוחלף נמחק ב-#53; שרד ממנו רק מכפיל סיכון הלילה, ב-`app/services/risk.py`.
+- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v2.1). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד. מנוע v1 שהוחלף נמחק ב-#53; שרד ממנו רק מכפיל סיכון הלילה, ב-`app/services/risk.py`.
 - **מודלי Notification + Achievement + Friendship**.
 - **העלאת תמונת רישיון** (דורש Azure Blob Storage). השדה `license_img_url` קיים בסכמה.
 - **Refresh tokens** — כרגע JWT יחיד ל-7 ימים.

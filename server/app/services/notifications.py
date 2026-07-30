@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Notification
@@ -77,7 +77,10 @@ async def mark_read(db: AsyncSession, user_id: str, notification_id: str) -> boo
     already-read row is a no-op that still returns True — the client may replay
     the call, and nothing depends on the exact read timestamp.
     """
-    result = await db.execute(
+    # `execute` is typed as returning a plain Result, which has no rowcount.
+    # A DML statement always yields a CursorResult at runtime — the annotation
+    # tells mypy that, it does not change behaviour. Same pattern as rewards.py.
+    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Notification)
         .where(Notification.id == notification_id, Notification.user_id == user_id)
         .values(read_at=func.coalesce(Notification.read_at, datetime.now(UTC)))
@@ -87,7 +90,7 @@ async def mark_read(db: AsyncSession, user_id: str, notification_id: str) -> boo
 
 
 async def mark_all_read(db: AsyncSession, user_id: str) -> int:
-    result = await db.execute(
+    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Notification)
         .where(Notification.user_id == user_id, Notification.read_at.is_(None))
         .values(read_at=datetime.now(UTC))

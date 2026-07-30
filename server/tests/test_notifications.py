@@ -365,6 +365,51 @@ async def test_a_second_requester_still_gets_through(db_session: AsyncSession) -
 
 
 @pytest.mark.asyncio
+async def test_blocking_an_incoming_requester_clears_their_row(db_session: AsyncSession) -> None:
+    """A asks B, B blocks A — B must not be left holding A's name.
+
+    Worse than the cancel case: there is no request left to accept or reject, so
+    the blocker has no way to clear the row by acting on it.
+    """
+    requester = await _make_user(db_session)
+    blocker = await _make_user(db_session)
+    try:
+        await friends.send_request(db_session, requester, blocker.id)
+        assert len(await _notifications_of(db_session, blocker)) == 1
+
+        await friends.block_user(db_session, blocker, requester.id)
+
+        assert await _notifications_of(db_session, blocker) == []
+        # Blocking is not announced to the person blocked.
+        assert await _notifications_of(db_session, requester) == []
+    finally:
+        await _drop_edges(db_session, requester, blocker)
+        await _cleanup(db_session, requester, blocker)
+
+
+@pytest.mark.asyncio
+async def test_blocking_someone_you_asked_clears_their_row_too(db_session: AsyncSession) -> None:
+    """The other direction: B asks A, then B blocks A.
+
+    B's own outgoing request turns BLOCKED rather than being deleted, so it is
+    just as gone — and A is the one left with a row that leads nowhere.
+    """
+    blocker = await _make_user(db_session)
+    target = await _make_user(db_session)
+    try:
+        await friends.send_request(db_session, blocker, target.id)
+        assert len(await _notifications_of(db_session, target)) == 1
+
+        await friends.block_user(db_session, blocker, target.id)
+
+        assert await _notifications_of(db_session, target) == []
+        assert await _notifications_of(db_session, blocker) == []
+    finally:
+        await _drop_edges(db_session, blocker, target)
+        await _cleanup(db_session, blocker, target)
+
+
+@pytest.mark.asyncio
 async def test_removing_a_friend_notifies_nobody(db_session: AsyncSession) -> None:
     first = await _make_user(db_session)
     second = await _make_user(db_session)
