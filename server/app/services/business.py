@@ -126,7 +126,10 @@ async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Red
     another business is a 404 like an unknown code — a distinct error would let
     one business probe another's codes.
     """
+    # expire_overdue leaves the commit to its caller. Nothing else is in flight
+    # here, so the settle is committed on its own before the row is read back.
     await rewards_service.expire_overdue(db, Redemption.qr_code == code)
+    await db.commit()
 
     voucher = await db.scalar(
         select(Redemption)

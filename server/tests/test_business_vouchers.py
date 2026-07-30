@@ -19,8 +19,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.config import settings
 from app.main import app
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
 from app.services import business as business_service
@@ -288,3 +291,66 @@ async def test_expire_overdue_only_touches_the_rows_it_is_scoped_to(db_session: 
         assert their_stale.status == RedemptionStatus.PENDING, "one driver's read must not sweep another's rows"
     finally:
         await _cleanup(db_session, business, drivers=(mine, someone_else))
+
+
+# ─── Transaction neutrality (CAR-63) ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_expire_overdue_leaves_the_callers_transaction_open(db_session: AsyncSession) -> None:
+    """expire_overdue must not commit — it runs inside whatever the caller started.
+
+    Stock enforcement holds a `FOR UPDATE` lock on the reward row across the
+    availability check, and settling expiry happens inside that same transaction.
+    A commit in expire_overdue would end the transaction and release the lock
+    mid-check, letting a second redeem slip past the stock cap.
+
+    Proven from a second connection: while the first still holds the lock, a
+    `FOR UPDATE NOWAIT` on the same row must fail.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    try:
+        stale = await _issue(db_session, business, driver, ttl=timedelta(minutes=-10))
+        # Held as plain values: the rollback below expires every instance in the
+        # session, and reading an attribute afterwards attempts sync IO.
+        reward_id = stale.reward_id
+        voucher_id = stale.id
+
+        # Open a transaction and take the lock the stock check will rely on.
+        await db_session.execute(select(Reward).where(Reward.id == reward_id).with_for_update())
+        await rewards_service.expire_overdue(db_session, Redemption.user_id == driver.id)
+
+        assert db_session.in_transaction(), "expire_overdue must leave the caller's transaction open"
+
+        async with engine.connect() as other:
+            with pytest.raises(DBAPIError):
+                await other.execute(select(Reward.id).where(Reward.id == reward_id).with_for_update(nowait=True))
+
+        # Rolling back must take the settle with it — the flip was never a
+        # separate transaction of its own.
+        await db_session.rollback()
+        still_pending = await db_session.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
+        assert still_pending == RedemptionStatus.PENDING, "a rolled-back caller must discard the settle too"
+    finally:
+        await engine.dispose()
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expire_overdue_issues_no_commit_of_its_own(db_session: AsyncSession) -> None:
+    """The narrow version of the above, without needing a second connection."""
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        stale = await _issue(db_session, business, driver, ttl=timedelta(minutes=-10))
+        voucher_id = stale.id  # plain value — the rollback expires the instance
+
+        await rewards_service.expire_overdue(db_session, Redemption.user_id == driver.id)
+        await db_session.rollback()
+
+        status_now = await db_session.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
+        assert status_now == RedemptionStatus.PENDING, "expire_overdue committed on its own — it must not"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
