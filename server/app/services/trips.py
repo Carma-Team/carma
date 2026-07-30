@@ -413,6 +413,10 @@ async def _compute_score(
     today = now.astimezone(_TZ_IL).date()
     points_today = sum((pts or 0.0) for _s, _km, start, pts in rows if start.astimezone(_TZ_IL).date() == today)
     distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
+    # Rolling-month total for the economic ceiling. `rows` already spans exactly
+    # the window, so this is free — but it does mean the ceiling's window is
+    # `_DRIVER_SCORE_WINDOW_DAYS`; move that and you move this.
+    points_month = sum((pts or 0.0) for _s, _km, _start, pts in rows)
 
     # Streak: consecutive days (including today, counting the trip being saved)
     # with at least one trip (scoring.md "Points").
@@ -431,6 +435,7 @@ async def _compute_score(
         streak_days=streak_days,
         level_multiplier=level_multiplier,
         points_today=points_today,
+        points_month=points_month,
         distance_today_km=distance_today_km,
         fraud_flagged=False,
     )

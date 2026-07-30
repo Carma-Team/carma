@@ -79,7 +79,13 @@ class ScoringConfig:
     # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
-    daily_points_cap: float = 300.0
+    # Two ceilings, two jobs. The day bounds a single burst; the rolling month is
+    # the economic ceiling — what the reward catalogue will pay one driver.
+    # At roughly ₪0.10 a point that is ₪15 a day and ₪300 a month, which puts us
+    # level with Discovery's Vitality Drive (3,000 points a month) instead of
+    # three times over it. Recalibrate against real redemption volume, not taste.
+    daily_points_cap: float = 150.0
+    rolling_month_points_cap: float = 3_000.0
     daily_distance_cap_km: float = 150.0
 
 
@@ -268,6 +274,7 @@ def compute_points(
     streak_days: int = 0,
     level_multiplier: float = 1.0,
     points_today: float = 0.0,
+    points_month: float = 0.0,
     distance_today_km: float = 0.0,
     fraud_flagged: bool = False,
     config: ScoringConfig = CONFIG,
@@ -293,7 +300,13 @@ def compute_points(
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
     points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
 
-    # Daily points cap — applied last, so the level bonus changes how fast a
-    # driver reaches the ceiling, never where the ceiling sits.
-    remaining_points = max(0.0, config.daily_points_cap - max(0.0, points_today))
-    return round(min(points, remaining_points) * 10) / 10
+    # Whichever ceiling is nearer. Applied last, so the level bonus changes how
+    # fast a driver reaches a ceiling, never where it sits.
+    #
+    # The month is rolling rather than calendar: a reset date is a farming date,
+    # and the trip history the caller already loaded spans 30 days either way.
+    remaining = min(
+        config.daily_points_cap - max(0.0, points_today),
+        config.rolling_month_points_cap - max(0.0, points_month),
+    )
+    return round(min(points, max(0.0, remaining)) * 10) / 10

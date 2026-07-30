@@ -219,13 +219,19 @@ points = trip score
        × distance factor    (log scale — 1.0 at 10 km)
        × risk multiplier    (Israeli weekend nights ×2.0, weeknights ×1.5)
        × streak bonus       (+5% per consecutive day with a trip, up to ×1.25)
+       × level bonus        (the level entering the trip — ×1.00 to ×2.00)
+                            ↓
+                     then clipped by the limits below
 ```
 
 **The streak rewards showing up, not driving well.** It counts consecutive days with any trip, at any score — a driver averaging 40 builds the same ×1.25 as one averaging 95. Tying it to the score is CAR-104.
 
+**The level bonus is inside the formula, not applied after it.** It used to be a multiplier laid on top of the already-clipped figure, which made the real ceiling 300 × the level bonus — 600 a day at level 10, the account worth grinding for. The level now changes how fast a driver reaches a ceiling, never where the ceiling sits. That is what tiered loyalty practice does, and what Discovery's Vitality Drive does: per-tier earn rates under one flat monthly ceiling.
+
 **Limits that protect the rewards economy:**
 
-- **300 points a day**, maximum.
+- **150 points a day** — bounds a single burst.
+- **3,000 points per rolling 30 days** — the economic ceiling: what the catalogue will pay one driver. At roughly ₪0.10 a point that is ₪300 a month, level with Vitality Drive's 3,000 and well above LETSTOP's free tier (~₪75). It was ₪900 before, with nothing monthly at all. Rolling rather than calendar, because a reset date is a farming date.
 - **150 km a day** counted toward points — a delivery driver cannot farm the system.
 - **Fraudulent trips earn nothing** and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps.
 

@@ -141,9 +141,15 @@ async def _cleanup(db: AsyncSession, user: User, reward: Reward | None = None) -
 
 
 def _scoring_trip() -> SaveTripIn:
-    """A clean 8km trip — enough distance and quality to be worth points."""
+    """A clean 3km trip — worth points, but never enough to reach a cap.
+
+    Short on purpose. Two of these have to both land in full at any hour of the
+    week, and the night risk multiplier doubles the award — at 8 km the pair
+    would clear the daily cap on a Friday night and the balance tests would start
+    failing for a reason that has nothing to do with the balance.
+    """
     return SaveTripIn(
-        distanceKm=8.0,
+        distanceKm=3.0,
         durationSeconds=1200,
         hardBrakes=0,
         aggressiveAccels=0,
