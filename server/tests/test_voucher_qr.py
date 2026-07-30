@@ -60,7 +60,7 @@ def _fake_redemption(*, qr_code: str, qr_data: str | None, status: str = "PENDIN
 
 
 def test_voucher_out_maps_code_and_qr_data() -> None:
-    v = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="ABC123", qr_data="PAYLOAD-XYZ"))
+    v = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="ABC123", qr_data="PAYLOAD-XYZ"), None)
     assert v.code == "ABC123", "code must come from qr_code"
     assert v.qr_data == "PAYLOAD-XYZ", "qrData must carry the dedicated scan payload when present"
 
@@ -68,15 +68,15 @@ def test_voucher_out_maps_code_and_qr_data() -> None:
 def test_voucher_out_qr_data_falls_back_to_code() -> None:
     # When no dedicated payload exists, the QR (which now renders qrData) must
     # still resolve to the human code so the voucher stays scannable.
-    v = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="ABC123", qr_data=None))
+    v = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="ABC123", qr_data=None), None)
     assert v.qr_data == "ABC123", "qrData must fall back to qr_code"
     assert v.code == v.qr_data, "with no separate payload, code and qrData must match"
 
 
 def test_voucher_out_derives_status_and_is_used() -> None:
-    pending = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="A", qr_data="A"))
+    pending = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="A", qr_data="A"), None)
     assert pending.status == "pending" and pending.is_used is False
 
-    used = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="A", qr_data="A", status="USED"))
+    used = VoucherOut.from_orm_redemption(_fake_redemption(qr_code="A", qr_data="A", status="USED"), None)
     assert used.status == "used", "wire status must be lower-cased"
     assert used.is_used is True, "isUsed must be True once the voucher is redeemed"

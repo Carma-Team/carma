@@ -49,7 +49,13 @@ async def list_rewards(db: AsyncSession, business: Business) -> dict[str, object
             .order_by(Reward.created_at.desc())
         )
     ).all()
-    return {"rewards": [RewardOut.from_orm_reward(r) for r in rewards]}
+    claimed = await rewards_service.claimed_by_reward(db, [r.id for r in rewards])
+    return {
+        "rewards": [
+            RewardOut.from_orm_reward(r, rewards_service.available_units(r.stock, claimed.get(r.id, 0)))
+            for r in rewards
+        ]
+    }
 
 
 async def create_reward(db: AsyncSession, business: Business, dto: BusinessRewardIn) -> RewardOut:
@@ -73,7 +79,8 @@ async def create_reward(db: AsyncSession, business: Business, dto: BusinessRewar
     await db.refresh(reward)
     reward.business = business  # already loaded — spares RewardOut a lazy load
     audit("business.reward.created", business_id=business.id, reward_id=reward.id, cost_points=reward.cost_points)
-    return RewardOut.from_orm_reward(reward)
+    # Brand new, so nothing can be claimed against it yet — the whole cap is free.
+    return RewardOut.from_orm_reward(reward, reward.stock)
 
 
 async def update_reward(db: AsyncSession, business: Business, reward_id: str, dto: BusinessRewardPatchIn) -> RewardOut:
@@ -90,7 +97,8 @@ async def update_reward(db: AsyncSession, business: Business, reward_id: str, dt
     # would trip a lazy load on the async session.
     await db.commit()
     audit("business.reward.updated", business_id=business.id, reward_id=reward.id, fields=sorted(changes))
-    return RewardOut.from_orm_reward(reward)
+    claimed = await rewards_service.claimed_by_reward(db, [reward.id])
+    return RewardOut.from_orm_reward(reward, rewards_service.available_units(reward.stock, claimed.get(reward.id, 0)))
 
 
 async def delete_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
@@ -147,7 +155,8 @@ async def peek_voucher(db: AsyncSession, business: Business, code: str) -> Vouch
     Read-only on purpose: an employee scanning to check validity must not burn
     the voucher, and a scan that fails halfway must not leave it consumed.
     """
-    return VoucherOut.from_orm_redemption(await _owned_voucher(db, business, code))
+    voucher = await _owned_voucher(db, business, code)
+    return await _voucher_out(db, voucher)
 
 
 async def consume_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
@@ -190,4 +199,11 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
         reward_id=voucher.reward_id,
         user_id=voucher.user_id,
     )
-    return VoucherOut.from_orm_redemption(voucher)
+    return await _voucher_out(db, voucher)
+
+
+async def _voucher_out(db: AsyncSession, voucher: Redemption) -> VoucherOut:
+    """VoucherOut with the reward's availability counted for it."""
+    claimed = await rewards_service.claimed_by_reward(db, [voucher.reward_id])
+    available = rewards_service.available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
+    return VoucherOut.from_orm_redemption(voucher, available)
