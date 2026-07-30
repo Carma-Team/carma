@@ -79,12 +79,20 @@ class ScoringConfig:
     # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
-    # Two ceilings, two jobs. The day bounds a single burst; the rolling month is
-    # the economic ceiling — what the reward catalogue will pay one driver.
-    # At roughly ₪0.10 a point that is ₪15 a day and ₪300 a month, which puts us
-    # level with Discovery's Vitality Drive (3,000 points a month) instead of
-    # three times over it. Recalibrate against real redemption volume, not taste.
-    daily_points_cap: float = 150.0
+    # Two ceilings, two jobs — and only one of them is about money.
+    #
+    # The month is the economic ceiling: what the catalogue will pay one driver.
+    # At roughly ₪0.10 a point, 3,000 is ~₪300 a month, level with Discovery's
+    # Vitality Drive. Both it and LETSTOP publish a monthly figure and no daily
+    # one. Recalibrate against real redemption volume, not taste.
+    #
+    # The day is a rate limiter against exploitation, so it belongs *above* the
+    # honest maximum, not below it: at 500 the only thing it clips is 150 km at
+    # night at the top of the ladder, while still forcing six days to drain a
+    # month. It was briefly set to 150, which clipped an ordinary weekday
+    # commute at level 10 — a daily cap that a real driver can feel is priced as
+    # an economic ceiling, and that job is the month's.
+    daily_points_cap: float = 500.0
     rolling_month_points_cap: float = 3_000.0
     daily_distance_cap_km: float = 150.0
 

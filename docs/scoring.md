@@ -230,8 +230,8 @@ points = trip score
 
 **Limits that protect the rewards economy:**
 
-- **150 points a day** — bounds a single burst.
-- **3,000 points per rolling 30 days** — the economic ceiling: what the catalogue will pay one driver. At roughly ₪0.10 a point that is ₪300 a month, level with Vitality Drive's 3,000 and well above LETSTOP's free tier (~₪75). It was ₪900 before, with nothing monthly at all. Rolling rather than calendar, because a reset date is a farming date.
+- **3,000 points per rolling 30 days** — the economic ceiling: what the catalogue will pay one driver. At roughly ₪0.10 a point that is ₪300 a month, level with Vitality Drive's 3,000 and well above LETSTOP's free tier (~₪75). Before this there was no monthly limit at all and the daily one implied ~₪900. Rolling rather than calendar, because a reset date is a farming date.
+- **500 points a day** — a rate limiter, not a second economic ceiling. It sits deliberately *above* every honest driving pattern (an ordinary commute at level 10 is ~240, a Friday night out ~285, an 80 km day ~310) and exists only so that a bug or an exploit cannot drain a whole month in an afternoon. A daily cap a real driver can feel has been priced as an economic ceiling by mistake; that job belongs to the month.
 - **150 km a day** counted toward points — a delivery driver cannot farm the system.
 - **Fraudulent trips earn nothing** and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps.
 
