@@ -147,6 +147,20 @@ The one exception is a **decision record** — `RFC-001`, and any ADR we add. Th
 
 **Deleting a stale document is correct.** Git keeps it (`git log --follow`, `git show <sha>:<path>`). A folder of retired documents duplicates version control and reads as current to anyone who does not check the date.
 
+### Comments in code
+
+**Write why, not what.** There is no target ratio and there never was one — a comment earns its place when it explains a choice a reader cannot see from the code, and only then. Three ways to get it wrong, each of them ours:
+
+- **Restating the ticket.** A `CAR-` id carries the whole ticket. Seven lines re-telling an exploit above a one-line fix will go stale while the ticket stays current.
+- **A justification that outlived the code.** A wrong comment is worse than no comment. When you change what a comment explains, the comment is part of the change.
+- **A comment covering for a bad name.** If it explains *what* the line does, rename the thing instead.
+
+Always worth keeping: why this and not the obvious alternative, what a future reader will want to delete and must not, and any number nobody can re-derive — a threshold, a benchmark, an exchange rate.
+
+**The reasoning belongs in the commit message, not beside the code.** Our commit bodies run about 14 lines and that is deliberate: git history is permanent and cannot drift out of sync with anything, while a comment sits next to code that moves. Explain the decision once, in the commit. Leave behind only the trap.
+
+For PR descriptions, reviews and issue comments, see Communication Style below — same idea, with a 300-word ceiling.
+
 ---
 
 ## Engineering Rules
