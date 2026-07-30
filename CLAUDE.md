@@ -115,6 +115,8 @@ That asymmetry is the whole problem, and the whole fix.
 
 **GitHub Issues stays switched on, deliberately.** Turning the feature off hides the Issues tab, and with it the ~150 `#NN` references in this codebase, 83 more in commit messages, and 15 in PR descriptions — git history cannot be edited, so those break for good. The rule above already prevents new duplicates, because the sync only auto-creates in one direction.
 
+**Search Linear before opening an issue.** `contract-check` was filed three times in five days and the open Postgres firewall twice — every one of them by us, none of them caught. Ten seconds of searching beats a triage pass later.
+
 **Linking a PR to its issue:** put the `CAR-` id in the branch name or the PR title (`ofridan/car-39-...`). Linear advances the issue on its own — no manual status updates.
 
 ---
