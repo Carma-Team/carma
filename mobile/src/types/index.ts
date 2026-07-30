@@ -54,7 +54,8 @@ export interface Trip {
   touchEpochs: number;              // v1.7
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
-  pointsCapped?: boolean;           // v2.1 — daily anti-grind caps reduced this trip's award (save response only)
+  pointsCapped?: boolean;           // v2.1 — an anti-grind cap (daily or rolling-month) reduced this trip's
+                                    // award. Save response only. Nothing renders it yet — see CAR-98.
   userLevel?: number;               // driver's level after this trip, as the server resolved it incl. the
                                     // driver-score cap (#37). Save response only — absent on list/detail reads.
   startLocation?: string;

@@ -10,6 +10,8 @@ below stay green through a re-calibration; only a genuinely broken ladder
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -22,6 +24,8 @@ from app.models.enums import UserRole
 from app.schemas.trip import SaveTripIn
 from app.services import levels
 from app.services import trips as trips_service
+
+_TZ_IL = ZoneInfo("Asia/Jerusalem")
 
 # ─── the ladder itself ────────────────────────────────────────────────────────
 
@@ -136,8 +140,18 @@ async def _driver_at(db: AsyncSession, *, total_points: int) -> User:
 
 
 def _trip() -> SaveTripIn:
+    """A modest midday drive, sized so the level bonus is never what clips it.
+
+    Both knobs matter. Noon pins the risk multiplier at 1.0 — left to the wall
+    clock, an Israeli weekend night doubles the award and the daily cap, not the
+    ladder, decides the result. 4 km keeps even a doubled award under that cap.
+    The cap clipping the top of the ladder is deliberate and tested in
+    `test_scoring.py`; here it would only get in the way.
+    """
+    noon = datetime.now(_TZ_IL).replace(hour=12, minute=0, second=0, microsecond=0)
     return SaveTripIn(
-        distanceKm=15.0,
+        startTime=noon,
+        distanceKm=4.0,
         durationSeconds=1800,
         hardBrakes=0,
         aggressiveAccels=0,

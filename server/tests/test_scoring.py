@@ -190,8 +190,51 @@ class TestComputePoints:
         assert compute_points(trip_score=100.0, distance_km=50.0, risk_multiplier=2.0, fraud_flagged=True) == 0.0
 
     def test_daily_points_cap_enforced(self) -> None:
-        pts = compute_points(trip_score=100.0, distance_km=100.0, risk_multiplier=2.0, points_today=290.0)
-        assert pts == 10.0  # only 10 left under the 300 cap
+        spent = CONFIG.daily_points_cap - 10.0
+        pts = compute_points(trip_score=100.0, distance_km=100.0, risk_multiplier=2.0, points_today=spent)
+        assert pts == 10.0  # only the day's remainder is payable
+
+    def test_rolling_month_cap_binds_even_on_a_fresh_day(self) -> None:
+        """The economic ceiling. A driver who has hit it earns nothing today.
+
+        Separate from the daily cap on purpose: without it a driver can sit on
+        the daily maximum every day of the month and the reward catalogue has no
+        ceiling at all.
+        """
+        pts = compute_points(
+            trip_score=100.0,
+            distance_km=100.0,
+            risk_multiplier=2.0,
+            points_today=0.0,
+            points_month=CONFIG.rolling_month_points_cap,
+        )
+        assert pts == 0.0
+
+        # And the tighter of the two wins rather than the last one checked.
+        near_month = compute_points(
+            trip_score=100.0,
+            distance_km=100.0,
+            risk_multiplier=2.0,
+            points_month=CONFIG.rolling_month_points_cap - 3.0,
+        )
+        assert near_month == 3.0, "3 left in the month beats a full day's allowance"
+
+    def test_the_level_bonus_cannot_lift_a_trip_over_the_daily_cap(self) -> None:
+        """The top of the ladder reaches the cap faster, never past it.
+
+        The bonus used to be applied by the caller after this function returned,
+        which made the real ceiling 300 x the multiplier — 600 a day for a
+        level-10 account, and precisely the account worth grinding for.
+        """
+        cap = CONFIG.daily_points_cap
+        top = compute_points(trip_score=100.0, distance_km=100.0, risk_multiplier=2.0, level_multiplier=2.0)
+        assert top == cap, "an outsized trip at the top of the ladder lands exactly on the cap"
+
+        # Below the cap the bonus is fully paid — otherwise this would pass by
+        # the multiplier being ignored rather than by the cap holding.
+        plain = compute_points(trip_score=80.0, distance_km=5.0, risk_multiplier=1.0)
+        doubled = compute_points(trip_score=80.0, distance_km=5.0, risk_multiplier=1.0, level_multiplier=2.0)
+        assert doubled < cap and math.isclose(doubled, plain * 2, rel_tol=0.02)
 
     def test_daily_distance_cap_limits_counted_km(self) -> None:
         # 140 km already farmed today → only 10 km counts toward the next trip.
