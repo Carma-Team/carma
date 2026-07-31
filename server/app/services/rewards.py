@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
@@ -16,11 +16,52 @@ from app.schemas.reward import RewardOut, VoucherOut
 
 VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
 
+REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
+
 # Three draws is plenty: at 31^10 the first one already almost never collides,
 # and a fourth would only ever be papering over a broken generator.
 VOUCHER_CODE_ATTEMPTS = 3
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
+
+
+async def claimed_by_reward(db: AsyncSession, reward_ids: list[str]) -> dict[str, int]:
+    """Units of each reward currently spoken for.
+
+    `Reward.stock` is the total the business allocated and is never written back
+    to — what is left is derived from the redemptions ledger instead. A unit is
+    claimed while a voucher is live (PENDING and inside its TTL) and stays
+    claimed once USED. EXPIRED and CANCELLED release theirs.
+
+    The predicate tests `expires_at` directly rather than trusting the stored
+    status, so the count is right even for rows lazy expiry has not settled yet.
+    It does not depend on `expire_overdue` having run.
+    """
+    if not reward_ids:
+        return {}
+
+    rows = await db.execute(
+        select(Redemption.reward_id, func.count())
+        .where(
+            Redemption.reward_id.in_(reward_ids),
+            or_(
+                Redemption.status == RedemptionStatus.USED,
+                and_(
+                    Redemption.status == RedemptionStatus.PENDING,
+                    Redemption.expires_at > datetime.now(UTC),
+                ),
+            ),
+        )
+        .group_by(Redemption.reward_id)
+    )
+    return {reward_id: count for reward_id, count in rows.all()}
+
+
+def available_units(stock: int | None, claimed: int) -> int | None:
+    """Units a driver can still take. None means unlimited — no cap was set."""
+    if stock is None:
+        return None
+    return max(stock - claimed, 0)
 
 
 async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
@@ -59,23 +100,46 @@ async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None)
     ).all()
 
     vouchers = await _list_user_vouchers(db, user_id)
+    claimed = await claimed_by_reward(db, [r.id for r in rewards] + [v.reward_id for v in vouchers])
     return {
-        "rewards": [RewardOut.from_orm_reward(r) for r in rewards],
-        "vouchers": [VoucherOut.from_orm_redemption(r) for r in vouchers],
+        "rewards": [RewardOut.from_orm_reward(r, available_units(r.stock, claimed.get(r.id, 0))) for r in rewards],
+        "vouchers": [_voucher_out(v, claimed) for v in vouchers],
     }
 
 
 async def list_my_vouchers(db: AsyncSession, user_id: str) -> dict[str, object]:
     vouchers = await _list_user_vouchers(db, user_id)
-    return {"vouchers": [VoucherOut.from_orm_redemption(r) for r in vouchers]}
+    claimed = await claimed_by_reward(db, [v.reward_id for v in vouchers])
+    return {"vouchers": [_voucher_out(v, claimed) for v in vouchers]}
+
+
+def _voucher_out(v: Redemption, claimed: dict[str, int]) -> VoucherOut:
+    return VoucherOut.from_orm_redemption(v, available_units(v.reward.stock, claimed.get(v.reward_id, 0)))
 
 
 async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
-    reward = await db.scalar(select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business)))
+    # FOR UPDATE, so the availability count below and the INSERT that follows are
+    # one indivisible step. Without it two drivers racing for the last unit both
+    # count 1 remaining and both get a voucher. Postgres serialises them here
+    # instead: the loser blocks until the winner commits, then re-counts and sees
+    # 0. selectinload issues its own SELECT afterwards, so eager-loading the
+    # business does not turn this into a locked join.
+    reward = await db.scalar(
+        select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business)).with_for_update()
+    )
     if reward is None or not reward.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not available")
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
+
+    claimed = await claimed_by_reward(db, [reward.id])
+    if available_units(reward.stock, claimed.get(reward.id, 0)) == 0:
+        # `is None` means unlimited and must never land here; only a real 0 does.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": REWARD_OUT_OF_STOCK, "message": "This reward is out of stock"},
+        )
 
     code = await _allocate_voucher_code(db)
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
@@ -115,7 +179,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
         cost_points=reward.cost_points,
         voucher_id=redemption.id,
     )
-    return VoucherOut.from_orm_redemption(redemption)
+    # Re-counted after the commit so the response reflects the unit just taken.
+    claimed = await claimed_by_reward(db, [reward.id])
+    return VoucherOut.from_orm_redemption(redemption, available_units(reward.stock, claimed.get(reward.id, 0)))
 
 
 async def _allocate_voucher_code(db: AsyncSession) -> str:

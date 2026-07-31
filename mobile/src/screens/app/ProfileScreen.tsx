@@ -95,7 +95,7 @@ export default function ProfileScreen() {
         )}
 
         {section === 'notifications' && (
-          <NotificationsTab />
+          <NotificationsTab onOpenFriendRequests={() => setSection('friendRequests')} />
         )}
 
         {section === 'friendRequests' && (

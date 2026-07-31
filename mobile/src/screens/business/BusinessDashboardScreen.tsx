@@ -153,7 +153,9 @@ export default function BusinessDashboardScreen() {
                       <Ionicons name={ICONS.points} size={11} color={COLORS.brandLight} style={{ marginRight: 3 }} />
                       <Text style={styles.costText}>{reward.costPoints} {t('common.points')}</Text>
                     </View>
-                    <Text style={TYPOGRAPHY.caption}>{t('business.stock')}: {reward.stock}</Text>
+                    <Text style={TYPOGRAPHY.caption}>
+                      {t('business.stock')}: {reward.stock ?? t('business.stockUnlimited')}
+                    </Text>
                     {reward.expiresAt && (
                       <Text style={TYPOGRAPHY.caption}>
                         {t('business.expires')}: {new Date(reward.expiresAt).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US')}

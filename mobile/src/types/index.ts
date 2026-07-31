@@ -84,7 +84,11 @@ export interface Reward {
   costPoints: number;
   imageIcon: string;
   isActive: boolean;
-  stock: number;
+  // `stock` is the total the business allocated; `available` is what is left of
+  // it right now, derived server-side from the vouchers issued against it. null
+  // means no cap was set — read it as plenty, never as zero.
+  stock: number | null;
+  available: number | null;
   expiresAt?: string;
 }
 
@@ -183,13 +187,47 @@ export interface DrivingStats {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export interface Notification {
+// Matches server's NotificationOut (server/app/schemas/notification.py).
+// The server sends `type` + `payload`, never rendered text, so the strings are
+// resolved here through i18n and old rows follow a language switch.
+interface NotificationBase {
   id: string;
-  title: string;
-  body: string;
-  type: 'info' | 'reward' | 'trip';
-  timestamp: string;
+  readAt: string | null;
+  createdAt: string;
 }
+
+// Adding a kind means adding a member here — the union then forces every
+// consumer to handle it.
+export interface LevelUpNotification extends NotificationBase {
+  type: 'level_up';
+  payload: { level: number; previousLevel: number };
+}
+
+/** Demotion (#37). Carries no levels on purpose — the copy says the level was
+ *  updated without naming the old or new one. */
+export interface LevelDownNotification extends NotificationBase {
+  type: 'level_down';
+  payload: Record<string, never>;
+}
+
+/** Sent to whoever asked, once the other side accepts. `userId` is the accepter. */
+export interface FriendAcceptedNotification extends NotificationBase {
+  type: 'friend_accepted';
+  payload: { userId: string; userName: string | null };
+}
+
+/** Sent to the recipient of a friend request. `userId` is whoever asked. */
+export interface FriendRequestedNotification extends NotificationBase {
+  type: 'friend_requested';
+  payload: { userId: string; userName: string | null };
+}
+
+export type Notification =
+  | LevelUpNotification
+  | LevelDownNotification
+  | FriendAcceptedNotification
+  | FriendRequestedNotification;
+export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
 // String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts
