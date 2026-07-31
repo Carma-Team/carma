@@ -19,13 +19,20 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import FriendStatus, User, UserFriend
+from app.models import (
+    NOTIFICATION_FRIEND_ACCEPTED,
+    NOTIFICATION_FRIEND_REQUESTED,
+    FriendStatus,
+    User,
+    UserFriend,
+)
 from app.schemas.friend import (
     FriendRequestOut,
     FriendRequestsOut,
     FriendshipStatus,
     FriendStatusOut,
 )
+from app.services import notifications
 
 # A pair can hold at most one row per direction. When both exist, the stronger
 # status is the one the caller cares about.
@@ -88,13 +95,40 @@ async def send_request(db: AsyncSession, current: User, target_id: str) -> Frien
     if incoming is not None:
         # They asked first — adding them back is an acceptance, not a second request.
         incoming.status = FriendStatus.ACCEPTED
+        # Same outcome as tapping accept, so the original asker hears about it the
+        # same way. Their stale "X wants to be friends" row goes too: the request
+        # it points at has been settled, not left waiting.
+        await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, target_id)
+        notifications.create(
+            db,
+            target_id,
+            NOTIFICATION_FRIEND_ACCEPTED,
+            {"userId": current.id, "userName": current.name},
+        )
         await db.commit()
         return FriendStatusOut(status="accepted")
 
     if any(e.status == FriendStatus.PENDING for e in edges):
         return FriendStatusOut(status="pending")  # already sent — idempotent
 
+    # Query before staging the edge, not after. `has_unread_from` autoflushes any
+    # pending insert, so adding the edge first would surface a concurrent duplicate
+    # as an IntegrityError raised *there* — outside the try below, and a 500 rather
+    # than the idempotent answer that block already knows how to give.
+    #
+    # `cancel_request` deletes the edge, so send → cancel → send finds nothing and
+    # would stage a fresh row every cycle. The unread guard bounds that; without it
+    # the notification list is itself the harassment vector.
+    already_notified = await notifications.has_unread_from(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id)
+
     db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=FriendStatus.PENDING))
+    if not already_notified:
+        notifications.create(
+            db,
+            target_id,
+            NOTIFICATION_FRIEND_REQUESTED,
+            {"userId": current.id, "userName": current.name},
+        )
     try:
         await db.commit()
     except IntegrityError:
@@ -112,6 +146,11 @@ async def cancel_request(db: AsyncSession, current: User, target_id: str) -> Non
             await db.delete(edge)
             removed = True
     if removed:
+        # Withdrawn, so the recipient should not be left with a notification for a
+        # request their tab no longer lists. Either direction may have been the
+        # pending one, so clear both rather than guessing who asked.
+        await notifications.delete_from_actor(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id)
+        await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, target_id)
         await db.commit()
 
 
@@ -157,13 +196,31 @@ async def _pending_addressed_to(db: AsyncSession, current: User, request_id: str
 async def accept_request(db: AsyncSession, current: User, request_id: str) -> FriendStatusOut:
     edge = await _pending_addressed_to(db, current, request_id)
     edge.status = FriendStatus.ACCEPTED
+    # Tell the requester. Incoming requests already have their own tab, but being
+    # accepted has no surface anywhere else. The accepter's name is denormalised
+    # in: a notification is a point-in-time record and the client cannot resolve
+    # a bare user id.
+    requester_id = edge.follower_id  # orientation only means "who asked" while pending
+    notifications.create(
+        db,
+        requester_id,
+        NOTIFICATION_FRIEND_ACCEPTED,
+        {"userId": current.id, "userName": current.name},
+    )
+    # The request is answered — leaving the row would point at a tab that no longer lists it.
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, requester_id)
     await db.commit()
     return FriendStatusOut(status="accepted")
 
 
 async def reject_request(db: AsyncSession, current: User, request_id: str) -> None:
     edge = await _pending_addressed_to(db, current, request_id)
+    requester_id = edge.follower_id
     await db.delete(edge)
+    # Rejection stays silent toward the requester — telling someone they were
+    # turned down is worse than saying nothing. Only the now-stale request
+    # notification in the rejecter's own list is cleared.
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, requester_id)
     await db.commit()
 
 
@@ -195,10 +252,33 @@ async def befriend(db: AsyncSession, initiator_id: str, other_id: str) -> Friend
         return "accepted"
 
     pending = next((e for e in edges if e.status == FriendStatus.PENDING), None)
+
+    # Every query below autoflushes, so all of them run before the edge is
+    # touched. Reading after the mutation would surface a concurrent duplicate as
+    # an IntegrityError raised inside the query — outside the try that exists to
+    # absorb it. Same ordering trap as send_request.
+    redeemer = await db.get(User, other_id)
+    if pending is not None:
+        # Settled, not still waiting: whoever was asked must not keep a row that
+        # sends them to a tab no longer listing it. Either direction may have been
+        # pending, so clear both rather than working out who asked.
+        await notifications.delete_from_actor(db, initiator_id, NOTIFICATION_FRIEND_REQUESTED, other_id)
+        await notifications.delete_from_actor(db, other_id, NOTIFICATION_FRIEND_REQUESTED, initiator_id)
+
     if pending is not None:
         pending.status = FriendStatus.ACCEPTED  # an open request between them — settle it
     else:
         db.add(UserFriend(follower_id=initiator_id, followee_id=other_id, status=FriendStatus.ACCEPTED))
+
+    # The inviter handed out the link and is the one waiting to see who took it, so
+    # they hear about it the same way every other acceptance path reports. The
+    # redeemer just acted and needs no telling.
+    notifications.create(
+        db,
+        initiator_id,
+        NOTIFICATION_FRIEND_ACCEPTED,
+        {"userId": other_id, "userName": redeemer.name if redeemer is not None else None},
+    )
 
     try:
         await db.commit()
@@ -261,6 +341,14 @@ async def block_user(db: AsyncSession, current: User, target_id: str) -> FriendS
         forward.status = FriendStatus.BLOCKED
     else:
         db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=FriendStatus.BLOCKED))
+
+    # A block settles any pending request between the pair, in whichever direction
+    # it ran: an incoming one is deleted above, an outgoing one turns BLOCKED. Both
+    # leave a notification pointing at a request that can no longer be accepted or
+    # rejected — and unlike a cancel, the blocker cannot clear it by acting on it,
+    # so the name of the person they just blocked would sit in their list forever.
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, target_id)
+    await notifications.delete_from_actor(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id)
 
     try:
         await db.commit()

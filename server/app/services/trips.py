@@ -16,9 +16,17 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.audit import audit
-from app.models import Event, EventType, Trip, TripStatus, User
+from app.models import (
+    NOTIFICATION_LEVEL_DOWN,
+    NOTIFICATION_LEVEL_UP,
+    Event,
+    EventType,
+    Trip,
+    TripStatus,
+    User,
+)
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, scoring, telemetry
+from app.services import levels, notifications, scoring, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -619,10 +627,32 @@ async def save(
         values["driver_score"] = new_driver_score
         # RETURNING so the response can carry the level the database actually
         # resolved, rather than the client re-deriving it from points and
-        # missing the cap (#61). Note for PR #55: that branch adds the same
-        # RETURNING for its level-up notification — one of us resolves it.
+        # missing the cap (#61). The level-up notification below reads the same
+        # value — it needs the level the CASE and the demotion cap settled on,
+        # not one re-derived in Python.
         result = await db.execute(update(User).where(User.id == user.id).values(**values).returning(User.level))
         level_after = result.scalar_one()
+        # `entering_level` rather than `user.level`: this UPDATE writes the level
+        # column, which expires it on the instance, and re-reading it here would
+        # lazy-load inside async context. The two agree by construction — the
+        # stored level was written by this same points-and-cap formula.
+        #
+        # Up and down are separate kinds, never one "level changed" with a
+        # direction in the payload: the copy differs in tone, and a client that
+        # only knew one kind would congratulate a demoted driver. Staged on this
+        # transaction, so the IntegrityError rollback below discards it with the trip.
+        if level_after > entering_level:
+            notifications.create(
+                db,
+                user.id,
+                NOTIFICATION_LEVEL_UP,
+                {"level": level_after, "previousLevel": entering_level},
+            )
+        elif level_after < entering_level:
+            # Demotion (#37) was silent, which reads as a bug from the driver's
+            # side. Empty payload on purpose — the copy says the level was updated
+            # without naming either number, so it explains without rubbing it in.
+            notifications.create(db, user.id, NOTIFICATION_LEVEL_DOWN, {})
     else:
         # No points and no distance — the user row is untouched.
         level_after = user.level
