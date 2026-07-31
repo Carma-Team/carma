@@ -509,8 +509,11 @@ async def run() -> None:
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
-                    qr_code="seed-dan-voucher-paz-01",
-                    qr_data="seed-dan-voucher-paz-01",
+                    # Real voucher format, not a descriptive slug: lookups fold
+                    # the input to upper case with separators stripped, so a
+                    # lower-case hyphenated code could not be looked up at all.
+                    qr_code="SEEDPAZ001",
+                    qr_data="SEEDPAZ001",
                     status=RedemptionStatus.USED,
                     expires_at=used_at + timedelta(minutes=5),
                     used_at=used_at,

@@ -20,17 +20,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.security import READABLE_ALPHABET
 from app.models import User
 from app.schemas.invite import InviteLinkOut, InviterOut, RedeemInviteOut
 from app.services import friends
 
-# No 0/O/1/I/L: these codes get read aloud and retyped off a phone screen.
-_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+# These codes get read aloud and retyped off a phone screen, which is why the
+# alphabet drops 0/O/1/I/L. It lives in `core.security` now that voucher codes
+# need the same thing — one definition, so the two cannot drift apart.
 _CODE_LEN = 8
 
 
 def _new_code() -> str:
-    return "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LEN))
+    return "".join(secrets.choice(READABLE_ALPHABET) for _ in range(_CODE_LEN))
 
 
 def _link(code: str) -> str:

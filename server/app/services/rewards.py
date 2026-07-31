@@ -16,6 +16,10 @@ from app.schemas.reward import RewardOut, VoucherOut
 
 VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
 
+# Three draws is plenty: at 31^10 the first one already almost never collides,
+# and a fourth would only ever be papering over a broken generator.
+VOUCHER_CODE_ATTEMPTS = 3
+
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
 
@@ -73,7 +77,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
-    code = random_voucher_code()
+    code = await _allocate_voucher_code(db)
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
@@ -112,6 +116,34 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
         voucher_id=redemption.id,
     )
     return VoucherOut.from_orm_redemption(redemption)
+
+
+async def _allocate_voucher_code(db: AsyncSession) -> str:
+    """A code no redemption is already holding.
+
+    `redemptions.qr_code` is UNIQUE over every row ever written, not just the
+    live ones, so the collision odds grow with the whole table rather than with
+    the handful of vouchers open right now. At 31^10 that is remote, but the
+    losing side of it is a driver's redeem failing on a constraint violation —
+    asking first turns that into a second draw.
+
+    The constraint is still what guarantees uniqueness; two callers can pass
+    this check with the same code in the same instant. That is the collision
+    this makes rare, not one it makes impossible.
+    """
+    for _ in range(VOUCHER_CODE_ATTEMPTS):
+        code = random_voucher_code()
+        if await db.scalar(select(Redemption.id).where(Redemption.qr_code == code)) is None:
+            return code
+
+    # Three draws from 31^10 all landing on taken codes is not bad luck, it is a
+    # broken RNG or a table far outside anything we planned for. Say so and
+    # write nothing, rather than letting a half-built voucher through.
+    await db.rollback()
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Could not allocate a voucher code — please try again",
+    )
 
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:
