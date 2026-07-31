@@ -29,11 +29,15 @@ export interface BusinessReward {
   costPoints: number;
   imageIcon: string;
   isActive: boolean;
-  stock: number;
+  // null means no cap was set. See the note on `Reward` in types/index.ts.
+  stock: number | null;
+  available: number | null;
   expiresAt?: string | null;
 }
 
-export type NewBusinessReward = Omit<BusinessReward, 'id' | 'businessId' | 'business'>;
+// `available` is derived from the redemptions ledger, so the server owns it and
+// a client never sends one.
+export type NewBusinessReward = Omit<BusinessReward, 'id' | 'businessId' | 'business' | 'available'>;
 
 export const businessApi = {
   getRewards: async (): Promise<BusinessReward[]> => {

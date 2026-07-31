@@ -29,6 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
+from app.schemas.reward import BusinessRewardIn
+from app.services import business as business_service
 from app.services import rewards as rewards_service
 from app.services.rewards import REWARD_OUT_OF_STOCK, available_units, claimed_by_reward
 
@@ -303,6 +305,49 @@ async def test_unlimited_reward_never_refuses(db_session: AsyncSession) -> None:
         for _ in range(5):
             voucher = await rewards_service.redeem(db_session, driver, reward.id)
         assert voucher.reward.available is None, "an uncapped reward reports unlimited, never a number"
+    finally:
+        await _cleanup(db_session, business_id, driver_id)
+
+
+# ─── The create path ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_reward_created_without_stock_is_born_unlimited(db_session: AsyncSession) -> None:
+    """The one line a refactor puts back.
+
+    `BusinessRewardIn.stock` defaulted to 0 back when stock meant nothing. Under
+    the new reading 0 is sold out, so every reward a business created without
+    naming a number would have arrived in the marketplace unusable.
+
+    Checked where it actually shows: the driver-facing listing is what decides
+    whether the app enables Redeem, so the create response alone is not proof.
+    """
+    business = Business(
+        name=f"Born Unlimited {uuid.uuid4().hex[:6]}",
+        category=BusinessCategory.FOOD,
+        location_lat=32.07,
+        location_lng=34.78,
+    )
+    db_session.add(business)
+    await db_session.commit()
+    await db_session.refresh(business)
+
+    driver = await _make_driver(db_session)
+    business_id, driver_id = business.id, driver.id
+    try:
+        created = await business_service.create_reward(
+            db_session,
+            business,
+            BusinessRewardIn(title_he="בלי מלאי", description_he="תיאור", cost_points=10),
+        )
+        assert created.stock is None, "an omitted stock is no cap at all, not a cap of zero"
+        assert created.available is None
+
+        listed = await rewards_service.list_rewards(db_session, driver_id, None)
+        offered = next(r for r in listed["rewards"] if r.id == created.id)  # type: ignore[union-attr]
+        assert offered.available is None, "the marketplace would have shown this one sold out"
+
+        voucher = await rewards_service.redeem(db_session, driver, created.id)
+        assert voucher.reward.available is None
     finally:
         await _cleanup(db_session, business_id, driver_id)
 

@@ -60,7 +60,10 @@ export default function RewardFormScreen() {
         expiresAt:     existing.expiresAt
           ? new Date(existing.expiresAt).toISOString().split('T')[0]
           : '',
-        stock:    String(existing.stock),
+        // An uncapped reward has no number to show. Blank, not "null" — and the
+        // save below reads blank back as uncapped, so editing anything else
+        // about the reward leaves its stock alone.
+        stock:    existing.stock === null ? '' : String(existing.stock),
         isActive: existing.isActive,
       };
     }
@@ -87,6 +90,14 @@ export default function RewardFormScreen() {
     if (!form.costPoints || Number(form.costPoints) < 1) {
       Alert.alert(t('common.error'), t('business.form.costRequired')); return;
     }
+    // Blank is a real answer here — it means no cap, which the server stores as
+    // null. Anything else has to be a whole number, or Number() yields NaN and
+    // JSON turns that into null, quietly making a capped reward unlimited.
+    const stockText = form.stock.trim();
+    const stock = stockText === '' ? null : Number(stockText);
+    if (stock !== null && (!Number.isInteger(stock) || stock < 0)) {
+      Alert.alert(t('common.error'), t('business.form.stockInvalid')); return;
+    }
 
     setSaving(true);
     const expiresAt = form.expiresAt
@@ -99,7 +110,7 @@ export default function RewardFormScreen() {
       costPoints:    Number(form.costPoints),
       imageIcon:     selectedIcon,
       category,
-      stock:         Number(form.stock) || 100,
+      stock,
       isActive:      form.isActive,
       expiresAt,
     };
