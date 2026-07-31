@@ -27,8 +27,8 @@ def create(db: AsyncSession, user_id: str, type_: str, payload: dict[str, Any]) 
 async def has_unread_from(db: AsyncSession, user_id: str, type_: str, actor_id: str) -> bool:
     """True when an unread notification of this kind, about this actor, is already waiting.
 
-    Callers use this to keep an action that can be repeated indefinitely — follow,
-    unfollow, follow again — from stacking one row per repetition.
+    Callers use this to keep an action that can be repeated indefinitely — send a
+    friend request, cancel it, send it again — from stacking one row per repetition.
     """
     existing = await db.scalar(
         select(Notification.id)

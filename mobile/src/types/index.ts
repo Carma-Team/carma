@@ -199,13 +199,20 @@ export interface LevelUpNotification extends NotificationBase {
   payload: { level: number; previousLevel: number };
 }
 
-/** Sent to the follower when a private account accepts their follow request. */
+/** Demotion (#37). Carries no levels on purpose — the copy says the level was
+ *  updated without naming the old or new one. */
+export interface LevelDownNotification extends NotificationBase {
+  type: 'level_down';
+  payload: Record<string, never>;
+}
+
+/** Sent to whoever asked, once the other side accepts. `userId` is the accepter. */
 export interface FriendAcceptedNotification extends NotificationBase {
   type: 'friend_accepted';
   payload: { userId: string; userName: string | null };
 }
 
-/** Sent to a private account when someone asks to follow them. */
+/** Sent to the recipient of a friend request. `userId` is whoever asked. */
 export interface FriendRequestedNotification extends NotificationBase {
   type: 'friend_requested';
   payload: { userId: string; userName: string | null };
@@ -213,6 +220,7 @@ export interface FriendRequestedNotification extends NotificationBase {
 
 export type Notification =
   | LevelUpNotification
+  | LevelDownNotification
   | FriendAcceptedNotification
   | FriendRequestedNotification;
 export type NotificationType = Notification['type'];

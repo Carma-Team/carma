@@ -111,11 +111,18 @@ async def send_request(db: AsyncSession, current: User, target_id: str) -> Frien
     if any(e.status == FriendStatus.PENDING for e in edges):
         return FriendStatusOut(status="pending")  # already sent — idempotent
 
-    db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=FriendStatus.PENDING))
+    # Query before staging the edge, not after. `has_unread_from` autoflushes any
+    # pending insert, so adding the edge first would surface a concurrent duplicate
+    # as an IntegrityError raised *there* — outside the try below, and a 500 rather
+    # than the idempotent answer that block already knows how to give.
+    #
     # `cancel_request` deletes the edge, so send → cancel → send finds nothing and
     # would stage a fresh row every cycle. The unread guard bounds that; without it
     # the notification list is itself the harassment vector.
-    if not await notifications.has_unread_from(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id):
+    already_notified = await notifications.has_unread_from(db, target_id, NOTIFICATION_FRIEND_REQUESTED, current.id)
+
+    db.add(UserFriend(follower_id=current.id, followee_id=target_id, status=FriendStatus.PENDING))
+    if not already_notified:
         notifications.create(
             db,
             target_id,
@@ -193,26 +200,27 @@ async def accept_request(db: AsyncSession, current: User, request_id: str) -> Fr
     # accepted has no surface anywhere else. The accepter's name is denormalised
     # in: a notification is a point-in-time record and the client cannot resolve
     # a bare user id.
+    requester_id = edge.follower_id  # orientation only means "who asked" while pending
     notifications.create(
         db,
-        edge.follower_id,
+        requester_id,
         NOTIFICATION_FRIEND_ACCEPTED,
         {"userId": current.id, "userName": current.name},
     )
-    # The request row is answered — leaving it would point at an empty tab.
-    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, edge.follower_id)
+    # The request is answered — leaving the row would point at a tab that no longer lists it.
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, requester_id)
     await db.commit()
     return FriendStatusOut(status="accepted")
 
 
 async def reject_request(db: AsyncSession, current: User, request_id: str) -> None:
     edge = await _pending_addressed_to(db, current, request_id)
-    follower_id = edge.follower_id
+    requester_id = edge.follower_id
     await db.delete(edge)
     # Rejection stays silent toward the requester — telling someone they were
     # turned down is worse than saying nothing. Only the now-stale request
     # notification in the rejecter's own list is cleared.
-    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, follower_id)
+    await notifications.delete_from_actor(db, current.id, NOTIFICATION_FRIEND_REQUESTED, requester_id)
     await db.commit()
 
 

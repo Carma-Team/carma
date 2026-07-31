@@ -15,6 +15,10 @@ from app.models.base import Base
 # client maps `type` to an i18n key, so the wire values are part of the contract —
 # rename one only alongside mobile/src/i18n.
 NOTIFICATION_LEVEL_UP = "level_up"
+# Demotion (#37) is silent otherwise, and a level dropping with no explanation
+# reads as a bug. Deliberately carries no numbers: the copy states that the level
+# was updated, without naming the old or new one, so it informs without dwelling.
+NOTIFICATION_LEVEL_DOWN = "level_down"
 NOTIFICATION_FRIEND_REQUESTED = "friend_requested"
 NOTIFICATION_FRIEND_ACCEPTED = "friend_accepted"
 

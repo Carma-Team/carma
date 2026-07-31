@@ -15,6 +15,7 @@ from app.models.friendship import UserFriend
 from app.models.notification import (
     NOTIFICATION_FRIEND_ACCEPTED,
     NOTIFICATION_FRIEND_REQUESTED,
+    NOTIFICATION_LEVEL_DOWN,
     NOTIFICATION_LEVEL_UP,
     Notification,
 )
@@ -27,6 +28,7 @@ from app.models.user import User
 __all__ = [
     "NOTIFICATION_FRIEND_ACCEPTED",
     "NOTIFICATION_FRIEND_REQUESTED",
+    "NOTIFICATION_LEVEL_DOWN",
     "NOTIFICATION_LEVEL_UP",
     "Base",
     "Business",

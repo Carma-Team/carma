@@ -106,6 +106,12 @@ const he = {
     friendAcceptedAnon: 'בקשת החברות שלך אושרה',
     friendRequested: '{name} רוצה להתחבר איתך',
     friendRequestedAnon: 'התקבלה בקשת חברות חדשה',
+    levelDown: 'הרמה שלך עודכנה בהתאם לביצועי הנהיגה האחרונים.',
+    markAllRead: 'סמן הכל כנקרא',
+    retry: 'נסה שוב',
+    loadFailed: 'לא הצלחנו לטעון את ההתראות.',
+    markFailed: 'לא הצלחנו לעדכן את ההתראה.',
+    markAllFailed: 'לא הצלחנו לעדכן את ההתראות.',
   },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',

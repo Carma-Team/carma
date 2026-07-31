@@ -1,11 +1,13 @@
 """Notifications: every trigger, the read endpoints, and per-user isolation.
 
-Three writers: a level-up inside trips.save, and a friend request being sent or
-answered inside the friends service. All stage their row on the triggering
-action's transaction, so these exercise the real services against Postgres
-rather than mocking the session. What is worth proving needs a database:
-that RETURNING reports the level the CASE and the demotion cap actually settled
-on, and that each social notification reaches the right side of the pair.
+Four kinds, written from two places: a level change (up or down) inside
+trips.save, and a friend request being sent or answered inside the friends
+service. All stage their row on the triggering action's transaction, so these
+exercise the real services against Postgres rather than mocking the session.
+What is worth proving needs a database: that RETURNING reports the level the
+CASE and the demotion cap actually settled on, that a demoted driver is told
+without being congratulated, and that each social notification reaches the
+right side of the pair.
 
 The auth guards at the bottom are pure in-process ASGI — no DB.
 Skipped automatically when no Postgres is reachable (see conftest).
@@ -14,6 +16,7 @@ Skipped automatically when no Postgres is reachable (see conftest).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -24,10 +27,12 @@ from app.main import app
 from app.models import (
     NOTIFICATION_FRIEND_ACCEPTED,
     NOTIFICATION_FRIEND_REQUESTED,
+    NOTIFICATION_LEVEL_DOWN,
     NOTIFICATION_LEVEL_UP,
     FriendStatus,
     Notification,
     Trip,
+    TripStatus,
     User,
     UserFriend,
 )
@@ -40,6 +45,19 @@ from app.services import trips as trips_service
 # Read from the ladder rather than hardcoded — the thresholds moved once already
 # (#62) and a stale constant here would silently stop testing the boundary.
 _LEVEL_2_MIN_POINTS = next(pts for pts, lvl in levels.thresholds_desc() if lvl == 2)
+
+
+def _long_clean_trip() -> SaveTripIn:
+    """Earns points but is not enough to lift a poor rolling score off the floor."""
+    return SaveTripIn(
+        distanceKm=8.0,
+        durationSeconds=1200,
+        hardBrakes=0,
+        aggressiveAccels=0,
+        sharpTurns=0,
+        touchEpochs=0,
+        screenInteractionSeconds=0,
+    )
 
 
 @pytest.fixture
@@ -215,6 +233,92 @@ async def test_mark_all_read_is_not_scoped_to_the_returned_page(db_session: Asyn
         await _cleanup(db_session, user)
 
 
+# ── Level down ───────────────────────────────────────────────────────────────
+
+
+async def _demotable_driver(db: AsyncSession, *, history_score: float) -> User:
+    """A level-10 driver whose recent trips all scored `history_score`.
+
+    The trip history is what matters, not the stored `driver_score` — save()
+    recomputes the rolling score from trips in the window and writes the column
+    as an output, so seeding the column alone would prove nothing. Long distances
+    so the history reaches full credibility rather than blending toward the
+    cold-start prior. Mirrors the setup in test_level_demotion.
+    """
+    user = User(
+        email=f"_notif_dn_{uuid.uuid4().hex[:10]}@carma.test",
+        password_hash="x",
+        role=UserRole.DRIVER,
+        name="Demotion Notif",
+        points=80_000,
+        total_points=80_000,
+        level=10,
+    )
+    db.add(user)
+    await db.commit()
+
+    now = datetime.now(UTC)
+    for day in range(1, 11):
+        db.add(
+            Trip(
+                user_id=user.id,
+                start_time=now - timedelta(days=day),
+                end_time=now - timedelta(days=day) + timedelta(minutes=40),
+                distance_km=40.0,
+                duration_seconds=2400,
+                score_v2=history_score,
+                points=0,
+                status=TripStatus.COMPLETED,
+            )
+        )
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@pytest.mark.asyncio
+async def test_a_demotion_notifies_without_congratulating(db_session: AsyncSession) -> None:
+    user = await _demotable_driver(db_session, history_score=45.0)
+    try:
+        await trips_service.save(db_session, user, _long_clean_trip(), idempotency_key=uuid.uuid4().hex)
+
+        level_now = await db_session.scalar(select(User.level).where(User.id == user.id))
+        assert level_now is not None and level_now < 10, "setup precondition: the driver should be capped down"
+
+        rows = await _notifications_of(db_session, user)
+        types = [r.type for r in rows]
+        assert NOTIFICATION_LEVEL_DOWN in types
+        assert NOTIFICATION_LEVEL_UP not in types, "a demoted driver must not be congratulated"
+        assert len(rows) == 1
+    finally:
+        await _cleanup(db_session, user)
+
+
+@pytest.mark.asyncio
+async def test_a_demotion_notification_names_no_levels(db_session: AsyncSession) -> None:
+    """Product decision: say the level was updated, not what it fell from or to."""
+    user = await _demotable_driver(db_session, history_score=45.0)
+    try:
+        await trips_service.save(db_session, user, _long_clean_trip(), idempotency_key=uuid.uuid4().hex)
+
+        row = next(r for r in await _notifications_of(db_session, user) if r.type == NOTIFICATION_LEVEL_DOWN)
+        assert row.payload == {}
+    finally:
+        await _cleanup(db_session, user)
+
+
+@pytest.mark.asyncio
+async def test_a_promotion_sends_only_the_level_up(db_session: AsyncSession, clean_trip: SaveTripIn) -> None:
+    user = await _make_user(db_session, total_points=_LEVEL_2_MIN_POINTS - 1)
+    try:
+        await trips_service.save(db_session, user, clean_trip, idempotency_key=uuid.uuid4().hex)
+
+        types = [r.type for r in await _notifications_of(db_session, user)]
+        assert types == [NOTIFICATION_LEVEL_UP]
+    finally:
+        await _cleanup(db_session, user)
+
+
 # ── Friend triggers ──────────────────────────────────────────────────────────
 
 
@@ -342,6 +446,38 @@ async def test_rejecting_is_silent_and_clears_the_stale_row(db_session: AsyncSes
         assert await _notifications_of(db_session, requester) == []
         # But the rejecter's own row pointed at a request that no longer exists.
         assert await _notifications_of(db_session, recipient) == []
+    finally:
+        await _drop_edges(db_session, requester, recipient)
+        await _cleanup(db_session, requester, recipient)
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_request_is_answered_not_a_500(db_session: AsyncSession) -> None:
+    """The unread guard queries, which autoflushes — so ordering around db.add matters.
+
+    Staging the edge before that query would surface a concurrent duplicate as an
+    IntegrityError raised inside `has_unread_from`, outside the try that exists to
+    absorb it, and the caller would get a 500 instead of the persisted state.
+    """
+    requester = await _make_user(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        assert (await friends.send_request(db_session, requester, recipient.id)).status == "pending"
+
+        # Second send with the row already committed — the early return handles this.
+        assert (await friends.send_request(db_session, requester, recipient.id)).status == "pending"
+
+        # And the losing side of a genuine race: an edge inserted behind this
+        # session's back, so the early return misses it and the unique constraint
+        # is what actually stops the duplicate.
+        await db_session.execute(delete(UserFriend).where(UserFriend.follower_id == requester.id))
+        await db_session.commit()
+        db_session.add(UserFriend(follower_id=requester.id, followee_id=recipient.id, status=FriendStatus.PENDING))
+        await db_session.commit()
+        db_session.expunge_all()
+
+        result = await friends.send_request(db_session, requester, recipient.id)
+        assert result.status == "pending", "a duplicate must report persisted state, not raise"
     finally:
         await _drop_edges(db_session, requester, recipient)
         await _cleanup(db_session, requester, recipient)

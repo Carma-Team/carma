@@ -16,7 +16,15 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.audit import audit
-from app.models import NOTIFICATION_LEVEL_UP, Event, EventType, Trip, TripStatus, User
+from app.models import (
+    NOTIFICATION_LEVEL_DOWN,
+    NOTIFICATION_LEVEL_UP,
+    Event,
+    EventType,
+    Trip,
+    TripStatus,
+    User,
+)
 from app.schemas.trip import SaveTripIn, TripOut
 from app.services import levels, notifications, scoring, telemetry
 from app.services.risk import get_risk_multiplier
@@ -629,9 +637,9 @@ async def save(
         # lazy-load inside async context. The two agree by construction — the
         # stored level was written by this same points-and-cap formula.
         #
-        # Strictly greater, which now matters rather than being defensive: with
-        # demotion live (#37) `level_expr` can resolve *below* the entering level,
-        # and a `!=` would congratulate a driver on being demoted. Staged on this
+        # Up and down are separate kinds, never one "level changed" with a
+        # direction in the payload: the copy differs in tone, and a client that
+        # only knew one kind would congratulate a demoted driver. Staged on this
         # transaction, so the IntegrityError rollback below discards it with the trip.
         if level_after > entering_level:
             notifications.create(
@@ -640,6 +648,11 @@ async def save(
                 NOTIFICATION_LEVEL_UP,
                 {"level": level_after, "previousLevel": entering_level},
             )
+        elif level_after < entering_level:
+            # Demotion (#37) was silent, which reads as a bug from the driver's
+            # side. Empty payload on purpose — the copy says the level was updated
+            # without naming either number, so it explains without rubbing it in.
+            notifications.create(db, user.id, NOTIFICATION_LEVEL_DOWN, {})
     else:
         # No points and no distance — the user row is untouched.
         level_after = user.level

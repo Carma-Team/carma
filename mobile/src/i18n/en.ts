@@ -106,6 +106,12 @@ const en: TranslationMap = {
     friendAcceptedAnon: 'Your friend request was accepted',
     friendRequested: '{name} wants to be friends',
     friendRequestedAnon: 'You have a new friend request',
+    levelDown: 'Your level has been updated to reflect your recent driving.',
+    markAllRead: 'Mark all as read',
+    retry: 'Try again',
+    loadFailed: "We couldn't load your notifications.",
+    markFailed: "We couldn't update that notification.",
+    markAllFailed: "We couldn't update your notifications.",
   },
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',
