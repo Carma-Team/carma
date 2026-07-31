@@ -16,8 +16,8 @@ It exists so that reopening the account does not have to delete the per-address
 rows — deleting them would hand every address that caused the lock a fresh
 allowance, which is precisely the guesser's interest.
 
-Revision ID: 0012_per_caller_backoff
-Revises: 0011_drop_levels_table
+Revision ID: 0014_per_caller_backoff
+Revises: 0013_reward_stock_nullable
 Create Date: 2026-07-31 00:00:00.000000
 """
 
@@ -27,8 +27,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0012_per_caller_backoff"
-down_revision: str | None = "0011_drop_levels_table"
+revision: str = "0014_per_caller_backoff"
+down_revision: str | None = "0013_reward_stock_nullable"
 branch_labels: str | None = None
 depends_on: str | None = None
 
