@@ -11,6 +11,11 @@ hold — and keeping it would mean two counters that disagree in kind, one
 lifetime-consecutive and one rolling-window. `users.locked_until` stays: it is
 read on every authenticated request and must not become a join.
 
+`users.lockout_reset_at` is where the account-wide tally restarts after a lock.
+It exists so that reopening the account does not have to delete the per-address
+rows — deleting them would hand every address that caused the lock a fresh
+allowance, which is precisely the guesser's interest.
+
 Revision ID: 0012_per_caller_backoff
 Revises: 0011_drop_levels_table
 Create Date: 2026-07-31 00:00:00.000000
@@ -39,6 +44,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_login_failures_user_ip_created", "login_failures", ["user_id", "caller_ip", "created_at"])
+    op.create_index("ix_login_failures_created_at", "login_failures", ["created_at"])
+    op.add_column("users", sa.Column("lockout_reset_at", sa.DateTime(timezone=True), nullable=True))
     op.drop_column("users", "failed_otp_count")
 
 
@@ -46,5 +53,7 @@ def downgrade() -> None:
     # `0001` created this NOT NULL with no default. Rows exist by now, so coming
     # back needs one — otherwise the ADD COLUMN fails on a non-empty table.
     op.add_column("users", sa.Column("failed_otp_count", sa.Integer(), server_default="0", nullable=False))
+    op.drop_column("users", "lockout_reset_at")
+    op.drop_index("ix_login_failures_created_at", table_name="login_failures")
     op.drop_index("ix_login_failures_user_ip_created", table_name="login_failures")
     op.drop_table("login_failures")

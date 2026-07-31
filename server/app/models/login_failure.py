@@ -31,6 +31,10 @@ class LoginFailure(Base):
     # row to prove the rolling window forgets it.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Leading with user_id serves both reads: the per-address backoff matches all
-    # three columns, the account-wide backstop matches the prefix.
-    __table_args__ = (Index("ix_login_failures_user_ip_created", "user_id", "caller_ip", "created_at"),)
+    __table_args__ = (
+        # Leading with user_id serves both reads: the per-address backoff matches
+        # all three columns, the account-wide backstop matches the prefix.
+        Index("ix_login_failures_user_ip_created", "user_id", "caller_ip", "created_at"),
+        # For the sweep, which is by age across every account.
+        Index("ix_login_failures_created_at", "created_at"),
+    )

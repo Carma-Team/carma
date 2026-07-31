@@ -197,7 +197,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # מיקום אחרון של הנהג
     last_cleared_history,                            # סינון היסטוריה ב-UI
 
-    is_phone_verified, locked_until,                 # אכיפת spec 5.2.4
+    is_phone_verified, locked_until, lockout_reset_at,   # אכיפת spec 5.2.4
 ```
 
 **למה גם `points` וגם `total_points`?** הפרונט משתמש בשניהם: `points` היא היתרה הנוכחית הניתנת למימוש (יורדת ברכישה ב-Marketplace), `total_points` היא הצבירה ההיסטורית שעליה נשענת הדרגה. בעת מימוש שובר מורידים רק מ-`points`.
@@ -214,6 +214,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 - `otp_codes (phone, purpose, consumed_at)` — חיפוש OTP פעיל
 - `otp_codes (expires_at)` — לפינוי קודים שפג תוקפם
 - `login_failures (user_id, caller_ip, created_at)` — השהיית כניסה לפי כתובת הפונה
+- `login_failures (created_at)` — לפינוי שורות שפג תוקפן
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`

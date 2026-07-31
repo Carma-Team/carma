@@ -65,6 +65,10 @@ class User(Base, TimestampMixin):
     # Failed sign-ins are `LoginFailure` rows, not a column here — see that model
     # for why the address they came from is part of the key.
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where the account-wide failure tally restarts. Set when the account locks,
+    # so reopening does not re-lock on the first failure — without discarding the
+    # per-address rows, which is what a guesser would want us to do.
+    lockout_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     last_logged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

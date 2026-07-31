@@ -687,6 +687,82 @@ async def test_the_otp_door_backs_off_the_same_caller(
         await _cleanup(db_session, phone)
 
 
+async def test_locking_the_account_does_not_hand_the_guesser_a_fresh_allowance(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Reopening the account must not reopen every address that closed it.
+
+    The account tally has to restart, or the first failure after the fifteen
+    minutes re-locks on rows that are still inside the window. Doing that by
+    deleting the rows would also clear each address's backoff — so a guesser
+    holding twenty addresses would get five free guesses back every time they
+    tripped the lock, and the wait would never engage at all.
+    """
+    email = f"relock-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    guesser = client_from_ip("198.51.100.7")
+    try:
+        # This address is already past its threshold, and the account is one
+        # failure short of the ceiling.
+        db_session.add_all(
+            LoginFailure(user_id=user.id, caller_ip="198.51.100.7", created_at=_now())
+            for _ in range(_PAST_THE_THRESHOLD)
+        )
+        db_session.add_all(
+            LoginFailure(user_id=user.id, caller_ip=f"203.0.113.{n}", created_at=_now())
+            for n in range(settings.account_lockout_after - _PAST_THE_THRESHOLD - 1)
+        )
+        await db_session.commit()
+
+        closer = client_from_ip("192.0.2.44")
+        await closer.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+
+        await db_session.refresh(user)
+        assert user.locked_until is not None, "the ceiling should have closed the account"
+        assert user.lockout_reset_at is not None, "the tally needs a restart point"
+
+        # Reopen the account the way waiting out the lock would.
+        user.locked_until = None
+        await db_session.commit()
+
+        still = await guesser.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert still.status_code == 401, "the lock must not have cleared the guesser's backoff"
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows and rows >= _PAST_THE_THRESHOLD, "the per-address history must survive the lock"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_one_ipv6_machine_cannot_rotate_out_of_its_backoff(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """A routed /64 is one machine, not 2**64 callers.
+
+    Counting the full address made the backoff free to walk away from — bind a
+    new address, get a new allowance — and twenty of those reach the account
+    ceiling in seconds, which is the CAR-51 lockout all over again.
+    """
+    email = f"sixer-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        for n in range(_PAST_THE_THRESHOLD):
+            rotating = client_from_ip(f"2001:db8:abcd:1234::{n + 1:x}")
+            await rotating.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+
+        nextone = client_from_ip("2001:db8:abcd:1234::ffff")
+        refused = await nextone.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert refused.status_code == 401, "a new address in the same /64 is the same caller"
+
+        elsewhere = client_from_ip("2001:db8:abcd:9999::1")
+        allowed = await elsewhere.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert allowed.status_code == 200, "a genuinely different network is a different caller"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
 async def test_the_forwarded_address_is_what_counts_behind_a_proxy(
     db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:

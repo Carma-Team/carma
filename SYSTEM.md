@@ -196,7 +196,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # Last known driver location
     last_cleared_history,                            # UI history filter
 
-    is_phone_verified, locked_until,                 # Spec 5.2.4 enforcement
+    is_phone_verified, locked_until, lockout_reset_at,   # Spec 5.2.4 enforcement
 ```
 
 **Why both `points` and `total_points`?** the mobile frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
@@ -213,6 +213,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 - `otp_codes (phone, purpose, consumed_at)` — active-OTP lookup
 - `otp_codes (expires_at)` — for cleanup
 - `login_failures (user_id, caller_ip, created_at)` — per-caller sign-in backoff
+- `login_failures (created_at)` — for the age sweep
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`

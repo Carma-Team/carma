@@ -88,6 +88,19 @@ async def _backoff_active(db: AsyncSession, user_id: str, caller_ip: str) -> boo
     return last + timedelta(seconds=_backoff_seconds(failures)) > _now()
 
 
+async def _sweep_expired(db: AsyncSession, since: datetime) -> None:
+    """Drop failures too old to mean anything, wherever they are.
+
+    Nothing runs on a timer in this project, so this rides along with writes we
+    are making anyway — the same lazy shape as `rewards.expire_overdue`. It is
+    deliberately *not* narrowed to one account: these rows hold IP addresses,
+    which are personal data, and an account that stops being attacked would
+    otherwise keep the attacker's addresses forever. Past the window they have no
+    purpose left, so they should not exist.
+    """
+    await db.execute(delete(LoginFailure).where(LoginFailure.created_at < since))
+
+
 async def _clear_failures(db: AsyncSession, user_id: str, caller_ip: str) -> None:
     """A correct credential proves whoever is at *this* address owns the account.
 
@@ -95,6 +108,7 @@ async def _clear_failures(db: AsyncSession, user_id: str, caller_ip: str) -> Non
     guesser a clean slate each time the real owner signed in.
     """
     await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user_id, LoginFailure.caller_ip == caller_ip))
+    await _sweep_expired(db, _now() - timedelta(seconds=settings.login_failure_window_seconds))
 
 
 def _token_for(user: User) -> str:
@@ -314,19 +328,21 @@ async def _record_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
     """
     since = _now() - timedelta(seconds=settings.login_failure_window_seconds)
     db.add(LoginFailure(user_id=user.id, caller_ip=caller_ip))
-    # Nothing runs on a timer in this project, so rows are swept on the next
-    # failure for the same account — a write we are making anyway, narrowed so it
-    # never scans the table. Same lazy shape as `rewards.expire_overdue`.
-    await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user.id, LoginFailure.created_at < since))
+    await _sweep_expired(db, since)
+    # The account tally restarts at the last lockout, so reopening the account
+    # does not re-lock on the first failure afterwards. It is a timestamp rather
+    # than a delete because the rows are also each address's backoff: clearing
+    # them would return every address that caused the lock to a full allowance,
+    # and a guesser holding a handful of addresses would get a free reset every
+    # time they tripped it.
+    counted_from = max(since, user.lockout_reset_at) if user.lockout_reset_at else since
     account_failures = await db.scalar(
         select(func.count())
         .select_from(LoginFailure)
-        .where(LoginFailure.user_id == user.id, LoginFailure.created_at >= since)
+        .where(LoginFailure.user_id == user.id, LoginFailure.created_at >= counted_from)
     )
     if (account_failures or 0) >= settings.account_lockout_after:
         user.locked_until = _now() + timedelta(seconds=settings.otp_lockout_seconds)
-        # Clear the slate the counter column used to get on lockout, so the
-        # account does not re-lock on the first failure after it reopens.
-        await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user.id))
+        user.lockout_reset_at = _now()
         audit("auth.lockout", user_id=user.id, lockout_until=user.locked_until.isoformat())
     await db.commit()
