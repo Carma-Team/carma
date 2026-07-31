@@ -64,16 +64,40 @@ def random_voucher_code() -> str:
 def normalise_voucher_code(code: str) -> str:
     """A typed-in code, as the database stores it.
 
-    A cashier reading one off a customer's phone will type it in lower case, or
-    with the spaces or dashes the app groups it by. Generated codes are upper
-    case with no separators, so folding the input is enough and the lookup stays
-    a plain equality match — comparing with `upper()` in SQL instead would skip
-    the index on `redemptions.qr_code`.
+    A cashier reading one off a customer's phone types it in lower case, or with
+    the grouping the app shows. Folding it here rather than in SQL keeps the
+    lookup a plain equality match; `upper()` in the query would skip the index on
+    `redemptions.qr_code`.
+
+    Three steps, and the order is the point:
+
+    1. Drop separators. Not only the ASCII hyphen — phone keyboards turn it into
+       an en dash, and a Hebrew one offers a maqaf.
+    2. Refuse anything left that is not ASCII. Every code we have ever issued is
+       A-Z0-9, so this rejects nothing real.
+    3. Only now upper-case it.
+
+    Step 2 has to come before step 3, because upper-casing is not
+    length-preserving outside ASCII: `ß` becomes `SS`, so a code containing SS
+    would answer to it. Rejecting first also spares us the Turkish dotless `ı`,
+    which upper-cases to a plain `I`.
+
+    Returns the empty string for input that survives none of this. No code is
+    empty, so it simply finds nothing — the caller's 404 is the right answer for
+    a code that could never have been issued.
     """
-    return _SEPARATORS.sub("", code).upper()
+    stripped = _SEPARATORS.sub("", code)
+    if not stripped.isascii():
+        return ""
+    return stripped.upper()
 
 
-_SEPARATORS = re.compile(r"[\s\-_]+")
+# `\s` already covers the non-breaking space a mobile keyboard can slip in. The
+# rest are dashes something other than a plain keyboard produces: U+2010-2015
+# (iOS smart punctuation turns a typed hyphen into U+2013), the minus sign, and
+# the Hebrew maqaf. Written as escapes, not as the characters — six kinds of
+# dash are indistinguishable by eye in a source file.
+_SEPARATORS = re.compile(r"[\s_\-\u2010-\u2015\u2212\u05be]+")
 
 
 def create_access_token(*, user_id: str, email: str | None, phone: str | None, role: UserRole) -> str:

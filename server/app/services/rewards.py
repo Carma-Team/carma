@@ -142,6 +142,16 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
         )
 
     code = await _allocate_voucher_code(db)
+    if code is None:
+        # Three draws from 31^10 all landing on taken codes is not bad luck, it
+        # is a broken generator. Give up here, before the debit, rather than
+        # charging a driver for a voucher we cannot write.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not allocate a voucher code — please try again",
+        )
+
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
@@ -184,8 +194,8 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     return VoucherOut.from_orm_redemption(redemption, available_units(reward.stock, claimed.get(reward.id, 0)))
 
 
-async def _allocate_voucher_code(db: AsyncSession) -> str:
-    """A code no redemption is already holding.
+async def _allocate_voucher_code(db: AsyncSession) -> str | None:
+    """A code no redemption is already holding, or None if every draw was taken.
 
     `redemptions.qr_code` is UNIQUE over every row ever written, not just the
     live ones, so the collision odds grow with the whole table rather than with
@@ -196,20 +206,16 @@ async def _allocate_voucher_code(db: AsyncSession) -> str:
     The constraint is still what guarantees uniqueness; two callers can pass
     this check with the same code in the same instant. That is the collision
     this makes rare, not one it makes impossible.
+
+    Returns None rather than raising, and never touches the transaction: the
+    caller opened it, holds a row lock inside it, and is the only one that knows
+    what else has to unwind. Same rule `expire_overdue` follows.
     """
     for _ in range(VOUCHER_CODE_ATTEMPTS):
         code = random_voucher_code()
         if await db.scalar(select(Redemption.id).where(Redemption.qr_code == code)) is None:
             return code
-
-    # Three draws from 31^10 all landing on taken codes is not bad luck, it is a
-    # broken RNG or a table far outside anything we planned for. Say so and
-    # write nothing, rather than letting a half-built voucher through.
-    await db.rollback()
-    raise HTTPException(
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        "Could not allocate a voucher code — please try again",
-    )
+    return None
 
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:
