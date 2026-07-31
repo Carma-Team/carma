@@ -35,7 +35,9 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   titleHe: '', descriptionHe: '', costPoints: '',
-  expiresAt: '', stock: '100', isActive: true,
+  // Blank, not a number: a prefilled default is a cap the business never chose,
+  // and the save below reads blank back as uncapped.
+  expiresAt: '', stock: '', isActive: true,
 };
 
 export default function RewardFormScreen() {

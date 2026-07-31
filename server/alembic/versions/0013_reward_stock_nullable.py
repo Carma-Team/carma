@@ -10,8 +10,8 @@ NULL is the SQL-native way to say "no cap". The CHECK keeps the remaining values
 honest, and the redemptions index backs the availability count that replaces the
 decrement that was never written (see services/rewards.py).
 
-Revision ID: 0012_reward_stock_nullable
-Revises: 0011_drop_levels_table
+Revision ID: 0013_reward_stock_nullable
+Revises: 0012_add_notifications
 Create Date: 2026-07-30 00:00:00.000000
 """
 
@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from alembic import op
 
-revision: str = "0012_reward_stock_nullable"
-down_revision: str | None = "0011_drop_levels_table"
+revision: str = "0013_reward_stock_nullable"
+down_revision: str | None = "0012_add_notifications"
 branch_labels: str | None = None
 depends_on: str | None = None
 
