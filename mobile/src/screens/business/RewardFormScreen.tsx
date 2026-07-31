@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons';
 import { businessApi, type BusinessReward } from '@/services/api/business.api';
+import { parseStockInput } from '@/lib/rewardStock';
 
 // Icons available for reward image selection — sourced from the central icon registry
 const SELECTABLE_ICONS: IoniconName[] = [
@@ -92,12 +93,8 @@ export default function RewardFormScreen() {
     if (!form.costPoints || Number(form.costPoints) < 1) {
       Alert.alert(t('common.error'), t('business.form.costRequired')); return;
     }
-    // Blank is a real answer here — it means no cap, which the server stores as
-    // null. Anything else has to be a whole number, or Number() yields NaN and
-    // JSON turns that into null, quietly making a capped reward unlimited.
-    const stockText = form.stock.trim();
-    const stock = stockText === '' ? null : Number(stockText);
-    if (stock !== null && (!Number.isInteger(stock) || stock < 0)) {
+    const parsedStock = parseStockInput(form.stock);
+    if (!parsedStock.valid) {
       Alert.alert(t('common.error'), t('business.form.stockInvalid')); return;
     }
 
@@ -112,7 +109,7 @@ export default function RewardFormScreen() {
       costPoints:    Number(form.costPoints),
       imageIcon:     selectedIcon,
       category,
-      stock,
+      stock:         parsedStock.stock,
       isActive:      form.isActive,
       expiresAt,
     };
@@ -205,10 +202,10 @@ export default function RewardFormScreen() {
         />
 
         <Text style={styles.label}>{t('business.form.stockLabel')}</Text>
+        {/* No placeholder on purpose — the label says to leave it blank for
+            unlimited, and a suggested number contradicts that. */}
         <TextInput
           style={COMMON_STYLES.input}
-          placeholder="100"
-          placeholderTextColor={COLORS.textMuted}
           keyboardType="numeric"
           value={form.stock}
           onChangeText={v => update('stock', v)}

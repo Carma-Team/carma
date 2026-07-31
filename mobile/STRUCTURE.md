@@ -134,6 +134,7 @@ This is the most important layer to keep clean. Files here must be independently
 | `FraudDetector.ts` | Sensor-fusion classifier: detects train/bus travel using speed variance, lateral accel, and yaw variance signals — CARMA-specific thresholds from Appendix E |
 | `constants.ts` | Internal lib-layer constants |
 | `utils.ts` | Generic pure-function helpers (formatting, math, date) |
+| `rewardStock.ts` | Reward stock for the business screens: the dashboard's `available/stock` line and the reward form's stock field |
 | `__tests__/` | Unit tests for all lib files |
 | `driving-sdk/` | **Sensor-wrapper SDK** — see its own README |
 
