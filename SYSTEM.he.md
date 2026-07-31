@@ -237,7 +237,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 ### Middleware גלובלי (ב-`app/main.py`)
 
 1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`). הרשאות נשלחות רק כשהמקורות מפורטים במפורש — התקן אוסר על שילוב של כוכבית עם הרשאות, ולכן `settings.cors_allows_credentials` מכבה אותן יחד.
-2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה; מסלולי האימות מוגבלים ל-5/דקה. ה-limiter יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
+2. **Rate limit** — לפי IP, ב-`DefaultRateLimitMiddleware` שב-`app/middlewares/rate_limit.py`. ברירת מחדל: 30/דקה, 500/שעה על כל מסלול שלא הגדיר לעצמו תקרה; מסלולי האימות מוגבלים ל-5/דקה ומסלולי הבריאות פטורים. כל handler סופר מול תקציב משלו, כך שמסך עמוס אחד לא נועל את הקורא משאר האפליקציה, ופרמטר בנתיב לא מחלק תקציב חדש לכל מזהה. ה-limiter עצמו יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. זה החליף את `SlowAPIMiddleware`, שתחת FastAPI 0.137 ומעלה לא אכף כלום (CAR-126). תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
 3. **Unhandled-exception handler** — תופס כל מה שבורח מ-route ומחזיר 500 נקי עם הנתיב בלוג.
 
 האימות הוא **לא** middleware — הוא ה-`CurrentUser` dependency שמוטמע בכל route מוגן.
