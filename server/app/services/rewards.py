@@ -14,7 +14,13 @@ from app.core.security import random_voucher_code
 from app.models import BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.schemas.reward import RewardOut, VoucherOut
 
-VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
+# How long the driver has to show the code — not an anti-fraud control. A
+# voucher is single-use because `business.consume_voucher` only ever flips it
+# out of PENDING, so shortening this window buys no safety and only costs the
+# driver the points already debited. Capped at 14 days rather than longer
+# because an unredeemed voucher holds a unit of the business's stock for the
+# whole of its life (see `claimed_by_reward`).
+VOUCHER_TTL_DAYS = 14
 
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 
@@ -152,7 +158,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             "Could not allocate a voucher code — please try again",
         )
 
-    expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
+    # Deliberately not clamped to `reward.expires_at`: the campaign end governs
+    # who may still start a redemption, not whether one already granted survives.
+    expires_at = datetime.now(UTC) + timedelta(days=VOUCHER_TTL_DAYS)
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
     # points check above and drive the balance negative.
