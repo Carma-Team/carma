@@ -99,6 +99,20 @@ const he = {
     selectCity: 'בחר עיר',
     removeFriendConfirm: 'האם ברצונך להסיר את',
   },
+  notifications: {
+    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    levelUp: 'כל הכבוד! עלית לרמה {level}',
+    friendAccepted: '{name} אישר/ה את בקשת החברות שלך',
+    friendAcceptedAnon: 'בקשת החברות שלך אושרה',
+    friendRequested: '{name} רוצה להתחבר איתך',
+    friendRequestedAnon: 'התקבלה בקשת חברות חדשה',
+    levelDown: 'הרמה שלך עודכנה בהתאם לביצועי הנהיגה האחרונים.',
+    markAllRead: 'סמן הכל כנקרא',
+    retry: 'נסה שוב',
+    loadFailed: 'לא הצלחנו לטעון את ההתראות.',
+    markFailed: 'לא הצלחנו לעדכן את ההתראה.',
+    markAllFailed: 'לא הצלחנו לעדכן את ההתראות.',
+  },
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
