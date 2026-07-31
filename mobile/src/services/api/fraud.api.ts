@@ -29,7 +29,7 @@ export interface FraudEventPayload {
     maxLateralAccelG: number;
     yawVariance: number;
   };
-  /** Which gates fired. Optional until the SDK carries it across its own boundary. */
+  /** Which gates fired. Optional until the SDK carries it across its own boundary — CAR-134. */
   signals?: FraudSignals;
   durationMs: number;
   maxSpeedKmh: number;

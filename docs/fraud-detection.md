@@ -181,7 +181,7 @@ server-side from this data without a client release.
 **Retention — agreed, not yet enforced:** `fraud_reports` rows are to be kept for
 **12 months** from `reported_at`. They are anti-fraud evidence, so they outlive a normal
 session, but not indefinitely — GDPR storage limitation applies to derived behavioural
-data as much as to raw location. No job deletes them today; that is tracked separately.
+data as much as to raw location. No job deletes them today — CAR-135.
 
 ---
 
