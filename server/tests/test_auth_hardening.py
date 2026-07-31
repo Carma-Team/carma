@@ -8,22 +8,28 @@
    dropped the credentials.
 3. Nothing but the global 30/minute stood in front of `otp/request`, and every
    call to it sends an SMS somebody pays for.
+
+Section 7 covers CAR-51, which the fix for #23 made reachable: once password
+login fed the account-wide counter, anyone who knew a driver's email could spend
+ten wrong passwords and take that driver offline for fifteen minutes, over and
+over. Failures are counted per (account, address) now.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, settings
 from app.core.security import hash_code, hash_password
 from app.main import app
-from app.models import OtpCode, User
+from app.models import LoginFailure, OtpCode, User
 from app.models.enums import UserRole
 from app.services import auth as auth_service
 from app.services.auth import OTP_PURPOSE
@@ -325,42 +331,71 @@ async def _cleanup_email(db: AsyncSession, email: str) -> None:
     await db.commit()
 
 
-async def test_repeated_wrong_passwords_lock_the_account(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
-    """`_assert_not_locked` was checked on this path but nothing ever set the lock.
+async def _spend_failures(client: AsyncClient, email: str, count: int) -> None:
+    for _ in range(count):
+        await client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
 
-    The counter only ever moved on the OTP door, so a password guesser had no
-    account-level limit at all — only the per-address one, which is the same
-    address for everyone behind a carrier NAT and is gone entirely if the proxy
-    depth is misconfigured. Two independent things had to be right for password
-    login to be protected; now the account itself pushes back.
+
+# Enough failures to put a caller well inside its wait: at 5 + 4 the wait is 16
+# seconds, far longer than the bcrypt those nine requests cost. Stopping exactly
+# at the threshold would leave a one-second window and flake on a loaded CI box.
+_PAST_THE_THRESHOLD = settings.login_backoff_after + 4
+
+
+async def test_failures_from_many_addresses_still_lock_the_account(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """The account-wide ceiling is the backstop against a guesser who rotates addresses.
+
+    One address can never reach it — that caller is refused long before, at five.
+    So this drives the account to the ceiling the only way anything can: from
+    many addresses at once. Held at NIST's maximum of 100 rather than at ten,
+    because closing the account is exactly what a stranger must not be able to do
+    cheaply (CAR-51).
     """
     email = f"lock-{uuid.uuid4().hex[:8]}@carmatest.com"
-    await _password_driver(db_session, email, "CorrectHorse1")
+    user = await _password_driver(db_session, email, "CorrectHorse1")
     try:
-        for _ in range(settings.otp_max_attempts):
-            r = await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
-            assert r.status_code == 401
+        db_session.add_all(
+            LoginFailure(user_id=user.id, caller_ip=f"198.51.100.{n}", created_at=_now())
+            for n in range(settings.account_lockout_after - 1)
+        )
+        await db_session.commit()
 
-        blocked = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        last = client_from_ip("203.0.113.1")
+        r = await last.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+        assert r.status_code == 401
+
+        await db_session.refresh(user)
+        assert user.locked_until is not None, "the account-wide ceiling must still close the account"
+
+        elsewhere = client_from_ip("203.0.113.2")
+        blocked = await elsewhere.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
         assert blocked.status_code == 401, "the right password must not open a locked account"
     finally:
         await _cleanup_email(db_session, email)
 
 
-async def test_a_successful_login_clears_the_counter(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
-    """Otherwise four typos spread over a month would eventually lock a real user."""
+async def test_a_successful_login_clears_the_callers_count(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Otherwise four typos spread over a month would eventually hold a real driver back.
+
+    Signing in twice with four misses either side is the discriminator: if the
+    first four had carried over, the eight would put this caller inside a wait
+    and the second success would be a 401 instead.
+    """
     email = f"clear-{uuid.uuid4().hex[:8]}@carmatest.com"
     await _password_driver(db_session, email, "CorrectHorse1")
+    driver = client_from_ip("203.0.113.9")
     try:
-        for _ in range(settings.otp_max_attempts - 1):
-            await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+        await _spend_failures(driver, email, settings.login_backoff_after - 1)
+        first = await driver.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert first.status_code == 200
 
-        ok = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
-        assert ok.status_code == 200
-
-        await db_session.refresh(await db_session.scalar(select(User).where(User.email == email)))
-        again = await db_api_client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
-        assert again.status_code == 401, "the count should have restarted, not carried over into a lockout"
+        await _spend_failures(driver, email, settings.login_backoff_after - 1)
+        second = await driver.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert second.status_code == 200, "the count should have restarted, not carried over into a wait"
     finally:
         await _cleanup_email(db_session, email)
 
@@ -377,10 +412,10 @@ async def test_a_locked_email_is_indistinguishable_from_an_unknown_one(
     """
     known = f"known-{uuid.uuid4().hex[:8]}@carmatest.com"
     unknown = f"nobody-{uuid.uuid4().hex[:8]}@carmatest.com"
-    await _password_driver(db_session, known, "CorrectHorse1")
+    user = await _password_driver(db_session, known, "CorrectHorse1")
     try:
-        for _ in range(settings.otp_max_attempts):
-            await db_api_client.post("/api/auth/login", json={"email": known, "password": "wrongpass"})
+        user.locked_until = _now() + timedelta(minutes=10)
+        await db_session.commit()
 
         locked = await db_api_client.post("/api/auth/login", json={"email": known, "password": "wrongpass"})
         stranger = await db_api_client.post("/api/auth/login", json={"email": unknown, "password": "wrongpass"})
@@ -451,3 +486,234 @@ async def test_a_throttled_registration_does_not_rewrite_the_profile(
         assert user.name == "Original", "a refused request must not have touched the row"
     finally:
         await _cleanup(db_session, phone)
+
+
+# ─── 7. the wait lands on the guesser, not on the driver ─────────────────────
+
+
+def test_the_wait_doubles_and_stops_at_the_cap() -> None:
+    """The arithmetic, pinned without a database or a clock.
+
+    Also the only test in this section CI runs on `develop` — everything below
+    needs Postgres and skips itself without one.
+    """
+    after = settings.login_backoff_after
+    assert auth_service._backoff_seconds(0) == 0
+    assert auth_service._backoff_seconds(after - 1) == 0, "below the threshold nobody waits"
+    assert auth_service._backoff_seconds(after) == 1
+    assert auth_service._backoff_seconds(after + 1) == 2
+    assert auth_service._backoff_seconds(after + 2) == 4
+    assert auth_service._backoff_seconds(after + 3) == 8
+    assert auth_service._backoff_seconds(after + 60) == settings.login_backoff_max_seconds
+    assert auth_service._backoff_seconds(500) == settings.login_backoff_max_seconds, "no runaway exponent"
+
+
+async def test_the_owner_can_still_log_in_while_a_guesser_is_backed_off(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """CAR-51, in one test.
+
+    Before this, ten wrong passwords from a stranger shut the account for
+    everyone — the owner included — for fifteen minutes, and the stranger only
+    needed to know an email address. The wait belongs to whoever is guessing.
+    """
+    email = f"guessed-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    guesser = client_from_ip("198.51.100.7")
+    owner = client_from_ip("203.0.113.9")
+    try:
+        await _spend_failures(guesser, email, _PAST_THE_THRESHOLD)
+
+        refused = await guesser.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert refused.status_code == 401, "the guesser is waiting, right password or not"
+
+        allowed = await owner.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert allowed.status_code == 200, "the owner must not pay for someone else's guessing"
+        assert allowed.json()["token"]
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_the_backoff_refusal_is_indistinguishable_from_a_wrong_password(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """A 429 or a Retry-After here would re-open the oracle #23 closed.
+
+    Both would tell an unauthenticated caller that the account exists — the same
+    two-step test the old 403 gave away, rebuilt out of a status code.
+    """
+    known = f"waited-{uuid.uuid4().hex[:8]}@carmatest.com"
+    unknown = f"nobody-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, known, "CorrectHorse1")
+    guesser = client_from_ip("198.51.100.7")
+    fresh = client_from_ip("203.0.113.9")
+    try:
+        await _spend_failures(guesser, known, _PAST_THE_THRESHOLD)
+
+        waited = await guesser.post("/api/auth/login", json={"email": known, "password": "wrongpass"})
+        stranger = await fresh.post("/api/auth/login", json={"email": unknown, "password": "wrongpass"})
+
+        assert waited.status_code == stranger.status_code == 401
+        assert waited.json()["detail"] == stranger.json()["detail"]
+        assert "retry-after" not in waited.headers, "a wait must not announce itself"
+    finally:
+        await _cleanup_email(db_session, known)
+
+
+async def test_the_backoff_follows_the_account_and_the_address_together(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Keyed on the address alone, one guesser would hold back a whole carrier NAT.
+
+    Thousands of real drivers share an address behind CGNAT, so the pair is what
+    has to match — burning the budget on one account leaves the next one open.
+    """
+    victim = f"victim-{uuid.uuid4().hex[:8]}@carmatest.com"
+    bystander = f"bystander-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, victim, "CorrectHorse1")
+    await _password_driver(db_session, bystander, "CorrectHorse1")
+    shared = client_from_ip("198.51.100.7")
+    try:
+        await _spend_failures(shared, victim, _PAST_THE_THRESHOLD)
+
+        allowed = await shared.post("/api/auth/login", json={"email": bystander, "password": "CorrectHorse1"})
+        assert allowed.status_code == 200, "a wait on one account must not reach the next"
+    finally:
+        await _cleanup_email(db_session, victim)
+        await _cleanup_email(db_session, bystander)
+
+
+async def test_a_success_from_one_address_leaves_another_address_waiting(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Clearing every address on success would hand the guesser a free reset.
+
+    They would only have to wait for the real driver to sign in — which, for an
+    app opened every drive, is not much of a wait at all.
+    """
+    email = f"scoped-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    guesser = client_from_ip("198.51.100.7")
+    owner = client_from_ip("203.0.113.9")
+    try:
+        await _spend_failures(guesser, email, _PAST_THE_THRESHOLD)
+
+        ok = await owner.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert ok.status_code == 200
+
+        still = await guesser.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert still.status_code == 401, "the owner signing in must not clear the guesser's slate"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_failures_older_than_the_window_do_not_hold_a_caller_back(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """The count rolls. A driver who fumbled last night starts today at zero."""
+    email = f"window-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    driver = client_from_ip("203.0.113.9")
+    try:
+        db_session.add_all(
+            LoginFailure(user_id=user.id, caller_ip="203.0.113.9", created_at=_now() - timedelta(hours=2))
+            for _ in range(_PAST_THE_THRESHOLD)
+        )
+        await db_session.commit()
+
+        ok = await driver.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert ok.status_code == 200, "failures outside the window must not count"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_stale_failure_rows_are_swept_on_the_next_failure(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Nothing runs on a timer here, so the sweep rides along with a write we make anyway.
+
+    It is scoped to the account rather than to the address, so rows left behind
+    by an attacker who has moved on still get cleared.
+    """
+    email = f"sweep-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        db_session.add_all(
+            LoginFailure(user_id=user.id, caller_ip="198.51.100.7", created_at=_now() - timedelta(hours=2))
+            for _ in range(3)
+        )
+        await db_session.commit()
+
+        elsewhere = client_from_ip("203.0.113.9")
+        await elsewhere.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows == 1, "the stale rows should be gone, the new one kept"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_the_otp_door_backs_off_the_same_caller(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Both doors, one control — and the OTP door's wording does not change either."""
+    phone = _phone()
+    await _registered_driver(db_session, phone)
+    guesser = client_from_ip("198.51.100.7")
+    owner = client_from_ip("203.0.113.9")
+    try:
+        db_session.add(
+            OtpCode(
+                phone=phone,
+                code_hash=hash_code("123456"),
+                purpose=OTP_PURPOSE,
+                expires_at=_now() + timedelta(minutes=5),
+            )
+        )
+        await db_session.commit()
+
+        for _ in range(_PAST_THE_THRESHOLD):
+            await guesser.post("/api/auth/otp/verify", json={"phone": phone, "code": "000000"})
+
+        refused = await guesser.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert refused.status_code == 401
+        assert refused.json()["detail"] == auth_service.OTP_REJECTED
+
+        allowed = await owner.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert allowed.status_code == 200, "the owner's code still works from the owner's phone"
+    finally:
+        await _cleanup(db_session, phone)
+
+
+async def test_the_forwarded_address_is_what_counts_behind_a_proxy(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reading the socket peer would put every driver in one bucket.
+
+    Behind the Azure ingress every request arrives from the same address, so a
+    backoff keyed on `request.client.host` would let any guesser lock out every
+    driver at once — the original bug, made worse. `client_ip` walks
+    `X-Forwarded-For` instead.
+    """
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1)
+    email = f"proxied-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _password_driver(db_session, email, "CorrectHorse1")
+    ingress = client_from_ip("10.0.0.9")
+    try:
+        for _ in range(_PAST_THE_THRESHOLD):
+            await ingress.post(
+                "/api/auth/login",
+                json={"email": email, "password": "wrongpass"},
+                headers={"X-Forwarded-For": "198.51.100.7"},
+            )
+
+        allowed = await ingress.post(
+            "/api/auth/login",
+            json={"email": email, "password": "CorrectHorse1"},
+            headers={"X-Forwarded-For": "203.0.113.9"},
+        )
+        assert allowed.status_code == 200, "the same ingress, a different driver — not the same bucket"
+    finally:
+        await _cleanup_email(db_session, email)

@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -17,7 +17,7 @@ from app.core.security import (
     verify_code,
     verify_password,
 )
-from app.models import Language, OtpCode, User, UserRole
+from app.models import Language, LoginFailure, OtpCode, User, UserRole
 from app.schemas.auth import AuthOut, LoginIn, OtpRegisterIn, OtpSent, OtpVerifyIn, RegisterIn
 from app.services import users as users_service
 from app.services.sms import sms_sender
@@ -54,6 +54,49 @@ def _assert_not_locked(user: User) -> None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
 
+def _backoff_seconds(failures: int) -> int:
+    """What a caller owes after `failures` misses: nothing, then a second, doubling."""
+    over = failures - settings.login_backoff_after
+    if over < 0:
+        return 0
+    # Clamp the shift before taking it. `failures` is bounded only by the
+    # account-wide ceiling, and 1 << 95 is a large number to build and discard.
+    return min(1 << min(over, 20), settings.login_backoff_max_seconds)
+
+
+async def _backoff_active(db: AsyncSession, user_id: str, caller_ip: str) -> bool:
+    """True while this address is still serving out its wait on this account.
+
+    Counted per (account, address) rather than per account, which is the whole
+    point: a wait keyed on the account alone is something a stranger can inflict
+    on its owner. See `models.login_failure.LoginFailure`.
+    """
+    since = _now() - timedelta(seconds=settings.login_failure_window_seconds)
+    row = (
+        await db.execute(
+            select(func.count(), func.max(LoginFailure.created_at)).where(
+                LoginFailure.user_id == user_id,
+                LoginFailure.caller_ip == caller_ip,
+                LoginFailure.created_at >= since,
+            )
+        )
+    ).one()
+    failures: int = row[0]
+    last: datetime | None = row[1]
+    if last is None:
+        return False
+    return last + timedelta(seconds=_backoff_seconds(failures)) > _now()
+
+
+async def _clear_failures(db: AsyncSession, user_id: str, caller_ip: str) -> None:
+    """A correct credential proves whoever is at *this* address owns the account.
+
+    Scoped to the address deliberately: clearing every address would hand a
+    guesser a clean slate each time the real owner signed in.
+    """
+    await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user_id, LoginFailure.caller_ip == caller_ip))
+
+
 def _token_for(user: User) -> str:
     return create_access_token(user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role))
 
@@ -88,22 +131,25 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
     return await _auth_response(db, user)
 
 
-async def login_with_password(db: AsyncSession, dto: LoginIn) -> AuthOut:
+async def login_with_password(db: AsyncSession, dto: LoginIn, caller_ip: str) -> AuthOut:
     user = await db.scalar(select(User).where(User.email == dto.email.lower()))
     if user is None or not user.password_hash:
         audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     _assert_not_locked(user)
+    if await _backoff_active(db, user.id, caller_ip):
+        # Refused before bcrypt, with the identical 401 a wrong password gets. A
+        # 429 or a Retry-After would re-open the oracle #64 closed; sleeping out
+        # the wait would hold a pooled connection, and fifteen of those stop the
+        # API for everyone — the same attack, self-inflicted.
+        audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="caller_backoff")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     if not verify_password(dto.password, user.password_hash):
         audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="bad_password")
-        # Counts towards the same lockout the OTP door uses. Without this the
-        # `_assert_not_locked` above can never fire for a password caller, and
-        # the per-address limit in the router is the only thing standing between
-        # a guesser and the account — one shared address away from nothing.
-        await _record_failure(db, user)
+        await _record_failure(db, user, caller_ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
-    user.failed_otp_count = 0
+    await _clear_failures(db, user.id, caller_ip)
     user.last_logged_at = _now()
     await db.commit()
     await db.refresh(user)
@@ -216,7 +262,7 @@ def _rejected(phone: str, reason: str, user: User | None = None) -> HTTPExceptio
     return HTTPException(status.HTTP_401_UNAUTHORIZED, OTP_REJECTED)
 
 
-async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
+async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> AuthOut:
     user = await db.scalar(select(User).where(User.phone == dto.phone))
     if user is None:
         raise _rejected(dto.phone, "no_user")
@@ -226,6 +272,8 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     # registered?".
     if user.locked_until and user.locked_until > _now():
         raise _rejected(dto.phone, "locked", user)
+    if await _backoff_active(db, user.id, caller_ip):
+        raise _rejected(dto.phone, "caller_backoff", user)
 
     otp = await db.scalar(
         select(OtpCode)
@@ -239,12 +287,12 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
 
     if not verify_code(dto.code, otp.code_hash):
         otp.attempts += 1
-        await _record_failure(db, user)
+        await _record_failure(db, user, caller_ip)
         raise _rejected(dto.phone, "bad_code", user)
 
     otp.consumed_at = _now()
     user.is_phone_verified = True
-    user.failed_otp_count = 0
+    await _clear_failures(db, user.id, caller_ip)
     user.locked_until = None
     user.last_logged_at = _now()
     await db.commit()
@@ -253,17 +301,32 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn) -> AuthOut:
     return await _auth_response(db, user)
 
 
-async def _record_failure(db: AsyncSession, user: User) -> None:
-    """Count a failed sign-in and lock the account once there are too many.
+async def _record_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
+    """Bank a failed sign-in against the caller, and against the account as a backstop.
 
-    Called from both doors — wrong password and wrong OTP. `locked_until` was
-    always account-wide (`_assert_not_locked` guards both), so the counter is
-    too. The column is still named `failed_otp_count` because renaming it needs
-    a migration, and this branch deliberately carries none.
+    Called from both doors — wrong password and wrong code. `locked_until` shuts
+    the account to everyone, including whoever holds a valid session
+    (`core.deps.current_user`), so it is set at NIST's maximum rather than at a
+    number a stranger can reach cheaply.
+
+    Commits, because the caller raises a 401 immediately after and a discarded
+    session would throw the failure away.
     """
-    user.failed_otp_count += 1
-    if user.failed_otp_count >= settings.otp_max_attempts:
+    since = _now() - timedelta(seconds=settings.login_failure_window_seconds)
+    db.add(LoginFailure(user_id=user.id, caller_ip=caller_ip))
+    # Nothing runs on a timer in this project, so rows are swept on the next
+    # failure for the same account — a write we are making anyway, narrowed so it
+    # never scans the table. Same lazy shape as `rewards.expire_overdue`.
+    await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user.id, LoginFailure.created_at < since))
+    account_failures = await db.scalar(
+        select(func.count())
+        .select_from(LoginFailure)
+        .where(LoginFailure.user_id == user.id, LoginFailure.created_at >= since)
+    )
+    if (account_failures or 0) >= settings.account_lockout_after:
         user.locked_until = _now() + timedelta(seconds=settings.otp_lockout_seconds)
-        user.failed_otp_count = 0
+        # Clear the slate the counter column used to get on lockout, so the
+        # account does not re-lock on the first failure after it reopens.
+        await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user.id))
         audit("auth.lockout", user_id=user.id, lockout_until=user.locked_until.isoformat())
     await db.commit()

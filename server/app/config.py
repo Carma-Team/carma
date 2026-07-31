@@ -22,12 +22,26 @@ class Settings(BaseSettings):
     otp_length: int = 6
     otp_ttl_seconds: int = 300
     # Failures on either door — wrong password or wrong code — before the account
-    # locks. 10 is NIST SP 800-63B's floor (§5.2.2); we were at 5, which locked
-    # real users who mistyped roughly twice as often as the standard expects. Ten
-    # tries is still nothing against a password, and 10 in a million against a
-    # 6-digit code.
-    otp_max_attempts: int = 10
+    # closes to *everyone*, including whoever is holding a valid session. This is
+    # the backstop against a guesser spread across many addresses, not the main
+    # control: that is the per-address backoff below, which costs the guesser
+    # instead of the account's owner.
+    #
+    # 100 is the most NIST SP 800-63B §5.2.2 allows — "no more than 100
+    # consecutive failed attempts", a ceiling rather than a floor. At 10, anyone
+    # who knew a driver's email could take that driver offline at will (CAR-51).
+    account_lockout_after: int = 100
     otp_lockout_seconds: int = 900
+    # Failures from one address against one account before that address starts
+    # waiting. Auth0 counts per (identifier, IP) by default for this reason, and
+    # Cognito starts backing a caller off at 5.
+    login_backoff_after: int = 5
+    # The wait doubles with each further failure from that address — 1s, 2s, 4s —
+    # up to this ceiling.
+    login_backoff_max_seconds: int = 900
+    # How far back failures are counted, for the per-address backoff and the
+    # account-wide ceiling alike. The same rolling hour `otp_max_per_hour` uses.
+    login_failure_window_seconds: int = 3600
     # Codes one phone number may trigger per hour, across login and registration.
     # Every code is a billed SMS, so the destination number is the budget line.
     otp_max_per_hour: int = 5
