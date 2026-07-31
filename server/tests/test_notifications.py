@@ -308,6 +308,32 @@ async def test_a_demotion_notification_names_no_levels(db_session: AsyncSession)
 
 
 @pytest.mark.asyncio
+async def test_a_demotion_is_announced_once_not_on_every_trip(db_session: AsyncSession) -> None:
+    """Staying demoted is not news; dropping is.
+
+    `entering_level` already carries the cap, so once a driver has been pulled
+    down the next trip compares equal and says nothing. That falls out of the
+    comparison rather than being handled explicitly, which is exactly why it
+    needs pinning — it would break silently if the comparison moved.
+    """
+    user = await _demotable_driver(db_session, history_score=45.0)
+    try:
+        for _ in range(3):
+            await trips_service.save(db_session, user, _long_clean_trip(), idempotency_key=uuid.uuid4().hex)
+            # The UPDATE expires the instance; re-fetch so the next save reads fresh state.
+            db_session.expunge_all()
+            refreshed = await db_session.get(User, user.id)
+            assert refreshed is not None
+            user = refreshed
+
+        types = [r.type for r in await _notifications_of(db_session, user)]
+        assert types.count(NOTIFICATION_LEVEL_DOWN) == 1, "the drop is news once, not once per trip"
+        assert NOTIFICATION_LEVEL_UP not in types
+    finally:
+        await _cleanup(db_session, user)
+
+
+@pytest.mark.asyncio
 async def test_a_promotion_sends_only_the_level_up(db_session: AsyncSession, clean_trip: SaveTripIn) -> None:
     user = await _make_user(db_session, total_points=_LEVEL_2_MIN_POINTS - 1)
     try:
@@ -543,6 +569,58 @@ async def test_blocking_someone_you_asked_clears_their_row_too(db_session: Async
     finally:
         await _drop_edges(db_session, blocker, target)
         await _cleanup(db_session, blocker, target)
+
+
+@pytest.mark.asyncio
+async def test_redeeming_an_invite_tells_the_inviter(db_session: AsyncSession) -> None:
+    """`befriend` is a fifth acceptance path, reached by POST /api/invites/redeem.
+
+    The inviter handed out the link and is the one waiting to see who took it, so
+    silence here would be the one acceptance the app never reports.
+    """
+    inviter = await _make_user(db_session)
+    redeemer = await _make_user(db_session)
+    redeemer.name = "Noa"
+    await db_session.commit()
+
+    try:
+        assert await friends.befriend(db_session, inviter.id, redeemer.id) == "accepted"
+
+        rows = await _notifications_of(db_session, inviter)
+        assert len(rows) == 1
+        assert rows[0].type == NOTIFICATION_FRIEND_ACCEPTED
+        assert rows[0].payload == {"userId": redeemer.id, "userName": "Noa"}
+
+        # The redeemer just acted — they need no telling.
+        assert await _notifications_of(db_session, redeemer) == []
+    finally:
+        await _drop_edges(db_session, inviter, redeemer)
+        await _cleanup(db_session, inviter, redeemer)
+
+
+@pytest.mark.asyncio
+async def test_redeeming_an_invite_clears_an_open_request_between_the_pair(db_session: AsyncSession) -> None:
+    """An invite can land on top of a request already in flight.
+
+    `befriend` settles that pending edge, so the row announcing it points at a
+    request the tab no longer lists — the same orphan the block and cancel paths
+    clear, in the path neither review looked at.
+    """
+    inviter = await _make_user(db_session)
+    redeemer = await _make_user(db_session)
+    try:
+        # The redeemer had already asked before taking the link.
+        await friends.send_request(db_session, redeemer, inviter.id)
+        assert len(await _notifications_of(db_session, inviter)) == 1
+
+        await friends.befriend(db_session, inviter.id, redeemer.id)
+
+        types = [r.type for r in await _notifications_of(db_session, inviter)]
+        assert NOTIFICATION_FRIEND_REQUESTED not in types, "the settled request must not be left pointing nowhere"
+        assert types == [NOTIFICATION_FRIEND_ACCEPTED]
+    finally:
+        await _drop_edges(db_session, inviter, redeemer)
+        await _cleanup(db_session, inviter, redeemer)
 
 
 @pytest.mark.asyncio

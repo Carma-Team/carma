@@ -125,10 +125,14 @@ export function loadFailed(prev: NotificationsState): NotificationsState {
     : { status: 'error', items: [], banner: 'load-failed' };
 }
 
+/** Marks one row. Leaves the banner alone: a stale-data warning from a failed
+ *  refresh is still true after an unrelated tap succeeds, and clearing it here
+ *  would quietly drop the only signal that the list is out of date. Only a fresh
+ *  load clears it. */
 export function markedRead(prev: NotificationsState, id: string, at: string): NotificationsState {
   return {
     ...prev,
-    banner: null,
+    banner: prev.banner === 'mark-failed' ? null : prev.banner,
     items: prev.items.map(n => (n.id === id && n.readAt === null ? { ...n, readAt: at } : n)),
   };
 }
@@ -141,7 +145,7 @@ export function markFailed(prev: NotificationsState): NotificationsState {
 export function markedAllRead(prev: NotificationsState, at: string): NotificationsState {
   return {
     ...prev,
-    banner: null,
+    banner: prev.banner === 'mark-all-failed' || prev.banner === 'mark-failed' ? null : prev.banner,
     items: prev.items.map(n => (n.readAt === null ? { ...n, readAt: at } : n)),
   };
 }

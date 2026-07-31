@@ -174,6 +174,20 @@ describe('marking one read', () => {
     expect(s.items[0].readAt).toBeNull();
     expect(s.banner).toBe('mark-failed');
   });
+
+  it('keeps a stale-data warning up: the list is still stale after an unrelated tap', () => {
+    const staleRefresh = loadFailed(loaded([levelUp(), levelDown()]));
+    expect(staleRefresh.banner).toBe('load-failed');
+
+    const s = markedRead(staleRefresh, 'n-up', AT);
+    expect(s.banner).toBe('load-failed');
+    expect(s.items.find(n => n.id === 'n-up')!.readAt).toBe(AT);
+  });
+
+  it('clears its own failure banner once a retry succeeds', () => {
+    const s = markedRead(markFailed(loaded([levelUp()])), 'n-up', AT);
+    expect(s.banner).toBeNull();
+  });
 });
 
 describe('marking all read', () => {
@@ -189,6 +203,12 @@ describe('marking all read', () => {
     expect(s.items).toEqual(before.items);
     expect(hasUnread(s.items)).toBe(true);
     expect(s.banner).toBe('mark-all-failed');
+  });
+
+  it('also keeps a stale-data warning up', () => {
+    const s = markedAllRead(loadFailed(loaded([levelUp()])), AT);
+    expect(s.banner).toBe('load-failed');
+    expect(hasUnread(s.items)).toBe(false);
   });
 });
 

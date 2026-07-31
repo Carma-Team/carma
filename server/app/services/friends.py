@@ -252,10 +252,33 @@ async def befriend(db: AsyncSession, initiator_id: str, other_id: str) -> Friend
         return "accepted"
 
     pending = next((e for e in edges if e.status == FriendStatus.PENDING), None)
+
+    # Every query below autoflushes, so all of them run before the edge is
+    # touched. Reading after the mutation would surface a concurrent duplicate as
+    # an IntegrityError raised inside the query — outside the try that exists to
+    # absorb it. Same ordering trap as send_request.
+    redeemer = await db.get(User, other_id)
+    if pending is not None:
+        # Settled, not still waiting: whoever was asked must not keep a row that
+        # sends them to a tab no longer listing it. Either direction may have been
+        # pending, so clear both rather than working out who asked.
+        await notifications.delete_from_actor(db, initiator_id, NOTIFICATION_FRIEND_REQUESTED, other_id)
+        await notifications.delete_from_actor(db, other_id, NOTIFICATION_FRIEND_REQUESTED, initiator_id)
+
     if pending is not None:
         pending.status = FriendStatus.ACCEPTED  # an open request between them — settle it
     else:
         db.add(UserFriend(follower_id=initiator_id, followee_id=other_id, status=FriendStatus.ACCEPTED))
+
+    # The inviter handed out the link and is the one waiting to see who took it, so
+    # they hear about it the same way every other acceptance path reports. The
+    # redeemer just acted and needs no telling.
+    notifications.create(
+        db,
+        initiator_id,
+        NOTIFICATION_FRIEND_ACCEPTED,
+        {"userId": other_id, "userName": redeemer.name if redeemer is not None else None},
+    )
 
     try:
         await db.commit()
