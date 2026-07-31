@@ -655,6 +655,43 @@ async def test_stale_failure_rows_are_swept_on_the_next_failure(
         await _cleanup_email(db_session, email)
 
 
+async def test_the_table_does_not_grow_forever(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Rows outlive their purpose by an hour at most, whoever they belong to.
+
+    The sweep is not scoped to the account being signed into, and it rides the
+    success path as well as the failure path. So an account that was attacked
+    once and never touched again does not keep the attacker's addresses — some
+    *other* driver signing in is enough to clear them. Without that, the only
+    thing pruning the table would be more failures against the same account,
+    which is exactly the case that stops happening.
+    """
+    attacked = f"gone-{uuid.uuid4().hex[:8]}@carmatest.com"
+    unrelated = f"other-{uuid.uuid4().hex[:8]}@carmatest.com"
+    victim = await _password_driver(db_session, attacked, "CorrectHorse1")
+    await _password_driver(db_session, unrelated, "CorrectHorse1")
+    try:
+        db_session.add_all(
+            LoginFailure(user_id=victim.id, caller_ip=f"198.51.100.{n}", created_at=_now() - timedelta(hours=2))
+            for n in range(20)
+        )
+        await db_session.commit()
+
+        # A different driver, a different address, and a *successful* sign-in.
+        passerby = client_from_ip("203.0.113.9")
+        ok = await passerby.post("/api/auth/login", json={"email": unrelated, "password": "CorrectHorse1"})
+        assert ok.status_code == 200
+
+        left = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == victim.id)
+        )
+        assert left == 0, "expired rows must not depend on their own account coming back"
+    finally:
+        await _cleanup_email(db_session, attacked)
+        await _cleanup_email(db_session, unrelated)
+
+
 async def test_the_otp_door_backs_off_the_same_caller(
     db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
 ) -> None:
