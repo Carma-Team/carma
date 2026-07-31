@@ -84,7 +84,11 @@ export interface Reward {
   costPoints: number;
   imageIcon: string;
   isActive: boolean;
-  stock: number;
+  // `stock` is the total the business allocated; `available` is what is left of
+  // it right now, derived server-side from the vouchers issued against it. null
+  // means no cap was set — read it as plenty, never as zero.
+  stock: number | null;
+  available: number | null;
   expiresAt?: string;
 }
 

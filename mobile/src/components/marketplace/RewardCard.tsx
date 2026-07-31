@@ -21,7 +21,9 @@ interface RewardCardProps {
 export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
   const canAfford = userPoints >= reward.costPoints
-  const inStock   = reward.stock > 0
+  // null is unlimited, so it has to be tested before the comparison: `null > 0`
+  // is false, which would render every uncapped reward as sold out.
+  const inStock   = reward.available === null || reward.available > 0
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
   return (
