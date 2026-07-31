@@ -18,6 +18,10 @@ VOUCHER_TTL_MINUTES = 5  # spec 5.2.5 — QR code valid for 5 minutes
 
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 
+# Three draws is plenty: at 31^10 the first one already almost never collides,
+# and a fourth would only ever be papering over a broken generator.
+VOUCHER_CODE_ATTEMPTS = 3
+
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
 
@@ -137,7 +141,17 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             {"code": REWARD_OUT_OF_STOCK, "message": "This reward is out of stock"},
         )
 
-    code = random_voucher_code()
+    code = await _allocate_voucher_code(db)
+    if code is None:
+        # Three draws from 31^10 all landing on taken codes is not bad luck, it
+        # is a broken generator. Give up here, before the debit, rather than
+        # charging a driver for a voucher we cannot write.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not allocate a voucher code — please try again",
+        )
+
     expires_at = datetime.now(UTC) + timedelta(minutes=VOUCHER_TTL_MINUTES)
 
     # Atomic conditional debit — two concurrent redeems cannot both pass the
@@ -178,6 +192,30 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     # Re-counted after the commit so the response reflects the unit just taken.
     claimed = await claimed_by_reward(db, [reward.id])
     return VoucherOut.from_orm_redemption(redemption, available_units(reward.stock, claimed.get(reward.id, 0)))
+
+
+async def _allocate_voucher_code(db: AsyncSession) -> str | None:
+    """A code no redemption is already holding, or None if every draw was taken.
+
+    `redemptions.qr_code` is UNIQUE over every row ever written, not just the
+    live ones, so the collision odds grow with the whole table rather than with
+    the handful of vouchers open right now. At 31^10 that is remote, but the
+    losing side of it is a driver's redeem failing on a constraint violation —
+    asking first turns that into a second draw.
+
+    The constraint is still what guarantees uniqueness; two callers can pass
+    this check with the same code in the same instant. That is the collision
+    this makes rare, not one it makes impossible.
+
+    Returns None rather than raising, and never touches the transaction: the
+    caller opened it, holds a row lock inside it, and is the only one that knows
+    what else has to unwind. Same rule `expire_overdue` follows.
+    """
+    for _ in range(VOUCHER_CODE_ATTEMPTS):
+        code = random_voucher_code()
+        if await db.scalar(select(Redemption.id).where(Redemption.qr_code == code)) is None:
+            return code
+    return None
 
 
 async def _list_user_vouchers(db: AsyncSession, user_id: str) -> list[Redemption]:

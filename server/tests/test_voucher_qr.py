@@ -23,7 +23,9 @@ QR_SAFE = re.compile(r"[A-Z0-9]+")
 def test_random_voucher_code_is_qr_safe_and_unique() -> None:
     codes = [random_voucher_code() for _ in range(2000)]
     assert all(codes), "voucher code must never be empty (empty QR would crash the modal)"
-    assert all(1 <= len(c) <= 16 for c in codes), "code must fit the String(64) column with margin"
+    # Length is pinned exactly in test_voucher_code.py. The range that used to
+    # sit here — `1 <= len(c) <= 16` — is what let a generator emitting anywhere
+    # from 13 to 16 characters pass as healthy.
     assert all(QR_SAFE.fullmatch(c) for c in codes), "code must be A-Z0-9 only (QR/URL safe)"
     assert len(set(codes)) == len(codes), "codes must be unique (qr_code column is UNIQUE)"
 
