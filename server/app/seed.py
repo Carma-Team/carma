@@ -510,10 +510,13 @@ async def run() -> None:
                     user_id=dan.id,
                     reward_id=paz_reward.id,
                     # Real voucher format, not a descriptive slug: lookups fold
-                    # the input to upper case with separators stripped, so a
-                    # lower-case hyphenated code could not be looked up at all.
-                    qr_code="SEEDPAZ001",
-                    qr_data="SEEDPAZ001",
+                    # the input to upper case with separators stripped, so the
+                    # old `seed-dan-voucher-paz-01` could not be looked up at
+                    # all. Drawn from READABLE_ALPHABET too — this is the code
+                    # that gets read aloud in a demo, so it is the last place
+                    # that should contain an 0 or a 1.
+                    qr_code="SEEDPAZ234",
+                    qr_data="SEEDPAZ234",
                     status=RedemptionStatus.USED,
                     expires_at=used_at + timedelta(minutes=5),
                     used_at=used_at,
