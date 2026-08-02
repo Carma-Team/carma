@@ -179,7 +179,7 @@ export interface DrivingStats {
   totalDurationSeconds: number;
   // Days in a row of good driving, and the driver's own record. Days, not trips,
   // and worth no points — the count is the whole reward. The server sends these
-  // today; no screen renders them yet.
+  // today; no screen renders them yet (CAR-139).
   currentStreak: number;
   bestStreak: number;
   recentScores: { date: string; score: number }[];

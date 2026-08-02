@@ -258,7 +258,7 @@ A streak is how many **driving days in a row** the driver drove well. It is wort
 
 **The record** (`users.best_streak`) is the only part that is stored, because the live count is derived from a 30-day window and a record set before that cannot be recomputed. It is a personal best rather than a leaderboard on purpose: any accumulating measure ranks driving *volume*, so a public streak board would reward mileage — the same incentive this design just removed.
 
-**What is live:** the server computes both numbers and returns them on `/api/user/stats`. Nothing displays them yet, so today the streak does no work at all — a count nobody sees motivates nobody. The screen is what makes the mechanic real.
+**What is live:** the server computes both numbers and returns them on `/api/user/stats`. Nothing displays them yet, so today the streak does no work at all — a count nobody sees motivates nobody. The screen (CAR-139) is what makes the mechanic real.
 
 ---
 
