@@ -8,9 +8,9 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 
 ## Core Team Roles
 
-- **Dan (CTO & CPO):** Core AI/ML scoring formula, CARMA Score algorithm, development roadmap prioritization, and anti-fraud mechanics.
-- **Naveh (Chief Architect & Data Engineer):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
-- **Shaun (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
+- **Dan (CPO):** Core AI/ML scoring formula, CARMA Score algorithm, development roadmap prioritization, and anti-fraud mechanics.
+- **Naveh (CTO):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
+- **Shaun (CEO):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
 - **May (Mobile & Frontend UI Lead):** Mobile application screens, UI components and styling, **Driving SDK — IMU/GPS/BLE sensor integration**, battery consumption management, and client-side interactions.
 
 ---
@@ -182,7 +182,7 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 
 ### Dan's Developer Persona (Active when user is Dan)
 
-1. **Full CTO Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
+1. **Full Founder Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
 2. **One-Shot Execution:** Do not halt tasks to request micro-confirmations or generate abstract implementation plans unless extreme ambiguity is present.
 3. **Guardrails Action:** If local test suites pass successfully, you are authorized to auto-commit and merge local feature branches. Do NOT force-push directly to remote `main` if shared team history is modified without direct user input.
 4. **Always check the industry standard.** For any substantive question — a product decision, an architectural choice, a scoring threshold, a disagreement over approach in a PR — search for how the telematics industry already solves it and present that alongside your recommendation. Do this unprompted. Search for real; do not rely on recall. Name the players (CMT, DriveKit/DriveQuant, Damoov, Zendrive, Sentiance, LETSTOP) and give concrete numbers where they exist. If there genuinely is no standard, say so plainly rather than hedging. When the finding is useful to the team, put it in the GitHub comment too — not only in chat.
