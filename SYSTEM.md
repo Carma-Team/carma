@@ -804,7 +804,7 @@ ContainerAppConsoleLogs_CL
 | 4.4.4 Points accumulation | Updated on sync | `services/trips.py::save` |
 | 4.5 / 5.2.3 GDPR | Self-deletion | `DELETE /api/users/me` |
 | **5.2.1 TLS 1.3** | All traffic | Azure Container Apps ingress |
-| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` |
+| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` — locks at 10, see below |
 | **5.2.5 QR 5-min validity** | Expiry | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
 | **5.3 Data entities** | All spec tables | `app/models/` |
 
@@ -813,6 +813,7 @@ ContainerAppConsoleLogs_CL
 - **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
 - **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
 - **Friendships:** spec doesn't define a friends table. We use `user_friends` — one row per mutual friendship, requester → recipient, with a `pending`/`accepted`/`blocked` status.
+- **Lockout after 10 failed attempts, not the 5 in spec 5.2.4.** NIST SP 800-63B §5.2.2 sets 10 as the floor, and locking at 5 put a user who mistyped into a lockout about twice as often as the standard contemplates. The 15-minute lockout itself is unchanged. The remaining gap to NIST is that failures are counted per account only, not also per source — CAR-51.
 
 ---
 
