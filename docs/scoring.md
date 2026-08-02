@@ -218,13 +218,12 @@ Points are the game currency, and deliberately **not** the score. This part is o
 points = trip score
        × distance factor    (log scale — 1.0 at 10 km)
        × risk multiplier    (Israeli weekend nights ×2.0, weeknights ×1.5)
-       × streak bonus       (+5% per consecutive day with a trip, up to ×1.25)
        × level bonus        (the level entering the trip — ×1.00 to ×2.00)
                             ↓
                      then clipped by the limits below
 ```
 
-**The streak rewards showing up, not driving well.** It counts consecutive days with any trip, at any score — a driver averaging 40 builds the same ×1.25 as one averaging 95. Tying it to the score is CAR-104.
+**The streak is not in here, deliberately.** It used to be a ×1.25 multiplier on this formula. See "Streaks" below.
 
 **The level bonus is inside the formula, not applied after it.** It used to be a multiplier laid on top of the already-clipped figure, which made the real ceiling 300 × the level bonus — 600 a day at level 10, the account worth grinding for. The level now changes how fast a driver reaches a ceiling, never where the ceiling sits. That is what tiered loyalty practice does, and what Discovery's Vitality Drive does: per-tier earn rates under one flat monthly ceiling.
 
@@ -234,6 +233,32 @@ points = trip score
 - **500 points a day** — a rate limiter, not a second economic ceiling. It sits deliberately *above* every honest driving pattern (an ordinary commute at level 10 is ~240, a Friday night out ~285, an 80 km day ~310) and exists only so that a bug or an exploit cannot drain a whole month in an afternoon. A daily cap a real driver can feel has been priced as an economic ceiling by mistake; that job belongs to the month.
 - **150 km a day** counted toward points — a delivery driver cannot farm the system.
 - **Fraudulent trips earn nothing** and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps.
+
+---
+
+## Streaks
+
+A streak is how many **driving days in a row** the driver drove well. It is worth **no points**, and that is the design, not an omission.
+
+**Why nothing.** The points formula already starts at the trip score, so driving well is already paid on every trip. A streak multiplier charged a second time for the same behaviour. It is also what everyone else does: Duolingo, Snapchat and Nike Run Club all leave the count itself as the reward, and no telematics programme multiplies its currency by a streak.
+
+**The rules, each rejecting a simpler one that is wrong:**
+
+| Rule | The wrong version, and why |
+|---|---|
+| A day counts on its **distance-weighted average** score, against a bar of **80** | "Any trip that day" lets one short good drive whitewash a bad day; "every trip" lets one short bad drive destroy a good one |
+| Days with **no trip are skipped**, not broken | Breaking on a quiet day pays drivers to take the car out — and the safest kilometre is the one nobody drives |
+| One bad day **ends the run**. No forgiveness | A streak freeze exists because Duolingo's streak is a 1,000-day identity object. Ours is a number rebuilt in a week, and the thing it would forgive is the only thing being measured |
+| Counted up to **yesterday** | A day still in progress can be banked on a good morning and spoiled by evening |
+| Reaches back **30 days** at most | Doubles as the expiry: a longer gap leaves no history to walk back to, and a streak that survives an indefinite absence is not a streak |
+
+**The bar of 80** is the same 80 the level cap uses, so "a good day" means one thing across the product. It is a first calibration — there is no fleet score distribution yet (CAR-102). Two failure modes to watch for: if nearly every day clears it the streak is decoration, and if nearly none do it is dead. Both look identical from inside the code.
+
+**One known trap.** `apply_confidence` holds a trip at the driver's rolling score when the GPS trace is too sparse to prove clean driving. A driver sitting below 80 on a chronically under-reporting device therefore cannot clear the bar however well they drive. That is #17 to fix, not a reason to lower the bar.
+
+**The record** (`users.best_streak`) is the only part that is stored, because the live count is derived from a 30-day window and a record set before that cannot be recomputed. It is a personal best rather than a leaderboard on purpose: any accumulating measure ranks driving *volume*, so a public streak board would reward mileage — the same incentive this design just removed.
+
+**What is live:** the server computes both numbers and returns them on `/api/user/stats`. Nothing displays them yet, so today the streak does no work at all — a count nobody sees motivates nobody. The screen is what makes the mechanic real.
 
 ---
 

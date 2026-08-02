@@ -22,6 +22,10 @@ class DrivingStats(CamelModel):
     average_score: int
     safe_trips_count: int
     total_duration_seconds: int
+    # Days in a row of good driving, and the driver's own record (scoring.md
+    # "Streaks"). Both count days, not trips, and neither is worth any points.
+    current_streak: int
+    best_streak: int
     recent_scores: list[RecentScore]
     event_counts: EventCounts
 
