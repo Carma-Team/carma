@@ -26,22 +26,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.services import business as business_service
 from app.services import rewards as rewards_service
-from app.services.rewards import VOUCHER_TTL_DAYS
 
 # The window the old five-minute constant could not have cleared. Asserting
 # against this rather than the constant itself keeps the test meaningful if the
 # number is ever tuned: it pins the property (days, not minutes), not the value.
+#
+# It is only ever compared against an expiry that `redeem()` computed. Deriving
+# it from `VOUCHER_TTL_DAYS` instead would make the assertion circular — the
+# unit slip `timedelta(minutes=VOUCHER_TTL_DAYS)` would then satisfy it.
 _LONG_ENOUGH_TO_REACH_A_SHOP = timedelta(days=1)
-
-
-# ─── The window itself (no DB) ───────────────────────────────────────────────
-def test_the_window_is_measured_in_days() -> None:
-    """Guards the unit as much as the number.
-
-    `timedelta(minutes=VOUCHER_TTL_DAYS)` is a one-word slip that type checking
-    cannot see and that would put the window back under a quarter of an hour.
-    """
-    assert timedelta(days=VOUCHER_TTL_DAYS) >= _LONG_ENOUGH_TO_REACH_A_SHOP
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -142,7 +135,7 @@ async def test_a_long_lived_voucher_is_still_single_use(db_session: AsyncSession
 
     A shared or screenshotted code is worthless once someone has used it, which
     is why the expiry never had to be the control. That has to keep holding when
-    the code is valid for a fortnight rather than five minutes.
+    the code is valid for days rather than five minutes.
     """
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
@@ -170,7 +163,7 @@ async def test_a_voucher_past_the_long_window_is_still_refused(db_session: Async
     try:
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
         # Back-dated rather than waited out: the row is the only thing under test,
-        # and no fixture in this suite can move the clock forward a fortnight.
+        # and no fixture in this suite can move the clock forward a whole window.
         stale = await db_session.get(Redemption, voucher.id)
         assert stale is not None
         stale.expires_at = datetime.now(UTC) - timedelta(seconds=1)
