@@ -177,7 +177,7 @@ carma/                                # Carma-Team/carma (root של המונור
 | `Event` | אירוע חריג בנסיעה (בלימה, פנייה וכו') + JSONB sensor data. | 5.3.1.6 |
 | `Business` | בית עסק (Marketplace) עם מיקום. | 5.3.1.4 |
 | `Reward` | הטבה ספציפית בעסק. | 5.3.1.3 |
-| `Redemption` | מימוש הטבה — QR + status + תוקף 5 דק' (spec 5.2.5). | 5.3.1.5 |
+| `Redemption` | מימוש הטבה — QR + status + חלון תוקף (`VOUCHER_TTL_DAYS`). | 5.3.1.5 |
 
 ### שדות מרכזיים ב-`User`
 
@@ -228,7 +228,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 | `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. אוכף נעילה אחרי 5 כשלונות OTP. |
 | `routers/users.py` | `services/users.py` | פרופיל `/users/me`, עדכון מיקום, GDPR delete, ו-`/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | רשימה, שמירה (מקבל snake_case וגם camelCase), שליפה לפי id. מעדכן אוטומטית `points`/`total_points`/`total_distance`. |
-| `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף 5 דק'), השוברים שלי. |
+| `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף לפי `VOUCHER_TTL_DAYS`), השוברים שלי. |
 | `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, ממוין לפי `total_points`. |
 | `routers/notifications.py` | — | Stub. מחזיר רשימה ריקה עד שייווסף מודל. |
 | `routers/health.py` | — | `/health` (DB ping), `/health/live` (uptime). |
@@ -367,7 +367,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | תיאור |
 |---|---|---|
 | GET | `/api/rewards?category=fuel\|food\|eco\|entertainment\|shopping` | הטבות פעילות + השוברים של המשתמש |
-| POST | `/api/rewards/{id}/redeem` | מימוש — מוריד נקודות, מנפק QR ל-5 דק' |
+| POST | `/api/rewards/{id}/redeem` | מימוש — מוריד נקודות, מנפק QR בתוקף `VOUCHER_TTL_DAYS` |
 | GET | `/api/vouchers` | השוברים שלי |
 
 ### Leaderboard
@@ -718,12 +718,12 @@ ContainerAppConsoleLogs_CL
 | 4.3.5 ניקוד וגיימיפיקציה | Score + נקודות | `Trip.avg_score`, `Trip.points`, `User.points` / `total_points` |
 | 4.3.5.3 Roadmap 10 levels | טבלת דרגות | `Level` model + `app/seed.py` |
 | 4.3.6 Marketplace | קטלוג + QR | `services/rewards.py` |
-| 4.3.6.2 QR חד-פעמי | פג ב-5 דק' | `VOUCHER_TTL_MINUTES = 5` |
+| 4.3.6.2 QR חד-פעמי | חד-פעמי; פג בתום `VOUCHER_TTL_DAYS` | `consume_voucher` + `VOUCHER_TTL_DAYS` |
 | 4.4.4 צבירת נקודות | מתעדכנת ב-sync | `services/trips.py::save` |
 | 4.5 / 5.2.3 GDPR | מחיקה עצמית | `DELETE /api/users/me` |
 | **5.2.1 TLS 1.3** | כל התעבורה | Azure Container Apps ingress |
 | **5.2.4 הגבלת ניסיונות** | 5 כשלונות → 15 דק' | `services/auth.py::_record_failure` — נועל ב-10, ר' להלן |
-| **5.2.5 QR תקף 5 דק'** | תוקף | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
+| **5.2.5 תוקף QR** | `VOUCHER_TTL_DAYS`, לא 5 דק' (ר' להלן) | `Redemption.expires_at` + `VOUCHER_TTL_DAYS` |
 | **5.3 ישויות נתונים** | כל הטבלאות באפיון | `app/models/` |
 
 ### לא תואם 1:1 לאפיון — בכוונה
@@ -731,6 +731,7 @@ ContainerAppConsoleLogs_CL
 - **שמות שדות:** האפיון משתמש למשל ב-`cost_points`, המודלים ב-Python באותו `cost_points`, פורמט החוט הוא `costPoints` (camelCase).
 - **אימות מבוסס email:** האפיון מכסה רק טלפון. הוספנו email+password כי הפרונט כבר מחווט לזה. שני המסלולים פעילים.
 - **Friendships:** האפיון לא מגדיר טבלת חברים, אבל הפרונט קורא ל-`leaderboard?type=friends`. כרגע מחזיר רק את המשתמש עצמו עד שייווסף מודל.
+- **תוקף שובר — ימים, ולא 5 הדקות שבאפיון 4.3.6.2 / 5.2.5.** החלון עצמו הוא `VOUCHER_TTL_DAYS` ב-`services/rewards.py`, ומכוונים אותו שם בלבד. האפיון מאחד שני שעונים שהתעשייה מפרידה ביניהם: כמה זמן הזכאות של הנהג להטבה קיימת, וכמה זמן קוד מוצג מתקבל בסורק. מטרת האבטחה שלו מושגת על ידי `consume_voucher`, שמוציא שובר מ-`PENDING` פעם אחת בלבד — קוד ששותף או צולם חסר ערך אחרי שמומש, ולא משנה מה כתוב בתוקף. הצמדת השעון הקצר לזכאות עלתה לנהגים בנקודות ששילמו: אין החזר על שובר שפג (CAR-24). חסום ולא פתוח לגמרי, כי שובר שלא מומש תופס יחידה מהמלאי של העסק לכל אורך חייו.
 - **נעילה אחרי 10 ניסיונות כושלים, ולא 5 כמו באפיון 5.2.4.** תקן NIST SP 800-63B §5.2.2 קובע 10 כרצפה, ונעילה ב-5 הכניסה משתמש שהקליד שגוי לנעילה בערך פי שניים יותר ממה שהתקן מתכוון אליו. הנעילה עצמה נשארה 15 דקות. הפער שנותר מול NIST הוא שספירת הכשלונות היא לפי חשבון בלבד ולא גם לפי מקור — CAR-51.
 
 ---

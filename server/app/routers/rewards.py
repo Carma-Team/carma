@@ -24,7 +24,7 @@ async def list_rewards(user: CurrentUser, db: DbSession, category: str | None = 
     "/{reward_id}/redeem",
     response_model=VoucherResponse,
     response_model_by_alias=True,
-    summary="Redeem a reward — debits points and issues a 5-minute QR voucher",
+    summary="Redeem a reward — debits points and issues a QR voucher",
 )
 async def redeem(reward_id: str, user: CurrentUser, db: DbSession) -> VoucherResponse:
     voucher = await rewards_service.redeem(db, user, reward_id)
