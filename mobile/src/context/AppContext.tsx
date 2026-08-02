@@ -300,6 +300,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const finalState = { ...tripRef.current };
     if (!finalState.isActive) return null;
 
+    // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
+    // Fires here in the trip-summary flow (after the trip has actually ended), not on trip
+    // start, so it never pops up in front of a driver who is mid-drive.
+    maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
+
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary({ isTooShort: true });
       setTripState(INITIAL_TRIP_STATE);
@@ -443,7 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, userLevelState, addToast]);
+  }, [user, userLevelState, addToast, lang]);
 
   useEffect(() => {
     // Fired when any trip starts (manual or BT auto-start).
@@ -454,8 +459,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (prev.isActive) return prev;
         return { ...INITIAL_TRIP_STATE, isActive: true, startTime: new Date(), sessionId: tripId };
       });
-      // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
-      maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
     };
 
     sdk.onUpdate = (data: TripData) => {
@@ -477,7 +480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         processEndTrip();
       }
     };
-  }, [sdk, processEndTrip, lang]);
+  }, [sdk, processEndTrip]);
 
   // ─── CARMA Scoring Event Listeners ───────────────────────────────────────────
   // Register conditional listeners on the generic DrivingSDK.

@@ -5,8 +5,9 @@
  * @description
  * driving-sdk/PowerManagement exposes the generic platform check and the
  * settings-navigation action; this file owns the CARMA-specific decision of
- * when to ask and what to say. Shown once (persisted in AsyncStorage), the
- * first time a trip starts on Android.
+ * when to ask and what to say. Shown once (persisted in AsyncStorage), after
+ * the first trip ends on Android — not on trip start, so it never interrupts
+ * a driver who is mid-drive.
  */
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,7 +19,6 @@ const SHOWN_KEY = 'carma_battery_optimization_prompt_shown';
 export async function maybePromptBatteryOptimizationExemption(tr: TranslationMap): Promise<void> {
   if (!isBackgroundThrottlingRiskPlatform()) return;
   if (await AsyncStorage.getItem(SHOWN_KEY)) return;
-  await AsyncStorage.setItem(SHOWN_KEY, '1');
 
   Alert.alert(
     tr.driving.batteryOptimizationTitle,
@@ -28,4 +28,8 @@ export async function maybePromptBatteryOptimizationExemption(tr: TranslationMap
       { text: tr.driving.batteryOptimizationOpenSettings, onPress: () => { openAppSystemSettings(); } },
     ],
   );
+
+  // Written only after the Alert call above actually fires — an earlier write-before-show
+  // meant a failure between the two calls would mark the nudge "shown" when the user never saw it.
+  await AsyncStorage.setItem(SHOWN_KEY, '1');
 }
