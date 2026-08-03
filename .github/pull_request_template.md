@@ -21,4 +21,4 @@ If this PR touches `server/app/routers/**` or `server/app/schemas/**`, or any re
 
 - [ ] Local server boots (`./scripts/dev.ps1` or `uvicorn app.main:app --reload`).
 - [ ] `scripts/smoke.sh` passes end-to-end.
-- [ ] Manually exercised the affected flow in the Expo app, OR opted into full CI via the `run-full-ci` label.
+- [ ] Manually exercised the affected flow in the Expo app.

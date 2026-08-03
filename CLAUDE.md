@@ -83,7 +83,7 @@ Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator i
 | Workflow | What it does |
 |---|---|
 | `ci-server.yml` | Ruff lint, Mypy, DB migrations, pytest, smoke tests |
-| `ci-mobile.yml` | TypeScript check, ESLint, Jest, API contract drift check (regenerates types from live OpenAPI and diffs against `mobile/src/types/index.ts`) |
+| `ci-mobile.yml` | TypeScript check, ESLint, Jest |
 | `deploy.yml` | Builds Docker image → pushes to ACR → deploys to Azure Container App. Has a built-in secrets gate: if `AZURE_CREDENTIALS` is not configured in GitHub Secrets the deploy step is silently skipped — CI stays green. |
 
 **Before merging `develop` → `main`:** run `pytest` and `npx tsc --noEmit` locally. CI is the last line of defense, not the first.
