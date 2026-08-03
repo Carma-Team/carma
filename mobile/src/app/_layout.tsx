@@ -15,7 +15,7 @@ function RootLayoutNav() {
   const router = useRouter();
   useDriveMode();
   const segments = useSegments();
-  const direction = lang === 'he' ? 'rtl' : 'ltr';
+  const direction = lang === 'HE' ? 'rtl' : 'ltr';
 
   useEffect(() => {
     if (isLoading) return;
@@ -30,7 +30,7 @@ function RootLayoutNav() {
         router.replace('/login');
       }
     } else {
-      if (user.role === 'business') {
+      if (user.role === 'BUSINESS') {
         if (!inBusinessGroup) {
           router.replace('/(business)');
         }
@@ -55,7 +55,7 @@ function RootLayoutNav() {
     <View style={{ flex: 1, direction }}>
       <Stack screenOptions={{ headerShown: false }}>
         {user ? (
-          user.role === 'business' ? (
+          user.role === 'BUSINESS' ? (
             <Stack.Screen name="(business)" />
           ) : (
             <Stack.Screen name="(tabs)" />

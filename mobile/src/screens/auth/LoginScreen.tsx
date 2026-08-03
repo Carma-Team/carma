@@ -45,7 +45,7 @@ export default function LoginScreen() {
       const data = await authApi.login(email, password);
       await loginUser(data);
 
-      if (data.user.role === 'business') router.replace('/(business)');
+      if (data.user.role === 'BUSINESS') router.replace('/(business)');
       else router.replace('/(tabs)');
     } catch (e: any) {
       setError(e.message || t('auth.errors.invalidCredentials'));

@@ -18,7 +18,7 @@ export default function ActiveTripScreen() {
   const { t } = useTranslation();
 
   // Debug distance button is shown only to admin users
-  const showDebug = user?.role === 'admin';
+  const showDebug = user?.role === 'ADMIN';
 
   /**
    * Shows a confirmation dialog before ending the trip.

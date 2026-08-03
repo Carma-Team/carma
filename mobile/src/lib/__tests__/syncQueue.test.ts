@@ -57,6 +57,10 @@ function makeServerTrip(localTripId: string): Trip {
     screenInteractionSeconds: 0,
     riskMultiplier: 1.0,
     status: 'completed',
+    startLocation: null,
+    endLocation: null,
+    aiInsight: null,
+    pointsCapped: false,
   };
 }
 

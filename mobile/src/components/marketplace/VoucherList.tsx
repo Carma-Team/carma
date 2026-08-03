@@ -6,12 +6,12 @@ import { COMMON_STYLES, TYPOGRAPHY, COLORS } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
 import { localize } from '@/lib/utils';
 import { ICONS, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons';
-import type { Voucher } from '@/types';
+import type { Voucher, Language } from '@/types';
 
 interface VoucherListProps {
   vouchers: Voucher[];
   onVoucherPress: (voucher: Voucher) => void;
-  lang: string;
+  lang: Language;
 }
 
 export function VoucherList({ vouchers, onVoucherPress, lang }: VoucherListProps) {

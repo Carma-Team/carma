@@ -7,17 +7,10 @@ import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { getLevelConfig } from '@/lib/constants';
 import { formatDistance, formatDate, localize } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { Language } from '@/types';
+import type { AppUser, Language } from '@/types';
 
 interface ProfileHeaderProps {
-  user: {
-    name?: string;
-    city?: string;
-    level: number;
-    totalPoints: number;
-    totalDistance?: number;
-    createdAt?: string;
-  };
+  user: AppUser;
   lang: Language;
 }
 
