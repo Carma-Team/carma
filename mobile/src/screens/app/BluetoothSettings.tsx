@@ -23,7 +23,7 @@ export default function BluetoothSettings() {
   // `activating` is set only when this screen is reached from a fresh "enable drive mode"
   // attempt — it gates the "no device selected" warning on back-out below.
   const { activating } = useLocalSearchParams<{ activating?: string }>();
-  const { sdk, user, setUser, addToast } = useApp();
+  const { sdk, user, setUser, addToast, registerPhoneTouch } = useApp();
 
   const [devices, setDevices]       = useState<BluetoothDevice[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(user?.bluetoothDeviceId ?? null);
@@ -64,6 +64,13 @@ export default function BluetoothSettings() {
   const handleSelect = (device: BluetoothDevice) => {
     if (!user) return;
     setSelectedId(device.id);
+
+    // This is where drive mode actually flips off→on. Only that transition can count as a
+    // phone touch (CAR-5 §2) — never re-selecting a device while already enabled.
+    // registerPhoneTouch() itself gates on tripState.isActive, so it's a no-op before "Start Trip".
+    if (!user.driveModeEnabled) {
+      registerPhoneTouch();
+    }
 
     // sdk.updateTargetDevice() is not called here — useDriveMode() reacts to
     // user.bluetoothDeviceId changes and drives the SDK's BT monitoring on its own.
