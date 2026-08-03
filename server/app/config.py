@@ -21,8 +21,16 @@ class Settings(BaseSettings):
 
     otp_length: int = 6
     otp_ttl_seconds: int = 300
-    otp_max_attempts: int = 5
+    # Failures on either door — wrong password or wrong code — before the account
+    # locks. 10 is NIST SP 800-63B's floor (§5.2.2); we were at 5, which locked
+    # real users who mistyped roughly twice as often as the standard expects. Ten
+    # tries is still nothing against a password, and 10 in a million against a
+    # 6-digit code.
+    otp_max_attempts: int = 10
     otp_lockout_seconds: int = 900
+    # Codes one phone number may trigger per hour, across login and registration.
+    # Every code is a billed SMS, so the destination number is the budget line.
+    otp_max_per_hour: int = 5
 
     sms_provider: Literal["console", "twilio"] = "console"
     twilio_account_sid: str | None = None
@@ -31,6 +39,11 @@ class Settings(BaseSettings):
 
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
+
+    # How many reverse proxies sit in front of the app. Behind Azure Container
+    # Apps this is 1 (its ingress). 0 means "no proxy" — read the socket peer.
+    # See `core.limiter.client_ip` for why the count matters rather than a bool.
+    trusted_proxy_count: int = Field(default=0, ge=0, le=4)
 
     # Base of the invite links users share. Must be a host that serves the App
     # Links / Universal Links well-known files, or the link opens a browser
@@ -61,6 +74,21 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_proxy_count(self) -> Settings:
+        """Production runs behind an ingress, so leaving the count at 0 is a bug.
+
+        Every request would then be counted against the ingress address and the
+        whole user base would share one rate-limit bucket — 30 requests a minute
+        for everyone, together. Silent, and indistinguishable from an outage.
+        """
+        if self.env == "production" and self.trusted_proxy_count == 0:
+            raise ValueError(
+                "ENV=production requires TRUSTED_PROXY_COUNT to be set "
+                "(1 behind Azure Container Apps ingress) — see core/limiter.py"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_twilio(self) -> Settings:
         if self.sms_provider == "twilio":
             missing = [
@@ -81,6 +109,15 @@ class Settings(BaseSettings):
         if self.cors_origins == "*":
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def cors_allows_credentials(self) -> bool:
+        """False while origins are a wildcard — the CORS spec forbids the pair.
+
+        The mobile app never sends a cross-origin request, so this only affects
+        browser tooling. Naming an explicit origin list turns it back on.
+        """
+        return self.cors_origin_list != ["*"]
 
 
 @lru_cache

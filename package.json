@@ -14,10 +14,10 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@types/react": "~19.1.10",
     "patch-package": "^8.0.1"
   },
   "dependencies": {
-    "@expo/ngrok": "^4.1.0",
-    "react-native-bluetooth-classic": "^1.73.0-rc.17"
+    "@expo/ngrok": "^4.1.0"
   }
 }

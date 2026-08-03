@@ -76,13 +76,17 @@ class TripOut(CamelModel):
     ai_insight: str | None
     status: str
     idempotency_key: str | None = None
-    # True when the daily anti-grind caps (§8) reduced this trip's award —
+    # True when the daily anti-grind caps (scoring.md "Points") reduced the award —
     # lets the client explain a low/zero award. Save-response only; defaults
     # False on list/detail reads where the context is gone.
     points_capped: bool = False
+    # The driver's level after this trip, as the server resolved it — including
+    # the driver-score cap (#37), which the client cannot reproduce from points
+    # alone. Save-response only, like points_capped; None on list/detail reads.
+    user_level: int | None = None
 
     @classmethod
-    def from_orm_trip(cls, trip: Any, points_capped: bool = False) -> TripOut:
+    def from_orm_trip(cls, trip: Any, points_capped: bool = False, user_level: int | None = None) -> TripOut:
         return cls.model_validate(
             {
                 "id": trip.id,
@@ -105,6 +109,7 @@ class TripOut(CamelModel):
                 "status": trip.status.value.lower(),
                 "idempotency_key": trip.idempotency_key,
                 "points_capped": points_capped,
+                "user_level": user_level,
             }
         )
 

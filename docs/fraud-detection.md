@@ -1,7 +1,7 @@
 # CARMA — Fraud Detection (v1, current)
 
 > What is actually implemented and running in production today.
-> For the next-version roadmap see [fraud-detection-v2.md](fraud-detection-v2.md).
+> For the next-version roadmap see [fraud-detection-roadmap.md](fraud-detection-roadmap.md).
 
 ---
 
@@ -166,7 +166,7 @@ Rejects payloads that are physically impossible:
 | Average speed from digest | same 250 km/h cap | 422 |
 
 Two defense-in-depth layers sit behind that 422: counts read from the telemetry digest
-are floored with `max(0, …)` in `trips._compute_v2`, and `scoring_v2` clamps the derived
+are floored with `max(0, …)` in `trips._compute_score`, and `scoring` clamps the derived
 event rate with `max(0.0, rate)`. A negative value cannot reduce a penalty at any stage.
 
 ### Gate 2 — Timestamp drift (`_check_timestamp_drift`)

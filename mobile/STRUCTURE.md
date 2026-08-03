@@ -65,13 +65,17 @@ App-wide static values with no business logic.
 
 | File | Contents |
 |---|---|
-| `serverConfig.ts` | Base URL, `USE_REAL_SERVER` flag |
+| `serverConfig.ts` | `USE_REAL_SERVER` flag + `STAGING_SERVER_URL` — the **only** place that controls which server the app talks to |
 | `theme.ts` | Colour palette, font sizes, spacing scale |
 | `index.ts` | Re-exports + level-lookup helpers that depend on runtime data from the server |
 
 **Rules:**
 - No functions with logic. Pure data.
 - Exception: `index.ts` may hold `getLevelByPoints` / `setLevels` because level data arrives from the server at runtime and cannot be a plain constant.
+
+**`serverConfig.ts` — current state:** `USE_REAL_SERVER = true`, pointing at the cloud server.
+To switch back to local development, set `USE_REAL_SERVER = false`.
+See `docs/SERVER-INTEGRATION-SETUP.md` for full build instructions.
 
 ---
 
@@ -130,6 +134,7 @@ This is the most important layer to keep clean. Files here must be independently
 | `FraudDetector.ts` | Sensor-fusion classifier: detects train/bus travel using speed variance, lateral accel, and yaw variance signals — CARMA-specific thresholds from Appendix E |
 | `constants.ts` | Internal lib-layer constants |
 | `utils.ts` | Generic pure-function helpers (formatting, math, date) |
+| `rewardStock.ts` | Reward stock for the business screens: the dashboard's `available/stock` line and the reward form's stock field |
 | `__tests__/` | Unit tests for all lib files |
 | `driving-sdk/` | **Sensor-wrapper SDK** — see its own README |
 

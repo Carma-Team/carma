@@ -31,5 +31,9 @@ exclude = ["alembic/versions"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Every test gets its own loop; async fixtures must match, or a fixture-held
+# connection outlives the loop that opened it. Pinned rather than left to the
+# default, which pytest-asyncio is changing in a future release.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

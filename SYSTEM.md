@@ -41,7 +41,7 @@ Both paths produce the same JWT — a client holding a token can call every API 
 **CI/CD:** Two workflows under `.github/workflows/`:
 - `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
 - `ci-mobile.yml` — tsc always; npm test gated.
-- `deploy.yml` — gated on the Azure secret. Skips silently until the required secrets are configured.
+- `deploy.yml` — builds and rolls out to Azure Container Apps, authenticating via GitHub OIDC against a managed identity. No stored password. See §11.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
 
@@ -117,7 +117,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 │   ├── workflows/
 │   │   ├── ci-server.yml             # lint always; mypy/pytest/smoke gated by label or workflow_dispatch
 │   │   ├── ci-mobile.yml             # tsc always; npm test gated by label
-│   │   └── deploy.yml                # Azure Container Apps — gated on AZURE_CREDENTIALS
+│   │   └── deploy.yml                # Azure Container Apps — OIDC, gated on AZURE_CLIENT_ID
 │   └── pull_request_template.md
 │
 ├── server/                           # Python backend (FastAPI)
@@ -176,7 +176,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 | `Event` | An anomalous event in a trip (brake, turn, etc.) + JSONB sensor data. | 5.3.1.6 |
 | `Business` | A business (Marketplace) with location. | 5.3.1.4 |
 | `Reward` | A specific reward at a business. | 5.3.1.3 |
-| `Redemption` | Redemption of a reward — QR + status + 5-min validity (spec 5.2.5). | 5.3.1.5 |
+| `Redemption` | Redemption of a reward — QR + status + validity window (`VOUCHER_TTL_DAYS`). | 5.3.1.5 |
 
 ### Key fields on `User`
 
@@ -227,7 +227,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 | `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Enforces lockout after 5 failed OTPs. |
 | `routers/users.py` | `services/users.py` | `/users/me` profile + location + GDPR delete + `/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
-| `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, 5-min validity), my vouchers. |
+| `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, valid for `VOUCHER_TTL_DAYS`), my vouchers. |
 | `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, sorted by `total_points`. |
 | `routers/friends.py` | `services/friends.py` | Friend requests, unfriending, blocks. Owns every write to `user_friends`. |
 | `routers/notifications.py` | — | Stub. Returns an empty list until a model is added. |
@@ -236,8 +236,8 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 
 ### Global middleware (in `app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`).
-2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour.
+1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`). Credentials are allowed only when the origins are named explicitly — a wildcard plus credentials is forbidden by the spec, so `settings.cors_allows_credentials` turns them off together.
+2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour; the auth routes tighten this to 5/min. The limiter lives in `app/core/limiter.py` so routers can import it without a cycle. A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
 3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
 
 Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.
@@ -320,7 +320,9 @@ Mobile App                                   Server                 Twilio (prod
 | OTP stored as bcrypt hash (never plaintext!) | `services/auth.py::_issue_otp` |
 | Only one active OTP per phone (older ones auto-consumed) | `UPDATE otp_codes SET consumed_at = now()` before insert |
 | 5 failed attempts → 15-minute lockout | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit on register/login/verify | `slowapi` global + extendable per-route |
+| Rate-limit on register/login/verify | `slowapi` global (30/min) + 5/min on the auth routes |
+| One phone may trigger 5 codes an hour | `services/auth.py::_assert_otp_quota` — counted from `otp_codes`, so it holds however many addresses the caller rotates through |
+| `otp/verify` never says whether a phone is registered | `services/auth.py::_rejected` — unknown number, no pending code, expired code, wrong code and locked account all answer the same 401. The audit log keeps the real reason |
 | Passwords with bcrypt salt (passlib auto) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination at Azure Container Apps ingress |
 | Full account deletion (GDPR) | `DELETE /api/users/me` — cascade on trips/redemptions |
@@ -365,7 +367,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/rewards?category=fuel\|food\|eco\|entertainment\|shopping` | Active rewards + the user's vouchers |
-| POST | `/api/rewards/{id}/redeem` | Redeem — debits points, issues 5-minute QR |
+| POST | `/api/rewards/{id}/redeem` | Redeem — debits points, issues a QR valid for `VOUCHER_TTL_DAYS` |
 | GET | `/api/vouchers` | My vouchers |
 
 ### Leaderboard
@@ -562,20 +564,99 @@ Runs on every PR and push to main (tiered):
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 
-Runs on push to main or manually. **Gated** on the existence of the `AZURE_CREDENTIALS` secret — skips silently otherwise.
+Runs on push to main or manually. **Gated** on the existence of the `AZURE_CLIENT_ID` secret — skips silently otherwise.
 
 When it runs:
 
-1. `azure/login@v2` with a service principal.
+1. `azure/login@v2` via **GitHub OIDC** — no stored password (see below).
 2. `az acr login` to ACR.
 3. `docker build` + `docker push` of an image tagged `:${{ github.sha }}`.
-4. `az containerapp update --image` to roll out.
+4. `az containerapp update --image` to roll out, setting `TRUSTED_PROXY_COUNT=1`.
+5. Prints the resulting revision and image, so the run log records what shipped.
+
+### Auth: OIDC against a managed identity (not a service principal)
+
+The old note here said the deploy could not run because an Azure for Students
+subscription "cannot hold a service principal". That was the wrong diagnosis.
+The subscription was never the blocker — we are **Owner** on it. The blocker is
+MTA's *directory*: it sets `defaultUserRolePermissions.allowedToCreateApps: false`
+and our account holds no directory role, so both `az ad app create` and
+`az ad sp create-for-rbac` fail with `Insufficient privileges`.
+
+The way around it, without involving MTA IT: a **user-assigned managed identity**
+is an Azure *resource*, not a directory app registration. It is created under the
+subscription Owner role by the resource provider, and it accepts the same
+federated credentials an app registration would. Nothing is stored in GitHub but
+identifiers, and there is no secret to rotate.
+
+One-time setup, already applied:
+
+```bash
+az provider register -n Microsoft.ManagedIdentity --wait
+
+# NOTE: westeurope is rejected on this subscription — see the region trap below.
+az identity create -n carma-ci -g carma-rg -l germanywestcentral
+
+az identity federated-credential create --name github-main \
+  --identity-name carma-ci -g carma-rg \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:Carma-Team/carma:environment:production" \
+  --audiences "api://AzureADTokenExchange"
+```
+
+Plus `AcrPush` on the registry and `Contributor` on the container app — scoped to
+those two resources, not the subscription.
+
+Two things the workflow depends on and that are easy to break by accident:
+
+- `permissions: id-token: write` at the workflow level. Without it there is no OIDC token.
+- `environment: production` on the deploy job. The credential's subject is
+  `repo:Carma-Team/carma:environment:production`; drop the environment key and the
+  subject silently becomes `...:ref:refs/heads/main`, which will not match.
+
+> **`TRIP_SIGNING_SECRET` is provisioned.** It exists on the app as the secret
+> `trip-secret` (64 chars, random), referenced by `TRIP_SIGNING_SECRET`. The
+> value is not recorded anywhere outside the Container App — read it back with
+> `az containerapp secret show` if you ever need it. This was the last thing
+> stopping the first automated deploy from crash-looping. (#95)
+>
+> Setting it only makes the server *able* to verify signatures. It does not
+> enforce them: the mobile client still sends a `ph:`-prefixed placeholder that
+> `_verify_signature` deliberately lets through. Enforcement is #13, and it waits
+> on the mobile signing path (#96).
+>
+> `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
+> passes it on every update, which is now belt-and-braces rather than the only
+> thing supplying it — so a bare `az containerapp update --image` boots as well.
+
+### Container App environment variables
+
+These are what the **server** needs to boot, and they are a different list from
+the GitHub secrets further down. With `ENV=production`, a missing one is a
+startup `ValueError` and a crash loop — deliberate, so a misconfigured server
+never serves traffic while looking healthy (`app/config.py`).
+
+| Variable | Required | Why it fails loudly |
+|---|---|---|
+| `ENV=production` | yes | Turns on the two guards below. Without it they never fire. |
+| `DATABASE_URL` | yes | Postgres, `asyncpg` driver. Use a secret reference. |
+| `JWT_SECRET` | yes | 16+ characters. Use a secret reference. |
+| `TRIP_SIGNING_SECRET` | yes in production | 32+ characters. Empty means the trip-scoring oracle accepts anything — see #24. **Set** on the live app as `secretref:trip-secret` (#95). |
+| `TRUSTED_PROXY_COUNT=1` | yes in production | 1 = the Container Apps ingress. At 0, every request counts against the ingress address, so the whole user base shares one rate-limit bucket — 30 requests a minute for everyone together, and indistinguishable from an outage. **Set** on the live app, and passed again by the deploy workflow (#99). |
+| `SMS_PROVIDER`, `TWILIO_*` | only for real SMS | Defaults to the console sender. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | optional | Silent no-op when unset. |
 
 ### Azure setup (one-time)
 
+> **Region trap.** `westeurope` is **rejected** on this subscription by the
+> "Allowed resource deployment regions" policy (`RequestDisallowedByAzure`) —
+> this is the one thing the student account genuinely does restrict. The live
+> resources are in `israelcentral` (ACR, Postgres) and `germanywestcentral`
+> (Container App), not `westeurope` as this block used to say.
+
 ```bash
 RG=carma-rg
-LOC=westeurope
+LOC=germanywestcentral    # NOT westeurope — blocked by subscription policy
 ACR=carmaregistry         # globally unique
 APP=carma-api
 DB=carma-pg
@@ -598,18 +679,74 @@ az containerapp create -n $APP -g $RG --environment carma-env \
   --target-port 3000 --ingress external \
   --registry-server $ACR.azurecr.io \
   --secrets db-url="postgresql+asyncpg://..." jwt-secret="<random>" \
+            trip-secret="<random, 32+ chars>" \
   --env-vars ENV=production DATABASE_URL=secretref:db-url \
-             JWT_SECRET=secretref:jwt-secret SMS_PROVIDER=twilio
+             JWT_SECRET=secretref:jwt-secret \
+             TRIP_SIGNING_SECRET=secretref:trip-secret \
+             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=console
 ```
+
+> This block used to end `SMS_PROVIDER=twilio`, which makes the server refuse to
+> start unless `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER`
+> are all set too (`app/config.py`). The live app runs `console`. Use `twilio`
+> only when you are actually wiring Twilio, and set the three variables with it.
+
+### Manual deployment
+
+**Superseded by the OIDC deploy above — kept as the break-glass path.** Use it
+when the workflow itself is broken, or to roll back faster than a merge to main.
+Run it from a machine logged in with `az login`.
+
+> The question this section used to pose has been answered. `az ad app create`
+> fails, but not for the reason assumed: it is MTA's directory blocking app
+> registration, not the student subscription. A user-assigned managed identity
+> sidesteps it entirely, and the automated deploy is switched on. (#58)
+
+```bash
+RG=carma-rg
+ACR=carmaregistry3819    # the live registry — not `carmaregistry`, which is a
+                         # placeholder in the one-time setup block above
+APP=carma-api
+TAG=$(git rev-parse --short HEAD)
+
+az acr login -n $ACR
+docker build -t $ACR.azurecr.io/carma-server:$TAG ./server
+docker push $ACR.azurecr.io/carma-server:$TAG
+
+az containerapp update -n $APP -g $RG \
+  --image $ACR.azurecr.io/carma-server:$TAG
+```
+
+That is the whole path now — `ENV`, `DATABASE_URL`, `JWT_SECRET`,
+`TRIP_SIGNING_SECRET` and `TRUSTED_PROXY_COUNT` all live on the app, so an image
+swap carries no extra variables with it. Recreate the app and you are setting
+them all again from the table above.
+
+Then confirm the server actually came up, rather than assuming it did:
+
+```bash
+az containerapp revision list -n $APP -g $RG -o table   # is the new revision healthy?
+curl -fsS https://<app-fqdn>/health                      # does it answer?
+az containerapp logs show -n $APP -g $RG --tail 50       # ValueError = a missing variable
+```
+
+A crash loop right after a deploy almost always means one of the variables in
+the table above is missing. That is the intended failure — read the log, set the
+variable, redeploy.
 
 ### GitHub secrets
 
+All six are set. None of them is a password — the first three are identifiers,
+useless to anyone without the federated trust, so there is nothing to rotate.
+
 | Secret | What it is |
 |---|---|
-| `AZURE_CREDENTIALS` | JSON output of `az ad sp create-for-rbac --sdk-auth` |
-| `AZURE_RESOURCE_GROUP` | e.g. `carma-rg` |
-| `AZURE_CONTAINER_APP` | e.g. `carma-api` |
-| `AZURE_CONTAINER_REGISTRY` | e.g. `carmaregistry` (without `.azurecr.io`) |
+| `AZURE_CLIENT_ID` | Client ID of the `carma-ci` managed identity. Also the gate: unset ⇒ deploy skips. |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription ID |
+| `AZURE_RESOURCE_GROUP` | `carma-rg` |
+| `AZURE_CONTAINER_APP` | `carma-api` |
+| `AZURE_CONTAINER_REGISTRY` | `carmaregistry3819` (without `.azurecr.io`) |
 
 ### Migrations in production
 
@@ -663,12 +800,12 @@ ContainerAppConsoleLogs_CL
 | 4.3.5 Scoring + gamification | Score + points | `Trip.avg_score`, `Trip.points`, `User.points` / `total_points` |
 | 4.3.5.3 Roadmap 10 levels | Levels table | `Level` model + `app/seed.py` |
 | 4.3.6 Marketplace | Catalog + QR | `services/rewards.py` |
-| 4.3.6.2 One-time QR | Expires in 5 min | `VOUCHER_TTL_MINUTES = 5` |
+| 4.3.6.2 One-time QR | Single use; expires after `VOUCHER_TTL_DAYS` | `consume_voucher` + `VOUCHER_TTL_DAYS` |
 | 4.4.4 Points accumulation | Updated on sync | `services/trips.py::save` |
 | 4.5 / 5.2.3 GDPR | Self-deletion | `DELETE /api/users/me` |
 | **5.2.1 TLS 1.3** | All traffic | Azure Container Apps ingress |
-| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` |
-| **5.2.5 QR 5-min validity** | Expiry | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
+| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` — locks at 10, see below |
+| **5.2.5 QR validity** | Expiry — `VOUCHER_TTL_DAYS`, not 5 min (see below) | `Redemption.expires_at` + `VOUCHER_TTL_DAYS` |
 | **5.3 Data entities** | All spec tables | `app/models/` |
 
 ### Not 1:1 to spec — deliberate
@@ -677,6 +814,8 @@ ContainerAppConsoleLogs_CL
 - **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
 - **Friendships:** spec doesn't define a friends table. We use `user_friends` — one row per mutual friendship, requester → recipient, with a `pending`/`accepted`/`blocked` status.
 - **Automatic drive-mode (BT auto start/stop) is currently admin-gated:** the mechanism (`User.drive_mode_enabled` + `bluetooth_device_id`/`bluetooth_device_name`, written via `PATCH /api/users/me`) exists end-to-end, but automatic end-trip on BT disconnect is still being stabilized. Until it's verified reliable, enabling it from the mobile Settings screen is restricted to `role=ADMIN` accounts — everyone else sees an apology message and the feature stays off. Manual and automatic start/end both work regardless of role; only the BT-triggered path is gated. See issue #7.
+- **Voucher validity — days, not the 5 minutes in spec 4.3.6.2 / 5.2.5.** The window itself is `VOUCHER_TTL_DAYS` in `services/rewards.py`; it is tuned there and nowhere else. The spec conflates two clocks the industry keeps apart: how long the driver's claim on the reward lasts, and how long a displayed code is accepted. Its anti-fraud goal is met by `consume_voucher`, which only ever flips a voucher out of `PENDING` — a shared or screenshotted code is worthless once it has been used, whatever the expiry says. Attaching the short clock to the claim instead cost drivers points they had already paid: nothing refunds an expired voucher (CAR-24). Bounded rather than open-ended because an unredeemed voucher holds a unit of the business's stock for its whole life.
+- **Lockout after 10 failed attempts, not the 5 in spec 5.2.4.** NIST SP 800-63B §5.2.2 sets 10 as the floor, and locking at 5 put a user who mistyped into a lockout about twice as often as the standard contemplates. The 15-minute lockout itself is unchanged. The remaining gap to NIST is that failures are counted per account only, not also per source — CAR-51.
 
 ---
 
@@ -692,7 +831,7 @@ Matching spec section 8:
 
 Deliberately deferred:
 
-- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring_v2.py` (v2.1). Server is the sole scoring oracle; client sends raw telemetry only. The v1 engine it replaced was deleted in #53; only its night-risk multiplier survives, in `app/services/risk.py`.
+- **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring.py` (v2.1). Server is the sole scoring oracle; client sends raw telemetry only. The v1 engine it replaced was deleted in #53; only its night-risk multiplier survives, in `app/services/risk.py`.
 - **Notification + Achievement + Friendship models**.
 - **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
 - **Refresh tokens** — current JWT is 7 days, single token.

@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons';
 import { businessApi, type BusinessReward } from '@/services/api/business.api';
+import { parseStockInput } from '@/lib/rewardStock';
 
 // Icons available for reward image selection — sourced from the central icon registry
 const SELECTABLE_ICONS: IoniconName[] = [
@@ -35,7 +36,9 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   titleHe: '', descriptionHe: '', costPoints: '',
-  expiresAt: '', stock: '100', isActive: true,
+  // Blank, not a number: a prefilled default is a cap the business never chose,
+  // and the save below reads blank back as uncapped.
+  expiresAt: '', stock: '', isActive: true,
 };
 
 export default function RewardFormScreen() {
@@ -60,7 +63,10 @@ export default function RewardFormScreen() {
         expiresAt:     existing.expiresAt
           ? new Date(existing.expiresAt).toISOString().split('T')[0]
           : '',
-        stock:    String(existing.stock),
+        // An uncapped reward has no number to show. Blank, not "null" — and the
+        // save below reads blank back as uncapped, so editing anything else
+        // about the reward leaves its stock alone.
+        stock:    existing.stock === null ? '' : String(existing.stock),
         isActive: existing.isActive,
       };
     }
@@ -87,6 +93,10 @@ export default function RewardFormScreen() {
     if (!form.costPoints || Number(form.costPoints) < 1) {
       Alert.alert(t('common.error'), t('business.form.costRequired')); return;
     }
+    const parsedStock = parseStockInput(form.stock);
+    if (!parsedStock.valid) {
+      Alert.alert(t('common.error'), t('business.form.stockInvalid')); return;
+    }
 
     setSaving(true);
     const expiresAt = form.expiresAt
@@ -99,7 +109,7 @@ export default function RewardFormScreen() {
       costPoints:    Number(form.costPoints),
       imageIcon:     selectedIcon,
       category,
-      stock:         Number(form.stock) || 100,
+      stock:         parsedStock.stock,
       isActive:      form.isActive,
       expiresAt,
     };
@@ -192,10 +202,10 @@ export default function RewardFormScreen() {
         />
 
         <Text style={styles.label}>{t('business.form.stockLabel')}</Text>
+        {/* No placeholder on purpose — the label says to leave it blank for
+            unlimited, and a suggested number contradicts that. */}
         <TextInput
           style={COMMON_STYLES.input}
-          placeholder="100"
-          placeholderTextColor={COLORS.textMuted}
           keyboardType="numeric"
           value={form.stock}
           onChangeText={v => update('stock', v)}

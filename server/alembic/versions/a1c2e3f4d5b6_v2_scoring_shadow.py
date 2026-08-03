@@ -4,7 +4,7 @@ Revision ID: a1c2e3f4d5b6
 Revises: f7a8b9c0d1e2
 Create Date: 2026-06-13 10:00:00.000000
 
-Shadow-mode columns for CARMA Scoring Algorithm v2 (docs/scoring-algorithm-v2.md).
+Shadow-mode columns for CARMA Scoring Algorithm v2 (docs/scoring.md).
 v2 is computed alongside v1 and stored here; nothing user-facing reads it yet.
 """
 

@@ -21,7 +21,9 @@ interface RewardCardProps {
 export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
   const canAfford = userPoints >= reward.costPoints
-  const inStock   = reward.stock > 0
+  // null is unlimited, so it has to be tested before the comparison: `null > 0`
+  // is false, which would render every uncapped reward as sold out.
+  const inStock   = reward.available === null || reward.available > 0
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
   return (
@@ -106,7 +108,7 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
         </View>
 
         <Text style={styles.voucherExpiry}>
-          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString()}
+          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US')}
         </Text>
         <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
           <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>

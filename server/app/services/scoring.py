@@ -1,15 +1,17 @@
-"""CARMA Scoring Algorithm v2 — server-side engine (stages 3–7).
+"""CARMA scoring engine — the only one (stages 3–7).
 
-Spec: docs/scoring-algorithm-v2.md. v2 is now the **authoritative, user-facing**
-scoring engine (trip score, driver score, points). v1 is retired and deleted
-(#53); only its `get_risk_multiplier` time-of-day factor survives, in `risk.py`.
+Spec: docs/scoring.md. This module owns the trip score, the driver score and
+points. The `version` on ScoringConfig is stamped onto every trip row
+(`trips.scoring_version`) so an old score stays interpretable after the formula
+moves; it is not a name for the engine.
 
-v2.1 (2026-07): the decay constants were re-fit from the live fleet's
-recency-weighted rate distributions (see docs/scoring-v2-calibration-status.md)
-— the initial estimates produced a bimodal score distribution (exact 100 or a
-cliff to ~50 from a single event). v2.1 also adds `apply_confidence`, which
-caps how far a trip can score above the driver's rolling score when the GPS
-trace is too sparse to prove clean driving.
+July 2026 recalibration: the decay constants were re-fit from the live fleet's
+recency-weighted rate distributions — the initial estimates produced a bimodal
+score distribution (exact 100, or a cliff to ~50 from a single event). They are
+provisional: a proper fit needs ~200 trips, trustworthy client detection
+(CAR-6) and per-event severity. See CAR-102. The same round added
+`apply_confidence`, which caps how far a trip can score above the driver's
+rolling score when the GPS trace is too sparse to prove clean driving.
 
 Everything here is pure: no I/O, no DB, no side effects. The trips service feeds
 it values sourced from the signed telemetry digest (the oracle) and persists the
@@ -17,11 +19,11 @@ results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
   * Per-event severity (peak_g, duration_ms, speed_at_event) — needs the SDK
-    change (docs/scoring-v2-handoff.md). Until then weighted counts collapse to
-    raw counts (each event weight 1.0). `event_severity()` is implemented and
-    tested now so the downstream math is unchanged the day the SDK lands.
+    change (CAR-6). Until then weighted counts collapse to raw counts (each
+    event weight 1.0). `event_severity()` is implemented and tested now so the
+    downstream math is unchanged the day the SDK lands.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
-    speeding weight is redistributed across the other components (§6.2).
+    speeding weight is redistributed across the other components ("Blending the five").
 """
 
 from __future__ import annotations
@@ -31,11 +33,12 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class ScoringConfigV2:
-    """Versioned v2 parameters. Decay constants re-fit 2026-07 from the live
-    fleet's recency-weighted rate percentiles (docs/scoring-v2-calibration-status.md):
+class ScoringConfig:
+    """Scoring parameters. `version` is stamped onto each scored trip. Decay
+    constants re-fit 2026-07 from the live fleet's recency-weighted rate
+    percentiles (CAR-102 — provisional until the fleet is bigger):
     anchored so a single event on a median trip costs ~5–10 composite points and
-    the weighted p90-worst trip lands near 50, per spec §6.1."""
+    the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
     version: str = "2.1.0"
 
@@ -46,7 +49,7 @@ class ScoringConfigV2:
     k_speed: float = 0.012
     k_distraction: float = 0.020
 
-    # Composite weights when speeding data IS available (§6.2).
+    # Composite weights when speeding data IS available ("Blending the five").
     w_distraction: float = 0.30
     w_speed: float = 0.25
     w_brake: float = 0.20
@@ -54,35 +57,50 @@ class ScoringConfigV2:
     w_corner: float = 0.10
 
     # Composite weights when speeding data is NOT available — speeding's 0.25
-    # redistributed proportionally across the remaining four (§6.2).
+    # redistributed proportionally across the remaining four.
     w_distraction_nospeed: float = 0.40
     w_brake_nospeed: float = 0.27
     w_accel_nospeed: float = 0.20
     w_corner_nospeed: float = 0.13
 
-    # Exposure normalization (§5).
+    # Exposure normalization ("Rates, not totals").
     exposure_floor_km: float = 4.0
     distraction_time_floor_min: float = 5.0
 
-    # Short-trip dampening (§6.3).
+    # Short-trip dampening ("Short trips are judged gently").
     short_trip_km: float = 2.0
     short_trip_min: float = 5.0
 
-    # Driver score (§7).
+    # Driver score ("The driver's own score").
     ewma_halflife_days: float = 14.0
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
 
-    # Points engine (§8).
+    # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
-    daily_points_cap: float = 300.0
+    # Two ceilings, two jobs — and only one of them is about money.
+    #
+    # The month is the economic ceiling: what the catalogue will pay one driver.
+    # At roughly ₪0.10 a point, 3,000 is ~₪300 a month, level with Discovery's
+    # Vitality Drive. Both it and LETSTOP publish a monthly figure and no daily
+    # one. Recalibrate against real redemption volume, not taste.
+    #
+    # The day is a rate limiter against exploitation, so it belongs *above* the
+    # honest maximum, not below it: at 500 the only thing it clips is 150 km at
+    # night at the top of the ladder, while still forcing six days to drain a
+    # month. It was briefly set to 150, which clipped an ordinary weekday
+    # commute at level 10 — a daily cap that a real driver can feel is priced as
+    # an economic ceiling, and that job is the month's.
+    daily_points_cap: float = 500.0
+    rolling_month_points_cap: float = 3_000.0
     daily_distance_cap_km: float = 150.0
 
 
-CONFIG = ScoringConfigV2()
+CONFIG = ScoringConfig()
 
-# Per-type g-force ranges for the continuous severity weight (§3.2).
+# Per-type g-force ranges for the continuous severity weight ("Severity is
+# built but switched off").
 _SEVERITY_RANGES = {
     "brake": (0.30, 0.60),
     "accel": (0.27, 0.55),
@@ -98,7 +116,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 
 def event_severity(event_type: str, peak_g: float, duration_ms: float, speed_kmh: float) -> float:
-    """Continuous severity weight for one kinematic event (§3.2).
+    """Continuous severity weight for one kinematic event.
 
     Ranges from 1.0 at the detection threshold to ~3.0 for an extreme, sustained,
     high-speed event. Replaces tier counting so there is no threshold to game.
@@ -130,7 +148,7 @@ class TripScoreV2:
 
 
 def _subscore(rate: float, k: float) -> float:
-    """Exponential-decay map from a per-exposure rate to a 0–100 subscore (§6.1)."""
+    """Exponential-decay map from a per-exposure rate to a 0–100 subscore."""
     return 100.0 * math.exp(-k * max(0.0, rate))
 
 
@@ -145,9 +163,10 @@ def compute_trip_score(
     duration_min: float,
     has_speed_data: bool = False,
     rolling_score: float | None = None,
-    config: ScoringConfigV2 = CONFIG,
+    config: ScoringConfig = CONFIG,
 ) -> TripScoreV2:
-    """Composite 0–100 trip score from severity-weighted event counts (§5–§6).
+    """Composite 0–100 trip score from severity-weighted event counts
+    (scoring.md "Rates, not totals" and "Rate to subscore").
 
     `w_*` are severity-weighted counts (Σ severity per type). In shadow mode each
     event contributes weight 1.0, so these equal raw counts. Distance and time
@@ -185,7 +204,7 @@ def compute_trip_score(
             + config.w_corner_nospeed * sub_corner
         )
 
-    # Too little exposure to judge — blend 50/50 with the driver's standing (§6.3).
+    # Too little exposure to judge — blend 50/50 with the driver's standing.
     if rolling_score is not None and (distance_km < config.short_trip_km or duration_min < config.short_trip_min):
         score = 0.5 * score + 0.5 * rolling_score
 
@@ -226,8 +245,8 @@ class TripHistoryPoint:
     age_days: float
 
 
-def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfigV2 = CONFIG) -> float:
-    """Persistent driver-level score (§7): recency- and exposure-weighted average
+def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig = CONFIG) -> float:
+    """Persistent driver-level score: recency- and exposure-weighted average
     of recent trip scores, blended with a fleet-median prior for cold start.
 
     A new driver with no history returns the prior (75) rather than a meaningless
@@ -261,28 +280,41 @@ def compute_points(
     distance_km: float,
     risk_multiplier: float,
     streak_days: int = 0,
+    level_multiplier: float = 1.0,
     points_today: float = 0.0,
+    points_month: float = 0.0,
     distance_today_km: float = 0.0,
     fraud_flagged: bool = False,
-    config: ScoringConfigV2 = CONFIG,
+    config: ScoringConfig = CONFIG,
 ) -> float:
-    """Gamification points for a trip (§8), with anti-grind caps.
+    """Gamification points for a trip (scoring.md "Points"), with anti-grind caps.
 
     Fraud-flagged trips earn nothing and are excluded from the driver window by
     the caller. Distance counted toward points is capped per day, and the daily
     points total is capped, so commercial drivers can't farm the economy.
+
+    The level bonus is one of the multipliers here rather than something the
+    caller applies afterwards, so the daily cap lands on the final figure. A cap
+    a level-10 account could double would be exactly the account worth grinding.
     """
     if fraud_flagged:
         return 0.0
 
-    # Per-day distance counted toward points is capped (§8).
+    # Per-day distance counted toward points is capped.
     remaining_km = max(0.0, config.daily_distance_cap_km - max(0.0, distance_today_km))
     counted_km = min(max(0.0, distance_km), remaining_km)
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = trip_score * distance_factor * risk_multiplier * streak_bonus
+    points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
 
-    # Daily points cap (§8).
-    remaining_points = max(0.0, config.daily_points_cap - max(0.0, points_today))
-    return round(min(points, remaining_points) * 10) / 10
+    # Whichever ceiling is nearer. Applied last, so the level bonus changes how
+    # fast a driver reaches a ceiling, never where it sits.
+    #
+    # The month is rolling rather than calendar: a reset date is a farming date,
+    # and the trip history the caller already loaded spans 30 days either way.
+    remaining = min(
+        config.daily_points_cap - max(0.0, points_today),
+        config.rolling_month_points_cap - max(0.0, points_month),
+    )
+    return round(min(points, max(0.0, remaining)) * 10) / 10

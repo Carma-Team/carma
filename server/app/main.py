@@ -12,17 +12,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.core.limiter import limiter
 from app.middlewares.request_id import RequestIdMiddleware
 from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
 from app.routers import (
     auth,
+    business,
     fraud,
     friends,
     health,
@@ -35,14 +35,16 @@ from app.routers import (
     users,
 )
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["500/hour", "30/minute"])
-
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logging.getLogger(__name__).info(
-        "CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider
-    )
+    log = logging.getLogger(__name__)
+    log.info("CARMA API ready — env=%s, sms=%s, docs=/api/docs", settings.env, settings.sms_provider)
+    if settings.env == "production" and not settings.cors_allows_credentials:
+        log.warning(
+            "CORS_ORIGINS is '*' in production — credentialed cross-origin requests are refused. "
+            "Set an explicit comma-separated origin list."
+        )
     yield
 
 
@@ -56,18 +58,41 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
+def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Answer a throttled caller in the shape the app already understands.
+
+    SlowAPI's own handler returns `{"error": "Rate limit exceeded: 20 per 1
+    minute"}`. The mobile client reads `detail` and shows it verbatim, so that
+    string reached the user as-is — developer wording, in English, in an app
+    that is otherwise Hebrew. `Retry-After` gives the client something concrete
+    to say instead of "try again later".
+    """
+    # `exc.limit` is optional in slowapi's own typing; a minute is the shortest
+    # window we declare anywhere, so it is the honest fallback.
+    seconds = exc.limit.limit.get_expiry() if exc.limit else 60
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": "Too many attempts. Try again shortly.", "retryAfterSeconds": seconds},
+        headers={"Retry-After": str(seconds)},
+    )
+
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
 
 # Order matters: RequestId runs first (sets contextvar), then RequestLog uses it.
 app.add_middleware(RequestLogMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
+# Wildcard origins and credentials are mutually exclusive under the CORS spec.
+# Asking for both used to be harmless only because Starlette quietly dropped the
+# credentials — protection by accident. Say it out loud instead.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    allow_credentials=settings.cors_allows_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -90,6 +115,7 @@ app.include_router(trips.router)
 app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
+app.include_router(business.router)
 app.include_router(leaderboard.router)
 app.include_router(friends.router)
 app.include_router(invites.router)

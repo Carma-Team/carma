@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
+
 from app.schemas._base import CamelModel
 
 
@@ -19,11 +21,16 @@ class RewardOut(CamelModel):
     cost_points: int
     image_icon: str
     is_active: bool
-    stock: int
+    # stock is the total the business allocated; available is what is left of it
+    # right now. Both use None for "unlimited". `available` is passed in rather
+    # than read off the model because it is derived from the redemptions ledger,
+    # not stored — every caller has to decide how to count it.
+    stock: int | None
+    available: int | None
     expires_at: datetime | None
 
     @classmethod
-    def from_orm_reward(cls, reward: Any) -> RewardOut:
+    def from_orm_reward(cls, reward: Any, available: int | None) -> RewardOut:
         return cls.model_validate(
             {
                 "id": reward.id,
@@ -39,6 +46,7 @@ class RewardOut(CamelModel):
                 "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
                 "stock": reward.stock,
+                "available": available,
                 "expires_at": reward.expires_at,
             }
         )
@@ -58,7 +66,7 @@ class VoucherOut(CamelModel):
     reward: RewardOut
 
     @classmethod
-    def from_orm_redemption(cls, r: Any) -> VoucherOut:
+    def from_orm_redemption(cls, r: Any, available: int | None) -> VoucherOut:
         return cls.model_validate(
             {
                 "id": r.id,
@@ -71,9 +79,55 @@ class VoucherOut(CamelModel):
                 "expires_at": r.expires_at,
                 "redeemed_at": r.used_at,
                 "created_at": r.created_at,
-                "reward": RewardOut.from_orm_reward(r.reward),
+                "reward": RewardOut.from_orm_reward(r.reward, available),
             }
         )
+
+
+class BusinessRewardIn(CamelModel):
+    """Create payload for a business-owned reward.
+
+    `business_id` is deliberately absent — the server takes it from the caller's
+    own business, so a client cannot post a reward into someone else's catalog.
+    `category` defaults to the business's category when omitted.
+    """
+
+    title_he: str = Field(min_length=1, max_length=120)
+    title_en: str | None = Field(default=None, max_length=120)
+    description_he: str = Field(min_length=1, max_length=500)
+    description_en: str | None = Field(default=None, max_length=500)
+    category: str | None = None
+    cost_points: int = Field(ge=1)
+    image_icon: str = Field(default="gift-outline", max_length=40)
+    is_active: bool = True
+    # Omitted means unlimited. It defaulted to 0 before stock was enforced, which
+    # under the new meaning would make every reward created without an explicit
+    # stock born sold out.
+    stock: int | None = Field(default=None, ge=0)
+    expires_at: datetime | None = None
+
+
+class BusinessRewardPatchIn(CamelModel):
+    """Partial update — only the fields actually sent are applied."""
+
+    title_he: str | None = Field(default=None, min_length=1, max_length=120)
+    title_en: str | None = Field(default=None, max_length=120)
+    description_he: str | None = Field(default=None, min_length=1, max_length=500)
+    description_en: str | None = Field(default=None, max_length=500)
+    category: str | None = None
+    cost_points: int | None = Field(default=None, ge=1)
+    image_icon: str | None = Field(default=None, max_length=40)
+    is_active: bool | None = None
+    stock: int | None = Field(default=None, ge=0)
+    expires_at: datetime | None = None
+
+
+class BusinessRewardListOut(CamelModel):
+    rewards: list[RewardOut]
+
+
+class BusinessRewardResponse(CamelModel):
+    reward: RewardOut
 
 
 class RewardListOut(CamelModel):
