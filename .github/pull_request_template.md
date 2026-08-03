@@ -15,7 +15,7 @@ If this PR touches `server/app/routers/**` or `server/app/schemas/**`, or any re
 
 - [ ] Updated `CHANGELOG.md` (Added / Deprecated / Removed sections).
 - [ ] For **breaking** changes: added the new shape first, marked the old one deprecated. Removal happens in a follow-up PR after one mobile release.
-- [ ] Mobile types regenerated locally (`cd mobile && npm run gen:api`) and the app compiles.
+- [ ] Mobile types regenerated locally (`cd mobile && npm run gen:api`), `src/services/api/generated.ts` committed, and `npx tsc --noEmit` passes.
 
 ## Test plan
 

@@ -165,7 +165,7 @@ For PR descriptions, reviews and issue comments, see Communication Style below �
 
 ## Engineering Rules
 
-1. **Shared Types:** Any change to API contracts or DTOs MUST be manually synchronized between `server/app/schemas/` and `mobile/src/types/index.ts`. Never let the two drift. The `gen:api` script in mobile (`openapi-typescript`) is available to automate this once the OpenAPI schema is stable — until then, sync manually. The CI (`ci-mobile.yml`) enforces this automatically on every merge to `main`.
+1. **Shared Types:** The server's OpenAPI schema is the contract of record. After any change to `server/app/schemas/`, run `cd mobile && npm run gen:api` and commit `mobile/src/services/api/generated.ts` in the same PR. `mobile/src/types/index.ts` derives from it, so `tsc` fails on every consequence of the change — there is no separate drift job to keep green.
 
 ### Mobile Directory Ownership
 
