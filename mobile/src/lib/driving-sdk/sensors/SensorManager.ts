@@ -78,6 +78,14 @@ const IMU_CONFIRM_MS2 = 1.0;
 // on the client too.
 const MIN_TICK_INTERVAL_MS = 500;
 
+// If no valid GPS speed reading arrives for this long, stop reporting the last known
+// value for currentSpeed and fall back to 0 instead. Without this, a sustained
+// speed-unavailable stretch (weak fix, urban canyon, parking garage) pins currentSpeed
+// above TripValidationManager's Rule 2 "stopped" threshold forever, and a trip that
+// should end after 3 min below 10 km/h never does. Momentary dropouts (a few seconds)
+// still carry the last reading through; only a sustained one decays.
+const STALE_SPEED_MS = 10000;
+
 const MS2_PER_G = 9.81;
 
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
@@ -94,6 +102,7 @@ export class SensorManager {
   private gyroSub: any = null;
   private lastLocation: any = null;
   private lastValidSpeedMs = 0; // carries forward across expo's -1 "unavailable" ticks
+  private lastValidSpeedAtMs = 0; // GPS fix timestamp lastValidSpeedMs was captured at — decays it back to 0 if stale (STALE_SPEED_MS)
   private isRunning = false;
   private accelAvailable = false;
   private thresholds: MotionThresholds;
@@ -148,6 +157,7 @@ export class SensorManager {
     this.isRunning = true;
     this.gravity = { x: 0, y: 0, z: 1 };
     this.lastValidSpeedMs = 0;
+    this.lastValidSpeedAtMs = 0;
     this.latestAccelX = 0;
     this.latestGyroZ  = 0;
     this.motionPrevMs = 0;
@@ -264,12 +274,21 @@ export class SensorManager {
     // speed lock at highway speed. Clamping that to 0 reads as a real deceleration
     // to zero, so hold the last known-good speed instead of reporting a phantom 0.
     const rawSpeed = loc.coords.speed;
-    if (rawSpeed !== null && rawSpeed >= 0) this.lastValidSpeedMs = rawSpeed;
+    if (rawSpeed !== null && rawSpeed >= 0) {
+      this.lastValidSpeedMs = rawSpeed;
+      this.lastValidSpeedAtMs = loc.timestamp;
+    }
+    // Held value decays back to 0 once it's been stale for STALE_SPEED_MS — a
+    // sustained speed-unavailable stretch must not pin currentSpeed above the
+    // "stopped" threshold forever (see constant comment above).
+    const effectiveSpeedMs = (loc.timestamp - this.lastValidSpeedAtMs) < STALE_SPEED_MS
+      ? this.lastValidSpeedMs
+      : 0;
 
     this.lastLocation = loc;
     this.onUpdate({
       distanceKm:   distance,
-      currentSpeed: this.lastValidSpeedMs * 3.6,
+      currentSpeed: effectiveSpeedMs * 3.6,
       timeDeltaS,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
