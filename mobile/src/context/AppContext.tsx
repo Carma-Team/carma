@@ -353,6 +353,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
+    const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
     // disagree with trip history on the next refresh (#29).
@@ -421,6 +422,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: newTrip.id,
       score: serverScore,
       points: earnedPoints,
+      pointsCapped: serverPointsCapped,
       riskMultiplier: serverRiskMultiplier,
       penalties: 0,
       routeWaypoints: lastTripDataRef.current?.waypoints ?? [],

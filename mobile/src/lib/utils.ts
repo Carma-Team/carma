@@ -23,10 +23,13 @@ export function formatDistance(km: number, lang: 'he' | 'en' = 'he'): string {
 
 export function formatDuration(seconds: number, lang: 'he' | 'en' = 'he'): string {
   if (!seconds || isNaN(seconds)) return lang === 'he' ? '0 דק\'' : '0m'
-  const mins = Math.floor(seconds / 60)
+  const totalMins = Math.floor(seconds / 60)
   const secs = seconds % 60
-  if (mins === 0) return lang === 'he' ? `${secs} שנ'` : `${secs}s`
-  return lang === 'he' ? `${mins} דק'` : `${mins}m`
+  const hours = Math.floor(totalMins / 60)
+  const mins = totalMins % 60
+  if (totalMins === 0) return lang === 'he' ? `${secs} שנ'` : `${secs}s`
+  if (hours === 0) return lang === 'he' ? `${mins} דק'` : `${mins}m`
+  return lang === 'he' ? `${hours} שע' ${mins} דק'` : `${hours}h ${mins}m`
 }
 
 export function formatScore(score: number): string {
