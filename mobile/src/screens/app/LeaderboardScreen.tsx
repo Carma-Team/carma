@@ -121,10 +121,9 @@ export default function LeaderboardScreen() {
   const inFlight   = useRef<Set<string>>(new Set())
   const fetchToken = useRef(0)
 
-  // Location filter state
-  const [locations,        setLocations]        = useState<LocationsOut | null>(null)
-  const [selectedCountry,  setSelectedCountry]  = useState<string>(user?.country ?? 'ישראל')
-  const [selectedCity,     setSelectedCity]     = useState<string>(user?.city    ?? '')
+  // Location filter state — CARMA is single-country, so only the city is filterable
+  const [locations,    setLocations]    = useState<LocationsOut | null>(null)
+  const [selectedCity, setSelectedCity] = useState<string>(user?.city ?? '')
 
   // Friends search state
   const [searchPhone, setSearchPhone] = useState('')
@@ -139,18 +138,14 @@ export default function LeaderboardScreen() {
     leaderboardApi.getLocations()
       .then(data => {
         setLocations(data)
-        // Ensure the user's default country/city are valid; keep as-is if not in list
-        if (user?.country && data.countries.includes(user.country)) {
-          setSelectedCountry(user.country)
-        }
         if (user?.city) setSelectedCity(user.city)
       })
       .catch(() => {/* non-critical — fall back to user's own values */})
-  }, [user?.country, user?.city])
+  }, [user?.city])
 
   const fetchLeaderboard = useCallback((
     tab: LeaderboardType,
-    filters?: { city?: string; country?: string }
+    filters?: { city?: string }
   ) => {
     const token = ++fetchToken.current
     setLoading(true)
@@ -171,10 +166,9 @@ export default function LeaderboardScreen() {
   }, [])
 
   useEffect(() => {
-    if (type === 'city')     fetchLeaderboard('city',     { city: selectedCity, country: selectedCountry })
-    else if (type === 'national') fetchLeaderboard('national', { country: selectedCountry })
-    else                          fetchLeaderboard(type)
-  }, [type, selectedCity, selectedCountry, fetchLeaderboard])
+    if (type === 'city') fetchLeaderboard('city', { city: selectedCity })
+    else                 fetchLeaderboard(type)
+  }, [type, selectedCity, fetchLeaderboard])
 
   // Reset search state when leaving the friends tab
   useEffect(() => {
@@ -184,13 +178,6 @@ export default function LeaderboardScreen() {
       setFoundUser(null)
     }
   }, [type])
-
-  // When country changes, reset city to first available city in that country (or empty)
-  const handleCountryChange = useCallback((country: string) => {
-    setSelectedCountry(country)
-    const cities = locations?.citiesByCountry[country] ?? []
-    setSelectedCity(cities[0] ?? '')
-  }, [locations])
 
   // ── Friends search ────────────────────────────────────────────────────────
 
@@ -289,8 +276,8 @@ export default function LeaderboardScreen() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
-  const countries = locations?.countries ?? (selectedCountry ? [selectedCountry] : [])
-  const cities    = locations?.citiesByCountry[selectedCountry] ?? (selectedCity ? [selectedCity] : [])
+  // Single-country deployment — take the (only) country's city list directly.
+  const cities = Object.values(locations?.citiesByCountry ?? {})[0] ?? (selectedCity ? [selectedCity] : [])
 
   const tabs: { key: LeaderboardType; label: string }[] = [
     { key: 'friends',  label: t('leaderboard.friends') },
@@ -298,26 +285,16 @@ export default function LeaderboardScreen() {
     { key: 'national', label: t('leaderboard.national') },
   ]
 
-  const filterRow = type !== 'friends' ? (
+  // National tab has nothing left to filter by (single country) — only the
+  // city tab keeps a filter, and now gets the full row width to itself.
+  const filterRow = type === 'city' ? (
     <View style={styles.filterRow}>
-      <Text style={styles.filterSubtitle}>
-        {type === 'city'
-          ? t('leaderboard.showing_city')
-          : t('leaderboard.showing_national')}:
-      </Text>
-      {type === 'city' && (
-        <LocationPicker
-          value={selectedCountry}
-          options={countries}
-          placeholder={t('leaderboard.selectCountry')}
-          onChange={handleCountryChange}
-        />
-      )}
+      <Text style={styles.filterSubtitle}>{t('leaderboard.showing_city')}:</Text>
       <LocationPicker
-        value={type === 'city' ? selectedCity : selectedCountry}
-        options={type === 'city' ? cities : countries}
-        placeholder={type === 'city' ? t('leaderboard.selectCity') : t('leaderboard.selectCountry')}
-        onChange={type === 'city' ? setSelectedCity : setSelectedCountry}
+        value={selectedCity}
+        options={cities}
+        placeholder={t('leaderboard.selectCity')}
+        onChange={setSelectedCity}
       />
     </View>
   ) : null
