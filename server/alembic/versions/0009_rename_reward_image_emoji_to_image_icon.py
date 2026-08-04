@@ -5,25 +5,27 @@ Revises: 0008_add_route_waypoints
 Create Date: 2026-06-12 00:00:00.000000
 
 """
+
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
-revision: str = '0009_rename_reward_image_icon'
-down_revision: Union[str, None] = '0008_add_route_waypoints'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+from alembic import op
+
+revision: str = "0009_rename_reward_image_icon"
+down_revision: str | None = "0008_add_route_waypoints"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column('rewards', 'image_emoji', new_column_name='image_icon')
+    op.alter_column("rewards", "image_emoji", new_column_name="image_icon")
     # Expand column length to accommodate Ionicon names (up to ~40 chars)
-    op.alter_column('rewards', 'image_icon', type_=sa.String(40), server_default='gift-outline')
+    op.alter_column("rewards", "image_icon", type_=sa.String(40), server_default="gift-outline")
 
 
 def downgrade() -> None:
-    op.alter_column('rewards', 'image_icon', new_column_name='image_emoji')
-    op.alter_column('rewards', 'image_emoji', type_=sa.String(10), server_default='🎁')
+    op.alter_column("rewards", "image_icon", new_column_name="image_emoji")
+    op.alter_column("rewards", "image_emoji", type_=sa.String(10), server_default="🎁")

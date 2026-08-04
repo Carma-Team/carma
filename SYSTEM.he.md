@@ -41,7 +41,7 @@
 **CI/CD:** שני workflows ב-`.github/workflows/`:
 - `ci-server.yml` — ב-PR רץ רק lint (מהיר ובטוח). mypy/pytest/smoke ב-`workflow_dispatch` או label `run-full-ci` עד שהפייפליין מוכח.
 - `ci-mobile.yml` — `npm ci` + tsc תמיד; tests בגייט.
-- `deploy.yml` — מותנה ב-secret של Azure. ידלג בשקט עד שהסודות יוגדרו.
+- `deploy.yml` — מותנה ב-secret של Azure, ודילג בכל הרצה עד היום. המנוי הוא חשבון Azure for Students ואין בו service principal, ולכן ה-deploy ידני — ראו §11.
 
 **נקודה חשובה:** הפרונט מערבב snake_case וcamelCase (כמו `start_time`, `avg_score`, `events_array`). Pydantic schemas משתמשים ב-`alias_generator=to_camel` שיוצא camelCase על החוט, ו-trip-save מקבל את שני הסגנונות דרך `AliasChoices`. הפרונט עובד ללא שינויים.
 
@@ -177,7 +177,7 @@ carma/                                # Carma-Team/carma (root של המונור
 | `Event` | אירוע חריג בנסיעה (בלימה, פנייה וכו') + JSONB sensor data. | 5.3.1.6 |
 | `Business` | בית עסק (Marketplace) עם מיקום. | 5.3.1.4 |
 | `Reward` | הטבה ספציפית בעסק. | 5.3.1.3 |
-| `Redemption` | מימוש הטבה — QR + status + תוקף 5 דק' (spec 5.2.5). | 5.3.1.5 |
+| `Redemption` | מימוש הטבה — QR + status + חלון תוקף (`VOUCHER_TTL_DAYS`). | 5.3.1.5 |
 
 ### שדות מרכזיים ב-`User`
 
@@ -228,7 +228,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 | `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. אוכף נעילה אחרי 5 כשלונות OTP. |
 | `routers/users.py` | `services/users.py` | פרופיל `/users/me`, עדכון מיקום, GDPR delete, ו-`/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | רשימה, שמירה (מקבל snake_case וגם camelCase), שליפה לפי id. מעדכן אוטומטית `points`/`total_points`/`total_distance`. |
-| `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף 5 דק'), השוברים שלי. |
+| `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף לפי `VOUCHER_TTL_DAYS`), השוברים שלי. |
 | `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, ממוין לפי `total_points`. |
 | `routers/notifications.py` | — | Stub. מחזיר רשימה ריקה עד שייווסף מודל. |
 | `routers/health.py` | — | `/health` (DB ping), `/health/live` (uptime). |
@@ -236,8 +236,8 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 
 ### Middleware גלובלי (ב-`app/main.py`)
 
-1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`).
-2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה.
+1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`). הרשאות נשלחות רק כשהמקורות מפורטים במפורש — התקן אוסר על שילוב של כוכבית עם הרשאות, ולכן `settings.cors_allows_credentials` מכבה אותן יחד.
+2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה; מסלולי האימות מוגבלים ל-5/דקה. ה-limiter יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
 3. **Unhandled-exception handler** — תופס כל מה שבורח מ-route ומחזיר 500 נקי עם הנתיב בלוג.
 
 האימות הוא **לא** middleware — הוא ה-`CurrentUser` dependency שמוטמע בכל route מוגן.
@@ -319,8 +319,10 @@ Mobile App                                   Server                 Twilio (prod
 |---|---|
 | OTP מאוחסן כ-bcrypt hash (אף פעם לא בטקסט!) | `services/auth.py::_issue_otp` |
 | OTP אחד פעיל בלבד (קודמים נצרכים אוטומטית) | טרנזקציית `UPDATE otp_codes SET consumed_at = now()` |
-| 5 כשלונות → נעילה ל-15 דק' | `services/auth.py::_record_failure` (spec 5.2.4) |
-| Rate-limit על register/login/verify | `slowapi` גלובלי + ניתן להרחיב לכל route |
+| 10 כשלונות → נעילה ל-15 דק' | `services/auth.py::_record_failure` (רצפת NIST; האפיון ב-5.2.4 דורש 5) |
+| Rate-limit על register/login/verify | `slowapi` גלובלי (30/דקה) + 5/דקה על מסלולי האימות |
+| מספר טלפון יכול להזמין 5 קודים בשעה | `services/auth.py::_assert_otp_quota` — נספר מ-`otp_codes`, ולכן מחזיק גם כשהפונה מחליף כתובות |
+| ‏`otp/verify` לא מגלה אם מספר רשום | `services/auth.py::_rejected` — מספר לא מוכר, קוד שפג, קוד שגוי וחשבון נעול מחזירים את אותו 401. הסיבה האמיתית נשמרת בלוג הביקורת |
 | סיסמאות עם bcrypt salt (passlib אוטומטי) | `core/security.py::hash_password` |
 | TLS 1.3 | Termination ב-Azure Container Apps ingress |
 | מחיקת חשבון מלאה (GDPR) | `DELETE /api/users/me` — cascade על trips/redemptions |
@@ -365,7 +367,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | תיאור |
 |---|---|---|
 | GET | `/api/rewards?category=fuel\|food\|eco\|entertainment\|shopping` | הטבות פעילות + השוברים של המשתמש |
-| POST | `/api/rewards/{id}/redeem` | מימוש — מוריד נקודות, מנפק QR ל-5 דק' |
+| POST | `/api/rewards/{id}/redeem` | מימוש — מוריד נקודות, מנפק QR בתוקף `VOUCHER_TTL_DAYS` |
 | GET | `/api/vouchers` | השוברים שלי |
 
 ### Leaderboard
@@ -550,7 +552,29 @@ python -m app.seed                     # reseed
 1. `azure/login@v2` עם service principal.
 2. `az acr login` ל-ACR.
 3. `docker build` + `docker push` עם tag `:${{ github.sha }}`.
-4. `az containerapp update --image` להחלפת ה-image.
+4. `az containerapp update --image` להחלפת ה-image, ומגדיר `TRUSTED_PROXY_COUNT=1`.
+
+> **ה-workflow הזה לא רץ היום.** המנוי הוא חשבון Azure for Students, שלא יכול
+> להחזיק את ה-service principal שה-workflow מתחבר איתו — ולכן `AZURE_CREDENTIALS`
+> ריק וכל הרצה נגמרת ב-`deploy=skipped`. גרסאות עולות לאוויר ידנית, ראו
+> [Deploy ידני](#deploy-ידני) למטה. כל מה שה-workflow היה עושה — מישהו צריך לעשות
+> בעצמו.
+
+### משתני סביבה ב-Container App
+
+אלה מה שה**שרת** צריך כדי לעלות, וזו רשימה אחרת מה-GitHub Secrets שלמטה. כאשר
+`ENV=production`, משתנה חסר גורם ל-`ValueError` בעלייה ולקריסה בלולאה — בכוונה,
+כדי ששרת עם הגדרה שגויה לא יגיש תעבורה בזמן שהוא נראה תקין (`app/config.py`).
+
+| משתנה | נדרש | למה הוא נופל ברעש |
+|---|---|---|
+| `ENV=production` | כן | מפעיל את שתי הבדיקות שלמטה. בלעדיו הן לא נדלקות. |
+| `DATABASE_URL` | כן | Postgres, דרייבר `asyncpg`. דרך secret reference. |
+| `JWT_SECRET` | כן | 16 תווים ומעלה. דרך secret reference. |
+| `TRIP_SIGNING_SECRET` | כן בפרודקשן | 32 תווים ומעלה. ריק פירושו שהחתימה על נסיעות מקבלת כל דבר — ראו #24. |
+| `TRUSTED_PROXY_COUNT=1` | כן בפרודקשן | 1 = ה-ingress של Container Apps. ב-0 כל בקשה נספרת על כתובת ה-ingress, כך שכל המשתמשים חולקים דלי אחד של מגבלת קצב — 30 בקשות בדקה לכולם יחד, ובלתי ניתן להבחנה מהשבתה. |
+| `SMS_PROVIDER`, `TWILIO_*` | רק ל-SMS אמיתי | ברירת המחדל היא שליחה לקונסול. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | אופציונלי | כשלא מוגדר זה no-op שקט. |
 
 ### Setup ב-Azure (חד-פעמי)
 
@@ -579,9 +603,57 @@ az containerapp create -n $APP -g $RG --environment carma-env \
   --target-port 3000 --ingress external \
   --registry-server $ACR.azurecr.io \
   --secrets db-url="postgresql+asyncpg://..." jwt-secret="<random>" \
+            trip-secret="<random, 32+ תווים>" \
   --env-vars ENV=production DATABASE_URL=secretref:db-url \
-             JWT_SECRET=secretref:jwt-secret SMS_PROVIDER=twilio
+             JWT_SECRET=secretref:jwt-secret \
+             TRIP_SIGNING_SECRET=secretref:trip-secret \
+             TRUSTED_PROXY_COUNT=1 SMS_PROVIDER=twilio
 ```
+
+### Deploy ידני
+
+**באחריות נוה** — הוא מעלה את השרת וגם משחרר את גרסאות האפליקציה. עד שיהיה
+service principal, כך גרסה באמת מגיעה לפרודקשן. מריצים ממכונה שמחוברת עם
+`az login`.
+
+> שווה עשר דקות לפני שמקבלים את זה כמצב קבוע: מנוי סטודנט משתמש באותו מנגנון
+> הרשאות כמו מנוי בתשלום, ומגביל תקציב ואזורים — לא אוטומציה. מה שחוסם בדרך כלל
+> הוא ארגון שמנוהל על ידי האוניברסיטה ולא מאפשר לסטודנטים לרשום אפליקציות.
+> `az ad app create --display-name carma-ci` נותן את התשובה — אם היא מצליחה,
+> אפשר להדליק את כל ה-workflow עם אימות מבוסס אמון ובלי סוד שמור.
+
+```bash
+RG=carma-rg
+ACR=carmaregistry
+APP=carma-api
+TAG=$(git rev-parse --short HEAD)
+
+az acr login -n $ACR
+docker build -t $ACR.azurecr.io/carma-server:$TAG ./server
+docker push $ACR.azurecr.io/carma-server:$TAG
+
+az containerapp update -n $APP -g $RG \
+  --image $ACR.azurecr.io/carma-server:$TAG
+```
+
+לפני ה-deploy הראשון שכולל את עבודת מגבלות הקצב, וכל פעם שה-app נוצר מחדש, יש
+להגדיר את מה שה-workflow היה מגדיר:
+
+```bash
+az containerapp update -n $APP -g $RG \
+  --set-env-vars TRUSTED_PROXY_COUNT=1
+```
+
+ואז לוודא שהשרת באמת עלה, במקום להניח שכן:
+
+```bash
+az containerapp revision list -n $APP -g $RG -o table   # הרוויזיה החדשה תקינה?
+curl -fsS https://<app-fqdn>/health                      # השרת עונה?
+az containerapp logs show -n $APP -g $RG --tail 50       # ValueError = משתנה חסר
+```
+
+קריסה בלולאה מיד אחרי deploy כמעט תמיד אומרת שאחד המשתנים בטבלה למעלה חסר. זו
+הכשילה המכוונת — קוראים את הלוג, מגדירים את המשתנה, מעלים שוב.
 
 ### GitHub Secrets
 
@@ -646,12 +718,12 @@ ContainerAppConsoleLogs_CL
 | 4.3.5 ניקוד וגיימיפיקציה | Score + נקודות | `Trip.avg_score`, `Trip.points`, `User.points` / `total_points` |
 | 4.3.5.3 Roadmap 10 levels | טבלת דרגות | `Level` model + `app/seed.py` |
 | 4.3.6 Marketplace | קטלוג + QR | `services/rewards.py` |
-| 4.3.6.2 QR חד-פעמי | פג ב-5 דק' | `VOUCHER_TTL_MINUTES = 5` |
+| 4.3.6.2 QR חד-פעמי | חד-פעמי; פג בתום `VOUCHER_TTL_DAYS` | `consume_voucher` + `VOUCHER_TTL_DAYS` |
 | 4.4.4 צבירת נקודות | מתעדכנת ב-sync | `services/trips.py::save` |
 | 4.5 / 5.2.3 GDPR | מחיקה עצמית | `DELETE /api/users/me` |
 | **5.2.1 TLS 1.3** | כל התעבורה | Azure Container Apps ingress |
-| **5.2.4 הגבלת ניסיונות** | 5 כשלונות → 15 דק' | `services/auth.py::_record_failure` |
-| **5.2.5 QR תקף 5 דק'** | תוקף | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
+| **5.2.4 הגבלת ניסיונות** | 5 כשלונות → 15 דק' | `services/auth.py::_record_failure` — נועל ב-10, ר' להלן |
+| **5.2.5 תוקף QR** | `VOUCHER_TTL_DAYS`, לא 5 דק' (ר' להלן) | `Redemption.expires_at` + `VOUCHER_TTL_DAYS` |
 | **5.3 ישויות נתונים** | כל הטבלאות באפיון | `app/models/` |
 
 ### לא תואם 1:1 לאפיון — בכוונה
@@ -659,6 +731,8 @@ ContainerAppConsoleLogs_CL
 - **שמות שדות:** האפיון משתמש למשל ב-`cost_points`, המודלים ב-Python באותו `cost_points`, פורמט החוט הוא `costPoints` (camelCase).
 - **אימות מבוסס email:** האפיון מכסה רק טלפון. הוספנו email+password כי הפרונט כבר מחווט לזה. שני המסלולים פעילים.
 - **Friendships:** האפיון לא מגדיר טבלת חברים, אבל הפרונט קורא ל-`leaderboard?type=friends`. כרגע מחזיר רק את המשתמש עצמו עד שייווסף מודל.
+- **תוקף שובר — ימים, ולא 5 הדקות שבאפיון 4.3.6.2 / 5.2.5.** החלון עצמו הוא `VOUCHER_TTL_DAYS` ב-`services/rewards.py`, ומכוונים אותו שם בלבד. האפיון מאחד שני שעונים שהתעשייה מפרידה ביניהם: כמה זמן הזכאות של הנהג להטבה קיימת, וכמה זמן קוד מוצג מתקבל בסורק. מטרת האבטחה שלו מושגת על ידי `consume_voucher`, שמוציא שובר מ-`PENDING` פעם אחת בלבד — קוד ששותף או צולם חסר ערך אחרי שמומש, ולא משנה מה כתוב בתוקף. הצמדת השעון הקצר לזכאות עלתה לנהגים בנקודות ששילמו: אין החזר על שובר שפג (CAR-24). חסום ולא פתוח לגמרי, כי שובר שלא מומש תופס יחידה מהמלאי של העסק לכל אורך חייו.
+- **נעילה אחרי 10 ניסיונות כושלים, ולא 5 כמו באפיון 5.2.4.** תקן NIST SP 800-63B §5.2.2 קובע 10 כרצפה, ונעילה ב-5 הכניסה משתמש שהקליד שגוי לנעילה בערך פי שניים יותר ממה שהתקן מתכוון אליו. הנעילה עצמה נשארה 15 דקות. הפער שנותר מול NIST הוא שספירת הכשלונות היא לפי חשבון בלבד ולא גם לפי מקור — CAR-51.
 
 ---
 
@@ -674,7 +748,7 @@ ContainerAppConsoleLogs_CL
 
 בכוונה נדחה:
 
-- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v1.5+). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד.
+- **חישוב Score CARMA המלא** (נספח ג') — ✅ ממומש בצד השרת ב-`app/services/scoring.py` (v2.1). השרת הוא oracle הניקוד היחיד; הלקוח שולח טלמטריה גולמית בלבד. מנוע v1 שהוחלף נמחק ב-#53; שרד ממנו רק מכפיל סיכון הלילה, ב-`app/services/risk.py`.
 - **מודלי Notification + Achievement + Friendship**.
 - **העלאת תמונת רישיון** (דורש Azure Blob Storage). השדה `license_img_url` קיים בסכמה.
 - **Refresh tokens** — כרגע JWT יחיד ל-7 ימים.

@@ -3,6 +3,15 @@
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
 **סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
 
+> **⚠️ §8 (Server Scoring Algorithm Specification) is superseded.**
+> The `100 − penalties` formula and the parity test vectors in §8 describe the v1
+> engine, which has since been deleted. The live algorithm is documented in
+> [scoring.md](scoring.md). §2, §3 and §7 — the sensor-node/oracle split and the
+> replay-protection contract — are still in force.
+>
+> This is a decision record. It is not edited into currency; read it as what was
+> decided on 2026-05-21.
+
 > **v1.4 Amendment:** Time-Based Nonce + HMAC-SHA256 replay protection added — see §7.
 > **v1.5 Amendment:** Absolute Metrics Decoupling — score and points calculation moved
 > exclusively to the server. The mobile client is a sensor node only. See §2.3 (revised),
@@ -877,7 +886,7 @@ Baseline
 
 ### 8.1 Formula Contract
 
-The scoring formula is a deliberate design choice locked by the CTO. It must not be
+The scoring formula is a deliberate design choice locked by Dan. It must not be
 altered on either side without a versioned RFC amendment.
 
 ```

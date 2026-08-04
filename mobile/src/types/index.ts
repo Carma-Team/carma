@@ -2,6 +2,8 @@
 // Server serializes enums as lowercase strings (see UserOut field serializers)
 export type UserRole = 'driver' | 'business' | 'admin';
 export type Language = 'he' | 'en';
+// Friendship between the viewer and another user. `pending` covers a request in
+// either direction — one they sent, or one they were sent.
 export type FollowStatus = 'none' | 'pending' | 'accepted' | 'blocked';
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -52,6 +54,10 @@ export interface Trip {
   touchEpochs: number;              // v1.7
   screenInteractionSeconds: number; // v1.7
   riskMultiplier: number;
+  pointsCapped?: boolean;           // v2.1 — an anti-grind cap (daily or rolling-month) reduced this trip's
+                                    // award. Save response only. Nothing renders it yet — see CAR-98.
+  userLevel?: number;               // driver's level after this trip, as the server resolved it incl. the
+                                    // driver-score cap (#37). Save response only — absent on list/detail reads.
   startLocation?: string;
   endLocation?: string;
   aiInsight?: string;
@@ -78,7 +84,11 @@ export interface Reward {
   costPoints: number;
   imageIcon: string;
   isActive: boolean;
-  stock: number;
+  // `stock` is the total the business allocated; `available` is what is left of
+  // it right now, derived server-side from the vouchers issued against it. null
+  // means no cap was set — read it as plenty, never as zero.
+  stock: number | null;
+  available: number | null;
   expiresAt?: string;
 }
 
@@ -126,18 +136,33 @@ export interface LeaderboardOut {
   myRank?: number | null;
 }
 
-export interface FollowRequest {
-  followerId: string;
-  followerName?: string;
-  followerLevel: number;
-  followerCity?: string;
-  requestedAt: string;
+// Matches server's InviteLinkOut / RedeemInviteOut.
+export interface InviteLink {
+  code: string;
+  url: string;
 }
 
+export interface RedeemedInvite {
+  inviter: { id: string; name?: string | null; city?: string | null; level: number };
+  status: FollowStatus;
+}
+
+// Matches server's ContactMatchOut — one address-book entry that turned out to
+// be a CARMA driver. `phoneHash` identifies which contact matched.
+export interface ContactMatch {
+  phoneHash: string;
+  id: string;
+  name?: string | null;
+  city?: string | null;
+  friendStatus: FollowStatus;
+}
+
+// Matches server's FriendRequestOut. `id` is the request id — what accept and
+// reject address, not the sender's user id.
 export interface FriendRequest {
   id: string;
   fromUserId: string;
-  fromUserName: string;
+  fromUserName?: string | null;
   fromUserLevel: number;
   fromUserCity?: string | null;
   createdAt: string;
@@ -162,13 +187,47 @@ export interface DrivingStats {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export interface Notification {
+// Matches server's NotificationOut (server/app/schemas/notification.py).
+// The server sends `type` + `payload`, never rendered text, so the strings are
+// resolved here through i18n and old rows follow a language switch.
+interface NotificationBase {
   id: string;
-  title: string;
-  body: string;
-  type: 'info' | 'reward' | 'trip';
-  timestamp: string;
+  readAt: string | null;
+  createdAt: string;
 }
+
+// Adding a kind means adding a member here — the union then forces every
+// consumer to handle it.
+export interface LevelUpNotification extends NotificationBase {
+  type: 'level_up';
+  payload: { level: number; previousLevel: number };
+}
+
+/** Demotion (#37). Carries no levels on purpose — the copy says the level was
+ *  updated without naming the old or new one. */
+export interface LevelDownNotification extends NotificationBase {
+  type: 'level_down';
+  payload: Record<string, never>;
+}
+
+/** Sent to whoever asked, once the other side accepts. `userId` is the accepter. */
+export interface FriendAcceptedNotification extends NotificationBase {
+  type: 'friend_accepted';
+  payload: { userId: string; userName: string | null };
+}
+
+/** Sent to the recipient of a friend request. `userId` is whoever asked. */
+export interface FriendRequestedNotification extends NotificationBase {
+  type: 'friend_requested';
+  payload: { userId: string; userName: string | null };
+}
+
+export type Notification =
+  | LevelUpNotification
+  | LevelDownNotification
+  | FriendAcceptedNotification
+  | FriendRequestedNotification;
+export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
 // String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts
@@ -183,34 +242,19 @@ export interface TripValidationResult {
   invalidReason?: string;            // human-readable, sent to fraud.api
 }
 
-// ─── Scoring (local SDK) ──────────────────────────────────────────────────────
-export interface ScoringResult {
-  score: number;
-  points: number;
-  riskMultiplier: number;
-  penalties: number;
-  distanceFactor: number;
-}
-
-export interface ScoringInput {
-  hardBrakes: number;
-  aggressiveAccels: number;
-  sharpTurns: number;
-  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
-  touchEpochs: number;              // v1.7 — glass-tap proxy count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
-  durationSeconds: number;
-  distanceKm: number;
-  startTime: Date;
-}
-
 // ─── Level ────────────────────────────────────────────────────────────────────
+// Matches server's LevelOut (server/app/routers/levels.py), which serves the
+// single ladder in app/services/levels.py. The client holds no ladder of its
+// own — see constants.ts for the first-paint fallback.
 export interface LevelConfig {
   level: number;
   name: string;
   nameEn: string;
   minPoints: number;
   maxPoints: number;
+  /** What a trip's points are multiplied by at this level. Display only —
+   *  the server has already applied it to the points it returns. */
+  bonusMultiplier: number;
   color: string;
   icon: string;
   perks: string[];

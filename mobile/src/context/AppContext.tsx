@@ -19,7 +19,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { InteractionManager, AppState, I18nManager } from 'react-native'
+import { AppState, I18nManager } from 'react-native'
 import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
@@ -37,7 +37,7 @@ import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
 import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
-import { calculateLevel, detectLevelUp } from '@/lib/gamification'
+import { levelDisplay, detectLevelChange } from '@/lib/gamification'
 import type { GamificationLevel } from '@/lib/gamification'
 
 export interface TripState {
@@ -54,7 +54,6 @@ export interface TripState {
     AGGRESSIVE_ACCEL: number;
     SHARP_TURN: number;
     SWERVE: number;
-    PHONE_TOUCH: number; // UI display only — not used for scoring
   };
 }
 
@@ -67,7 +66,7 @@ const INITIAL_TRIP_STATE: TripState = {
   currentSpeedKmH: 0,
   touchEpochs: 0,
   screenInteractionSeconds: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0, PHONE_TOUCH: 0 },
+  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 },
 };
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
@@ -237,7 +236,6 @@ interface AppContextValue {
   lastTripSummary: any | null
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
-  registerPhoneTouch: () => void
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
@@ -255,7 +253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
-  const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => calculateLevel(0))
+  const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
 
   // Filtered trips based on lastClearedHistory
   const filteredTrips = useMemo(() => {
@@ -274,8 +272,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
   const lastTripDataRef = useRef<TripData | null>(null);
 
-  const lastTouchTimeRef = useRef(0);
-
   const addToast = useCallback((t: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { ...t, id }])
@@ -283,22 +279,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
-
-  const registerPhoneTouch = useCallback(() => {
-    const now = Date.now();
-    if (tripRef.current.isActive && now - lastTouchTimeRef.current > 1000) {
-      lastTouchTimeRef.current = now;
-      InteractionManager.runAfterInteractions(() => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: {
-            ...prev.eventCounts,
-            PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1
-          }
-        }));
-      });
-    }
-  }, []);
 
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
@@ -387,7 +367,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
-    const earnedPoints         = Math.round(serverPointsRaw * userLevelState.multiplier);
+    // The server's number, unmodified. It already includes the level bonus
+    // (services/levels.py). Scaling it here again is what made the summary
+    // disagree with trip history on the next refresh (#29).
+    const earnedPoints         = Math.round(serverPointsRaw);
 
     const newTrip: Trip = savedTrip
       ? { ...savedTrip, score: savedTrip.avgScore }
@@ -421,13 +404,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
       const currentPoints = user.totalPoints ?? user.points ?? 0;
       const newTotalPoints = currentPoints + earnedPoints;
-      const newLevel = getLevelByPoints(newTotalPoints);
+      // The server resolved the level when it saved the trip — including the
+      // driver-score cap, which no amount of local arithmetic can reproduce
+      // (#37). Only fall back to a points lookup if the save never landed.
+      const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
 
-      const levelUpEvent = detectLevelUp(currentPoints, newTotalPoints);
-      if (levelUpEvent) {
-        console.log(`[Gamification] LEVEL_UP! From ${levelUpEvent.from} to ${levelUpEvent.to}`);
+      const levelChange = detectLevelChange(user.level ?? newLevel, newLevel);
+      if (levelChange) {
+        const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
+        console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
       }
-      setUserLevelState(calculateLevel(newTotalPoints));
+      setUserLevelState(levelDisplay(newLevel));
 
       const updatedUser = {
         ...user,
@@ -521,14 +508,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       //     eventCounts: { ...prev.eventCounts, SWERVE: prev.eventCounts.SWERVE + 1 },
       //   }));
       // }),
-      // Fires when the user leaves the app (Home button / task switcher) during a trip.
-      // No condition guard needed — any background transition while driving counts.
-      sdk.on(DrivingEventType.PHONE_USAGE, {}, () => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: { ...prev.eventCounts, PHONE_TOUCH: prev.eventCounts.PHONE_TOUCH + 1 },
-        }));
-      }),
+      // PHONE_USAGE has no listener here — "phone touches" for scoring/display comes
+      // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
+      // event count. See #43.
     ];
     return () => tokens.forEach(token => sdk.off(token));
   }, [sdk]);
@@ -575,7 +557,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
         setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
-        setUserLevelState(calculateLevel(freshUser.totalPoints || 0));
+        setUserLevelState(levelDisplay(freshUser.level ?? 1));
         AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
       }).catch(() => {});
     };
@@ -619,7 +601,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
-            setUserLevelState(calculateLevel(merged.totalPoints || 0));
+            setUserLevelState(levelDisplay(merged.level ?? 1));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
 
             const serverData = await tripsApi.list();
@@ -666,7 +648,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem('carma_token');
     } else {
       setUserState(u);
-      setUserLevelState(calculateLevel(u.totalPoints || 0));
+      setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
 
       // Load trips immediately on login to sync with the new user context
@@ -725,7 +707,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
-      lastTripSummary, setLastTripSummary, registerPhoneTouch,
+      lastTripSummary, setLastTripSummary,
       debugAddDistance,
       clearTripHistory,
       sdk,

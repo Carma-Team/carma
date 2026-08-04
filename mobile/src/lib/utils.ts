@@ -90,7 +90,7 @@ export function levelToIcon(level: number): string {
     'trophy-outline',           // 9 — champion
     'ribbon-outline',           // 10 — legend
   ]
-  return icons[Math.min(level - 1, icons.length - 1)]
+  return icons[Math.max(0, Math.min(level - 1, icons.length - 1))]
 }
 
 export function truncate(str: string, maxLen: number): string {

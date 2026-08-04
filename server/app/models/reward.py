@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -34,7 +34,11 @@ class Reward(Base):
     cost_points: Mapped[int] = mapped_column(Integer, nullable=False)
     image_icon: Mapped[str] = mapped_column(String(40), default="gift-outline", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Total units the business allocated to this reward — never decremented.
+    # NULL means unlimited, 0 means sold out. What is left is derived from the
+    # redemptions ledger (services/rewards.py), so a lapsed voucher releases its
+    # unit with nothing to run and no counter that can drift.
+    stock: Mapped[int | None] = mapped_column(Integer)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -44,4 +48,5 @@ class Reward(Base):
     __table_args__ = (
         Index("ix_rewards_business_active", "business_id", "is_active"),
         Index("ix_rewards_category", "category"),
+        CheckConstraint("stock IS NULL OR stock >= 0", name="ck_rewards_stock_non_negative"),
     )

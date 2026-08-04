@@ -8,6 +8,11 @@ requires-python = ">=3.11"
 line-length = 120
 target-version = "py311"
 
+[tool.ruff.format]
+# seed.py holds wide table-style demo-data rows that the formatter would
+# explode into unreadable vertical tuples — keep it hand-formatted.
+exclude = ["app/seed.py"]
+
 [tool.ruff.lint.per-file-ignores]
 "app/seed.py" = ["E501"]   # table-style data rows are easier to read wide
 "app/main.py" = ["E402"]   # configure_logging() must run before other imports
@@ -26,5 +31,9 @@ exclude = ["alembic/versions"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Every test gets its own loop; async fixtures must match, or a fixture-held
+# connection outlives the loop that opened it. Pinned rather than left to the
+# default, which pytest-asyncio is changing in a future release.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

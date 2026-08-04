@@ -150,8 +150,10 @@ export type EventCallback = (event: DrivingEvent) => void;
 export type StateChangeCallback = (isActive: boolean) => void;
 
 // ─── Fraud Detection Event ────────────────────────────────────────────────────
-// Fired by DrivingSDK.onFraudDetected; contains everything AppContext needs
-// to build the InvalidTripPayload for Sean's backend.
+// Fired by DrivingSDK.onFraudDetected when the configured TripValidator flags a
+// session as suspicious. Carries the classification and the raw telemetry behind
+// it, so the host app can decide what to do — surface it, drop the trip, or report
+// it upstream. The SDK itself takes no action beyond emitting this.
 export interface FraudDetectedEvent {
   confidence: number;       // 0–1 fraud score
   mode: TransportMode;      // classified transport mode

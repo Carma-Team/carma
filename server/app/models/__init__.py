@@ -12,7 +12,13 @@ from app.models.enums import (
 from app.models.event import Event
 from app.models.fraud import FraudReport
 from app.models.friendship import UserFriend
-from app.models.level import Level
+from app.models.notification import (
+    NOTIFICATION_FRIEND_ACCEPTED,
+    NOTIFICATION_FRIEND_REQUESTED,
+    NOTIFICATION_LEVEL_DOWN,
+    NOTIFICATION_LEVEL_UP,
+    Notification,
+)
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
 from app.models.reward import Reward
@@ -20,6 +26,10 @@ from app.models.trip import Trip
 from app.models.user import User
 
 __all__ = [
+    "NOTIFICATION_FRIEND_ACCEPTED",
+    "NOTIFICATION_FRIEND_REQUESTED",
+    "NOTIFICATION_LEVEL_DOWN",
+    "NOTIFICATION_LEVEL_UP",
     "Base",
     "Business",
     "BusinessCategory",
@@ -28,7 +38,7 @@ __all__ = [
     "FriendStatus",
     "FraudReport",
     "Language",
-    "Level",
+    "Notification",
     "OtpCode",
     "Redemption",
     "RedemptionStatus",

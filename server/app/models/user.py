@@ -44,9 +44,12 @@ class User(Base, TimestampMixin):
     total_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
-    # v2 persistent driver score (scoring-algorithm-v2.md §7). Maintained in
-    # shadow mode; not exposed by any API schema until the v2 rollout.
+    # Persistent driver score (scoring.md "The driver's own score"). Caps the
+    # level a driver is shown; no API schema exposes it yet — CAR-85.
     driver_score: Mapped[float | None] = mapped_column(Float)
+
+    # Short code behind this user's invite link. Minted on first use, then stable.
+    invite_code: Mapped[str | None] = mapped_column(String(12), unique=True)
 
     is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     drive_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

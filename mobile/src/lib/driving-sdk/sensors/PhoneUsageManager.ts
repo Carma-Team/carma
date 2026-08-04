@@ -1,5 +1,5 @@
 /**
- * @fileoverview IMU-based active interaction detector — PhoneUsageManager v1.7
+ * @fileoverview IMU-based active interaction detector — PhoneUsageManager v1.8
  * @module lib/driving-sdk/sensors/PhoneUsageManager
  *
  * @description
@@ -7,6 +7,10 @@
  * a glass-tap transient proxy. Replaces a v1.x AppState-only approach that
  * caused false positives when the host app ran in the background behind
  * navigation apps (Waze, Google Maps) with the phone mounted on the dashboard.
+ *
+ * v1.8: the discrete PHONE_USAGE event (see handleAppState/startBgTimer) is now
+ * gated on IMU variance too — a bare AppState background/inactive transition
+ * (Siri, incoming call, Control Center) no longer counts by itself.
  *
  * Two metrics emitted via onInteractionData callback:
  *   - touchEpochs              count of sharp single-sample acceleration transients
@@ -60,6 +64,9 @@ export class PhoneUsageManager {
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
   private bgTimer: ReturnType<typeof setInterval> | null = null;
+  // True while the current background stretch has already been confirmed hand-held
+  // (variance > threshold) — gates PHONE_USAGE to one emission per pickup, not per second.
+  private isHandheldInBackground = false;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
@@ -85,7 +92,7 @@ export class PhoneUsageManager {
 
     if (this.isBackground) this.startBgTimer();
 
-    console.log('[SDK-Phone] v1.7 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
+    console.log('[SDK-Phone] v1.8 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
   }
 
   public stop(): void {
@@ -96,7 +103,7 @@ export class PhoneUsageManager {
     this.accelSub = null;
     this.stopBgTimer();
     console.log(
-      '[SDK-Phone] v1.7 stopped.',
+      '[SDK-Phone] v1.8 stopped.',
       `touchEpochs=${this.touchEpochs}`,
       `screenInteractionSeconds=${this.screenInteractionSeconds}`,
     );
@@ -109,10 +116,12 @@ export class PhoneUsageManager {
   private handleAppState(nextState: AppStateStatus): void {
     if (!this.isActive) return;
 
+    // A background/inactive transition alone (Siri, incoming call, Control Center,
+    // notification shade) is not phone usage — a mounted phone triggers these too.
+    // Whether it's genuine usage is decided by IMU variance in the bg timer tick below.
     if ((nextState === 'background' || nextState === 'inactive') && !this.isBackground) {
       this.isBackground = true;
       this.startBgTimer();
-      this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
     } else if (nextState === 'active' && this.isBackground) {
       this.isBackground = false;
       this.stopBgTimer();
@@ -147,6 +156,7 @@ export class PhoneUsageManager {
 
   private startBgTimer(): void {
     this.stopBgTimer();
+    this.isHandheldInBackground = false;
     // Tick every second while backgrounded.
     // Only accumulate when IMU variance indicates the phone is hand-held.
     // Low variance (mounted phone navigating via Waze) → zero penalty.
@@ -154,10 +164,18 @@ export class PhoneUsageManager {
       if (!this.isActive || !this.isBackground) return;
       if (this.computeVariance() > HANDHELD_VARIANCE_THRESHOLD) {
         this.screenInteractionSeconds++;
+        // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
+        // IMU-confirmed signal replacing the old "any AppState change" trigger.
+        if (!this.isHandheldInBackground) {
+          this.isHandheldInBackground = true;
+          this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
+        }
         this.onInteractionData({
           touchEpochs: this.touchEpochs,
           screenInteractionSeconds: this.screenInteractionSeconds,
         });
+      } else {
+        this.isHandheldInBackground = false;
       }
     }, 1000);
   }
@@ -167,5 +185,6 @@ export class PhoneUsageManager {
       clearInterval(this.bgTimer);
       this.bgTimer = null;
     }
+    this.isHandheldInBackground = false;
   }
 }

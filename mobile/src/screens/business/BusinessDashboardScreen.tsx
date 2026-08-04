@@ -15,6 +15,7 @@ import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { LanguagePicker } from '@/components/ui/LanguagePicker';
 import { businessApi, type BusinessReward } from '@/services/api/business.api';
+import { formatStockLabel } from '@/lib/rewardStock';
 
 export default function BusinessDashboardScreen() {
   const router = useRouter();
@@ -153,7 +154,9 @@ export default function BusinessDashboardScreen() {
                       <Ionicons name={ICONS.points} size={11} color={COLORS.brandLight} style={{ marginRight: 3 }} />
                       <Text style={styles.costText}>{reward.costPoints} {t('common.points')}</Text>
                     </View>
-                    <Text style={TYPOGRAPHY.caption}>{t('business.stock')}: {reward.stock}</Text>
+                    <Text style={TYPOGRAPHY.caption}>
+                      {t('business.stock')}: {formatStockLabel(reward.stock, reward.available, t('business.stockUnlimited'))}
+                    </Text>
                     {reward.expiresAt && (
                       <Text style={TYPOGRAPHY.caption}>
                         {t('business.expires')}: {new Date(reward.expiresAt).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US')}

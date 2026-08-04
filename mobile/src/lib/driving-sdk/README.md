@@ -46,7 +46,7 @@ npx expo install react-native-maps
 | `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | Monitors `AppState` changes; emits `PHONE_USAGE` events while a trip is active |
+| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (`AppState` + accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---

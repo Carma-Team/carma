@@ -1,22 +1,38 @@
 name: CI · server
 
-# Day 1: only the cheapest job (ruff lint) runs on every PR.
-# Heavier jobs (mypy, pytest, smoke) sit behind `workflow_dispatch` and the
-# "run-full-ci" label so a flaky pipeline can't block merges before it's
-# proven stable. After ~1 green week, flip them to standard `on: pull_request`.
+# Pull requests run the full Postgres-backed suite. That was the plan from day 1
+# ("after ~1 green week, flip them to standard `on: pull_request`"), and the week
+# passed a long time ago — but the flip never happened, so every server PR was
+# green on a run that skipped every test needing a database (CAR-48).
+#
+# The old escape hatch was a "run-full-ci" label, which never worked for two
+# independent reasons: the label did not exist in the repo, and `on: pull_request`
+# without `types:` does not fire on `labeled` anyway. It is gone rather than
+# fixed — a gate nobody can operate is worse than no gate.
+#
+# develop guard (issue #25): *pushes* to develop stay cheap — `lint` plus the
+# no-database `typecheck-test-nodb`. Postgres, smoke and docker-build do not run
+# on a develop push. A PR into develop is a different matter and gets the full
+# run; that is the review gate, and develop takes merges without review.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'server/**'
       - '.github/workflows/ci-server.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'server/**'
       - '.github/workflows/ci-server.yml'
   workflow_dispatch:
+
+# One run per branch/PR. Superseded runs on develop and feature branches are
+# cancelled; main is never cancelled so every deployable commit keeps its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -40,10 +56,49 @@ jobs:
       - name: Ruff (format)
         run: ruff format --check .
 
-  # Heavier jobs — gated. To run on a PR, add the "run-full-ci" label.
-  # Manual trigger: Actions tab → "CI · server" → Run workflow.
+  # develop's push-time correctness gate (issue #25). ruff only checks how the
+  # code looks — on a develop push this is the only thing that checks whether it
+  # works, and develop takes merges without review.
+  #
+  # #25 filed mypy+pytest under "heavy", but the weight is the Postgres service,
+  # not the checks: mypy is ~5s and pytest ~15s. The DB-backed tests skip
+  # themselves via conftest when no database is reachable, so this needs no
+  # service container and no migrations.
+  #
+  # It skips a lot, and that number only grows: over 100 of the ~290 tests need
+  # Postgres, including every concurrency and migration test. So this is a smoke
+  # signal for a develop push, never a substitute for `typecheck-test` — which is
+  # why pull requests run that instead of this one.
+  typecheck-test-nodb:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Nothing listens on 5433 — the DB-backed tests skip rather than fail.
+      DATABASE_URL: postgresql+asyncpg://carma:carma_test@localhost:5433/carma_test
+      JWT_SECRET: test_secret_at_least_16_chars
+      SMS_PROVIDER: console
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: server/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Mypy
+        run: mypy app
+      - name: Pytest (no database)
+        run: pytest
+
+  # The real gate: mypy, migrations and the whole suite against a live Postgres.
+  # Runs on every pull request — this is the only job that exercises the
+  # concurrency, locking and migration tests, and reviewing those on a run that
+  # skipped them is reviewing on trust.
+  # Also on pushes to main, and on manual dispatch.
   typecheck-test:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -91,11 +146,31 @@ jobs:
           fi
           echo "Migration sanity check passed — schema is at head."
       - name: Pytest
-        run: pytest
+        run: |
+          set -o pipefail
+          pytest -rs | tee /tmp/pytest.out
+      - name: Assert nothing skipped for want of a database
+        # The bug this job exists to prevent was a green tick over tests that
+        # never ran. conftest skips rather than fails when Postgres is
+        # unreachable, so a service container that quietly failed to start would
+        # look exactly like success. Fail loudly instead.
+        run: |
+          if grep -qi "PostgreSQL not reachable" /tmp/pytest.out; then
+            echo "::error::Tests skipped because Postgres was unreachable — this job exists to run them."
+            grep -i "PostgreSQL not reachable" /tmp/pytest.out
+            exit 1
+          fi
+          echo "No database-related skips — the DB-backed tests actually ran."
 
-  # End-to-end smoke against a live server.
+  # End-to-end smoke against a live server: migrations, seed, uvicorn, smoke.sh.
+  #
+  # Manual dispatch only. The "run-full-ci" label it used to name never worked,
+  # so in practice this has always been dispatch-only and nothing changes here.
+  # Left as-is deliberately: CAR-48 is about the test suite being skipped, and
+  # widening smoke is a separate call — note it also does not run on a push to
+  # main today, which is arguably a gap worth its own issue.
   smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: typecheck-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -143,6 +218,9 @@ jobs:
         run: cat /tmp/uvicorn.log
 
   docker-build:
+    # Heavy — keep it off develop entirely (issue #25), both pushes and PRs.
+    # Runs on anything targeting main, or manual dispatch.
+    if: ${{ github.base_ref == 'main' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,15 +1,19 @@
 """Seed the database with reference data and investor-demo drivers.
 
 Usage: python -m app.seed
+       python -m app.seed --driver-scores-only   (backfill NULL driver_score, no reseed)
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete as sql_delete, select, update as sql_update
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import select
+from sqlalchemy import update as sql_update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.database import SessionLocal
@@ -17,7 +21,6 @@ from app.models import (
     Business,
     BusinessCategory,
     FriendStatus,
-    Level,
     Redemption,
     RedemptionStatus,
     Reward,
@@ -27,24 +30,9 @@ from app.models import (
     UserFriend,
     UserRole,
 )
+from app.services.rewards import VOUCHER_TTL_DAYS
 
 # ---------------------------------------------------------------------------
-# Reference data — levels
-# ---------------------------------------------------------------------------
-
-LEVELS = [
-    {"number": 1, "name_he": "מתחיל", "name_en": "Beginner", "min_points": 0, "discount_pct": 0, "bonus_multiplier": 1.0},
-    {"number": 2, "name_he": "זהיר", "name_en": "Cautious", "min_points": 500, "discount_pct": 0, "bonus_multiplier": 1.0},
-    {"number": 3, "name_he": "מרוכז", "name_en": "Focused", "min_points": 1500, "discount_pct": 5, "bonus_multiplier": 1.0},
-    {"number": 4, "name_he": "מיומן", "name_en": "Skilled", "min_points": 3500, "discount_pct": 5, "bonus_multiplier": 1.0},
-    {"number": 5, "name_he": "חד", "name_en": "Sharp", "min_points": 5500, "discount_pct": 10, "bonus_multiplier": 1.0},
-    {"number": 6, "name_he": "מומחה", "name_en": "Expert", "min_points": 12000, "discount_pct": 10, "bonus_multiplier": 1.0},
-    {"number": 7, "name_he": "אשף", "name_en": "Wizard", "min_points": 20000, "discount_pct": 15, "bonus_multiplier": 1.0},
-    {"number": 8, "name_he": "מאסטר", "name_en": "Master", "min_points": 32000, "discount_pct": 15, "bonus_multiplier": 1.0},
-    {"number": 9, "name_he": "גנרל הכביש", "name_en": "Road General", "min_points": 50000, "discount_pct": 20, "bonus_multiplier": 1.1},
-    {"number": 10, "name_he": "אגדה", "name_en": "Legend", "min_points": 75000, "discount_pct": 25, "bonus_multiplier": 1.2},
-]
-
 # ---------------------------------------------------------------------------
 # Reference data — businesses (existing + new demo partners)
 # ---------------------------------------------------------------------------
@@ -221,7 +209,7 @@ REWARDS = [
 # Investor-demo leaderboard population (Tel Aviv, all public)
 # ---------------------------------------------------------------------------
 
-LEADERBOARD_USERS = [
+LEADERBOARD_USERS: list[dict[str, Any]] = [
     # Tel Aviv
     {"email": "yoav@carma.app",   "name": "יואב לוי",    "city": "תל אביב", "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
     {"email": "noa@carma.app",    "name": "נועה שמיר",   "city": "תל אביב", "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
@@ -248,7 +236,7 @@ YONI_FRIENDS = ["yoav@carma.app", "noa@carma.app", "uri@carma.app"]
 # Columns: date_str, start_hour_utc, dur_sec, dist_km, score,
 #          hard_brakes, aggr_accels, sharp_turns, risk_mult, touch_epochs, points,
 #          start_loc, end_loc, ai_insight
-_YONI_TRIPS: list[tuple] = [
+_YONI_TRIPS: list[tuple[Any, ...]] = [
     # Phase 1 — rough start
     ("2026-05-15", 7,  1320, 10.0, 62, 4, 2, 1, 1.0, 0, 150, "כיכר המדינה",      "תל אביב - מרכז",  None),
     ("2026-05-17", 16, 1200,  8.0, 58, 5, 2, 0, 1.0, 1, 120, "תל אביב - צפון",   "יפו",              "בלימות תכופות — הגדל מרחק מהרכב לפניך."),
@@ -279,7 +267,7 @@ _YONI_TOTAL_DISTANCE = round(sum(t[3] for t in _YONI_TRIPS), 1)  # 120.2
 #   start_loc, end_loc, ai_insight
 # ---------------------------------------------------------------------------
 
-_DAN_TRIPS: list[tuple] = [
+_DAN_TRIPS: list[tuple[Any, ...]] = [
     # Phase 1 — starting out, rough driving (scores 58–70)
     ("2026-05-15", 5,  1440, 8.2,  58, 5, 3, 2, 1.0, 175, "הרצליה פיתוח",    "תל אביב - מרכז",    "בלימות קשות תכופות — נסה להגדיל מרחק מהרכב לפניך."),
     ("2026-05-16", 15, 2100, 12.1, 62, 4, 2, 1, 1.0, 275, "תל אביב - צפון",  "רמת גן",             "שיפור קטן מאתמול! עבוד על העקביות בנהיגה."),
@@ -309,17 +297,44 @@ _DAN_TOTAL_POINTS = sum(t[9] for t in _DAN_TRIPS)   # 4 540
 _DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
 
 
+async def backfill_driver_scores(db: AsyncSession) -> None:
+    """Fill driver_score (scoring.md "The driver's own score") where it is NULL.
+
+    Seeded users get their trips inserted directly, bypassing the live save path
+    that normally maintains driver_score — leaving the demo leaderboard blank.
+    v1-era trips (score_v2 NULL) contribute their avg_score. Never overwrites a
+    score the live path already computed.
+    """
+    from app.services import scoring
+
+    now = datetime.now(UTC)
+    users = (await db.scalars(select(User).where(User.driver_score.is_(None)))).all()
+    for user in users:
+        rows = (
+            await db.execute(
+                select(Trip.score_v2, Trip.avg_score, Trip.distance_km, Trip.start_time).where(
+                    Trip.user_id == user.id
+                )
+            )
+        ).all()
+        history = []
+        for score_v2, avg_score, km, start in rows:
+            score = score_v2 if score_v2 is not None else avg_score
+            if score is None:
+                continue
+            aware_start = start if start.tzinfo else start.replace(tzinfo=UTC)
+            history.append(
+                scoring.TripHistoryPoint(
+                    trip_score=score,
+                    distance_km=km or 0.0,
+                    age_days=max(0.0, (now - aware_start).total_seconds() / 86400.0),
+                )
+            )
+        user.driver_score = scoring.compute_driver_score(history)
+
+
 async def run() -> None:
     async with SessionLocal() as db:
-
-        # --- Levels ---
-        for lv in LEVELS:
-            existing = await db.scalar(select(Level).where(Level.number == lv["number"]))
-            if existing is None:
-                db.add(Level(**lv))
-            else:
-                for k, v in lv.items():
-                    setattr(existing, k, v)
 
         # --- Businesses ---
         biz_by_name: dict[str, Business] = {}
@@ -327,9 +342,9 @@ async def run() -> None:
             name = cast(str, biz["name"])
             existing_b = await db.scalar(select(Business).where(Business.name == name))
             if existing_b is None:
-                row = Business(**biz)
-                db.add(row)
-                biz_by_name[name] = row
+                new_biz = Business(**biz)
+                db.add(new_biz)
+                biz_by_name[name] = new_biz
             else:
                 for k, v in biz.items():
                     setattr(existing_b, k, v)
@@ -463,7 +478,7 @@ async def run() -> None:
         for idx, row in enumerate(_DAN_TRIPS):
             date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, pts, sloc, eloc, insight = row
             y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
-            start_time = datetime(y, mo, d, start_h, 0, tzinfo=timezone.utc)
+            start_time = datetime(y, mo, d, start_h, 0, tzinfo=UTC)
             end_time = start_time + timedelta(seconds=dur_sec)
             db.add(
                 Trip(
@@ -490,15 +505,21 @@ async def run() -> None:
         # --- Dan's redeemed voucher (Paz 50 ₪, used on May 21) ---
         paz_reward = reward_map.get(("Paz", '50 ש"ח הנחה בתדלוק'))
         if paz_reward:
-            used_at = datetime(2026, 5, 21, 9, 45, tzinfo=timezone.utc)
+            used_at = datetime(2026, 5, 21, 9, 45, tzinfo=UTC)
             db.add(
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
-                    qr_code="seed-dan-voucher-paz-01",
-                    qr_data="seed-dan-voucher-paz-01",
+                    # Real voucher format, not a descriptive slug: lookups fold
+                    # the input to upper case with separators stripped, so the
+                    # old `seed-dan-voucher-paz-01` could not be looked up at
+                    # all. Drawn from READABLE_ALPHABET too — this is the code
+                    # that gets read aloud in a demo, so it is the last place
+                    # that should contain an 0 or a 1.
+                    qr_code="SEEDPAZ234",
+                    qr_data="SEEDPAZ234",
                     status=RedemptionStatus.USED,
-                    expires_at=used_at + timedelta(minutes=5),
+                    expires_at=used_at + timedelta(days=VOUCHER_TTL_DAYS),
                     used_at=used_at,
                 )
             )
@@ -548,7 +569,7 @@ async def run() -> None:
         for idx, row in enumerate(_YONI_TRIPS):
             date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, n_te, pts, sloc, eloc, insight = row
             y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
-            t_start = datetime(y, mo, d, start_h, 0, tzinfo=timezone.utc)
+            t_start = datetime(y, mo, d, start_h, 0, tzinfo=UTC)
             t_end = t_start + timedelta(seconds=dur_sec)
             db.add(
                 Trip(
@@ -573,21 +594,55 @@ async def run() -> None:
                 )
             )
 
+        # --- Business owner login (the only way to exercise /api/business/*) ---
+        # Every seeded Business has owner_user_id=NULL, so without this there is no
+        # account that can reach the business dashboard at all. Aroma is arbitrary —
+        # it just needs one business with a real owner behind it.
+        aroma = await db.scalar(select(Business).where(Business.name == "Aroma"))
+        biz_owner = await db.scalar(select(User).where(User.email == "aroma@carma.app"))
+        if biz_owner is None:
+            biz_owner = User(
+                email="aroma@carma.app",
+                password_hash=hash_password("Aroma1234"),
+                name="ארומה תל אביב",
+                role=UserRole.BUSINESS,
+                city="תל אביב",
+            )
+            db.add(biz_owner)
+            await db.flush()
+        if aroma is not None:
+            aroma.owner_user_id = biz_owner.id
+
         # --- Yoni follows friends (Friends leaderboard) ---
         for friend_email in YONI_FRIENDS:
             friend = await db.scalar(select(User).where(User.email == friend_email))
             if friend is not None:
                 db.add(UserFriend(follower_id=yoni.id, followee_id=friend.id, status=FriendStatus.ACCEPTED))
 
+        await db.flush()
+        await backfill_driver_scores(db)
         await db.commit()
 
     print("Seed completed OK")
     print(f"  Demo login  : ofridan@gmail.com / Dan1234  (Level 4, {_DAN_TOTAL_POINTS} pts, {len(_DAN_TRIPS)} trips)")
     print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
-    print(f"  Test login  : daniel@carma.app / password123")
+    print("  Test login  : daniel@carma.app / password123")
+    print("  Business    : aroma@carma.app / Aroma1234  (owns Aroma — /api/business/rewards)")
     print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded in תל אביב")
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")
 
 
+async def run_driver_scores_only() -> None:
+    async with SessionLocal() as db:
+        await backfill_driver_scores(db)
+        await db.commit()
+    print("driver_score backfill completed OK")
+
+
 if __name__ == "__main__":
-    asyncio.run(run())
+    import sys
+
+    if "--driver-scores-only" in sys.argv:
+        asyncio.run(run_driver_scores_only())
+    else:
+        asyncio.run(run())

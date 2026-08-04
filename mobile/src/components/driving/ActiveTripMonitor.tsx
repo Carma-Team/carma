@@ -12,12 +12,12 @@ interface ActiveTripMonitorProps {
   tripState: {
     durationSeconds: number;
     distanceKm: number;
+    touchEpochs: number;
     eventCounts: {
       HARD_BRAKE: number;
       AGGRESSIVE_ACCEL: number;
       SHARP_TURN: number;
       SWERVE: number;
-      PHONE_TOUCH: number;
     };
   };
   onEnd: () => void;
@@ -33,7 +33,7 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
     { label: t('trip.aggressiveAccels'), value: tripState.eventCounts.AGGRESSIVE_ACCEL, icon: ICONS.aggressiveAccel, color: COLORS.warning },
     { label: t('trip.sharpTurns'),       value: tripState.eventCounts.SHARP_TURN,       icon: ICONS.sharpTurn,       color: COLORS.warning },
     // { label: t('trip.swerve'), value: tripState.eventCounts.SWERVE, icon: ICONS.swerve, color: COLORS.warning }, // EVT_SWERVE disabled
-    { label: t('trip.phoneTouches'),     value: tripState.eventCounts.PHONE_TOUCH,      icon: ICONS.phoneUsage,      color: COLORS.danger },
+    { label: t('trip.phoneTouches'),     value: tripState.touchEpochs,                  icon: ICONS.phoneUsage,      color: COLORS.danger },
   ];
 
   return (
