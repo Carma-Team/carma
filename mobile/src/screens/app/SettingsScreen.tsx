@@ -74,7 +74,7 @@ export default function SettingsScreen() {
       {/* Header */}
       <View style={COMMON_STYLES.screenHeader}>
         <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
-          <Ionicons name={lang === 'he' ? 'arrow-forward' : 'arrow-back'} size={28} color={COLORS.text} />
+          <Ionicons name={lang === 'HE' ? 'arrow-forward' : 'arrow-back'} size={28} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={COMMON_STYLES.screenHeaderTitle}>{t('profile.settings')}</Text>
       </View>
@@ -118,7 +118,7 @@ export default function SettingsScreen() {
                       {user.bluetoothDeviceName || t('profile.selectDevice')}
                     </Text>
                   </View>
-                  <Ionicons name={lang === 'he' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
+                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
                 </TouchableOpacity>
               )}
             </Card>
@@ -132,14 +132,14 @@ export default function SettingsScreen() {
             </View>
             <Card style={styles.settingCard}>
               <View style={styles.langRow}>
-                {(['he', 'en'] as const).map(l => (
+                {(['HE', 'EN'] as const).map(l => (
                   <TouchableOpacity
                     key={l}
                     onPress={() => setLang(l)}
                     style={[styles.langBtn, lang === l && styles.langBtnActive]}
                   >
                     <Text style={[styles.langText, lang === l && styles.langTextActive]}>
-                      {l === 'he' ? 'עברית' : 'English'}
+                      {l === 'HE' ? 'עברית' : 'English'}
                     </Text>
                   </TouchableOpacity>
                 ))}

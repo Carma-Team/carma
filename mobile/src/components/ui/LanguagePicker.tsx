@@ -6,27 +6,28 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+import type { Language } from '@/types';
 
 export interface SupportedLanguage {
-  code: string;
+  code: Language;
   label: string;
 }
 
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
-  { code: 'he', label: 'עברית' },
-  { code: 'en', label: 'English' },
+  { code: 'HE', label: 'עברית' },
+  { code: 'EN', label: 'English' },
 ];
 
 interface LanguagePickerProps {
-  lang: string;
-  onSelect: (lang: string) => void;
+  lang: Language;
+  onSelect: (lang: Language) => void;
   buttonLabel?: string;
 }
 
 export function LanguagePicker({ lang, onSelect, buttonLabel = 'שפה' }: LanguagePickerProps) {
   const [open, setOpen] = useState(false);
 
-  function handleSelect(code: string) {
+  function handleSelect(code: Language) {
     onSelect(code);
     setOpen(false);
   }

@@ -6,8 +6,11 @@ name: CI · mobile
 # tsc and ESLint run everywhere, including develop. The develop skip that used
 # to guard the 941-error toolchain break (CAR-8) is gone — CAR-8 is fixed, and
 # the skip is what let the break survive 100+ commits unnoticed. Do not add it
-# back: if these go red, fix the code. contract-check stays gated to main /
-# PR-label.
+# back: if these go red, fix the code.
+#
+# API drift no longer needs its own job. src/services/api/generated.ts is
+# committed and mobile/src/types/index.ts derives from it, so a server schema
+# change that was never regenerated shows up as a tsc failure (CAR-97).
 
 on:
   push:
@@ -68,99 +71,3 @@ jobs:
       - name: Run tests
         working-directory: ./mobile
         run: npm test --if-present -- --ci --passWithNoTests
-
-  # ── API Contract Drift Check ──────────────────────────────────────────────────
-  # Spins up the FastAPI server, regenerates mobile/src/services/api/generated.ts
-  # from the live OpenAPI schema, and fails if the output differs from what is
-  # committed.  This catches the most common integration hazard: a backend schema
-  # change (new field, renamed key, dropped endpoint) that was never propagated to
-  # the mobile TypeScript types via `npm run gen:api`.
-  #
-  # Gate: "run-full-ci" label or workflow_dispatch (matches typecheck-test on server).
-  # The job is intentionally gated so it does not block routine mobile-only PRs.
-  contract-check:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-full-ci')) }}
-    needs: install-typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}
-    services:
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: carma
-          POSTGRES_PASSWORD: carma_test
-          POSTGRES_DB: carma_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U carma"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql+asyncpg://carma:carma_test@localhost:5432/carma_test
-      JWT_SECRET: ci_contract_check_secret_16c
-      SMS_PROVIDER: console
-      ENV: test
-    steps:
-      - uses: actions/checkout@v4
-
-      # ── Server: install, migrate, start ──────────────────────────────────────
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: server/requirements.txt
-      - name: Install server deps & apply migrations
-        working-directory: ./server
-        run: |
-          pip install -r requirements.txt
-          alembic upgrade head
-      - name: Start FastAPI server (background)
-        working-directory: ./server
-        run: |
-          nohup uvicorn app.main:app --host 0.0.0.0 --port 3000 > /tmp/contract-server.log 2>&1 &
-          for i in {1..30}; do
-            curl -fsS http://localhost:3000/health/live && break || sleep 1
-          done
-
-      # ── Mobile: install, snapshot committed types, regenerate ─────────────────
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-      - name: Install mobile deps
-        run: npm ci
-      - name: Snapshot committed generated types (pre-generation baseline)
-        working-directory: ./mobile
-        run: |
-          if [ -f src/services/api/generated.ts ]; then
-            cp src/services/api/generated.ts /tmp/generated.baseline.ts
-          else
-            # No baseline committed yet — create empty so diff is total output
-            touch /tmp/generated.baseline.ts
-          fi
-      - name: Regenerate types from live OpenAPI schema
-        working-directory: ./mobile
-        # gen:api = openapi-typescript http://localhost:3000/api/openapi.json -o src/services/api/generated.ts
-        run: npm run gen:api
-
-      # ── Drift check ───────────────────────────────────────────────────────────
-      - name: Check for API contract drift
-        working-directory: ./mobile
-        run: |
-          if ! diff -q /tmp/generated.baseline.ts src/services/api/generated.ts > /dev/null 2>&1; then
-            echo "::error::API contract drift detected — server schema diverges from committed generated types."
-            echo "::error::Run 'npm run gen:api' in ./mobile and commit the updated src/services/api/generated.ts."
-            diff /tmp/generated.baseline.ts src/services/api/generated.ts || true
-            exit 1
-          fi
-          echo "✓ No API contract drift — generated types are in sync with the server schema."
-
-      - name: Server logs (on failure)
-        if: failure()
-        run: cat /tmp/contract-server.log || true

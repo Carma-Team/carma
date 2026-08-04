@@ -246,7 +246,7 @@ const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AppUser | null>(null)
-  const [lang, setLangState] = useState<Language>('he')
+  const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
@@ -378,6 +378,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
           status: 'completed',
+          // Server-only fields. This branch runs when the save never landed, so
+          // there is nothing to fill them with — the sync refreshes the row later.
+          startLocation: null,
+          endLocation: null,
+          aiInsight: null,
+          pointsCapped: false,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -572,11 +578,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           levelsApi.list().catch(() => null),
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
-        if (l === 'he' || l === 'en') setLangState(l as Language)
+        // Installs from before the language enum matched the server have 'he'/'en'
+        // on disk. Upper-casing on read migrates them; do not drop it.
+        const storedLang = l?.toUpperCase();
+        if (storedLang === 'HE' || storedLang === 'EN') setLangState(storedLang)
         if (btId) sdk.updateTargetDevice(btId)
 
         if (!serverOnline) {
-          const tr = l === 'en' ? en : he;
+          const tr = storedLang === 'EN' ? en : he;
           addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
         }
 
@@ -656,7 +665,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
-    I18nManager.forceRTL(l === 'he');
+    I18nManager.forceRTL(l === 'HE');
     await AsyncStorage.setItem('carma_lang', l);
   }, [])
 
@@ -676,7 +685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
-      const tr = lang === 'he' ? he : en;
+      const tr = lang === 'HE' ? he : en;
       addToast({
         title: tr.common.historyCleared,
         message: tr.common.historyClearedDesc,
