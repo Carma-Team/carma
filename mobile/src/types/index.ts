@@ -18,7 +18,6 @@ export interface AppUser {
   avatarUrl?: string;
   age?: number;
   city?: string;
-  country?: string;
   licenseYear?: number;
   points: number;
   totalPoints: number;

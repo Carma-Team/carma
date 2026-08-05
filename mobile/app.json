@@ -65,6 +65,14 @@
       ],
       "expo-web-browser",
       [
+        "expo-font",
+        {
+          "fonts": [
+            "../node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"
+          ]
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "CARMA uses your location to track driving safety and distance.",
