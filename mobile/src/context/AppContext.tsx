@@ -26,6 +26,7 @@ import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
 import { TripValidationManager } from '@/lib/TripValidationManager'
+import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
@@ -284,6 +285,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const finalState = { ...tripRef.current };
     if (!finalState.isActive) return null;
 
+    // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
+    // Fires here in the trip-summary flow (after the trip has actually ended), not on trip
+    // start, so it never pops up in front of a driver who is mid-drive.
+    maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
+
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary({ isTooShort: true });
       setTripState(INITIAL_TRIP_STATE);
@@ -443,7 +449,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, userLevelState, addToast]);
+  }, [user, userLevelState, addToast, lang]);
 
   useEffect(() => {
     // Fired when any trip starts (manual or BT auto-start).

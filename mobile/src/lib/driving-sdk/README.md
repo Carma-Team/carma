@@ -315,6 +315,16 @@ Staying on `Accuracy.High`. **#17 remains open** — the duplicate-tick guard be
 
 Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g. transport-mode fraud detection). It does not itself trigger any `DrivingEventType`.
 
+#### Waypoint cadence — Android background throttling — #17
+
+Live cloud data found waypoint cadence degrading badly on some devices (~6s median gaps instead of the requested 2s), which caps how much a trip can score above the driver's rolling average. Root cause: some Android OEMs (Xiaomi, Huawei, Samsung, etc.) throttle background location under Doze / battery-saver / OEM power management, regardless of the requested accuracy tier — `SensorManager`'s accuracy/interval settings alone can't override this (see #17 for the investigation, including why raising `Accuracy` to `BestForNavigation` turned out to be a no-op on Android).
+
+The only real lever is the user manually exempting the app from battery optimization in device settings — see `PowerManagement` below. **#17 remains open**; this is a mitigation (an opt-in nudge), not a fix.
+
+### Power management — `PowerManagement`
+
+`isBackgroundThrottlingRiskPlatform()` and `openAppSystemSettings()` are the only two exports: a platform check and a thin `Linking.openSettings()` wrapper. This module has no UI and no opinion on when/whether to ask the user — it exists so any consuming app can build its own nudge for the Android OEM-throttling risk above (#17) without duplicating the platform check. CARMA's own nudge — copy, "ask once" persistence, and *when* to show it — lives outside the SDK in `mobile/src/lib/BatteryOptimizationPrompt.ts`.
+
 ### Per-event cooldown
 
 After an event of a given type fires, the same type is suppressed for **500 ms**. Each type has an independent cooldown window — a `SHARP_TURN` does not suppress a concurrent `HARD_BRAKE`.
