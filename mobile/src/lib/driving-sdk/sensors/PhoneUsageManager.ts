@@ -1,5 +1,5 @@
 /**
- * @fileoverview IMU-based active interaction detector — PhoneUsageManager v1.8
+ * @fileoverview IMU-based active interaction detector — PhoneUsageManager v1.9
  * @module lib/driving-sdk/sensors/PhoneUsageManager
  *
  * @description
@@ -8,9 +8,14 @@
  * caused false positives when the host app ran in the background behind
  * navigation apps (Waze, Google Maps) with the phone mounted on the dashboard.
  *
- * v1.8: the discrete PHONE_USAGE event (see handleAppState/startBgTimer) is now
- * gated on IMU variance too — a bare AppState background/inactive transition
- * (Siri, incoming call, Control Center) no longer counts by itself.
+ * v1.8: the discrete PHONE_USAGE event was gated on IMU variance too — a bare
+ * AppState background/inactive transition (Siri, incoming call, Control Center)
+ * stopped counting by itself.
+ *
+ * v1.9: AppState is gone from this class entirely. Whether the host app is in the
+ * foreground says nothing about whether the phone is in a hand, and treating it as
+ * a gate meant a driver holding the phone while looking at the host app's own screen
+ * measured as zero. The IMU answers the only question this class asks.
  *
  * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
  * features are exposed through getMotionFeatures() alongside the acceleration variance.
@@ -28,7 +33,6 @@
  * not app-specific scoring weights. They require empirical drive-test validation
  * before production launch.
  */
-import { AppState, AppStateStatus } from 'react-native';
 import { Accelerometer } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 
@@ -89,10 +93,8 @@ export interface MotionFeatures {
 
 export class PhoneUsageManager {
   private isActive = false;
-  private isBackground = false;
   private onEvent: (event: DrivingEvent) => void;
   private onInteractionData: (data: InteractionData) => void;
-  private appStateSub: ReturnType<typeof AppState.addEventListener> | null = null;
   private accelSub: { remove: () => void } | null = null;
 
   private magnitudeWindow: number[] = [];
@@ -102,13 +104,13 @@ export class PhoneUsageManager {
   private touchEpochs = 0;
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
-  private bgTimer: ReturnType<typeof setInterval> | null = null;
+  private handheldTimer: ReturnType<typeof setInterval> | null = null;
   // Last speed the host reported. Stored and passed through untouched — no threshold
   // and no weighting here, both of which are scoring decisions outside this SDK.
   private speedKmh = 0;
-  // True while the current background stretch has already been confirmed hand-held
+  // True while the current stretch has already been confirmed hand-held
   // (variance > threshold) — gates PHONE_USAGE to one emission per pickup, not per second.
-  private isHandheldInBackground = false;
+  private isHandheldStretchOpen = false;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
@@ -126,28 +128,22 @@ export class PhoneUsageManager {
     this.magnitudeWindow = [];
     this.rotationWindow = [];
     this.speedKmh = 0;
-    this.appStateSub?.remove();
-
-    this.isBackground = AppState.currentState !== 'active';
-    this.appStateSub = AppState.addEventListener('change', (s) => this.handleAppState(s));
 
     Accelerometer.setUpdateInterval(100); // 10 Hz
     this.accelSub = Accelerometer.addListener(({ x, y, z }) => this.handleAccel(x, y, z));
 
-    if (this.isBackground) this.startBgTimer();
+    this.startHandheldTimer();
 
-    console.log('[SDK-Phone] v1.8 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
+    console.log('[SDK-Phone] v1.9 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
   }
 
   public stop(): void {
     this.isActive = false;
-    this.appStateSub?.remove();
-    this.appStateSub = null;
     this.accelSub?.remove();
     this.accelSub = null;
-    this.stopBgTimer();
+    this.stopHandheldTimer();
     console.log(
-      '[SDK-Phone] v1.8 stopped.',
+      '[SDK-Phone] v1.9 stopped.',
       `touchEpochs=${this.touchEpochs}`,
       `screenInteractionSeconds=${this.screenInteractionSeconds}`,
     );
@@ -197,21 +193,6 @@ export class PhoneUsageManager {
     };
   }
 
-  private handleAppState(nextState: AppStateStatus): void {
-    if (!this.isActive) return;
-
-    // A background/inactive transition alone (Siri, incoming call, Control Center,
-    // notification shade) is not phone usage — a mounted phone triggers these too.
-    // Whether it's genuine usage is decided by IMU variance in the bg timer tick below.
-    if ((nextState === 'background' || nextState === 'inactive') && !this.isBackground) {
-      this.isBackground = true;
-      this.startBgTimer();
-    } else if (nextState === 'active' && this.isBackground) {
-      this.isBackground = false;
-      this.stopBgTimer();
-    }
-  }
-
   private handleAccel(x: number, y: number, z: number): void {
     if (!this.isActive) return;
     const mag = Math.sqrt(x * x + y * y + z * z);
@@ -235,34 +216,33 @@ export class PhoneUsageManager {
     return window.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
   }
 
-  private startBgTimer(): void {
-    this.stopBgTimer();
-    this.isHandheldInBackground = false;
-    // Tick every second while backgrounded.
+  private startHandheldTimer(): void {
+    this.stopHandheldTimer();
+    // Tick every second for as long as this manager runs, foreground or background.
     // Only accumulate when IMU variance indicates the phone is hand-held.
     // Low variance (mounted phone navigating via Waze) → zero penalty.
-    this.bgTimer = setInterval(() => {
-      if (!this.isActive || !this.isBackground) return;
+    this.handheldTimer = setInterval(() => {
+      if (!this.isActive) return;
       if (this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD) {
         this.screenInteractionSeconds++;
         // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
         // IMU-confirmed signal replacing the old "any AppState change" trigger.
-        if (!this.isHandheldInBackground) {
-          this.isHandheldInBackground = true;
+        if (!this.isHandheldStretchOpen) {
+          this.isHandheldStretchOpen = true;
           this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
         }
         this.onInteractionData(this.getSnapshot());
       } else {
-        this.isHandheldInBackground = false;
+        this.isHandheldStretchOpen = false;
       }
     }, 1000);
   }
 
-  private stopBgTimer(): void {
-    if (this.bgTimer !== null) {
-      clearInterval(this.bgTimer);
-      this.bgTimer = null;
+  private stopHandheldTimer(): void {
+    if (this.handheldTimer !== null) {
+      clearInterval(this.handheldTimer);
+      this.handheldTimer = null;
     }
-    this.isHandheldInBackground = false;
+    this.isHandheldStretchOpen = false;
   }
 }
