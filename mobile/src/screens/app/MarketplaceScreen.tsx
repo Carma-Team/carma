@@ -37,6 +37,8 @@ export default function MarketplaceScreen() {
   const [redeeming, setRedeeming] = useState(false)
 
   const categories = [
+    // Bilingual data-record pattern (labelHe/labelEn), same as REWARD_CATEGORIES below — not a hardcoded-copy violation. See docs/i18n.md.
+    // eslint-disable-next-line no-restricted-syntax
     { key: 'all', labelHe: 'הכל', labelEn: 'All', icon: 'grid-outline' as IoniconName },
     ...REWARD_CATEGORIES.map(c => ({ ...c, icon: c.icon as IoniconName })),
   ]
