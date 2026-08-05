@@ -23,6 +23,9 @@ services:
       dockerfile: Dockerfile
     container_name: carma_api
     restart: unless-stopped
+    # The image no longer migrates on boot (see Dockerfile). One container on a
+    # laptop cannot race itself, so the convenience is worth keeping here.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000}"
     depends_on:
       db:
         condition: service_healthy

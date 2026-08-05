@@ -22,6 +22,11 @@ redeem reliably commits first and the other ordering never runs.
 Two engines rather than one, because two coroutines sharing a connection would
 queue instead of contending. Needs Postgres — two real connections is the whole
 point — and skips without it via the `db_session` fixture.
+
+**The last two tests guard a different layer (CAR-98).** The balance arithmetic
+being safe says nothing about the *daily anti-grind caps*, whose inputs are read
+from committed trips before any lock is held. Those live here rather than in
+`test_scoring.py` because what they prove is concurrency, not arithmetic.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
@@ -41,6 +47,7 @@ from app.models import Business, BusinessCategory, Redemption, Reward, Trip, Use
 from app.models.enums import UserRole
 from app.schemas.trip import SaveTripIn
 from app.services import rewards as rewards_service
+from app.services import scoring
 from app.services import trips as trips_service
 
 
@@ -281,3 +288,104 @@ async def test_a_trip_credit_cannot_erase_a_redeem_that_landed_first(db_session:
         assert await _balance(db_session, user.id) == trip.points
     finally:
         await _cleanup(db_session, user, reward)
+
+
+# ─── CAR-98: the daily anti-grind caps under concurrency ─────────────────────
+#
+# Both seed the day's history directly and leave the driver at level 1, so the
+# level bonus stays 1.0 and the only thing shaping the award is the cap.
+
+
+async def _seed_todays_trip(db: AsyncSession, user: User, *, points: int, distance_km: float) -> None:
+    """A trip already committed today — the daily total the caps are read from.
+
+    Inserted directly rather than through `save`, which would also move
+    `total_points` and with it the driver's level, and the level bonus scales
+    the award. Keeping it out means a failure can only be the cap.
+    """
+    db.add(
+        Trip(
+            user_id=user.id,
+            start_time=datetime.now(UTC),
+            duration_seconds=1200,
+            distance_km=distance_km,
+            avg_score=85.0,
+            score_v2=85.0,
+            points=points,
+        )
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_saves_cannot_exceed_the_daily_points_cap(db_session: AsyncSession) -> None:
+    """A driver near the daily cap fires two saves at once. They share the remainder.
+
+    Without the lock both read the same `points_today`, both compute the same
+    headroom, and both award it in full — the day ends over the cap by exactly
+    the number of racers minus one. This is the bypass CAR-98 describes.
+    """
+    headroom = 5
+    cap = int(scoring.CONFIG.daily_points_cap)
+    user = await _make_driver(db_session, points=0)
+    try:
+        await _seed_todays_trip(db_session, user, points=cap - headroom, distance_km=5.0)
+
+        async with _rival_session() as rival_db:
+            rival_user = await rival_db.get(User, user.id)
+            assert rival_user is not None
+
+            first, second = await asyncio.gather(
+                trips_service.save(db_session, user, _scoring_trip(), idempotency_key=uuid.uuid4().hex),
+                trips_service.save(rival_db, rival_user, _scoring_trip(), idempotency_key=uuid.uuid4().hex),
+            )
+
+        # Setup precondition: an uncapped trip here is worth far more than the
+        # headroom, so whatever lands must have been cut down by the cap.
+        assert headroom < 50, "the headroom must be small enough that the cap, not the score, is what binds"
+
+        awarded_today = await db_session.scalar(
+            select(func.coalesce(func.sum(Trip.points), 0)).where(Trip.user_id == user.id)
+        )
+        assert awarded_today <= cap, f"the day totalled {awarded_today} against a cap of {cap}"
+
+        # Sharper than the sum alone: it pins *how* the cap held. One racer takes
+        # the remainder, the other arrives to none left. A sum that passed with
+        # both racers awarded 2 or 3 would be the bug rounding in our favour.
+        assert sorted((first.points, second.points)) == [0, headroom]
+        assert first.points_capped and second.points_capped, "both saves were cut by the cap and must say so"
+    finally:
+        await _cleanup(db_session, user)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_saves_cannot_exceed_the_daily_distance_cap(db_session: AsyncSession) -> None:
+    """The same read, the other cap: distance counted toward points.
+
+    Seeded just under the distance cap with no points spent, so the points cap
+    has room and only the distance limit can bite. With the kilometres used up,
+    the second racer's trip earns nothing however clean it was.
+    """
+    user = await _make_driver(db_session, points=0)
+    try:
+        await _seed_todays_trip(
+            db_session,
+            user,
+            points=0,
+            distance_km=scoring.CONFIG.daily_distance_cap_km - 1.0,
+        )
+
+        async with _rival_session() as rival_db:
+            rival_user = await rival_db.get(User, user.id)
+            assert rival_user is not None
+
+            first, second = await asyncio.gather(
+                trips_service.save(db_session, user, _scoring_trip(), idempotency_key=uuid.uuid4().hex),
+                trips_service.save(rival_db, rival_user, _scoring_trip(), idempotency_key=uuid.uuid4().hex),
+            )
+
+        earned = sorted((first.points, second.points))
+        assert earned[0] == 0, "the racer that arrives second finds no kilometres left"
+        assert earned[1] > 0, "the racer that arrives first must still be paid for the last kilometre"
+    finally:
+        await _cleanup(db_session, user)

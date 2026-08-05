@@ -886,7 +886,7 @@ Baseline
 
 ### 8.1 Formula Contract
 
-The scoring formula is a deliberate design choice locked by the CTO. It must not be
+The scoring formula is a deliberate design choice locked by Dan. It must not be
 altered on either side without a versioned RFC amendment.
 
 ```

@@ -176,7 +176,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 | `Event` | An anomalous event in a trip (brake, turn, etc.) + JSONB sensor data. | 5.3.1.6 |
 | `Business` | A business (Marketplace) with location. | 5.3.1.4 |
 | `Reward` | A specific reward at a business. | 5.3.1.3 |
-| `Redemption` | Redemption of a reward — QR + status + 5-min validity (spec 5.2.5). | 5.3.1.5 |
+| `Redemption` | Redemption of a reward — QR + status + validity window (`VOUCHER_TTL_DAYS`). | 5.3.1.5 |
 
 ### Key fields on `User`
 
@@ -227,7 +227,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 | `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Enforces lockout after 5 failed OTPs. |
 | `routers/users.py` | `services/users.py` | `/users/me` profile + location + GDPR delete + `/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
-| `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, 5-min validity), my vouchers. |
+| `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, valid for `VOUCHER_TTL_DAYS`), my vouchers. |
 | `routers/leaderboard.py` | `services/leaderboard.py` | national/city/friends, sorted by `total_points`. |
 | `routers/friends.py` | `services/friends.py` | Friend requests, unfriending, blocks. Owns every write to `user_friends`. |
 | `routers/notifications.py` | — | Stub. Returns an empty list until a model is added. |
@@ -367,7 +367,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/rewards?category=fuel\|food\|eco\|entertainment\|shopping` | Active rewards + the user's vouchers |
-| POST | `/api/rewards/{id}/redeem` | Redeem — debits points, issues 5-minute QR |
+| POST | `/api/rewards/{id}/redeem` | Redeem — debits points, issues a QR valid for `VOUCHER_TTL_DAYS` |
 | GET | `/api/vouchers` | My vouchers |
 
 ### Leaderboard
@@ -800,12 +800,12 @@ ContainerAppConsoleLogs_CL
 | 4.3.5 Scoring + gamification | Score + points | `Trip.avg_score`, `Trip.points`, `User.points` / `total_points` |
 | 4.3.5.3 Roadmap 10 levels | Levels table | `Level` model + `app/seed.py` |
 | 4.3.6 Marketplace | Catalog + QR | `services/rewards.py` |
-| 4.3.6.2 One-time QR | Expires in 5 min | `VOUCHER_TTL_MINUTES = 5` |
+| 4.3.6.2 One-time QR | Single use; expires after `VOUCHER_TTL_DAYS` | `consume_voucher` + `VOUCHER_TTL_DAYS` |
 | 4.4.4 Points accumulation | Updated on sync | `services/trips.py::save` |
 | 4.5 / 5.2.3 GDPR | Self-deletion | `DELETE /api/users/me` |
 | **5.2.1 TLS 1.3** | All traffic | Azure Container Apps ingress |
-| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` |
-| **5.2.5 QR 5-min validity** | Expiry | `Redemption.expires_at` + `VOUCHER_TTL_MINUTES` |
+| **5.2.4 Attempt limiting** | 5 fails → 15 min | `services/auth.py::_record_failure` — locks at 10, see below |
+| **5.2.5 QR validity** | Expiry — `VOUCHER_TTL_DAYS`, not 5 min (see below) | `Redemption.expires_at` + `VOUCHER_TTL_DAYS` |
 | **5.3 Data entities** | All spec tables | `app/models/` |
 
 ### Not 1:1 to spec — deliberate
@@ -813,6 +813,8 @@ ContainerAppConsoleLogs_CL
 - **Field naming:** spec uses e.g. `cost_points`, models use Python `cost_points`, wire format is `costPoints` (camelCase). Both styles are accepted on input for `trips`.
 - **Email-based auth:** spec only covers phone. We added email+password because the mobile frontend was already wired for it. Both paths are active.
 - **Friendships:** spec doesn't define a friends table. We use `user_friends` — one row per mutual friendship, requester → recipient, with a `pending`/`accepted`/`blocked` status.
+- **Voucher validity — days, not the 5 minutes in spec 4.3.6.2 / 5.2.5.** The window itself is `VOUCHER_TTL_DAYS` in `services/rewards.py`; it is tuned there and nowhere else. The spec conflates two clocks the industry keeps apart: how long the driver's claim on the reward lasts, and how long a displayed code is accepted. Its anti-fraud goal is met by `consume_voucher`, which only ever flips a voucher out of `PENDING` — a shared or screenshotted code is worthless once it has been used, whatever the expiry says. Attaching the short clock to the claim instead cost drivers points they had already paid: nothing refunds an expired voucher (CAR-24). Bounded rather than open-ended because an unredeemed voucher holds a unit of the business's stock for its whole life.
+- **Lockout after 10 failed attempts, not the 5 in spec 5.2.4.** NIST SP 800-63B §5.2.2 sets 10 as the floor, and locking at 5 put a user who mistyped into a lockout about twice as often as the standard contemplates. The 15-minute lockout itself is unchanged. The remaining gap to NIST is that failures are counted per account only, not also per source — CAR-51.
 
 ---
 

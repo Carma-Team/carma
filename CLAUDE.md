@@ -8,9 +8,9 @@ This repository is a clean npm-workspaces Monorepo containing the React Native m
 
 ## Core Team Roles
 
-- **Dan (CTO & CPO):** Core AI/ML scoring formula, CARMA Score algorithm, development roadmap prioritization, and anti-fraud mechanics.
-- **Naveh (Chief Architect & Data Engineer):** Database architecture, cache layers, data pipelines, and Monorepo structure integrity.
-- **Shaun (CEO & Backend Developer):** Business logic API endpoints, cloud infrastructure (Azure), and third-party integrations.
+- **Dan (CPO):** Core AI/ML scoring formula, CARMA Score algorithm, development roadmap prioritization, anti-fraud mechanics, and application security (auth, rate limits, trip signing, abuse prevention).
+- **Naveh (CTO):** Database architecture, cache layers, data pipelines, Monorepo structure integrity, cloud infrastructure and deployment, CI gating, and infrastructure security (secrets, network exposure, access control).
+- **Shaun (CEO):** Business logic API endpoints and third-party integrations.
 - **May (Mobile & Frontend UI Lead):** Mobile application screens, UI components and styling, **Driving SDK — IMU/GPS/BLE sensor integration**, battery consumption management, and client-side interactions.
 
 ---
@@ -98,6 +98,14 @@ Starts Docker, Postgres, FastAPI on :3000, Metro bundler, and Android emulator i
 
 The rule: `develop` is the buffer that protects `main`. Keep it green.
 
+**The author merges, not the reviewer.** A review ends with an approval and nothing else. The author presses merge.
+
+Why: the author is the only one who knows what else is in flight — which branch has to land first, what needs a sync, whether a sibling PR is waiting on this one. A reviewer merging on their behalf guesses at that, and every merge becomes a round trip through one person. Neither branch is protected, so this is a convention, not a gate — which is exactly why it has to be written down.
+
+Two things follow from it:
+- **Approve means "this is yours to land."** If it is not ready to merge, that is Request Changes, not Approve.
+- **Do not merge over a red check without saying why.** If the failing check is a known-broken one, name it in the PR before merging. The first person to do it silently teaches everyone that red is negotiable.
+
 ---
 
 ## Issue Tracking — Linear only
@@ -114,6 +122,8 @@ That asymmetry is the whole problem, and the whole fix.
 **Do not bulk-close the old GitHub issues.** Status syncs both ways, so closing them there marks their Linear twins Done and wipes the board. The 42 pre-existing pairs stay open on both sides and age out naturally.
 
 **GitHub Issues stays switched on, deliberately.** Turning the feature off hides the Issues tab, and with it the ~150 `#NN` references in this codebase, 83 more in commit messages, and 15 in PR descriptions — git history cannot be edited, so those break for good. The rule above already prevents new duplicates, because the sync only auto-creates in one direction.
+
+**Search Linear before opening an issue.** `contract-check` was filed three times in five days and the open Postgres firewall twice — every one of them by us, none of them caught. Ten seconds of searching beats a triage pass later.
 
 **Linking a PR to its issue:** put the `CAR-` id in the branch name or the PR title (`ofridan/car-39-...`). Linear advances the issue on its own — no manual status updates.
 
@@ -137,6 +147,20 @@ The one exception is a **decision record** — `RFC-001`, and any ADR we add. Th
 
 **Deleting a stale document is correct.** Git keeps it (`git log --follow`, `git show <sha>:<path>`). A folder of retired documents duplicates version control and reads as current to anyone who does not check the date.
 
+### Comments in code
+
+**Write why, not what.** There is no target ratio and there never was one — a comment earns its place when it explains a choice a reader cannot see from the code, and only then. Three ways to get it wrong, each of them ours:
+
+- **Restating the ticket.** A `CAR-` id carries the whole ticket. Seven lines re-telling an exploit above a one-line fix will go stale while the ticket stays current.
+- **A justification that outlived the code.** A wrong comment is worse than no comment. When you change what a comment explains, the comment is part of the change.
+- **A comment covering for a bad name.** If it explains *what* the line does, rename the thing instead.
+
+Always worth keeping: why this and not the obvious alternative, what a future reader will want to delete and must not, and any number nobody can re-derive — a threshold, a benchmark, an exchange rate.
+
+**The reasoning belongs in the commit message, not beside the code.** Our commit bodies run about 14 lines and that is deliberate: git history is permanent and cannot drift out of sync with anything, while a comment sits next to code that moves. Explain the decision once, in the commit. Leave behind only the trap.
+
+For PR descriptions, reviews and issue comments, see Communication Style below — same idea, with a 300-word ceiling.
+
 ---
 
 ## Engineering Rules
@@ -158,7 +182,7 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 
 ### Dan's Developer Persona (Active when user is Dan)
 
-1. **Full CTO Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
+1. **Full Founder Autonomy:** You hold complete executive authority to read, write, modify files, and execute deployment/git workflows autonomously.
 2. **One-Shot Execution:** Do not halt tasks to request micro-confirmations or generate abstract implementation plans unless extreme ambiguity is present.
 3. **Guardrails Action:** If local test suites pass successfully, you are authorized to auto-commit and merge local feature branches. Do NOT force-push directly to remote `main` if shared team history is modified without direct user input.
 4. **Always check the industry standard.** For any substantive question — a product decision, an architectural choice, a scoring threshold, a disagreement over approach in a PR — search for how the telematics industry already solves it and present that alongside your recommendation. Do this unprompted. Search for real; do not rely on recall. Name the players (CMT, DriveKit/DriveQuant, Damoov, Zendrive, Sentiance, LETSTOP) and give concrete numbers where they exist. If there genuinely is no standard, say so plainly rather than hedging. When the finding is useful to the team, put it in the GitHub comment too — not only in chat.

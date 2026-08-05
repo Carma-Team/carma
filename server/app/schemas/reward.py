@@ -21,11 +21,16 @@ class RewardOut(CamelModel):
     cost_points: int
     image_icon: str
     is_active: bool
-    stock: int
+    # stock is the total the business allocated; available is what is left of it
+    # right now. Both use None for "unlimited". `available` is passed in rather
+    # than read off the model because it is derived from the redemptions ledger,
+    # not stored — every caller has to decide how to count it.
+    stock: int | None
+    available: int | None
     expires_at: datetime | None
 
     @classmethod
-    def from_orm_reward(cls, reward: Any) -> RewardOut:
+    def from_orm_reward(cls, reward: Any, available: int | None) -> RewardOut:
         return cls.model_validate(
             {
                 "id": reward.id,
@@ -41,6 +46,7 @@ class RewardOut(CamelModel):
                 "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
                 "stock": reward.stock,
+                "available": available,
                 "expires_at": reward.expires_at,
             }
         )
@@ -60,7 +66,7 @@ class VoucherOut(CamelModel):
     reward: RewardOut
 
     @classmethod
-    def from_orm_redemption(cls, r: Any) -> VoucherOut:
+    def from_orm_redemption(cls, r: Any, available: int | None) -> VoucherOut:
         return cls.model_validate(
             {
                 "id": r.id,
@@ -73,7 +79,7 @@ class VoucherOut(CamelModel):
                 "expires_at": r.expires_at,
                 "redeemed_at": r.used_at,
                 "created_at": r.created_at,
-                "reward": RewardOut.from_orm_reward(r.reward),
+                "reward": RewardOut.from_orm_reward(r.reward, available),
             }
         )
 
@@ -94,7 +100,10 @@ class BusinessRewardIn(CamelModel):
     cost_points: int = Field(ge=1)
     image_icon: str = Field(default="gift-outline", max_length=40)
     is_active: bool = True
-    stock: int = Field(default=0, ge=0)
+    # Omitted means unlimited. It defaulted to 0 before stock was enforced, which
+    # under the new meaning would make every reward created without an explicit
+    # stock born sold out.
+    stock: int | None = Field(default=None, ge=0)
     expires_at: datetime | None = None
 
 

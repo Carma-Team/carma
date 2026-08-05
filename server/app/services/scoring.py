@@ -79,7 +79,21 @@ class ScoringConfig:
     # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
-    daily_points_cap: float = 300.0
+    # Two ceilings, two jobs — and only one of them is about money.
+    #
+    # The month is the economic ceiling: what the catalogue will pay one driver.
+    # At roughly ₪0.10 a point, 3,000 is ~₪300 a month, level with Discovery's
+    # Vitality Drive. Both it and LETSTOP publish a monthly figure and no daily
+    # one. Recalibrate against real redemption volume, not taste.
+    #
+    # The day is a rate limiter against exploitation, so it belongs *above* the
+    # honest maximum, not below it: at 500 the only thing it clips is 150 km at
+    # night at the top of the ladder, while still forcing six days to drain a
+    # month. It was briefly set to 150, which clipped an ordinary weekday
+    # commute at level 10 — a daily cap that a real driver can feel is priced as
+    # an economic ceiling, and that job is the month's.
+    daily_points_cap: float = 500.0
+    rolling_month_points_cap: float = 3_000.0
     daily_distance_cap_km: float = 150.0
 
 
@@ -266,7 +280,9 @@ def compute_points(
     distance_km: float,
     risk_multiplier: float,
     streak_days: int = 0,
+    level_multiplier: float = 1.0,
     points_today: float = 0.0,
+    points_month: float = 0.0,
     distance_today_km: float = 0.0,
     fraud_flagged: bool = False,
     config: ScoringConfig = CONFIG,
@@ -276,6 +292,10 @@ def compute_points(
     Fraud-flagged trips earn nothing and are excluded from the driver window by
     the caller. Distance counted toward points is capped per day, and the daily
     points total is capped, so commercial drivers can't farm the economy.
+
+    The level bonus is one of the multipliers here rather than something the
+    caller applies afterwards, so the daily cap lands on the final figure. A cap
+    a level-10 account could double would be exactly the account worth grinding.
     """
     if fraud_flagged:
         return 0.0
@@ -286,8 +306,15 @@ def compute_points(
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = trip_score * distance_factor * risk_multiplier * streak_bonus
+    points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
 
-    # Daily points cap.
-    remaining_points = max(0.0, config.daily_points_cap - max(0.0, points_today))
-    return round(min(points, remaining_points) * 10) / 10
+    # Whichever ceiling is nearer. Applied last, so the level bonus changes how
+    # fast a driver reaches a ceiling, never where it sits.
+    #
+    # The month is rolling rather than calendar: a reset date is a farming date,
+    # and the trip history the caller already loaded spans 30 days either way.
+    remaining = min(
+        config.daily_points_cap - max(0.0, points_today),
+        config.rolling_month_points_cap - max(0.0, points_month),
+    )
+    return round(min(points, max(0.0, remaining)) * 10) / 10
