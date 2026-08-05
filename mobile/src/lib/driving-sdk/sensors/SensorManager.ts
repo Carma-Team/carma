@@ -26,7 +26,9 @@
  * m/s², a cleaner signal than raw phone accelerometer) and are not directly
  * comparable to those g-values.
  *
- * - Gyroscope (raw z): fraud-detection telemetry only.
+ * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz gyroscope stream
+ *   is also offered to an optional `onGyroSample` consumer, so nothing else has to
+ *   subscribe to a sensor this class already keeps powered.
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
@@ -132,6 +134,11 @@ export class SensorManager {
   // private swerveStartTime:  number | null = null;
 
   private onEvent: (event: DrivingEvent) => void;
+  // Raw 10 Hz gyroscope tap. Exists so a second consumer can read rotation without
+  // opening its own Gyroscope subscription — the sensor is already powered here, and
+  // the onUpdate bundle below only carries gyroZ at GPS rate (~2 s), far too coarse
+  // for anything sampling motion.
+  private onGyroSample?: (sample: { x: number; y: number; z: number }) => void;
   private onUpdate: (data: {
     distanceKm: number; currentSpeed: number; timeDeltaS: number;
     accelX: number; gyroZ: number;
@@ -146,10 +153,12 @@ export class SensorManager {
       lat?: number; lng?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
+    onGyroSample?: (sample: { x: number; y: number; z: number }) => void,
   ) {
     this.onEvent = onEvent;
     this.onUpdate = onUpdate;
     this.thresholds = { ...DEFAULT_MOTION_THRESHOLDS, ...thresholds };
+    this.onGyroSample = onGyroSample;
   }
 
   public async start() {
@@ -222,7 +231,10 @@ export class SensorManager {
       const gyroAvailable = await Gyroscope.isAvailableAsync();
       if (gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
-        this.gyroSub = Gyroscope.addListener(data => { this.latestGyroZ = data.z; });
+        this.gyroSub = Gyroscope.addListener(data => {
+          this.latestGyroZ = data.z;
+          this.onGyroSample?.(data);
+        });
       }
     } catch (err) {
       console.error('[SensorManager] Error starting sensors:', err);

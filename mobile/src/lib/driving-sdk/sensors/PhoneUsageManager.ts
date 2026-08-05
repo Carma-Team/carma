@@ -12,6 +12,10 @@
  * gated on IMU variance too — a bare AppState background/inactive transition
  * (Siri, incoming call, Control Center) no longer counts by itself.
  *
+ * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
+ * features are exposed through getMotionFeatures() alongside the acceleration variance.
+ * They are descriptive only — the hand-held decision here is unchanged.
+ *
  * Two metrics emitted via onInteractionData callback:
  *   - touchEpochs              count of sharp single-sample acceleration transients
  *                               (glass-tap proxy; also fires on foreground touch events)
@@ -51,6 +55,26 @@ export interface InteractionData {
   screenInteractionSeconds: number;
 }
 
+/**
+ * Raw motion features behind the hand-held decision, over the same 1-second window.
+ * Exposed for calibration and for classifiers that need more than acceleration
+ * variance — a hand stabilises orientation, a phone loose on a seat tumbles, and
+ * only the rotational terms separate those two.
+ *
+ * Descriptive only: nothing here is interpreted, and the hand-held decision below
+ * still reads `accelVariance` alone.
+ */
+export interface MotionFeatures {
+  /** Variance of total acceleration magnitude (g²). */
+  accelVariance: number;
+  /** Mean angular speed over the window (rad/s). */
+  rotationRateMean: number;
+  /** Variance of angular speed over the window ((rad/s)²). */
+  rotationVariance: number;
+  /** Samples backing the rotational terms — 0 when the device has no gyroscope. */
+  rotationSampleCount: number;
+}
+
 export class PhoneUsageManager {
   private isActive = false;
   private isBackground = false;
@@ -60,6 +84,9 @@ export class PhoneUsageManager {
   private accelSub: { remove: () => void } | null = null;
 
   private magnitudeWindow: number[] = [];
+  // Angular-speed window, same span as magnitudeWindow so both features describe the
+  // same second. Fed by pushGyroSample() rather than a subscription of its own.
+  private rotationWindow: number[] = [];
   private touchEpochs = 0;
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
@@ -82,6 +109,7 @@ export class PhoneUsageManager {
     this.screenInteractionSeconds = 0;
     this.lastEpochMs = 0;
     this.magnitudeWindow = [];
+    this.rotationWindow = [];
     this.appStateSub?.remove();
 
     this.isBackground = AppState.currentState !== 'active';
@@ -111,6 +139,32 @@ export class PhoneUsageManager {
 
   public getSnapshot(): InteractionData {
     return { touchEpochs: this.touchEpochs, screenInteractionSeconds: this.screenInteractionSeconds };
+  }
+
+  /**
+   * Feed one gyroscope sample (rad/s per axis). Expected at the accelerometer's
+   * 10 Hz so both windows cover the same second.
+   *
+   * Push-based on purpose: the host is expected to already have the gyroscope
+   * subscribed for other detection, and a second subscription would spend battery
+   * on a sensor that is running anyway. Not calling this is supported — the
+   * rotational features simply stay empty.
+   */
+  public pushGyroSample(x: number, y: number, z: number): void {
+    if (!this.isActive) return;
+    this.rotationWindow.push(Math.sqrt(x * x + y * y + z * z));
+    if (this.rotationWindow.length > VARIANCE_WINDOW_SIZE) this.rotationWindow.shift();
+  }
+
+  /** Current window's raw motion features. See {@link MotionFeatures}. */
+  public getMotionFeatures(): MotionFeatures {
+    const n = this.rotationWindow.length;
+    return {
+      accelVariance: this.computeVariance(this.magnitudeWindow),
+      rotationRateMean: n === 0 ? 0 : this.rotationWindow.reduce((s, v) => s + v, 0) / n,
+      rotationVariance: this.computeVariance(this.rotationWindow),
+      rotationSampleCount: n,
+    };
   }
 
   private handleAppState(nextState: AppStateStatus): void {
@@ -147,11 +201,11 @@ export class PhoneUsageManager {
     }
   }
 
-  private computeVariance(): number {
-    const n = this.magnitudeWindow.length;
+  private computeVariance(window: number[]): number {
+    const n = window.length;
     if (n < 2) return 0;
-    const mean = this.magnitudeWindow.reduce((s, v) => s + v, 0) / n;
-    return this.magnitudeWindow.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+    const mean = window.reduce((s, v) => s + v, 0) / n;
+    return window.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
   }
 
   private startBgTimer(): void {
@@ -162,7 +216,7 @@ export class PhoneUsageManager {
     // Low variance (mounted phone navigating via Waze) → zero penalty.
     this.bgTimer = setInterval(() => {
       if (!this.isActive || !this.isBackground) return;
-      if (this.computeVariance() > HANDHELD_VARIANCE_THRESHOLD) {
+      if (this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD) {
         this.screenInteractionSeconds++;
         // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
         // IMU-confirmed signal replacing the old "any AppState change" trigger.

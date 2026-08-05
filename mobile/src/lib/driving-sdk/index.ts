@@ -117,6 +117,9 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
+      // Share SensorManager's gyroscope rather than letting PhoneUsageManager open a
+      // second subscription to the same sensor.
+      ({ x, y, z }) => this.phoneManager.pushGyroSample(x, y, z),
     );
 
     this.phoneManager = new PhoneUsageManager(
