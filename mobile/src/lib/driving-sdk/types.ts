@@ -41,6 +41,9 @@ export interface DrivingEvent {
     latitude: number;
     longitude: number;
   };
+  // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
+  peakG?: number;      // gravity-removed peak horizontal g-force, the value already compared against the detection threshold
+  durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 
 /**
@@ -63,11 +66,61 @@ export type SensorEventHandler = (event: DrivingEvent) => void;
  */
 export type ListenerToken = symbol;
 
+// Magnitude (m/s²) a GPS+IMU sample must cross to be flagged as that event type.
+// See sensors/SensorManager.ts DEFAULT_MOTION_THRESHOLDS for the out-of-the-box
+// values and the reasoning behind them.
+export interface MotionThresholds {
+  brakeThresholdMs2: number; // deceleration that triggers HARD_BRAKE
+  accelThresholdMs2: number; // acceleration that triggers AGGRESSIVE_ACCEL
+  turnThresholdMs2: number;  // lateral accel that triggers SHARP_TURN
+}
+
+// ─── Pluggable trip validation ─────────────────────────────────────────────────
+// DrivingSDK ships with a trivial default (confirms/ends trips immediately, never
+// flags anything as suspicious). Apps that need "wait N seconds of sustained
+// movement before it counts as a trip", or transport-mode fraud detection, supply
+// their own TripValidator via SDKConfig.tripValidator instead of editing the SDK.
+
+/**
+ * Result of a TripValidator's suspicious-activity check (e.g. transport-mode
+ * fraud detection). Deliberately minimal — a validator's own evaluation type may
+ * carry extra fields; only these are read by DrivingSDK.
+ */
+export interface SuspiciousActivityEvaluation {
+  score: number;
+  mode: TransportMode;
+  telemetry: {
+    avgSpeedKmh: number;
+    maxLateralAccelG: number;
+    yawVariance: number;
+  };
+}
+
+/**
+ * Decides when a trip actually "starts" (vs. GPS noise or a stationary Bluetooth
+ * connection) and "ends" (vs. a red light), and can flag a session as suspicious
+ * before it's confirmed. Inject a custom implementation via SDKConfig.tripValidator;
+ * omit it to use DrivingSDK's built-in DefaultTripValidator.
+ */
+export interface TripValidator {
+  start(): void;
+  stop(): void;
+  updateSample(sample: ValidationSample): void;
+  onTripConfirmed?: () => void;
+  onTripEnded?: () => void;
+  onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+}
+
 export interface SDKConfig {
   autoStartOnBluetooth?: boolean;
   targetBluetoothId?: string | null;
   sensorUpdateInterval?: number; // ms
   scoringEnabled?: boolean;
+  // Overrides the SDK's default motion-event sensitivity. Any field omitted falls
+  // back to DEFAULT_MOTION_THRESHOLDS — most consumers never need to set this.
+  motionThresholds?: Partial<MotionThresholds>;
+  // Custom trip-start/trip-end/fraud rules. Omit to use DefaultTripValidator.
+  tripValidator?: TripValidator;
 }
 
 export interface RouteWaypoint {

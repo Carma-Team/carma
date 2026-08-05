@@ -16,19 +16,19 @@
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
-import { TripValidationManager } from '@/lib/TripValidationManager';
+import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
   SensorEventCondition, SensorEventHandler, ListenerToken,
+  TripValidator, SuspiciousActivityEvaluation,
 } from '@/lib/driving-sdk/types';
-import type { FraudEvaluation } from '@/lib/FraudDetector';
 
 export class DrivingSDK {
   private config: SDKConfig;
   private btManager: BluetoothManager;
   private sensorManager: SensorManager;
   private phoneManager: PhoneUsageManager;
-  private validationManager: TripValidationManager;
+  private validationManager: TripValidator;
 
   private isTripActive: boolean = false;
   private isValidating: boolean = false;
@@ -115,7 +115,8 @@ export class DrivingSDK {
 
     this.sensorManager = new SensorManager(
       (event) => this.handleEvent(event),
-      (update) => this.handleSensorUpdate(update)
+      (update) => this.handleSensorUpdate(update),
+      config.motionThresholds,
     );
 
     this.phoneManager = new PhoneUsageManager(
@@ -123,7 +124,7 @@ export class DrivingSDK {
       (data) => this.handleInteractionData(data),
     );
 
-    this.validationManager = new TripValidationManager();
+    this.validationManager = config.tripValidator ?? new DefaultTripValidator();
     this.validationManager.onTripConfirmed = () => {
       this.isValidating = false;
       this.startTrip();
@@ -180,6 +181,13 @@ export class DrivingSDK {
 
   public async startTrip(): Promise<string> {
     if (this.isTripActive) return 'ALREADY_ACTIVE';
+    // Set before validationManager.start() below: a TripValidator (e.g.
+    // DefaultTripValidator) may call onTripConfirmed synchronously from within
+    // start(), which re-enters startTrip() while it's still on the stack. This
+    // guard must already read true at that point, or the re-entrant call runs
+    // the whole method again — duplicate currentTripData, duplicate onTripStart,
+    // and a leaked setInterval (stopTrip only ever clears the last one).
+    this.isTripActive = true;
 
     // Manual trip start: BT-triggered trips already started the validator in handleBluetoothConnect.
     // Without this, users on trains who start manually bypass fraud detection entirely (D-FRAUD-3).
@@ -191,7 +199,6 @@ export class DrivingSDK {
       this.validationManager.start();
     }
 
-    this.isTripActive = true;
     this.lastEventTime = {};
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
@@ -251,7 +258,7 @@ export class DrivingSDK {
 
   // --- Fraud Handling ---
 
-  private handleFraud(evaluation: FraudEvaluation): void {
+  private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
     this.isValidating = false;
 

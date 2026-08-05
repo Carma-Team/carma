@@ -1,7 +1,7 @@
 import type { TranslationMap } from './he'
 
 const en: TranslationMap = {
-  app:   { name: 'CARMA', tagline: 'Drive smart. Earn rewards.' },
+  app:   { name: 'CARMA', tagline: 'Drive safely. Earn rewards.' },
   nav: {
     dashboard: 'Home', trip: 'Trip', roadmap: 'Roadmap',
     marketplace: 'Store', leaderboard: 'Rank', profile: 'Profile',
@@ -32,6 +32,7 @@ const en: TranslationMap = {
     active: 'Active Trip', start: 'Start Trip', end: 'End Trip',
     activeTrip: 'Active Trip', endBtn: 'End Trip',
     endTripConfirm: 'End Trip', endTripMessage: 'Are you sure you want to end the current trip?',
+    calculatingScore: 'Calculating your score…', calculatingScoreDesc: 'This can take a few seconds',
     eventsDetected: 'Events Detected', safetyTip: 'Smooth driving without sudden braking improves your score!',
     duration: 'Duration', distance: 'Distance', score: 'Score', events: 'Events',
     hardBrakes: 'Harsh Braking', aggressiveAccels: 'Aggressive Acceleration',
@@ -48,6 +49,7 @@ const en: TranslationMap = {
     finalScore: 'Final Score',
     km: 'km',
     points: 'points',
+    pointsCapped: "You've reached your points limit for this period — more points will count once it resets.",
     eventDetails: 'Event Details:',
     viewFullDetails: 'View Full Details',
     closeAndHome: 'Close and Return Home',
@@ -91,7 +93,6 @@ const en: TranslationMap = {
     rank: 'Rank', player: 'Player', score: 'Score', you: 'You',
     noFriends: 'No friends yet',
     showing_city: 'Showing drivers in',
-    showing_national: 'Showing drivers in',
     searchPhone: 'Search by phone number',
     search: 'Search',
     addFriend: 'Add friend',
@@ -99,7 +100,6 @@ const en: TranslationMap = {
     sendInvite: 'Send invitation to join',
     friendRequestSent: 'Friend request sent!',
     yourRank: 'Your rank',
-    selectCountry: 'Select country',
     selectCity: 'Select city',
     removeFriendConfirm: 'Remove',
   },
