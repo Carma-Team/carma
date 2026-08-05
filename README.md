@@ -93,6 +93,7 @@ API docs: http://localhost:3000/api/docs
 | **Emulator-to-server connection** | The app connects to `http://10.0.2.2:3000` (alias for localhost from inside the emulator) |
 | **Docker must be running** | The DB runs through Docker — without Docker there is no DB |
 | **New migration** | `cd server && alembic upgrade head` |
+| **TypeScript version** | Mobile app uses TypeScript 5.9.3 locally and in the workspace; install dependencies from [mobile](mobile) to keep versions consistent. |
 
 ---
 

@@ -45,8 +45,7 @@
     "react-native-svg": "^15.15.5",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.5.1",
-    "tsx": "^4.21.0",
-    "typescript": "~5.9.2"
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@react-native/debugger-shell": "^0.85.3",
@@ -59,7 +58,7 @@
     "openapi-typescript": "^7.4.0",
     "ts-jest": "^29.4.9",
     "typedoc": "^0.28.19",
-    "typescript": "~5.9.2"
+    "typescript": "5.9.3"
   },
   "private": true
 }
