@@ -31,7 +31,7 @@ export default function SettingsScreen() {
   async function handleLogout() {
     Alert.alert(
       t('auth.logout'),
-      t('auth.logoutConfirm') || 'האם אתה בטוח שברצונך להתנתק?',
+      t('auth.logoutConfirm'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -138,7 +138,9 @@ export default function SettingsScreen() {
                     onPress={() => setLang(l)}
                     style={[styles.langBtn, lang === l && styles.langBtnActive]}
                   >
+                    {/* Each language's own endonym, not translated — see docs/i18n.md */}
                     <Text style={[styles.langText, lang === l && styles.langTextActive]}>
+                      {/* eslint-disable-next-line no-restricted-syntax */}
                       {l === 'he' ? 'עברית' : 'English'}
                     </Text>
                   </TouchableOpacity>

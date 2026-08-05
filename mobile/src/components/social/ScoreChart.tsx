@@ -2,6 +2,8 @@ import React, { useMemo } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { Card } from '@/components/ui/Card'
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme'
+import he from '@/i18n/he'
+import en from '@/i18n/en'
 import type { Trip, Language } from '@/types'
 
 interface ScoreChartProps {
@@ -42,10 +44,10 @@ function bucketKey(date: Date, g: Granularity): string {
   return `${my}-${mm}-${md}`
 }
 
-function bucketLabel(key: string, g: Granularity): string {
+function bucketLabel(key: string, g: Granularity, lang: Language): string {
   if (g === 'monthly') {
     const [, m] = key.split('-')
-    const months = ['ינו','פבר','מרץ','אפר','מאי','יוני','יולי','אוג','ספט','אוק','נוב','דצמ']
+    const months = (lang === 'he' ? he : en).stats.chart.months
     return months[parseInt(m, 10) - 1] ?? m
   }
   // daily or weekly — show day/month
@@ -60,7 +62,7 @@ interface Bucket {
   count: number
 }
 
-function groupIntoBuckets(trips: Trip[], g: Granularity): Bucket[] {
+function groupIntoBuckets(trips: Trip[], g: Granularity, lang: Language): Bucket[] {
   const map = new Map<string, number[]>()
   for (const trip of trips) {
     const date = new Date(trip.startTime)
@@ -74,7 +76,7 @@ function groupIntoBuckets(trips: Trip[], g: Granularity): Bucket[] {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, scores]) => ({
       key,
-      label: bucketLabel(key, g),
+      label: bucketLabel(key, g, lang),
       avg: Math.round(scores.reduce((s, v) => s + v, 0) / scores.length),
       count: scores.length,
     }))
@@ -95,7 +97,7 @@ function scoreToHeight(score: number): number {
 
 // ─── phase summary (first third / middle / last third of buckets) ─────────────
 
-function phaseAvgs(buckets: Bucket[]): { label: string; avg: number }[] {
+function phaseAvgs(buckets: Bucket[], lang: Language): { label: string; avg: number }[] {
   if (buckets.length < 2) return []
   const third = Math.ceil(buckets.length / 3)
   const segs = [
@@ -103,17 +105,19 @@ function phaseAvgs(buckets: Bucket[]): { label: string; avg: number }[] {
     buckets.slice(third, third * 2),
     buckets.slice(third * 2),
   ].filter(s => s.length > 0)
-  const labels = ['תחילה', 'אמצע', 'לאחרונה']
+  const c = (lang === 'he' ? he : en).stats.chart
+  const labels = [c.phaseStart, c.phaseMiddle, c.phaseRecent]
   return segs.map((seg, i) => ({
     label: labels[i],
     avg: Math.round(seg.reduce((s, b) => s + b.avg, 0) / seg.length),
   }))
 }
 
-function granularityLabel(g: Granularity): string {
-  if (g === 'daily')   return 'לפי יום'
-  if (g === 'weekly')  return 'לפי שבוע'
-  return 'לפי חודש'
+function granularityLabel(g: Granularity, lang: Language): string {
+  const c = (lang === 'he' ? he : en).stats.chart
+  if (g === 'daily')   return c.daily
+  if (g === 'weekly')  return c.weekly
+  return c.monthly
 }
 
 // ─── component ───────────────────────────────────────────────────────────────
@@ -126,8 +130,9 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   )
 
   const granularity = useMemo(() => chooseGranularity(sorted), [sorted])
-  const buckets     = useMemo(() => groupIntoBuckets(sorted, granularity), [sorted, granularity])
-  const phases      = useMemo(() => phaseAvgs(buckets), [buckets])
+  const buckets     = useMemo(() => groupIntoBuckets(sorted, granularity, lang), [sorted, granularity, lang])
+  const phases      = useMemo(() => phaseAvgs(buckets, lang), [buckets, lang])
+  const chartText   = (lang === 'he' ? he : en).stats.chart
 
   const first = phases[0]?.avg ?? 0
   const last  = phases[phases.length - 1]?.avg ?? 0
@@ -136,8 +141,8 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   if (sorted.length === 0) {
     return (
       <Card style={styles.container}>
-        <Text style={[TYPOGRAPHY.h3, styles.title]}>מגמת ציונים</Text>
-        <Text style={[TYPOGRAPHY.body, styles.empty]}>אין נסיעות עדיין</Text>
+        <Text style={[TYPOGRAPHY.h3, styles.title]}>{chartText.title}</Text>
+        <Text style={[TYPOGRAPHY.body, styles.empty]}>{chartText.empty}</Text>
       </Card>
     )
   }
@@ -145,8 +150,8 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   return (
     <Card style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={[TYPOGRAPHY.h3, styles.title]}>מגמת ציונים</Text>
-        <Text style={styles.granularityTag}>{granularityLabel(granularity)}</Text>
+        <Text style={[TYPOGRAPHY.h3, styles.title]}>{chartText.title}</Text>
+        <Text style={styles.granularityTag}>{granularityLabel(granularity, lang)}</Text>
       </View>
 
       {/* Phase summary */}
@@ -200,7 +205,7 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
       {improvePct > 0 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
-            📈 שיפור של +{improvePct}% מאז תחילת הנסיעות
+            {chartText.improvement.replace('{pct}', String(improvePct))}
           </Text>
         </View>
       )}
