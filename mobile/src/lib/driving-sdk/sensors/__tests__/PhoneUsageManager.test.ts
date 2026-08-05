@@ -117,6 +117,65 @@ describe('PhoneUsageManager', () => {
     );
   });
 
+  // ─── Vehicle speed passthrough (CAR-62) ────────────────────────────────────
+  describe('vehicle speed', () => {
+    it('reports 0 until the host provides a speed', () => {
+      feedAccel([2.5]);
+
+      expect(onInteractionData).toHaveBeenCalledWith(
+        expect.objectContaining({ speedKmh: 0 }),
+      );
+    });
+
+    it('attaches the last reported speed to a touch epoch', () => {
+      manager.updateSpeed(62.5);
+      feedAccel([2.5]);
+
+      expect(onInteractionData).toHaveBeenCalledWith(
+        expect.objectContaining({ touchEpochs: 1, speedKmh: 62.5 }),
+      );
+    });
+
+    it('attaches the last reported speed to each hand-held second', () => {
+      appStateHandler?.('background');
+      manager.updateSpeed(40);
+      feedAccel(HANDHELD_SAMPLES);
+      jest.advanceTimersByTime(1000);
+
+      expect(onInteractionData).toHaveBeenLastCalledWith(
+        expect.objectContaining({ screenInteractionSeconds: 1, speedKmh: 40 }),
+      );
+
+      // A new reading replaces the previous one for every emission after it.
+      manager.updateSpeed(0);
+      feedAccel(HANDHELD_SAMPLES);
+      jest.advanceTimersByTime(1000);
+
+      expect(onInteractionData).toHaveBeenLastCalledWith(
+        expect.objectContaining({ screenInteractionSeconds: 2, speedKmh: 0 }),
+      );
+    });
+
+    it('does not interpret the speed — hand-held seconds accumulate at a standstill too', () => {
+      // No minimum-speed rule inside the SDK: whether a stationary second counts is
+      // the host's decision (CAR-54), and it needs the seconds to decide from.
+      appStateHandler?.('background');
+      manager.updateSpeed(0);
+      feedAccel(HANDHELD_SAMPLES);
+      jest.advanceTimersByTime(1000);
+
+      expect(onEvent).toHaveBeenCalledTimes(1);
+      expect(manager.getSnapshot().screenInteractionSeconds).toBe(1);
+    });
+
+    it('clears the reported speed on start so a trip cannot inherit the last one', () => {
+      manager.updateSpeed(90);
+      manager.start();
+
+      expect(manager.getSnapshot().speedKmh).toBe(0);
+    });
+  });
+
   // ─── Rotational features (CAR-82) ──────────────────────────────────────────
   // The gyroscope stream is pushed in from outside, so a host that never calls
   // pushGyroSample must still work — the features just stay empty.

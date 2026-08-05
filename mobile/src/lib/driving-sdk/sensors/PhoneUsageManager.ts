@@ -21,6 +21,8 @@
  *                               (glass-tap proxy; also fires on foreground touch events)
  *   - screenInteractionSeconds  seconds where IMU variance indicates a hand-held phone
  *                               (low variance = vehicle-mounted → not counted)
+ *   - speedKmh                  vehicle speed last reported via updateSpeed(), passed
+ *                               through as-is so the host can relate handling to motion
  *
  * @remarks Hardware-abstraction only. Threshold constants are IMU calibration values,
  * not app-specific scoring weights. They require empirical drive-test validation
@@ -53,6 +55,16 @@ const VARIANCE_WINDOW_SIZE = 10;
 export interface InteractionData {
   touchEpochs: number;
   screenInteractionSeconds: number;
+  /**
+   * Vehicle speed (km/h) as last reported by the host at the moment this data was
+   * emitted, or 0 if the host never reported one. Reported, never interpreted —
+   * what a speed means for a given second is the host's decision, not the SDK's.
+   *
+   * Resolution is bounded by the host's own speed source, not by this class: with
+   * GPS-derived speed, expect a fresh value every few seconds rather than every
+   * second, and a stretch of identical values in between.
+   */
+  speedKmh: number;
 }
 
 /**
@@ -91,6 +103,9 @@ export class PhoneUsageManager {
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
   private bgTimer: ReturnType<typeof setInterval> | null = null;
+  // Last speed the host reported. Stored and passed through untouched — no threshold
+  // and no weighting here, both of which are scoring decisions outside this SDK.
+  private speedKmh = 0;
   // True while the current background stretch has already been confirmed hand-held
   // (variance > threshold) — gates PHONE_USAGE to one emission per pickup, not per second.
   private isHandheldInBackground = false;
@@ -110,6 +125,7 @@ export class PhoneUsageManager {
     this.lastEpochMs = 0;
     this.magnitudeWindow = [];
     this.rotationWindow = [];
+    this.speedKmh = 0;
     this.appStateSub?.remove();
 
     this.isBackground = AppState.currentState !== 'active';
@@ -138,7 +154,21 @@ export class PhoneUsageManager {
   }
 
   public getSnapshot(): InteractionData {
-    return { touchEpochs: this.touchEpochs, screenInteractionSeconds: this.screenInteractionSeconds };
+    return {
+      touchEpochs: this.touchEpochs,
+      screenInteractionSeconds: this.screenInteractionSeconds,
+      speedKmh: this.speedKmh,
+    };
+  }
+
+  /**
+   * Report the current vehicle speed (km/h). Call it as often as the host's speed
+   * source updates; the most recent value is attached to every emission until the
+   * next call. Hosts should report 0 rather than a stale reading when their source
+   * goes quiet, since this class cannot tell "still moving" from "no fix".
+   */
+  public updateSpeed(kmh: number): void {
+    this.speedKmh = kmh;
   }
 
   /**
@@ -194,10 +224,7 @@ export class PhoneUsageManager {
     if (mag > GLASS_TAP_MAGNITUDE_THRESHOLD && now - this.lastEpochMs > EPOCH_COOLDOWN_MS) {
       this.touchEpochs++;
       this.lastEpochMs = now;
-      this.onInteractionData({
-        touchEpochs: this.touchEpochs,
-        screenInteractionSeconds: this.screenInteractionSeconds,
-      });
+      this.onInteractionData(this.getSnapshot());
     }
   }
 
@@ -224,10 +251,7 @@ export class PhoneUsageManager {
           this.isHandheldInBackground = true;
           this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
         }
-        this.onInteractionData({
-          touchEpochs: this.touchEpochs,
-          screenInteractionSeconds: this.screenInteractionSeconds,
-        });
+        this.onInteractionData(this.getSnapshot());
       } else {
         this.isHandheldInBackground = false;
       }

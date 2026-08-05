@@ -343,6 +343,9 @@ export class DrivingSDK {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
+    // PhoneUsageManager has no speed source of its own — it reports handling, and the
+    // speed it happened at travels with it.
+    this.phoneManager.updateSpeed(update.currentSpeed);
 
     // Keep last known location for event stamping
     if (update.lat !== undefined && update.lng !== undefined) {
