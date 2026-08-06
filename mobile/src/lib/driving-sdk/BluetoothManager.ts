@@ -42,7 +42,6 @@ export class BluetoothManager {
   // ─── Target device ───────────────────────────────────────────────────────────
 
   public setTargetDevice(id: string | null): void {
-    console.log('[BT-DEBUG] setTargetDevice:', JSON.stringify(id));
     this.targetDeviceId = id;
   }
 
@@ -138,23 +137,14 @@ export class BluetoothManager {
    * Safe to call multiple times; subsequent calls before stopMonitoring() are no-ops.
    */
   public startMonitoring(): void {
-    if (Platform.OS !== 'android') {
-      console.log('[BT-DEBUG] startMonitoring skipped — platform is', Platform.OS);
-      return;
-    }
+    if (Platform.OS !== 'android') return;
     if (!isBTNativeAvailable()) {
-      console.log('[BT-DEBUG] startMonitoring skipped — native module not linked');
+      console.warn('[SDK] BT native module not linked — monitoring unavailable');
       return;
     }
-    if (this.connectSub || this.disconnectSub) {
-      console.log('[BT-DEBUG] startMonitoring skipped — already subscribed, target =', JSON.stringify(this.targetDeviceId));
-      return;
-    }
-
-    console.log('[BT-DEBUG] monitoring armed, target =', JSON.stringify(this.targetDeviceId));
+    if (this.connectSub || this.disconnectSub) return;
 
     this.connectSub = RNBluetoothClassic.onDeviceConnected((event: BluetoothDeviceEvent) => {
-      console.log('[BT-DEBUG] connect event raw:', JSON.stringify(event), '| target =', JSON.stringify(this.targetDeviceId));
       if (event.device?.address === this.targetDeviceId) {
         console.log('[SDK] Target BT device connected:', event.device.name);
         this.onConnect();
@@ -162,7 +152,6 @@ export class BluetoothManager {
     });
 
     this.disconnectSub = RNBluetoothClassic.onDeviceDisconnected((event: BluetoothDeviceEvent) => {
-      console.log('[BT-DEBUG] disconnect event raw:', JSON.stringify(event), '| target =', JSON.stringify(this.targetDeviceId));
       if (event.device?.address === this.targetDeviceId) {
         console.log('[SDK] Target BT device disconnected:', event.device.name);
         this.onDisconnect();
@@ -175,7 +164,6 @@ export class BluetoothManager {
    * Call when monitoring is no longer needed (feature disabled, app teardown).
    */
   public stopMonitoring(): void {
-    console.log('[BT-DEBUG] stopMonitoring — was subscribed:', !!(this.connectSub || this.disconnectSub));
     this.connectSub?.remove();
     this.disconnectSub?.remove();
     this.connectSub = null;

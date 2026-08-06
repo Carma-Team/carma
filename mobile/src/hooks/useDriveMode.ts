@@ -32,10 +32,6 @@ export function useDriveMode() {
   // device off `user`, where nothing ever wrote it, so it disarmed on every run and
   // the subscription survived only because AppContext happened to re-arm afterwards.
   useEffect(() => {
-    console.log('[BT-DEBUG] useDriveMode effect —',
-      'hasUser:', !!user,
-      '| user.driveModeEnabled:', user?.driveModeEnabled,
-      '| btDevice:', JSON.stringify(btDevice));
     sdk.updateTargetDevice(driveModeEnabled && btDevice ? btDevice.id : null);
   }, [driveModeEnabled, btDevice, sdk]);
 
