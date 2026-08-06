@@ -16,6 +16,7 @@
 import { Platform, PermissionsAndroid, NativeModules, type Permission } from 'react-native';
 import RNBluetoothClassic, {
   type BluetoothDevice as RNDevice,
+  type BluetoothDeviceEvent,
 } from 'react-native-bluetooth-classic';
 
 /** True only when the native module is linked — requires a dev/production build, not Expo Go. */
@@ -41,6 +42,7 @@ export class BluetoothManager {
   // ─── Target device ───────────────────────────────────────────────────────────
 
   public setTargetDevice(id: string | null): void {
+    console.log('[BT-DEBUG] setTargetDevice:', JSON.stringify(id));
     this.targetDeviceId = id;
   }
 
@@ -106,7 +108,12 @@ export class BluetoothManager {
   // ─── Connection check ────────────────────────────────────────────────────────
 
   /**
-   * Returns true if the target device is currently connected at the system level.
+   * Returns true if this app holds an open RFCOMM socket to the target device.
+   *
+   * NOT a system-level check, despite what it looks like: the native module answers
+   * from its own map of sockets the app opened itself, so a car stereo connected to
+   * the handset always reads false here. Detecting that needs the Android A2DP
+   * profile proxy, which the library doesn't expose.
    */
   public async checkCurrentConnection(): Promise<boolean> {
     if (Platform.OS !== 'android' || !this.targetDeviceId || !isBTNativeAvailable()) return false;
@@ -131,21 +138,33 @@ export class BluetoothManager {
    * Safe to call multiple times; subsequent calls before stopMonitoring() are no-ops.
    */
   public startMonitoring(): void {
-    if (Platform.OS !== 'android' || !isBTNativeAvailable()) return;
-    if (this.connectSub || this.disconnectSub) return;
+    if (Platform.OS !== 'android') {
+      console.log('[BT-DEBUG] startMonitoring skipped — platform is', Platform.OS);
+      return;
+    }
+    if (!isBTNativeAvailable()) {
+      console.log('[BT-DEBUG] startMonitoring skipped — native module not linked');
+      return;
+    }
+    if (this.connectSub || this.disconnectSub) {
+      console.log('[BT-DEBUG] startMonitoring skipped — already subscribed, target =', JSON.stringify(this.targetDeviceId));
+      return;
+    }
 
-    this.connectSub = RNBluetoothClassic.onDeviceConnected((event: any) => {
-      const device = event as RNDevice;
-      if (device.address === this.targetDeviceId) {
-        console.log('[SDK] Target BT device connected:', device.name);
+    console.log('[BT-DEBUG] monitoring armed, target =', JSON.stringify(this.targetDeviceId));
+
+    this.connectSub = RNBluetoothClassic.onDeviceConnected((event: BluetoothDeviceEvent) => {
+      console.log('[BT-DEBUG] connect event raw:', JSON.stringify(event), '| target =', JSON.stringify(this.targetDeviceId));
+      if (event.device?.address === this.targetDeviceId) {
+        console.log('[SDK] Target BT device connected:', event.device.name);
         this.onConnect();
       }
     });
 
-    this.disconnectSub = RNBluetoothClassic.onDeviceDisconnected((event: any) => {
-      const device = event as RNDevice;
-      if (device.address === this.targetDeviceId) {
-        console.log('[SDK] Target BT device disconnected:', device.name);
+    this.disconnectSub = RNBluetoothClassic.onDeviceDisconnected((event: BluetoothDeviceEvent) => {
+      console.log('[BT-DEBUG] disconnect event raw:', JSON.stringify(event), '| target =', JSON.stringify(this.targetDeviceId));
+      if (event.device?.address === this.targetDeviceId) {
+        console.log('[SDK] Target BT device disconnected:', event.device.name);
         this.onDisconnect();
       }
     });
@@ -156,6 +175,7 @@ export class BluetoothManager {
    * Call when monitoring is no longer needed (feature disabled, app teardown).
    */
   public stopMonitoring(): void {
+    console.log('[BT-DEBUG] stopMonitoring — was subscribed:', !!(this.connectSub || this.disconnectSub));
     this.connectSub?.remove();
     this.disconnectSub?.remove();
     this.connectSub = null;

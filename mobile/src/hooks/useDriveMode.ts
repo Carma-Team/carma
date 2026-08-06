@@ -17,23 +17,27 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
 export function useDriveMode() {
-  const { user, sdk, tripState, addToast } = useApp();
+  const { user, sdk, tripState, addToast, btDevice } = useApp();
   const { t } = useTranslation();
 
-  const driveModeEnabled = !!(user?.driveModeEnabled && user?.bluetoothDeviceId);
+  const driveModeEnabled = !!(user?.driveModeEnabled && btDevice);
   const prevActiveRef = useRef(tripState.isActive);
 
   // Register or remove the native BT event subscription whenever the drive mode
   // config changes (feature toggled on/off, paired device changed).
   // sdk.updateTargetDevice → btManager.setTargetDevice + btManager.startMonitoring/stopMonitoring.
   // startMonitoring is idempotent — safe to call if monitoring is already active.
+  //
+  // This is the only place that arms or disarms the listener. It used to read the
+  // device off `user`, where nothing ever wrote it, so it disarmed on every run and
+  // the subscription survived only because AppContext happened to re-arm afterwards.
   useEffect(() => {
-    if (driveModeEnabled && user?.bluetoothDeviceId) {
-      sdk.updateTargetDevice(user.bluetoothDeviceId);
-    } else {
-      sdk.updateTargetDevice(null);
-    }
-  }, [driveModeEnabled, user?.bluetoothDeviceId, sdk]);
+    console.log('[BT-DEBUG] useDriveMode effect —',
+      'hasUser:', !!user,
+      '| user.driveModeEnabled:', user?.driveModeEnabled,
+      '| btDevice:', JSON.stringify(btDevice));
+    sdk.updateTargetDevice(driveModeEnabled && btDevice ? btDevice.id : null);
+  }, [driveModeEnabled, btDevice, sdk]);
 
   // Toast: notify when a trip starts while drive mode is active.
   // Fires on both BT auto-start and manual start while drive mode is on.
@@ -44,10 +48,10 @@ export function useDriveMode() {
     if (driveModeEnabled && !prev && tripState.isActive) {
       addToast({
         type: 'info',
-        message: `${user?.bluetoothDeviceName ?? t('driving.defaultDeviceName')} ${t('driving.btConnected')}`,
+        message: `${btDevice?.name ?? t('driving.defaultDeviceName')} ${t('driving.btConnected')}`,
       });
     }
-  }, [tripState.isActive, driveModeEnabled, addToast, user?.bluetoothDeviceName]);
+  }, [tripState.isActive, driveModeEnabled, addToast, btDevice?.name]);
 
   return {
     driveModeEnabled,
