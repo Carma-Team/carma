@@ -25,6 +25,8 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
+import { TripValidationManager } from '@/lib/TripValidationManager'
+import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
@@ -261,7 +263,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
   }, [recentTrips, user?.lastClearedHistory]);
 
-  const sdk = useMemo(() => new DrivingSDK(), []);
+  // TripValidationManager (30s-start/3min-end/fraud rules) is CARMA-specific business
+  // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
+  // the generic library with its own trip-validation rules, per the driving-sdk
+  // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
+  const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
@@ -278,6 +284,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const processEndTrip = useCallback(async () => {
     const finalState = { ...tripRef.current };
     if (!finalState.isActive) return null;
+
+    // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
+    // Fires here in the trip-summary flow (after the trip has actually ended), not on trip
+    // start, so it never pops up in front of a driver who is mid-drive.
+    maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
 
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary({ isTooShort: true });
@@ -319,6 +330,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,
+      events: lastTripDataRef.current?.events?.map(e => ({
+        type: e.type,
+        timestamp: e.timestamp.toISOString(),
+        severity: e.severity,
+        speedKmh: e.speedKmh,
+        location: e.location,
+        peakG: e.peakG,
+        durationMs: e.durationMs,
+      })),
     };
 
     let savedTrip: Trip | null = null;
@@ -353,6 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
+    const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
     // disagree with trip history on the next refresh (#29).
@@ -421,6 +442,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: newTrip.id,
       score: serverScore,
       points: earnedPoints,
+      pointsCapped: serverPointsCapped,
       riskMultiplier: serverRiskMultiplier,
       penalties: 0,
       routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
@@ -429,7 +451,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, userLevelState, addToast]);
+  }, [user, userLevelState, addToast, lang]);
 
   useEffect(() => {
     // Fired when any trip starts (manual or BT auto-start).

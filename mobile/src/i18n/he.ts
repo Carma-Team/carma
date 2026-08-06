@@ -1,7 +1,7 @@
 type DeepString<T> = { [K in keyof T]: T[K] extends string ? string : DeepString<T[K]> }
 
 const he = {
-  app:   { name: 'CARMA', tagline: 'נהג חכם. קצור פרסים.' },
+  app:   { name: 'CARMA', tagline: 'נהג בצורה בטוחה. הרווח פרסים.' },
   nav: {
     dashboard: 'בית', trip: 'נסיעה', roadmap: 'מסלול',
     marketplace: 'חנות', leaderboard: 'דירוג', profile: 'פרופיל',
@@ -32,6 +32,7 @@ const he = {
     active: 'נסיעה פעילה', start: 'התחל נסיעה', end: 'סיים נסיעה',
     activeTrip: 'נסיעה פעילה', endBtn: 'סיים נסיעה',
     endTripConfirm: 'סיום נסיעה', endTripMessage: 'האם אתה בטוח שברצונך לסיים את הנסיעה הנוכחית?',
+    calculatingScore: 'מחשב את הציון שלך…', calculatingScoreDesc: 'זה עשוי לקחת כמה שניות',
     eventsDetected: 'אירועים שזוהו', safetyTip: 'נהיגה רגועה ללא בלימות פתע מעלה את הציון שלך!',
     duration: 'משך', distance: 'מרחק', score: 'ציון', events: 'אירועים',
     hardBrakes: 'בלימה חזקה', aggressiveAccels: 'האצה חריגה',
@@ -48,6 +49,7 @@ const he = {
     finalScore: 'ציון סופי',
     km: 'ק"מ',
     points: 'נקודות',
+    pointsCapped: 'הגעת למכסת הנקודות לתקופה זו — נקודות נוספות ייספרו לאחר שהמכסה תתאפס.',
     eventDetails: 'פירוט אירועים:',
     viewFullDetails: 'לצפייה בפרטים המלאים',
     closeAndHome: 'סגור וחזור לדף הבית',
@@ -60,6 +62,10 @@ const he = {
     addDistanceSmall: '+100 מטר',
     btConnected: 'מחובר — נסיעה החלה',
     defaultDeviceName: 'הרכב',
+    batteryOptimizationTitle: 'שיפור דיוק מעקב הנסיעה',
+    batteryOptimizationMessage: 'חלק ממכשירי האנדרואיד מגבילים עדכוני מיקום ברקע כדי לחסוך בסוללה, מה שעלול לפגוע בדיוק מעקב הנסיעות של CARMA. לתוצאה הטובה ביותר, אפשרו ל-CARMA לפעול ללא הגבלות סוללה בהגדרות הטלפון.',
+    batteryOptimizationNotNow: 'לא עכשיו',
+    batteryOptimizationOpenSettings: 'פתיחת הגדרות',
   },
   rewards: {
     iconLabel: 'בחר אייקון',
@@ -87,7 +93,6 @@ const he = {
     rank: 'מיקום', player: 'שחקן', score: 'ציון', you: 'אתה',
     noFriends: 'אין חברים עדיין',
     showing_city: 'מציג נהגים ב',
-    showing_national: 'מציג נהגים ב',
     searchPhone: 'חפש לפי מספר טלפון',
     search: 'חפש',
     addFriend: 'הוסף חבר',
@@ -95,7 +100,6 @@ const he = {
     sendInvite: 'שלח/י הזמנה להצטרף',
     friendRequestSent: 'בקשת חברות נשלחה!',
     yourRank: 'הדירוג שלך',
-    selectCountry: 'בחר ארץ',
     selectCity: 'בחר עיר',
     removeFriendConfirm: 'האם ברצונך להסיר את',
   },

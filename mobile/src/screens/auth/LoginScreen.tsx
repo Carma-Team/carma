@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -48,15 +48,20 @@ export default function LoginScreen() {
 
       if (isBusiness(data.user)) router.replace('/(business)');
       else router.replace('/(tabs)');
-    } catch (e: any) {
-      setError(e.message || t('auth.errors.invalidCredentials'));
+    } catch {
+      // The server's error detail is always English — show the localized
+      // message instead so Hebrew users don't see raw English error text (CAR-59).
+      setError(t('auth.errors.invalidCredentials'));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior="padding">
+    <KeyboardAvoidingView
+      style={[COMMON_STYLES.screen, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Ionicons name={ICONS.car} size={64} color={COLORS.brand} style={{ marginBottom: 8 }} />

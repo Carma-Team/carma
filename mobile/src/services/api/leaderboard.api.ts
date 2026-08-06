@@ -9,10 +9,9 @@ export interface LocationsOut {
 // Friend requests, unfriending and blocking live in friends.api.ts — this module
 // is only the board itself.
 export const leaderboardApi = {
-  get: (type: 'national' | 'city' | 'friends', filters?: { city?: string; country?: string }) => {
+  get: (type: 'national' | 'city' | 'friends', filters?: { city?: string }) => {
     const params = new URLSearchParams({ type });
-    if (filters?.city)    params.set('city',    filters.city);
-    if (filters?.country) params.set('country', filters.country);
+    if (filters?.city) params.set('city', filters.city);
     return request<LeaderboardOut>(`/api/leaderboard?${params.toString()}`);
   },
 
