@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
 import { useDriveMode } from '@/hooks/useDriveMode';
+import { ToastContainer } from '@/components/ui/Toast';
 
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
@@ -69,12 +70,20 @@ function RootLayoutNav() {
   );
 }
 
+// Sibling of the navigator, not a child of it: RootLayoutNav returns early while
+// isLoading is true, and the "server unreachable" toast is raised during that window.
+function Toasts() {
+  const { toasts, removeToast } = useApp();
+  return <ToastContainer toasts={toasts} onDismiss={removeToast} />;
+}
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppProvider>
         <StatusBar style="light" />
         <RootLayoutNav />
+        <Toasts />
       </AppProvider>
     </SafeAreaProvider>
   );

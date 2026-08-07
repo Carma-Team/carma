@@ -8,6 +8,23 @@ It supplements the root `CLAUDE.md` with mobile-specific boundaries.
 Before creating or moving any file, read **`mobile/STRUCTURE.md`**.
 It defines the purpose of every directory, what belongs in each one, and what is forbidden.
 
+**Every change under `mobile/` follows that hierarchy — no exceptions, including changes
+that only pass through on the way to something else.** Pure logic goes in `lib/`, server
+shaping in `services/`, global state in `context/`, presentation in `components/`. Adding
+code to whichever file already happens to be open is how a 763-line `AppContext.tsx`
+happened: 146 lines of SHA-256 sat in a React context for a whole sprint while three
+documents in this repo said it belonged in `lib/`.
+
+Two costs, both paid later:
+- **Ownership blurs.** A file that several people edit for unrelated reasons becomes the
+  file everyone conflicts on. `mobile/STRUCTURE.md` now records an owner per file — keep
+  it accurate, and give a block its own file when it has a clear single owner.
+- **Bugs hide.** Finding a defect in a 700-line file that mixes four concerns costs far
+  more than finding it in a named 40-line one.
+
+If a change does not fit the hierarchy, that is a signal to discuss the structure — not
+to make the exception quietly.
+
 ## Layer rules (enforced)
 
 | Layer | Path | Rule |

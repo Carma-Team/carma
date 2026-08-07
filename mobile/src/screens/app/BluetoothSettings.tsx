@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
@@ -18,12 +17,15 @@ type BTStatus = {
 export default function BluetoothSettings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { sdk, addToast } = useApp();
+  const { sdk, addToast, btDevice, setBtDevice } = useApp();
 
-  const [devices, setDevices]       = useState<BluetoothDevice[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [btStatus, setBTStatus]     = useState<BTStatus>(null);
+  const [devices, setDevices]   = useState<BluetoothDevice[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [btStatus, setBTStatus] = useState<BTStatus>(null);
+
+  // The selection lives in AppContext, so the settings screen and the SDK listener
+  // can never disagree about which device is the target.
+  const selectedId = btDevice?.id ?? null;
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -33,9 +35,6 @@ export default function BluetoothSettings() {
 
       const available = await sdk.getAvailableDevices();
       setDevices(available);
-
-      const savedId = await AsyncStorage.getItem('carma_bt_device_id');
-      setSelectedId(savedId);
     } catch (error) {
       console.error('Failed to load BT settings', error);
     } finally {
@@ -49,16 +48,11 @@ export default function BluetoothSettings() {
 
   const handleSelect = async (device: BluetoothDevice) => {
     try {
-      const newId = selectedId === device.id ? null : device.id;
-      setSelectedId(newId);
+      const isDeselecting = selectedId === device.id;
+      await setBtDevice(isDeselecting ? null : { id: device.id, name: device.name });
 
-      if (newId) {
-        await AsyncStorage.setItem('carma_bt_device_id', newId);
-        sdk.updateTargetDevice(newId);
+      if (!isDeselecting) {
         addToast({ title: 'הוגדר בהצלחה', message: `הרכב שלך זוהה כ-${device.name}`, type: 'success' });
-      } else {
-        await AsyncStorage.removeItem('carma_bt_device_id');
-        sdk.updateTargetDevice(null);
       }
     } catch {
       Alert.alert('שגיאה', 'לא ניתן לשמור את ההגדרה');
