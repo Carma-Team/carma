@@ -165,26 +165,38 @@ The phone averages over a window of at least **1.5 seconds**. The two sides use 
 
 Events are **not** counted equally. An emergency stop costs more than a firm tap on the brakes, on a smooth curve, so there is no threshold to game.
 
-Every event carries its **peak g-force**, **duration**, and the **speed** at which it occurred. These produce a severity weight:
+Every event carries its **peak acceleration** and **duration**. These produce a severity weight:
 
 ```
 g_norm          = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
 g_factor        = g_norm^1.5 + 1.0
 duration_factor = 1.0 + min(duration_ms / 2000, 0.5)
-speed_factor    = 1.0 + min(speed_kmh / 120, 1.0) × 0.5
 
-severity = g_factor × duration_factor × speed_factor
+severity = g_factor × duration_factor
 ```
 
 **Severity ranges by event type:**
 
-| Event | g_min | g_max |
-|---|---|---|
-| Braking | 0.30 g | 0.60 g |
-| Acceleration | 0.27 g | 0.55 g |
-| Cornering | 0.35 g | 0.65 g |
+| Event | Axis measured | g_min | g_max |
+|---|---|---|---|
+| Braking | Longitudinal (deceleration) | 0.30 g | 0.60 g |
+| Acceleration | Longitudinal | 0.27 g | 0.55 g |
+| Cornering | Lateral | 0.35 g | 0.65 g |
 
-Severity runs from **1.0** at the detection threshold to about **3.0** for an extreme, sustained, high-speed event. The engine sums severities instead of counting events.
+Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+
+**Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
+
+> **Required input format — `peak_g` must be a single axis in the vehicle's frame of reference.**
+>
+> The ranges above are calibrated for isolated longitudinal deceleration (braking, acceleration) and isolated lateral acceleration (cornering), measured relative to the vehicle, not the phone.
+>
+> Passing raw accelerometer magnitude, or any horizontal magnitude taken in the phone's own frame, breaks this curve. Two failures follow:
+>
+> - **The value carries gravity, road vibration and phone movement**, none of which are vehicle dynamics. It is not the quantity the curve maps.
+> - **Detection accepts events from 0.10 g while the curve starts at 0.30 g.** Every event below the range clamps to `g_norm = 0`, so the entire population collapses onto the minimum severity of 1.0 and the curve does nothing.
+>
+> A phone at an unknown orientation cannot supply this value without a phone-to-vehicle rotation step. Until that step exists, the correct behaviour is to send no severity at all and let the engine count events — not to send an uncorrected magnitude.
 
 ### 3.5 Rates and subscores
 
@@ -203,13 +215,23 @@ The floors prevent very short trips from exploding. Without them, one brake in a
 subscore = 100 × exp(−k × rate)
 ```
 
-| Component | k |
+| Component | k (legacy — see warning) |
 |---|---|
 | Braking | 0.018 |
 | Acceleration | 0.022 |
 | Cornering | 0.012 |
 | Speeding | 0.012 |
 | Distraction | 0.020 |
+
+> ⚠️ **The k constants above are legacy placeholders. They must be re-fitted before release.**
+>
+> They were fitted against **event counts**, where every event contributes exactly 1.0. The engine now sums **severities**, where every event contributes between 1.0 and 3.0.
+>
+> The harsh-event rates therefore rise by a factor of roughly 1.5–2× for identical driving. Applied to `exp(−k × rate)`, the existing constants push every score down across the whole population, with no change in behaviour behind it.
+>
+> The same applies to any change in detection sensitivity. Because the curve is fixed rather than population-relative, the constants are tied to the detector that produced the fit — a new threshold, a new SDK version, or a shift in the handset mix all invalidate them.
+>
+> **Re-fit conditions:** a minimum of 200 trips, recorded with severity-capable detection, on the detector configuration intended for release.
 
 The exponential curve never reaches zero and never flattens. There is always something to gain by improving, including for a driver scoring badly. A straight-line penalty stops mattering once a driver is bad enough, which removes the incentive exactly where it is needed most.
 
@@ -283,6 +305,15 @@ points = trip score
 
 The level bonus sits **inside** the formula, before clipping. The level changes how fast a driver reaches the ceiling; it never raises the ceiling itself. This matches tiered loyalty practice — per-tier earn rates under one flat ceiling.
 
+**The risk multiplier rewards driving well at the hardest times. It does not reward being on the road at those times.**
+
+The multiplier applies to the trip score, which is already a measure of quality. A poorly driven trip at 02:00 earns twice a low number. To make that explicit rather than incidental:
+
+- **The multiplier applies only to trips scoring 70 or above.** Below 70 the multiplier is ×1.00, whatever the hour.
+- The multiplier scales quality, never exposure. Distance is priced by the distance factor alone, at the same rate at every hour.
+
+Without the 70 threshold the formula pays a driver more for being out at the riskiest hour regardless of how they drive, which is the opposite of the product's purpose. The threshold is the whole guard, and it is deliberately a hard cut rather than a taper — a driver should be able to state the rule from memory.
+
 ### 4.4 Economic limits
 
 | Limit | Value | Purpose |
@@ -296,12 +327,20 @@ The level bonus sits **inside** the formula, before clipping. The level changes 
 
 ## 5. Known Limitations & Edge Cases
 
+### Driver and passenger are not distinguished
+
+- **There is no driver-versus-passenger classifier.** Any trip taken as a passenger is scored as if the user drove it.
+- **It contaminates all five components, not only distraction.** A passenger's phone handling reads as distraction, and the driver's braking and cornering are attributed to the passenger.
+- **The contamination is biased, not random.** A passenger uses their phone far more freely than a driver, so passenger trips push the distraction component — our heaviest, at 0.30 — in one direction.
+- **Manual trip deletion is not a substitute.** It relies on the user, it is unverifiable, and it only ever removes trips the user dislikes.
+- Commercial platforms treat this as a dedicated machine-learning model rather than a heuristic, and report classification accuracy in the high nineties. Until an equivalent exists, the driver score describes a phone, not a driver.
+
 ### Measurement limits
 
 - **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform. Handling is inferred from how the device moves.
 - **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
 - **A phone loose on a seat can read as a phone in a hand.** A sliding phone produces variance similar to handling.
-- **No GPS speed means no harsh events.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not.
+- **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
 
 ### Calibration limits
 
