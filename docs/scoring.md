@@ -11,7 +11,7 @@ Where this document and the code disagree, **the code is right**: [`server/app/s
 ## The short version
 
 - **Every trip scores 0 to 100**, from five things: phone distraction, speeding, braking, acceleration, cornering. The same five Cambridge Mobile Telematics measure in DriveWell.
-- **Distraction counts most.** CMT measured a 240% rise in crash risk from phone distraction, against 103% for hard braking and 71% for speeding.
+- **Distraction counts most.** CMT found the most distracted drivers 240% more likely to crash. Braking and speeding are published on a different measure — expected losses, 103% and 71% — so the three do not sit on one scale.
 - **We count rates, not totals.** Three hard brakes over 200 km is good driving; three over 2 km is not. Everything is per 100 km or per driving hour, so a long trip is never punished for being long.
 - **The driver's score is separate** and moves slowly. One bad trip fades in about two weeks.
 - **The server decides.** The phone collects sensor data. It never calculates a score anyone can see.
@@ -71,7 +71,11 @@ Where we stand against CMT, component by component:
 | Speeding (0.25) | Time over the road's actual limit | Time over a flat 120 km/h national maximum | No map data for posted limits |
 | Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | GPS dynamics on the phone, confirmed by the accelerometer, plus a second GPS pass on the server | Severity is measured but not yet scored |
 
-**The weights themselves are the largest gap, and it is not a row above.** CMT's crash data puts distraction about 3.4x above speeding; our weights put them nearly level at 0.30 and 0.25. Normalising their figures would give distraction roughly 0.58. Re-weighting is CAR-53 — deliberately not before the distraction signal is trustworthy, because raising the weight of a noisy measurement amplifies the noise along with it.
+**The weights themselves are the largest gap, and it is not a row above.** Ours put distraction and speeding nearly level, at 0.30 and 0.25. CMT's published risk figures say distraction should sit far higher.
+
+They do not, however, say how much higher — and this document used to claim they did. It read "3.4x above speeding" and a target weight of 0.58, both obtained by dividing and normalising the 240%, 103% and 71%. Those three numbers do not share a unit: the 240% is a crash-likelihood figure for the *most distracted* drivers, while the other two are expected-loss figures. Arithmetic on them returns a number that looks derived and is not. CMT do not publish their own weights.
+
+So the direction is well founded and the destination is not. Re-weighting is CAR-53 and it needs a real method rather than a ratio. Whatever the method, it should not move before the distraction signal is trustworthy: raising the weight of a noisy measurement amplifies the noise with it.
 
 ### Phone distraction
 
@@ -285,13 +289,14 @@ points = trip score
 
 **Cambridge Mobile Telematics** — the primary reference:
 
-- [How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/) — the five components, and scoring each against the driver population
+- [How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/) — the platform overview. Note it does *not* enumerate the components or the scoring method; for those use the customer documentation below.
+- [DriveWell programme FAQ (MoDOT)](https://www.modot.org/sites/default/files/documents/MO%20Drivewell%20FAQs.pdf) — the load-bearing citation for two claims here: the five components are braking, acceleration, cornering, speeding and phone use; and each subscore is a percentile against the driver population, combined as total risk per mile over a two-week window
 - [Distracted driving fell 8.6% in 2024](https://www.cmtelematics.com/news/distracted-driving-fell-8-6-in-2024-preventing-an-estimated-105000-crashes-and-480-fatalities/) — the screen-interaction and phone-motion figures
 - [Rising phone distraction calls for new methods of measurement](https://www.cmtelematics.com/blog/rising-phone-distraction-calls-for-new-methods-of-measurement/)
 - [Portable driving scores with TransUnion](https://beinsure.com/news/cambridge-mobile-telematics-portable-driving-scores/) — the 28-day rolling window
 - [Patent 11,485,369 — determining, scoring and reporting phone distraction](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11485369)
 - [Patent 9,228,836 — inferring vehicle trajectory from an arbitrarily-oriented phone](https://patents.google.com/patent/US9228836B2/en) — CMT's answer to the orientation problem, and where we diverge from it
-- [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent)
+- [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent) — read the units before quoting it: 240% is crash likelihood for the most distracted drivers, while the 103% braking and 71% speeding figures are expected losses
 
 **Harsh-event thresholds and low-speed filtering** — industry-wide, not CMT-specific:
 
