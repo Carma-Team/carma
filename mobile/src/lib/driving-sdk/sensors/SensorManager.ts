@@ -202,6 +202,9 @@ export class SensorManager {
           accuracy: Location.Accuracy.High,
           timeInterval: 2000,
           distanceInterval: 5,
+          // iOS-only — Android ignores it. Without it CoreLocation assumes
+          // CLActivityTypeOther and tunes GPS for an unknown activity.
+          activityType: Location.ActivityType.AutomotiveNavigation,
           pausesUpdatesAutomatically: false,
           showsBackgroundLocationIndicator: true,
           foregroundService: {
