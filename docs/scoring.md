@@ -22,6 +22,8 @@ Where this document and the code disagree, **the code is right**: [`server/app/s
 
 Almost every choice below — what to measure, in what units, what counts as distraction — follows Cambridge Mobile Telematics rather than something we invented. That is deliberate, and it is the strongest thing about the algorithm.
 
+Two places knowingly depart from them, and both are named where they occur: **how harsh events are detected** ("Braking, acceleration, cornering") and **scoring against a fixed curve instead of the driver population** ("Rate to subscore"). Everywhere else, if this document and CMT disagree, treat it as our bug.
+
 **Why their method carries weight ours could not:**
 
 | | |
@@ -104,7 +106,7 @@ Time over the limit, weighted by how far over — not a count of incidents.
 | 20–29 km/h | ×3 |
 | 30 km/h and above | ×8 |
 
-**Today this runs against a flat 120 km/h national maximum**, not the road's posted limit. With the 10 km/h buffer, **only sustained speed above 130 km/h costs anything** — egregious motorway speeding, nothing else. Until map data arrives, speeding's weight is shared across the other four.
+**Today this runs against a flat 120 km/h national maximum**, not the road's posted limit. With the 10 km/h buffer, **only sustained speed above 130 km/h costs anything** — egregious motorway speeding, nothing else. Below that the component scores a clean 100 no matter how the driver behaves, so 50 in a 30 zone is invisible to us.
 
 ### Braking, acceleration, cornering
 
@@ -120,9 +122,15 @@ The phone averages over a window of at least 1.5 seconds, and fires only if the 
 
 **Why the phone stopped reading the accelerometer directly.** It used to detect braking on the sensor's Y axis and turns on X. That only works if the phone lies flat with its top pointing forward — in a vent clip, a cup holder or a pocket the axes point somewhere else entirely, so real events went undetected no matter where the threshold sat. Speed change and heading change do not care how the phone is held.
 
-This is the one place a phone cannot copy a fleet telematics box. Geotab's published g-force thresholds work because a GO device is bolted into the vehicle in a known orientation. Ours never is. Phone-based telematics therefore reads its trigger from GPS dynamics or from rotation-invariant sensor magnitudes — which is what we now do on both counts.
+A phone also cannot borrow a fleet box's numbers. Geotab's published g-force thresholds work because a GO device is bolted into the vehicle in a known orientation. A phone never is.
 
-**The new thresholds are more sensitive than the old ones, and are not yet validated.** 2.7 m/s² is about 0.28 g, against the 0.459 g the phone used before and the 0.45 g commonly cited as harsh braking. The comparison is not like for like — ours is an average held for a second and a half, the published figures are instantaneous peaks, and a sustained 0.28 g is the larger event of the two. Nobody has yet checked the resulting event rate against real trips.
+**Here we do not follow CMT.** They hit the same wall and solved it the other way round. Their patent estimates *where the phone is pointing* — gravity from the vehicle's rest periods, the forward axis from the shape of the acceleration distribution — then rotates the accelerometer into the vehicle's frame and reads true longitudinal deceleration from it. They keep the accelerometer as the instrument and add a calibration step to make it valid. We dropped the accelerometer as the instrument instead, and take the trigger from GPS.
+
+Ours is much the simpler engineering: nothing to calibrate, nothing to get wrong, works on the first trip. It also gives up real resolution. GPS hands us an average over a second and a half; a calibrated accelerometer gives the peak at 10 Hz or better. A short sharp stab on the brakes is exactly the event our average smooths away, and a true peak is exactly the number the severity curve wants.
+
+Worth knowing how far short that leaves us. A published large-scale study of smartphone hard-braking detection scored a fused model at 0.83 PR-AUC — **3.8× better than a GPS-speed heuristic, and 166.6× better than an accelerometer-only heuristic.** Read against our own history: the detector PR #48 removed was the accelerometer-only kind, and the gap between those two multiples is the size of the bullet we dodged. The one we now run is the better heuristic, and still the weaker half of that comparison.
+
+**The new thresholds are also more sensitive, and not yet validated.** 2.7 m/s² is about 0.28 g, against the 0.459 g the phone used before and the 0.45 g commonly cited as harsh braking. Not like for like — ours is an average held over a second and a half, the published figures are instantaneous peaks, and a sustained 0.28 g is the larger event of the two. Nobody has yet checked the resulting event rate against real trips.
 
 - **Low-speed events are dropped** — parking, speed bumps, a dropped phone. Standard practice across the industry, and it removes the largest source of false alarms in phone-based telematics. The floor differs by event and by which side detected it:
 
@@ -133,7 +141,7 @@ This is the one place a phone cannot copy a fleet telematics box. Geotab's publi
   | Sharp turn | 10 km/h | 25 km/h |
 
   The two sides disagree on acceleration and cornering, and because counts merge as `max(phone, server)` the looser floor wins — a 6 km/h pull-out counts as an aggressive acceleration. Tracked in CAR-103.
-- **Where the two disagree, the higher count wins.** The phone sees every GPS fix, roughly every 2 seconds; the server only sees the trace it was sent, thinned to one point every 5 seconds, so it misses short events. The server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way.
+- **Where the two disagree, the higher count wins.** The phone sees every GPS fix; the server only sees the trace it was sent, thinned to one point every 5 seconds, so it misses short events. The server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way. How much of an edge the phone really has depends on the handset: we ask for a fix every 2 seconds, but cloud data shows some devices delivering a median of 6 with gaps over 15. On those, the phone's advantage largely disappears.
 - **Severity now arrives, and still is not scored.** A 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps, so there is no "brake at 0.29 g and it's free" gap to game. Every event now carries its peak g-force and how long it lasted, and the server stores both. The score does not read them: event counts come from the **signed** telemetry digest, and the event list is unsigned — feeding it into the score would let a client dictate its own severity. `event_severity()` is written and tested; switching it on means getting the counts and the severities under one signature. **Today every event still counts as one** (CAR-6).
 
 > **Before severity ships:** the curve expects a braking peak between 0.30 g and 0.60 g. What the phone reports is the accelerometer's peak horizontal force, and an event is accepted on as little as 0.10 g of it. Where real trips actually land in that band is unknown. Measure the distribution first, or the bottom of the curve swallows everything.
@@ -169,7 +177,7 @@ The curve never hits zero and never flattens, so there is always something to ga
 | Speeding | 0.012 |
 | Distraction | 0.020 |
 
-**This is the one place we knowingly depart from CMT.** They score each component against the driver population; we use a fixed curve with a fixed constant. Population-relative scoring is the better method and needs a fleet distribution we do not have yet.
+**The second place we knowingly depart from CMT** (the first is detection, above). They score each component against the driver population; we use a fixed curve with a fixed constant. Population-relative scoring is the better method and needs a fleet distribution we do not have yet.
 
 **The constants are provisional.** Fitted July 2026 to 57 real trips — enough to repair a visibly broken curve (every trip scored exactly 100, or fell off a cliff to 50 on a single event), not enough to call settled. A proper fit needs roughly 200 trips and per-event severity feeding the score (CAR-6). Treat them as better than a guess, not yet earned. Record and trigger: CAR-102.
 
@@ -185,7 +193,9 @@ trip score = 0.30 × distraction
            + 0.10 × cornering
 ```
 
-**While posted limits are unavailable**, speeding's share is redistributed: distraction 0.40, braking 0.27, acceleration 0.20, cornering 0.13.
+**When the trace is too thin to measure speed**, speeding drops out and its 0.25 is shared across the other four: distraction 0.40, braking 0.27, acceleration 0.20, cornering 0.13.
+
+This is decided per trip, not once and for all. A trip qualifies for speeding only with at least 20 waypoints, covering at least half its duration, at a median gap of 10 seconds or less. A phone whose location updates are being throttled fails that test and is scored on four components instead of five — which is why GPS cadence is a scoring problem, not only a battery one.
 
 ### Three adjustments
 
@@ -266,6 +276,8 @@ points = trip score
 - **We cannot see phone touches.** No app can see touches delivered to another app, on either platform — including CMT's. Handling is inferred from how the device moves.
 - **A phone typed on in a mount is invisible.** CMT's method looks for the phone *moving* first, and a phone clamped to a mount moves with the car. We inherit the blind spot by copying them. It matters more here than in the US, because Israeli regulation 28(b) bans texting whether the phone is mounted or not. The alternative — screen state, which only Android exposes — would blind us for half our users instead of all of them.
 - **A phone loose on a seat reads as a phone in a hand.** The largest known source of false distraction today, and the one that most needs fixing.
+- **No GPS speed, no braking or cornering.** Both detectors now trigger on GPS, so a tunnel, a parking garage or a street of tall buildings is a blind spot on both sides at once — the accelerometer is only asked to confirm, never to raise. The old accelerometer-first design had no such hole in principle, though in practice it was catching almost nothing anyway. Distance and distraction keep working; harsh events do not.
+- **A throttled phone is scored on four components, not five.** Some Android handsets defer location updates hard enough that the trace no longer supports measuring speed. That trip loses speeding entirely and has its upside capped. Nobody is penalised for it, but two drivers can be scored by different formulas on the same drive.
 
 ---
 
@@ -278,11 +290,13 @@ points = trip score
 - [Rising phone distraction calls for new methods of measurement](https://www.cmtelematics.com/blog/rising-phone-distraction-calls-for-new-methods-of-measurement/)
 - [Portable driving scores with TransUnion](https://beinsure.com/news/cambridge-mobile-telematics-portable-driving-scores/) — the 28-day rolling window
 - [Patent 11,485,369 — determining, scoring and reporting phone distraction](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11485369)
+- [Patent 9,228,836 — inferring vehicle trajectory from an arbitrarily-oriented phone](https://patents.google.com/patent/US9228836B2/en) — CMT's answer to the orientation problem, and where we diverge from it
 - [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent)
 
 **Harsh-event thresholds and low-speed filtering** — industry-wide, not CMT-specific:
 
-- [Geotab — what g-force means for harsh driving](https://www.geotab.com/blog/what-is-g-force/)
+- [Geotab — what g-force means for harsh driving](https://www.geotab.com/blog/what-is-g-force/) — thresholds for a fixed-orientation device, which is why they are not ours to copy directly
+- [Smartphone-based hard-braking event detection at scale](https://arxiv.org/abs/2202.01934) — the 3.8× / 166.6× comparison of GPS-speed and accelerometer heuristics against a fused model
 - [Damoov — safety score documentation](https://docs.damoov.com/docs/safety-score)
 - [American Academy of Actuaries — regulatory adequacy of usage-based insurance](https://actuary.org/article/toward-the-regulatory-adequacy-of-usage-based-insurance/)
 
