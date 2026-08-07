@@ -67,7 +67,7 @@ Where we stand against CMT, component by component:
 
 | Component (weight) | CMT's method | Ours | Gap |
 |---|---|---|---|
-| Phone distraction (0.30) | Two metrics, seconds per driving hour, counted only while the vehicle moves | One blended metric, same unit, counted above 15 km/h | We collapse their two into one |
+| Phone distraction (0.30) | Two metrics, seconds per driving hour, counted only while the vehicle moves | One blended metric, same unit, counted at every speed including standing still | We collapse their two into one, and we do not gate on speed |
 | Speeding (0.25) | Time over the road's actual limit | Time over a flat 120 km/h national maximum | No map data for posted limits |
 | Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | GPS dynamics on the phone, confirmed by the accelerometer, plus a second GPS pass on the server | Severity is measured but not yet scored |
 
@@ -88,7 +88,14 @@ CMT publish two separate figures. Both are useful as a sanity check on our own s
 
 If our number is far off theirs, our sensors are broken — and we find that out now, not after years of collecting claims.
 
-**Where we fall short.** Our live formula is `touch_epochs + screen_seconds / 60`. It merges CMT's two metrics at a ratio nobody chose: thirty seconds of typing scores like twenty minutes of handling. We use CMT's *unit*, not yet CMT's *method*. Splitting them is CAR-54.
+**Where we fall short.** Our live formula is `touch_epochs + screen_seconds / 60`. It merges CMT's two metrics at a ratio nobody chose: one tap counts the same as a full minute of handling, and since a tap can register every 1.5 seconds, thirty seconds of typing scores like twenty minutes of handling. We use CMT's *unit*, not yet CMT's *method*. Splitting them is CAR-54.
+
+**And neither input is quite what its name says.**
+
+- `touch_epochs` is not touches. It counts jolts — a spike above 1.8 g on the accelerometer, at most one per 1.5 seconds. A tap on glass produces one. So does a pothole, a slammed door, or the phone landing on the passenger seat.
+- `screen_interaction_seconds` is not screen time. It counts seconds where the phone looks hand-held (accelerometer variance above 0.025 g²) **while the CARMA app is in the background**. A driver staring at CARMA itself in the foreground accrues nothing.
+
+Both thresholds are marked in the SDK as needing drive-test calibration, and neither has had it.
 
 **Decisions made along the way:**
 
@@ -96,8 +103,14 @@ If our number is far off theirs, our sensors are broken — and we find that out
 |---|---|
 | Time, not taps | "What is one tap?" is unanswerable — typing a message is dozens. Counting seconds makes the question disappear. |
 | Holding without touching counts | The hand and the eyes are the danger, not the tap. |
-| Below 15 km/h is free | A red light costs nothing, and no special rule had to be written for it. Matches CMT counting distraction only while the vehicle moves. |
+| Below 15 km/h is free | **Decided, never built.** The intent was that a red light costs nothing, matching CMT. Nothing in the pipeline implements it — see the note below. |
 | Screen-lock state ignored | Android exposes it, iOS does not. Using it would score the same behaviour differently on two phones. |
+
+> **The speed gate does not exist.** The distraction counters never see speed — not in the SDK that produces them, not in the app that forwards them, not on the server that scores them. Distraction is counted for the whole trip, so a red light, a traffic jam and the queue at the exit barrier all cost the same as motorway texting.
+>
+> It also lands hardest at the end. A trip closes only after 3 minutes continuously under 10 km/h, so **every** trip carries a stationary tail of up to three minutes — precisely when a driver picks up the phone to check where they parked. That is charged as distraction on the component we weight most.
+>
+> This is the one place we claim to follow CMT and do not. Their patent conditions distraction on "the vehicle moving at a speed above a threshold speed". The fix does not belong in the SDK — a 15 km/h rule is a CARMA scoring decision, not hardware abstraction — so it needs the counters to arrive with speed attached, or to be accumulated by the app instead. Not yet ticketed.
 
 ### Speeding
 
@@ -279,7 +292,8 @@ points = trip score
 
 - **We cannot see phone touches.** No app can see touches delivered to another app, on either platform — including CMT's. Handling is inferred from how the device moves.
 - **A phone typed on in a mount is invisible.** CMT's method looks for the phone *moving* first, and a phone clamped to a mount moves with the car. We inherit the blind spot by copying them. It matters more here than in the US, because Israeli regulation 28(b) bans texting whether the phone is mounted or not. The alternative — screen state, which only Android exposes — would blind us for half our users instead of all of them.
-- **A phone loose on a seat reads as a phone in a hand.** The largest known source of false distraction today, and the one that most needs fixing.
+- **A phone loose on a seat reads as a phone in a hand.** A sliding phone produces both the variance that reads as handling and the jolts that read as taps.
+- **Distraction is charged while the car is stationary.** No part of the pipeline gates it on speed, and every trip ends with up to three stationary minutes still inside it. See the note under "Phone distraction" — this is the largest known source of false distraction today, and the one that most needs fixing.
 - **No GPS speed, no braking or cornering.** Both detectors now trigger on GPS, so a tunnel, a parking garage or a street of tall buildings is a blind spot on both sides at once — the accelerometer is only asked to confirm, never to raise. The old accelerometer-first design had no such hole in principle, though in practice it was catching almost nothing anyway. Distance and distraction keep working; harsh events do not.
 - **A throttled phone is scored on four components, not five.** Some Android handsets defer location updates hard enough that the trace no longer supports measuring speed. That trip loses speeding entirely and has its upside capped. Nobody is penalised for it, but two drivers can be scored by different formulas on the same drive.
 
