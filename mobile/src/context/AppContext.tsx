@@ -23,15 +23,13 @@ import { AppState, I18nManager } from 'react-native'
 import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
-import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
+import { DrivingSDK, TripData } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
-import { fraudApi } from '@/services/api/fraud.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import he from '@/i18n/he'
@@ -40,35 +38,12 @@ import { SyncManager } from '@/services/sync/SyncManager'
 import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
 import { levelDisplay, detectLevelChange } from '@/lib/gamification'
 import type { GamificationLevel } from '@/lib/gamification'
+import { INITIAL_TRIP_STATE, type TripState } from './tripState'
+import { useSdkBindings } from './sdkBindings'
+import { useScoringEvents } from './scoringEvents'
+import { useFraudBinding } from './fraudBinding'
 
-export interface TripState {
-  isActive: boolean;
-  sessionId: string;
-  startTime: Date | null;
-  durationSeconds: number;
-  distanceKm: number;
-  currentSpeedKmH: number;
-  touchEpochs: number;              // v1.7 — glass-tap proxy count from IMU
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
-  eventCounts: {
-    HARD_BRAKE: number;
-    AGGRESSIVE_ACCEL: number;
-    SHARP_TURN: number;
-    SWERVE: number;
-  };
-}
-
-const INITIAL_TRIP_STATE: TripState = {
-  isActive: false,
-  sessionId: '',
-  startTime: null,
-  durationSeconds: 0,
-  distanceKm: 0,
-  currentSpeedKmH: 0,
-  touchEpochs: 0,
-  screenInteractionSeconds: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 },
-};
+export type { TripState } from './tripState'
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
 // Pure-JS HMAC-SHA256 (FIPS 198-1 / FIPS 180-4) — no native bridge, no packages.
@@ -236,7 +211,6 @@ interface AppContextValue {
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
   isLoading: boolean
-  setIsLoading: (v: boolean) => void
   tripState: TripState
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
@@ -462,104 +436,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, userLevelState, addToast, lang]);
+  }, [user, addToast, lang]);
 
-  useEffect(() => {
-    // Fired when any trip starts (manual or BT auto-start).
-    // For manual trips, AppContext.startTrip() calls setTripState explicitly after this — that call wins.
-    // For BT auto-started trips, this is the only setter, so it correctly establishes startTime + sessionId.
-    sdk.onTripStart = (tripId: string) => {
-      setTripState(prev => {
-        if (prev.isActive) return prev;
-        return { ...INITIAL_TRIP_STATE, isActive: true, startTime: new Date(), sessionId: tripId };
-      });
-    };
-
-    sdk.onUpdate = (data: TripData) => {
-      setTripState(prev => ({
-        ...prev,
-        isActive: true,
-        durationSeconds: data.durationSeconds,
-        distanceKm: data.distanceKm,
-        touchEpochs: data.touchEpochs,
-        screenInteractionSeconds: data.screenInteractionSeconds,
-        // eventCounts is maintained by the sdk.on() listeners registered below —
-        // not recomputed here, so only events that met CARMA's conditions are counted.
-      }));
-    };
-
-    sdk.onTripEnd = (data: TripData) => {
-      lastTripDataRef.current = data;
-      if (tripRef.current.isActive) {
-        processEndTrip();
-      }
-    };
-  }, [sdk, processEndTrip]);
-
-  // ─── CARMA Scoring Event Listeners ───────────────────────────────────────────
-  // Register conditional listeners on the generic DrivingSDK.
-  // Each listener defines CARMA's scoring thresholds — these values are CARMA-specific
-  // and intentionally live here, not inside the SDK.
-  useEffect(() => {
-    const tokens = [
-      sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, () => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: { ...prev.eventCounts, HARD_BRAKE: prev.eventCounts.HARD_BRAKE + 1 },
-        }));
-      }),
-      sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5 }, () => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: { ...prev.eventCounts, AGGRESSIVE_ACCEL: prev.eventCounts.AGGRESSIVE_ACCEL + 1 },
-        }));
-      }),
-      sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 10 }, () => {
-        setTripState(prev => ({
-          ...prev,
-          eventCounts: { ...prev.eventCounts, SHARP_TURN: prev.eventCounts.SHARP_TURN + 1 },
-        }));
-      }),
-      // EVT_SWERVE disabled — uncomment when re-enabling detection + UI display
-      // sdk.on(DrivingEventType.SWERVE, { minSpeedKmh: 15 }, () => {
-      //   setTripState(prev => ({
-      //     ...prev,
-      //     eventCounts: { ...prev.eventCounts, SWERVE: prev.eventCounts.SWERVE + 1 },
-      //   }));
-      // }),
-      // PHONE_USAGE has no listener here — "phone touches" for scoring/display comes
-      // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
-      // event count. See #43.
-    ];
-    return () => tokens.forEach(token => sdk.off(token));
-  }, [sdk]);
-
-  // ─── Fraud Detection Handler ──────────────────────────────────────────────
-  // Fires when TripValidationManager detects non-car transport (Rule 3).
-  // SDK already aborted the session silently — our job here is state cleanup + server sync.
-  useEffect(() => {
-    sdk.onFraudDetected = (event: FraudDetectedEvent) => {
-      // Discard any accumulated trip data — fraudulent sessions earn zero CARMA Points
-      setTripState(INITIAL_TRIP_STATE);
-
-      // TODO: Mai — implement "public transport trip detected" toast/modal component
-
-      // Report to Sean's backend (non-blocking — failure must never affect the user flow)
-      fraudApi.syncInvalidTrip({
-        userId: user?.id ?? 'anonymous',
-        timestamp: new Date().toISOString(),
-        detectedMode: event.mode,
-        fraudScore: event.confidence,
-        telemetrySummary: {
-          avgSpeed: event.telemetry.avgSpeedKmh,
-          maxLateralAccel: event.telemetry.maxLateralAccelG,
-          gyroVariance: event.telemetry.yawVariance,
-        },
-        durationMs: event.durationMs,
-        maxSpeedKmh: event.maxSpeedKmh,
-      }).catch(() => {});
-    };
-  }, [sdk, user]);
+  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
+  useScoringEvents(sdk, setTripState);
+  useFraudBinding(sdk, user, setTripState);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
@@ -648,7 +529,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadInitialData()
-  }, [sdk])
+  }, [sdk, addToast])
 
   const startTrip = useCallback(async () => {
     // TODO: GPS Logic - After first GPS sample, perform reverse geocoding to identify
@@ -739,7 +620,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading, setIsLoading,
+      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
