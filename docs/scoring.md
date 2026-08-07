@@ -67,7 +67,7 @@ Where we stand against CMT, component by component:
 |---|---|---|---|
 | Phone distraction (0.30) | Two metrics, seconds per driving hour, counted only while the vehicle moves | One blended metric, same unit, counted above 15 km/h | We collapse their two into one |
 | Speeding (0.25) | Time over the road's actual limit | Time over a flat 120 km/h national maximum | No map data for posted limits |
-| Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | Same, plus independent GPS re-detection | No per-event severity yet |
+| Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | GPS dynamics on the phone, confirmed by the accelerometer, plus a second GPS pass on the server | Severity is measured but not yet scored |
 
 **The weights themselves are the largest gap, and it is not a row above.** CMT's crash data puts distraction about 3.4x above speeding; our weights put them nearly level at 0.30 and 0.25. Normalising their figures would give distraction roughly 0.58. Re-weighting is CAR-53 — deliberately not before the distraction signal is trustworthy, because raising the weight of a noisy measurement amplifies the noise along with it.
 
@@ -108,13 +108,21 @@ Time over the limit, weighted by how far over — not a count of incidents.
 
 ### Braking, acceleration, cornering
 
-Detected twice, independently: by the phone's accelerometer, and by the server from the GPS trace.
+Detected twice, on both sides of the wire — and both detectors now start from GPS.
 
-| Event | Phone detects at | Server detects at (from GPS) |
+| Event | Phone triggers at | Server triggers at (from the waypoint trace) |
 |---|---|---|
-| Hard brake | 0.459 g | 3.0 m/s² sustained deceleration |
-| Aggressive acceleration | 0.408 g | 2.5 m/s² |
-| Sharp turn | 0.357 g lateral | 18°/s bearing change above 25 km/h |
+| Hard brake | GPS deceleration 2.7 m/s² (~0.28 g) | 3.0 m/s² sustained deceleration |
+| Aggressive acceleration | GPS acceleration 3.0 m/s² (~0.31 g) | 2.5 m/s² |
+| Sharp turn | speed × turn rate ≥ 3.5 m/s² (~0.36 g), above 10 km/h | 18°/s bearing change above 25 km/h |
+
+The phone averages over a window of at least 1.5 seconds, and fires only if the accelerometer also felt a real horizontal force. The accelerometer is a witness now, not the trigger.
+
+**Why the phone stopped reading the accelerometer directly.** It used to detect braking on the sensor's Y axis and turns on X. That only works if the phone lies flat with its top pointing forward — in a vent clip, a cup holder or a pocket the axes point somewhere else entirely, so real events went undetected no matter where the threshold sat. Speed change and heading change do not care how the phone is held.
+
+This is the one place a phone cannot copy a fleet telematics box. Geotab's published g-force thresholds work because a GO device is bolted into the vehicle in a known orientation. Ours never is. Phone-based telematics therefore reads its trigger from GPS dynamics or from rotation-invariant sensor magnitudes — which is what we now do on both counts.
+
+**The new thresholds are more sensitive than the old ones, and are not yet validated.** 2.7 m/s² is about 0.28 g, against the 0.459 g the phone used before and the 0.45 g commonly cited as harsh braking. The comparison is not like for like — ours is an average held for a second and a half, the published figures are instantaneous peaks, and a sustained 0.28 g is the larger event of the two. Nobody has yet checked the resulting event rate against real trips.
 
 - **Low-speed events are dropped** — parking, speed bumps, a dropped phone. Standard practice across the industry, and it removes the largest source of false alarms in phone-based telematics. The floor differs by event and by which side detected it:
 
@@ -125,10 +133,10 @@ Detected twice, independently: by the phone's accelerometer, and by the server f
   | Sharp turn | 10 km/h | 25 km/h |
 
   The two sides disagree on acceleration and cornering, and because counts merge as `max(phone, server)` the looser floor wins — a 6 km/h pull-out counts as an aggressive acceleration. Tracked in CAR-103.
-- **Where the two disagree, the higher count wins.** GPS sampling every 3–6 seconds misses short events an accelerometer catches, so the server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way.
-- **Severity is built but switched off.** A 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps, so there is no "brake at 0.29 g and it's free" gap to game. `event_severity()` is written and tested, but the phone does not send each event's peak force, so **today every event counts as one** (CAR-6).
+- **Where the two disagree, the higher count wins.** The phone sees every GPS fix, roughly every 2 seconds; the server only sees the trace it was sent, thinned to one point every 5 seconds, so it misses short events. The server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way.
+- **Severity now arrives, and still is not scored.** A 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps, so there is no "brake at 0.29 g and it's free" gap to game. Every event now carries its peak g-force and how long it lasted, and the server stores both. The score does not read them: event counts come from the **signed** telemetry digest, and the event list is unsigned — feeding it into the score would let a client dictate its own severity. `event_severity()` is written and tested; switching it on means getting the counts and the severities under one signature. **Today every event still counts as one** (CAR-6).
 
-> **Before severity ships:** the curve starts at 0.30 g for braking, but the phone reports nothing below 0.459 g. Every reported brake would land mid-curve on day one and the lowest band would be unreachable. The bands need re-anchoring to the SDK's real thresholds.
+> **Before severity ships:** the curve expects a braking peak between 0.30 g and 0.60 g. What the phone reports is the accelerometer's peak horizontal force, and an event is accepted on as little as 0.10 g of it. Where real trips actually land in that band is unknown. Measure the distribution first, or the bottom of the curve swallows everything.
 
 ---
 
@@ -163,7 +171,9 @@ The curve never hits zero and never flattens, so there is always something to ga
 
 **This is the one place we knowingly depart from CMT.** They score each component against the driver population; we use a fixed curve with a fixed constant. Population-relative scoring is the better method and needs a fleet distribution we do not have yet.
 
-**The constants are provisional.** Fitted July 2026 to 57 real trips — enough to repair a visibly broken curve (every trip scored exactly 100, or fell off a cliff to 50 on a single event), not enough to call settled. A proper fit needs roughly 200 trips, trustworthy phone-side detection (CAR-6) and per-event severity. Treat them as better than a guess, not yet earned. Record and trigger: CAR-102.
+**The constants are provisional.** Fitted July 2026 to 57 real trips — enough to repair a visibly broken curve (every trip scored exactly 100, or fell off a cliff to 50 on a single event), not enough to call settled. A proper fit needs roughly 200 trips and per-event severity feeding the score (CAR-6). Treat them as better than a guess, not yet earned. Record and trigger: CAR-102.
+
+**And the fit predates working phone-side detection.** Those 57 trips were recorded while the phone detected events off fixed accelerometer axes, which in a real mount caught almost nothing — so nearly every event in that data came from the server's GPS pass alone. Now the phone contributes real counts, counts merge upward, and trip scores should fall across the board. Re-fit on trips recorded after PR #48, not before it, and expect the constants to move.
 
 ### Blending the five
 
@@ -239,12 +249,12 @@ points = trip score
 
 ## What is live, and what is waiting
 
-**Working today:** the whole pipeline — server-side GPS detection, rates, subscores, blending, confidence cap, distance witness, driver score, level cap, points, anti-grind caps. Unit tests at every stage.
+**Working today:** the whole pipeline — orientation-free detection on the phone, server-side GPS detection, rates, subscores, blending, confidence cap, distance witness, driver score, level cap, points, anti-grind caps. Unit tests at every stage.
 
 | Designed, not yet live | Waiting on |
 |---|---|
 | Distraction split into CMT's two metrics | CAR-54 |
-| Per-event severity | CAR-6 — the SDK sending peak g-force |
+| Per-event severity in the score | CAR-6 — the SDK sends peak g-force now; the score needs it signed |
 | Speeding against real posted limits | Map data |
 | Population-relative subscores | A real fleet distribution — CAR-102 |
 | Driver score visible to the driver | CAR-85 |
