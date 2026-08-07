@@ -59,6 +59,11 @@ Thumbs.db
 screen*.png
 demo_shots/
 
+# ─── Local check output ──────────────────────────────────────────────────────
+# tsc/eslint/jest reports redirected to a file. These belong in the session
+# scratchpad, not the tree — this entry is the safety net for when they land here.
+tsc-out.txt
+
 # ─── Claude Code ─────────────────────────────────────────────────────────────
 .claude/settings.local.json
 CLAUDE.local.md
