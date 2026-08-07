@@ -176,6 +176,11 @@ export interface DrivingStats {
   averageScore: number;
   safeTripsCount: number;
   totalDurationSeconds: number;
+  // Days in a row of good driving, and the driver's own record. Days, not trips,
+  // and worth no points — the count is the whole reward. The server sends these
+  // today; no screen renders them yet (CAR-139).
+  currentStreak: number;
+  bestStreak: number;
   recentScores: { date: string; score: number }[];
   eventCounts: {
     hardBrakes: number;
