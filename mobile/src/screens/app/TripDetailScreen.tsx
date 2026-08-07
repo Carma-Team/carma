@@ -13,6 +13,7 @@ import { StatsGrid } from '@/components/ui/StatsGrid';
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
 import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
 import { tripsApi } from '@/services/api/trips.api';
+import { toDrivingEvents } from '@/lib/tripEvents';
 import type { DrivingEvent } from '@/lib/driving-sdk/types';
 
 export default function TripDetailScreen() {
@@ -40,14 +41,18 @@ export default function TripDetailScreen() {
     const foundTrip = recentTrips.find(t => t.id === tripId);
     if (foundTrip) {
       setTrip(foundTrip);
-      // If the cached trip already has waypoints (just-completed trip), use them directly.
-      // Otherwise fetch from the single-trip endpoint which includes route_waypoints.
+      // Paint the map immediately when the cached trip already carries waypoints
+      // (just-completed trip), so the route doesn't wait on the network.
       if (foundTrip.routeWaypoints?.length) {
         setRouteWaypoints(foundTrip.routeWaypoints);
-      } else if (tripId) {
+      }
+      // Fetch regardless: the event timeline is returned only by the single-trip
+      // endpoint, so cached waypoints are not a reason to skip the request.
+      if (tripId) {
         tripsApi.getById(tripId)
           .then(res => {
-            if (res.trip.routeWaypoints) setRouteWaypoints(res.trip.routeWaypoints);
+            if (res.trip.routeWaypoints?.length) setRouteWaypoints(res.trip.routeWaypoints);
+            setTripEvents(toDrivingEvents(res.trip.events));
           })
           .catch(() => {});
       }
@@ -110,7 +115,7 @@ export default function TripDetailScreen() {
         {/* Route map */}
         <TripMapPlaceholder
           waypoints={routeWaypoints}
-          events={trip.tripEvents ?? tripEvents}
+          events={tripEvents}
         />
 
       </ScrollView>

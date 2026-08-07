@@ -13,7 +13,7 @@
  * - GET /api/trips/:id — USE_REAL_SERVER=false → mock; true → real server
  */
 import { request } from './client';
-import type { Trip } from '@/types';
+import type { Trip, TripDetail } from '@/types';
 import type { ValidTripPayload } from '@/services/sync/types';
 
 export const tripsApi = {
@@ -28,5 +28,5 @@ export const tripsApi = {
     });
   },
 
-  getById: (id: string) => request<{ trip: Trip }>(`/api/trips/${id}`),
+  getById: (id: string) => request<{ trip: TripDetail }>(`/api/trips/${id}`),
 };
