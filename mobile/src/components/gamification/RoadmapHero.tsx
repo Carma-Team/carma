@@ -36,6 +36,7 @@ export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: Roadm
             value={levelData.progress}
             color={levelData.config.color}
             height={8}
+            showValue={false}
           />
           <Text style={styles.heroSub}>
             {t('roadmap.pointsToNextLine').replace('{points}', levelData.pointsToNext.toLocaleString())}

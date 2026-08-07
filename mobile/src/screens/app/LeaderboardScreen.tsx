@@ -286,6 +286,8 @@ export default function LeaderboardScreen() {
     { key: 'national', label: t('leaderboard.national') },
   ]
 
+  // National tab has nothing left to filter by (single country) — only the
+  // city tab keeps a filter, and now gets the full row width to itself.
   const filterRow = type === 'city' ? (
     <View style={styles.filterRow}>
       <Text style={styles.filterSubtitle}>{t('leaderboard.showing_city')}:</Text>

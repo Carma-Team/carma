@@ -71,11 +71,11 @@ of what the client claims.
 `FraudDetector` analyses a **60-second sliding window** of IMU + GPS samples (1 Hz)
 and scores the probability that the user is on a train using three physical signals:
 
-| Signal | Measures | Threshold | Weight |
-|---|---|---|---|
-| A — Speed profile | Low variance + high average speed (train = constant, car = variable) | variance < 8 km/h², avg > 60 km/h | 0.40 |
-| B — Lateral acceleration | Near-zero lateral force (rails prevent sway; cars always produce some) | max(|accelX|) < 0.12 g | 0.35 |
-| C — Yaw rate variance | Near-zero heading change (track is fixed; cars micro-steer continuously) | variance(gyroZ) < 0.02 rad²/s² | 0.25 |
+| Signal | Reported as | Measures | Threshold | Weight |
+|---|---|---|---|---|
+| A — Speed profile | `constantHighSpeed` | Low variance + high average speed (train = constant, car = variable) | variance < 8 km/h², avg > 60 km/h | 0.40 |
+| B — Lateral acceleration | `noLateralForce` | Near-zero lateral force (rails prevent sway; cars always produce some) | max(|accelX|) < 0.12 g | 0.35 |
+| C — Yaw rate variance | `noHeadingChange` | Near-zero heading change (track is fixed; cars micro-steer continuously) | variance(gyroZ) < 0.02 rad²/s² | 0.25 |
 
 ```
 fraud_score = 0.40 × A + 0.35 × B + 0.25 × C        (0.0 – 1.0)
@@ -127,22 +127,61 @@ it starts it — ensuring all code paths go through the same Rule 1 + Rule 3 gat
 
 ### Output sent to the server
 
-```ts
-interface FraudEvaluation {
-  score:    number;         // 0.0 – 1.0
-  isReady:  boolean;        // false until 30 samples collected
-  mode:     TransportMode;  // TRAIN | UNKNOWN
-  signals:  { a: boolean; b: boolean; c: boolean };
-  telemetry: {
-    avgSpeedKmh:      number;
-    maxLateralAccelG: number;
-    yawVariance:      number;   // rad²/s²
-  };
+`POST /api/fraud` carries the verdict **and the evidence behind it**. The score alone
+says a session was flagged; the signals say which gate fired and the telemetry says by
+how much — which is what a threshold recalibration or a false-positive investigation
+actually needs.
+
+```jsonc
+{
+  "idempotencyKey": "fraud_<userId>_<timestamp>",
+  "tripDurationSeconds": 240,
+  "distanceKm": 4.8,              // null for a pre-trip rejection — see below
+  "anomalyFlags": [
+    "TRANSPORT_MODE_TRAIN",
+    "HIGH_FRAUD_SCORE",           // score > 0.80
+    "SIGNAL_CONSTANT_HIGH_SPEED", // one flag per gate that fired
+    "SIGNAL_NO_LATERAL_FORCE",
+    "SIGNAL_NO_HEADING_CHANGE"
+  ],
+  "detection": {
+    "fraudScore": 1.0,
+    "detectedMode": "TRAIN",
+    "signals": {                  // Signal A / B / C, by name
+      "constantHighSpeed": true,
+      "noLateralForce": true,
+      "noHeadingChange": true
+    },
+    "telemetry": {
+      "avgSpeedKmh": 82.4,
+      "maxLateralAccelG": 0.03,
+      "yawVariance": 0.001        // rad²/s² — variance of yaw *rate*
+    },
+    "maxSpeedKmh": 96.2,
+    "detectedAt": "2026-08-01T09:00:00.000Z"
+  }
 }
 ```
 
-Raw telemetry is stored in `fraud_reports` so thresholds can be recalibrated server-side
-without a client release.
+Three properties of this contract are deliberate:
+
+- **One name per value, end to end.** `fraudScore` is `fraudScore` in `FraudDetector`,
+  on the wire, and in the column. A value renamed at a layer boundary can no longer be
+  traced back to the rule that produced it.
+- **Gates are duplicated into `anomalyFlags`.** "Which rule caught this?" is then a
+  query on one indexed array rather than a scan through stored evidence.
+- **`distanceKm` is null at the primary gate.** A trip rejected before confirmation
+  never accumulated distance — the null is the true value, not a missing one.
+
+`detection` is validated against a schema and stored in its own JSONB column; `rawPayload`
+remains as the escape hatch for anything not yet modelled. Everything stored is a window
+aggregate — no raw sample traces leave the device. Thresholds can be recalibrated
+server-side from this data without a client release.
+
+**Retention — agreed, not yet enforced:** `fraud_reports` rows are to be kept for
+**12 months** from `reported_at`. They are anti-fraud evidence, so they outlive a normal
+session, but not indefinitely — GDPR storage limitation applies to derived behavioural
+data as much as to raw location. No job deletes them today — CAR-135.
 
 ---
 

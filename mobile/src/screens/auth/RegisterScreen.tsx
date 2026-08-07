@@ -72,8 +72,10 @@ export default function RegisterScreen() {
       const firstName = data.user?.name?.split(' ')[0] ?? t('auth.defaultUserName')
       addToast({ type: 'success', message: t('auth.welcomeToast').replace('{name}', firstName) })
       // No need for router.replace — the root Layout detects the logged-in user and redirects to tabs
-    } catch (e: any) {
-      setError(e.message || t('auth.errors.emailExists'))
+    } catch {
+      // The server's error detail is always English — show the localized
+      // message instead so Hebrew users don't see raw English error text (CAR-59).
+      setError(t('auth.errors.emailExists'))
     } finally {
       setLoading(false)
     }
@@ -90,7 +92,10 @@ export default function RegisterScreen() {
   ]
 
   return (
-    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={[COMMON_STYLES.screen, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Ionicons name={ICONS.car} size={48} color={COLORS.brand} style={{ marginBottom: 6 }} />

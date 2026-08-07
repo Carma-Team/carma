@@ -1,7 +1,7 @@
 import type { TranslationMap } from './he'
 
 const en: TranslationMap = {
-  app:   { name: 'CARMA', tagline: 'Drive smart. Earn rewards.' },
+  app:   { name: 'CARMA', tagline: 'Drive safely. Earn rewards.' },
   nav: {
     dashboard: 'Home', trip: 'Trip', roadmap: 'Roadmap',
     marketplace: 'Store', leaderboard: 'Rank', profile: 'Profile',
@@ -33,6 +33,7 @@ const en: TranslationMap = {
     active: 'Active Trip', start: 'Start Trip', end: 'End Trip',
     activeTrip: 'Active Trip', endBtn: 'End Trip',
     endTripConfirm: 'End Trip', endTripMessage: 'Are you sure you want to end the current trip?',
+    calculatingScore: 'Calculating your score…', calculatingScoreDesc: 'This can take a few seconds',
     eventsDetected: 'Events Detected', safetyTip: 'Smooth driving without sudden braking improves your score!',
     duration: 'Duration', distance: 'Distance', score: 'Score', events: 'Events',
     hardBrakes: 'Harsh Braking', aggressiveAccels: 'Aggressive Acceleration',
@@ -49,6 +50,7 @@ const en: TranslationMap = {
     finalScore: 'Final Score',
     km: 'km',
     points: 'points',
+    pointsCapped: "You've reached your points limit for this period — more points will count once it resets.",
     eventDetails: 'Event Details:',
     viewFullDetails: 'View Full Details',
     closeAndHome: 'Close and Return Home',
@@ -61,6 +63,10 @@ const en: TranslationMap = {
     addDistanceSmall: '+100 m',
     btConnected: 'connected — trip started',
     defaultDeviceName: 'Vehicle',
+    batteryOptimizationTitle: 'Improve trip tracking accuracy',
+    batteryOptimizationMessage: "Some Android phones limit location updates in the background to save battery, which can make CARMA's trip tracking less accurate. For best results, allow CARMA to run without battery restrictions in your phone's settings.",
+    batteryOptimizationNotNow: 'Not now',
+    batteryOptimizationOpenSettings: 'Open settings',
   },
   bluetooth: {
     title: 'Vehicle Connection',

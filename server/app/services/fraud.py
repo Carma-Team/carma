@@ -13,8 +13,11 @@ async def report(db: AsyncSession, user: User, dto: InvalidTripPayload) -> Fraud
         idempotency_key=dto.idempotency_key,
         trip_duration_seconds=dto.trip_duration_seconds,
         distance_km=dto.distance_km,
-        avg_score=dto.avg_score,
         anomaly_flags=dto.anomaly_flags if dto.anomaly_flags else [],
+        # Stored under the aliases the device sent, so a stored row and a captured
+        # request read identically. exclude_none keeps absent evidence absent
+        # rather than recording a wall of nulls.
+        detection=(dto.detection.model_dump(mode="json", by_alias=True, exclude_none=True) if dto.detection else None),
         raw_payload=dto.raw_payload,
     )
     db.add(fraud_report)

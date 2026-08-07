@@ -1,6 +1,6 @@
 import React from 'react'
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native'
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons'
+import { Ionicons } from '@expo/vector-icons'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { formatDate, formatDistance } from '@/lib/utils'
@@ -25,7 +25,7 @@ export function TripCard({ trip, onPress }: TripCardProps) {
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Card>
         <View style={styles.row}>
-          <FontAwesome5 name="map-marked-alt" size={20} color={scoreToColor(displayScore)} />
+          <Ionicons name={ICONS.noTrips} size={20} color={scoreToColor(displayScore)} />
           <View style={styles.info}>
             <Text style={styles.title} numberOfLines={1}>
               {formatDate(trip.startTime, lang)}
@@ -53,7 +53,6 @@ export function TripCard({ trip, onPress }: TripCardProps) {
 
 const styles = StyleSheet.create({
   row:       { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  emoji:     { fontSize: 24 },
   info:      { flex: 1 },
   title:     { color: COLORS.text, fontWeight: '600', fontSize: 14 },
   sub:       { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
