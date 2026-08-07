@@ -20,7 +20,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
-import { getRiskMultiplier } from '@/lib/scoring'
+import { getRiskMultiplier } from '@/lib/trip-scoring/riskMultiplier'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
