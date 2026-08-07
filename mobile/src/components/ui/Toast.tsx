@@ -28,6 +28,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
 
   return (
     <Animated.View style={[styles.container, { opacity, borderLeftColor: typeColors[toast.type] }]}>
+      {!!toast.title && <Text style={styles.title}>{toast.title}</Text>}
       <Text style={styles.text}>{toast.message}</Text>
     </Animated.View>
   )
@@ -45,5 +46,6 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; 
 const styles = StyleSheet.create({
   wrapper:   { position: 'absolute', top: 60, left: 16, right: 16, zIndex: 999 },
   container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
+  title:     { color: COLORS.text, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   text:      { color: COLORS.text, fontSize: 14, fontWeight: '500' },
 })
