@@ -79,6 +79,11 @@ class ScoringConfig:
     # Points engine ("Points").
     streak_bonus_per_day: float = 0.05
     streak_bonus_max_days: int = 5
+    # The night risk multiplier pays for driving well when it is hardest, not for
+    # being on the road when it is hardest. Below this score it is worth nothing;
+    # it tapers to its full time-of-day value at 100. Uncalibrated — check where
+    # the fleet's trip scores actually sit before treating 70 as settled.
+    risk_multiplier_floor_score: float = 70.0
     # Two ceilings, two jobs — and only one of them is about money.
     #
     # The month is the economic ceiling: what the catalogue will pay one driver.
@@ -115,11 +120,20 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # ─── Stage 1 — continuous severity weight (ready for the SDK) ──────────────────
 
 
-def event_severity(event_type: str, peak_g: float, duration_ms: float, speed_kmh: float) -> float:
+def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     """Continuous severity weight for one kinematic event.
 
-    Ranges from 1.0 at the detection threshold to ~3.0 for an extreme, sustained,
-    high-speed event. Replaces tier counting so there is no threshold to game.
+    Ranges from 1.0 at the detection threshold to 3.0 for an extreme, sustained
+    event. Replaces tier counting so there is no threshold to game.
+
+    Speed is deliberately not an input. It is already scored as its own component
+    at weight 0.25, so scaling event severity by it charged a hard brake at
+    motorway speed twice.
+
+    `peak_g` must be a single axis in the vehicle's frame — longitudinal for
+    brake and accel, lateral for corner. A raw horizontal magnitude from a phone
+    at an unknown orientation is a different quantity, and the ranges below do
+    not describe it.
 
     Not called in shadow mode (the SDK does not emit peak_g yet) — kept here,
     tested, so the moment per-event data arrives the only change upstream is
@@ -129,8 +143,7 @@ def event_severity(event_type: str, peak_g: float, duration_ms: float, speed_kmh
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
     g_factor = g_norm**1.5 + 1.0
     duration_factor = 1.0 + min(duration_ms / 2000.0, 0.5)
-    speed_factor = 1.0 + min(speed_kmh / 120.0, 1.0) * 0.5
-    return float(g_factor * duration_factor * speed_factor)
+    return float(g_factor * duration_factor)
 
 
 # ─── Stages 3–5 — trip score ───────────────────────────────────────────────────
@@ -274,6 +287,21 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 # ─── Stage 7 — points engine ────────────────────────────────────────────────────
 
 
+def _risk_multiplier_earned(base: float, trip_score: float, config: ScoringConfig) -> float:
+    """How much of the time-of-day risk multiplier a trip actually earns.
+
+    The full multiplier is for driving well at the hardest hours. Paid flat, it
+    pays for *being out* at those hours instead — the same context the industry
+    uses to raise measured risk, we would be using to raise the payout.
+
+    A taper rather than a cut at the floor: two trips a tenth of a point apart
+    must not differ twofold in what they pay.
+    """
+    span = 100.0 - config.risk_multiplier_floor_score
+    earned = _clamp((trip_score - config.risk_multiplier_floor_score) / span, 0.0, 1.0)
+    return 1.0 + (max(1.0, base) - 1.0) * earned
+
+
 def compute_points(
     *,
     trip_score: float,
@@ -306,7 +334,13 @@ def compute_points(
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
     streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
+    points = (
+        trip_score
+        * distance_factor
+        * _risk_multiplier_earned(risk_multiplier, trip_score, config)
+        * streak_bonus
+        * max(0.0, level_multiplier)
+    )
 
     # Whichever ceiling is nearer. Applied last, so the level bonus changes how
     # fast a driver reaches a ceiling, never where it sits.
