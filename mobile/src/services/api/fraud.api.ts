@@ -6,11 +6,16 @@
  * `syncInvalidTrip` — converts the SDK FraudDetectedEvent to the server format and posts to the backend.
  * In mock mode (USE_REAL_SERVER=false): logs formatted JSON and returns a stub DTO.
  *
+ * Field names are the same at every layer, from FraudDetector through to the
+ * fraud_reports row. Anything renamed on the way through can no longer be traced
+ * back to the rule that produced it.
+ *
  * @server POST /api/fraud — live (server/app/routers/fraud.py)
  */
 import { request } from './client';
 import { USE_REAL_SERVER } from '@/constants/serverConfig';
 import { TransportMode } from '@/lib/driving-sdk/types';
+import type { FraudSignals } from '@/lib/FraudDetector';
 
 // ─── Mobile SDK event shape (emitted by DrivingSDK.onFraudDetected) ──────────
 
@@ -19,13 +24,17 @@ export interface FraudEventPayload {
   timestamp: string;
   detectedMode: TransportMode;
   fraudScore: number;
-  telemetrySummary: {
-    avgSpeed: number;
-    maxLateralAccel: number;
-    gyroVariance: number;
+  telemetry: {
+    avgSpeedKmh: number;
+    maxLateralAccelG: number;
+    yawVariance: number;
   };
+  /** Which gates fired. Optional until the SDK carries it across its own boundary — CAR-134. */
+  signals?: FraudSignals;
   durationMs: number;
   maxSpeedKmh: number;
+  /** Absent for a pre-trip rejection — the trip was never confirmed, so no distance exists. */
+  distanceKm?: number;
 }
 
 // ─── Server response (FraudReportOut — camelCase per CamelModel) ──────────────
@@ -37,6 +46,19 @@ export interface FraudReportOut {
   anomalyFlags: string[];
 }
 
+// ─── Reason codes ────────────────────────────────────────────────────────────
+
+// The gates that fired, as flags, so "which rule caught this" is answerable with
+// a query on anomaly_flags instead of a scan through stored evidence.
+function signalFlags(signals?: FraudSignals): string[] {
+  if (!signals) return [];
+  return [
+    signals.constantHighSpeed && 'SIGNAL_CONSTANT_HIGH_SPEED',
+    signals.noLateralForce    && 'SIGNAL_NO_LATERAL_FORCE',
+    signals.noHeadingChange   && 'SIGNAL_NO_HEADING_CHANGE',
+  ].filter((flag): flag is string => Boolean(flag));
+}
+
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 export const fraudApi = {
@@ -44,7 +66,8 @@ export const fraudApi = {
     if (!USE_REAL_SERVER) {
       console.group('[fraud.api] INVALID TRIP DETECTED');
       console.log('Mode:', payload.detectedMode, `| Score: ${(payload.fraudScore * 100).toFixed(0)}%`);
-      console.log('Telemetry:', JSON.stringify(payload.telemetrySummary, null, 2));
+      console.log('Signals fired:', signalFlags(payload.signals).join(', ') || 'none reported');
+      console.log('Telemetry:', JSON.stringify(payload.telemetry, null, 2));
       console.log('Full payload:', JSON.stringify(payload, null, 2));
       console.groupEnd();
       return {
@@ -59,15 +82,19 @@ export const fraudApi = {
     const serverPayload = {
       idempotencyKey: `fraud_${payload.userId}_${payload.timestamp}`,
       tripDurationSeconds: Math.round(payload.durationMs / 1000),
+      distanceKm: payload.distanceKm,
       anomalyFlags: [
         `TRANSPORT_MODE_${payload.detectedMode}`,
-        ...(payload.fraudScore > 0.8 ? ['HIGH_CONFIDENCE_FRAUD'] : []),
+        ...(payload.fraudScore > 0.8 ? ['HIGH_FRAUD_SCORE'] : []),
+        ...signalFlags(payload.signals),
       ],
-      rawPayload: {
+      detection: {
         fraudScore: payload.fraudScore,
+        detectedMode: payload.detectedMode,
+        signals: payload.signals,
+        telemetry: payload.telemetry,
         maxSpeedKmh: payload.maxSpeedKmh,
-        telemetrySummary: payload.telemetrySummary,
-        timestamp: payload.timestamp,
+        detectedAt: payload.timestamp,
       },
     };
 
