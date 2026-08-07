@@ -60,8 +60,8 @@ screen*.png
 demo_shots/
 
 # ─── Local check output ──────────────────────────────────────────────────────
-# tsc/eslint/jest reports redirected to a file. These belong in the session
-# scratchpad, not the tree — this entry is the safety net for when they land here.
+# Standing output file for tsc/eslint/jest runs redirected from the terminal.
+# One fixed path on purpose, so the command can be re-run from shell history.
 tsc-out.txt
 
 # ─── Claude Code ─────────────────────────────────────────────────────────────
