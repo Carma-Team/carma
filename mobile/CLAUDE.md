@@ -27,12 +27,34 @@ It defines the purpose of every directory, what belongs in each one, and what is
 
 Files that must NOT be inside `driving-sdk/`:
 - Trip validation rules (start/end thresholds) → `src/lib/TripValidationManager.ts`
-- Fraud / transport-mode detection → `src/lib/FraudDetector.ts`
+- Fraud / transport-mode detection → `src/lib/fraud-detection/`
 - Gamification levels, point multipliers → `src/lib/gamification.ts`
-- Scoring formulas → `src/lib/scoring.ts`
+- Scoring formulas → `src/lib/trip-scoring/`
 
 Test before asking: *"If a different app used this SDK, would this file make sense?"*
 If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
+
+## File headers — every file under `src/lib/` states who owns it
+
+Each file opens with a JSDoc block carrying three tags, and nothing else is mandatory:
+
+```ts
+/**
+ * @file FraudDetector.ts
+ * @owner Dan (CPO) — fraud & transport-mode detection
+ * @brief Sliding-window classifier that decides whether a session is private car travel.
+ * Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted
+ * signals against a 0.70 threshold, and reports the transport mode plus raw telemetry.
+ */
+```
+
+- **`@owner`** — the person who decides what this file does, not whoever edited it last. Use `Shared` when a file genuinely cannot be split by owner, and say who holds which half. Files inside `driving-sdk/` name the maintainer without a CARMA job title, because the library is meant to be extracted and a role from this org means nothing to whoever receives it.
+- **`@brief`** — two sentences. **The same two sentences appear in the `lib/` table in `STRUCTURE.md`.** One wording, two places; if you change one, change the other in the same commit.
+- Existing `@description` blocks, threshold reasoning and inline comments stay where they are — the header sits above them, it does not replace them.
+
+Why it exists: two people work inside `lib/`, and the folders `fraud-detection/` and `trip-scoring/` are the visible half of that boundary. The header is the half you see once the file is already open.
+
+These tags are JSDoc, which is what TypeDoc reads. Doxygen does not support TypeScript — if we ever generate an API reference, TypeDoc is the tool, and scoping it to `driving-sdk/` is the case worth making.
 
 ## Server config — builds vs. dev
 
@@ -77,7 +99,7 @@ Current disabled features:
 
 | Feature | Marker | Files affected |
 |---|---|---|
-| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `scoring.ts`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
+| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
 
 When re-enabling: search for the marker across the repo and uncomment all matching blocks. Also make `swerves` required again in `TelemetryDigest`, `ValidTripPayload`, and `ScoringInput`.
 

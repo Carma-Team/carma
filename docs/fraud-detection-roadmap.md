@@ -216,7 +216,7 @@ This closes the gap where a client that sends no signature at all is not verifie
 
 | File | Change |
 |---|---|
-| `mobile/src/lib/FraudDetector.ts` | Add bus / metro / bicycle / spoof classifiers |
+| `mobile/src/lib/fraud-detection/FraudDetector.ts` | Add bus / metro / bicycle / spoof classifiers |
 | `mobile/src/lib/driving-sdk/types.ts` | Add `BUS`, `BICYCLE`, `SPOOFED` to `TransportMode` |
 | `mobile/src/lib/driving-sdk/sensors/SensorManager.ts` | Expose GPS fix quality, IMU magnitude, dropout duration |
 | `server/app/services/trips.py` | Add `_check_gps_teleportation`, `_check_imu_gps_consistency`; remove `ph:` bypass |

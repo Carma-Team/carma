@@ -41,6 +41,9 @@ Thumbs.db
 # typescript
 *.tsbuildinfo
 
+# local tsc / jest report, written by hand before a push — never committed
+tsc-out.txt
+
 app-example
 
 # generated native folders

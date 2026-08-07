@@ -51,12 +51,15 @@ mobile/
 │   ├── i18n/             # Hebrew / English translation strings
 │   ├── lib/              # Pure business logic (no React)
 │   │   ├── driving-sdk/        # Sensor + Bluetooth SDK — see its own README
-│   │   ├── FraudDetector.ts    # Transport-mode classifier (CARMA-specific thresholds)
+│   │   ├── fraud-detection/    # Transport-mode classifier — Dan's domain
+│   │   ├── trip-scoring/       # Risk multiplier — Dan's domain (formula is server-side)
 │   │   ├── TripValidationManager.ts  # Trip lifecycle rules (30 s start, 3 min end)
-│   │   ├── gamification.ts     # Level progression engine (10-tier map + multipliers)
-│   │   ├── scoring.ts          # Score display helpers + risk multiplier (formula is server-side)
+│   │   ├── gamification.ts     # Level presentation from server-reported level
+│   │   ├── notifications.ts    # Notifications-screen decisions and state
+│   │   ├── rewardStock.ts      # Reward stock rules for the business screens
+│   │   ├── BatteryOptimizationPrompt.ts  # When to ask for the Android battery exemption
 │   │   ├── constants.ts        # Runtime level config (loaded from server via setLevels)
-│   │   └── utils.ts            # Pure utility helpers
+│   │   └── utils.ts            # Formatting + score/level display helpers
 │   ├── screens/          # Full-screen views (auth/ and app/)
 │   ├── services/         # Server communication
 │   │   ├── api/          # One file per backend resource + Axios client

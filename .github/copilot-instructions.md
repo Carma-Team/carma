@@ -33,9 +33,9 @@ It must not contain anything specific to the CARMA application.
 
 **Never place these inside `driving-sdk/`:**
 - Trip start/end rules → belongs in `src/lib/TripValidationManager.ts`
-- Fraud / public-transport detection → belongs in `src/lib/FraudDetector.ts`
+- Fraud / public-transport detection → belongs in `src/lib/fraud-detection/`
 - Gamification levels or point multipliers → belongs in `src/lib/gamification.ts`
-- Scoring formulas → belongs in `src/lib/scoring.ts`
+- Scoring formulas → belongs in `src/lib/trip-scoring/`
 
 **Quick test:** Would this file make sense in an SDK used by a different app?
 If no → put it in `src/lib/`, not in `driving-sdk/`.

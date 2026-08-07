@@ -1,5 +1,9 @@
 /**
- * BluetoothManager — Classic Bluetooth device monitoring (Android only).
+ * @file BluetoothManager.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Classic Bluetooth device monitoring, Android only.
+ * Lists OS-bonded devices and emits connect/disconnect for the chosen target device,
+ * which is how a trip can start and end without the driver touching the phone.
  *
  * Responsibilities:
  *   1. List OS-bonded (paired) Bluetooth devices on this handset.

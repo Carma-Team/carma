@@ -1,3 +1,10 @@
+/**
+ * @file constants.ts
+ * @owner Shared — May (client-side lookups and display); the level ladder itself is
+ *        server-owned and defined once in `server/app/services/levels.py`.
+ * @brief The 10-tier level ladder held as a first-paint cache, replaced by `GET /api/levels`.
+ * Also holds the reward-category list used by the marketplace screen.
+ */
 import type { LevelConfig } from '@/types'
 
 // First-paint cache only — `setLevels` replaces this the moment AppContext
@@ -91,11 +98,6 @@ export function getUserLevelData(totalPoints: number): UserLevelData {
   };
 }
 
-export const RISK_HOURS = {
-  WEEKEND_NIGHT: { days: [4, 5], startHour: 23, endHour: 4, multiplier: 2.0 },
-  WEEKDAY_NIGHT: { days: [0, 1, 2, 3, 6], startHour: 23, endHour: 4, multiplier: 1.5 },
-}
-
 export const REWARD_CATEGORIES = [
   { key: 'fuel',          labelHe: 'דלק',          labelEn: 'Fuel',          icon: 'car-outline' },
   { key: 'food',          labelHe: 'אוכל ושתייה',  labelEn: 'Food & Drink',  icon: 'restaurant-outline' },
@@ -104,13 +106,3 @@ export const REWARD_CATEGORIES = [
   { key: 'shopping',      labelHe: 'קניות',         labelEn: 'Shopping',      icon: 'cart-outline' },
   { key: 'other',         labelHe: 'אחר',           labelEn: 'Other',         icon: 'cube-outline' },
 ]
-
-export const EVENT_PROBABILITIES = {
-  HARD_BRAKE:       0.15,
-  AGGRESSIVE_ACCEL: 0.12,
-  SHARP_TURN:       0.10,
-  PHONE_TOUCH:      0.08,
-}
-
-export const TRIP_SIMULATION_INTERVAL_MS = 3000
-export const TRIP_SPEED_KM_PER_MIN = 0.5

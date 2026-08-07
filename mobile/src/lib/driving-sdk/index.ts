@@ -1,6 +1,9 @@
 /**
- * @fileoverview Generic driving trip SDK — DrivingSDK
- * @module lib/driving-sdk
+ * @file index.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief The SDK's public entry point and orchestrator, `DrivingSDK`.
+ * Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream,
+ * and emits driving events to whatever host app is consuming the library.
  *
  * @description
  * Singleton class managing the full trip lifecycle:

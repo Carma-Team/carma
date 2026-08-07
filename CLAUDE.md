@@ -176,7 +176,7 @@ Critical boundary — `mobile/src/lib/driving-sdk/`:
 - This is a **generic sensor-wrapper SDK** (GPS, IMU, Bluetooth). It will be extracted into a standalone npm package.
 - It must contain **only** hardware-abstraction code: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (orchestrator, `index.ts`), and `types.ts`.
 - **Never add** CARMA-specific logic here: trip validation rules, fraud detection thresholds, gamification levels, scoring formulas, or any business constants.
-- CARMA-specific logic that consumes SDK events belongs in `mobile/src/lib/` (directly, not inside `driving-sdk/`): see `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+- CARMA-specific logic that consumes SDK events belongs in `mobile/src/lib/` (directly, not inside `driving-sdk/`): see `TripValidationManager.ts`, `gamification.ts`, and the two owner-scoped folders `fraud-detection/` and `trip-scoring/`.
 
 ## Working with Claude
 
