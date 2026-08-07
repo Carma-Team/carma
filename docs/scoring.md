@@ -18,6 +18,26 @@ Where this document and the code disagree, **the code is right**: [`server/app/s
 
 ---
 
+## What this score is for, and what it is not for
+
+**Built for:** feedback to the driver, the leaderboard, the level ladder, and the rewards economy. Everything in this document is designed for a number a driver sees and competes on.
+
+**Not validated for any decision made about a person.** Insurance pricing or underwriting, employment or fleet-hiring decisions, anything with a legal or financial consequence — the score has not earned that use, and nobody should build one on it without redoing the work below.
+
+That is not modesty. Concretely, as of today:
+
+- **It has never been checked against a crash or a claim.** We copy the method of a company that validated theirs; that makes our numbers comparable to theirs, not validated. See "Why this follows CMT".
+- **The decay constants come from 57 trips**, recorded before the phone could reliably detect events at all. They will move.
+- **Distraction — our heaviest component at 0.30 — is charged while the car is standing still.** Every trip carries up to three stationary minutes.
+- **Speeding is scored against a flat 120 km/h**, so on any ordinary road it is a constant 100.
+- **Severity is not in the score.** A tap on the brakes and an emergency stop cost the same.
+
+**The inputs it is valid over:** private cars, Israeli roads, a phone carried or mounted in the vehicle, trips long enough to clear the 4 km / 5 minute floors and with a GPS trace dense enough to measure. Outside that — motorcycles, commercial fleets, a phone left at home, a trip through a tunnel — the score is not wrong so much as uninformed, and it does not say so on its face.
+
+This section exists because a scoring model that reaches a person is expected to declare its purpose and its limits (ASOP 56 for actuarial models is the nearest standard). When any of the five points above stops being true, edit it here first.
+
+---
+
 ## Why this follows CMT
 
 Almost every choice below — what to measure, in what units, what counts as distraction — follows Cambridge Mobile Telematics rather than something we invented. That is deliberate, and it is the strongest thing about the algorithm.
@@ -92,10 +112,10 @@ If our number is far off theirs, our sensors are broken — and we find that out
 
 **And neither input is quite what its name says.**
 
-- `touch_epochs` is not touches. It counts jolts — a spike above 1.8 g on the accelerometer, at most one per 1.5 seconds. A tap on glass produces one. So does a pothole, a slammed door, or the phone landing on the passenger seat.
-- `screen_interaction_seconds` is not screen time. It counts seconds where the phone looks hand-held (accelerometer variance above 0.025 g²) **while the CARMA app is in the background**. A driver staring at CARMA itself in the foreground accrues nothing.
+- `touch_epochs` is not touches. It counts jolts — a spike above 1.8 g on the accelerometer, at most one per 1.5 seconds. A tap on glass produces one. So does a pothole, a slammed door, or the phone landing on the passenger seat. **This signal is being deleted, not repaired** (CAR-61, closed for that reason): it has no counterpart in CMT's method, and a magnitude threshold was never a touch detector.
+- `screen_interaction_seconds` is not screen time. It counts seconds where the phone looks hand-held (accelerometer variance above 0.025 g²) **while the CARMA app is in the background**. A driver staring at CARMA itself in the foreground accrues nothing — a silent undercount, since the variance check had already correctly spotted a phone in a hand. CAR-45, in review.
 
-Both thresholds are marked in the SDK as needing drive-test calibration, and neither has had it.
+Both thresholds are marked in the SDK as needing drive-test calibration, and neither has had it. Once `touch_epochs` goes, distinguishing a hand from a bounce (CAR-46) is the only false-positive source left, which puts it on the critical path.
 
 **Decisions made along the way:**
 
@@ -110,7 +130,9 @@ Both thresholds are marked in the SDK as needing drive-test calibration, and nei
 >
 > It also lands hardest at the end. A trip closes only after 3 minutes continuously under 10 km/h, so **every** trip carries a stationary tail of up to three minutes — precisely when a driver picks up the phone to check where they parked. That is charged as distraction on the component we weight most.
 >
-> This is the one place we claim to follow CMT and do not. Their patent conditions distraction on "the vehicle moving at a speed above a threshold speed". The fix does not belong in the SDK — a 15 km/h rule is a CARMA scoring decision, not hardware abstraction — so it needs the counters to arrive with speed attached, or to be accumulated by the app instead. Not yet ticketed.
+> This is the one place we claim to follow CMT and do not. Their patent conditions distraction on "the vehicle moving at a speed above a threshold speed".
+>
+> The fix is split in two, on purpose. **CAR-62** gives the SDK the speed and has it report it without interpreting it — what a speed *means* is scoring logic and must not live in a generic sensor package. **CAR-54** then decides the rule. CAR-62 is in review; until it lands, CAR-54 cannot start.
 
 ### Speeding
 
@@ -226,7 +248,7 @@ This is decided per trip, not once and for all. A trip qualifies for speeding on
 
 ## The driver's own score
 
-The trip score is about one drive. The **driver score** is the persistent number a leaderboard, a level ladder or an insurance partner should be built on.
+The trip score is about one drive. The **driver score** is the persistent number the leaderboard and the level ladder are built on — and the one an insurance partner would eventually ask for, which is exactly why "What this score is for" above rules that use out for now.
 
 - **Recent trips matter more.** Trips are averaged with a 14-day half-life, weighted by distance — an effective window of about 28 days, matching the rolling window CMT use for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
 - **New drivers start at 75.** Too few trips is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at 300 km. Standard actuarial practice, and better than either a meaningless 100 or a wildly swinging real number.
