@@ -108,3 +108,48 @@ def test_whitespace_and_empty_entries_are_ignored(proxy_depth) -> None:
     req = _FakeRequest(headers={"x-forwarded-for": " 1.2.3.4 , , 203.0.113.7 "})
 
     assert client_ip(req) == "203.0.113.7"
+
+
+def test_one_ipv6_machine_cannot_mint_a_bucket_per_request(proxy_depth) -> None:
+    """The v6 version of case 2, and it needs no header at all.
+
+    A routed /64 is the smallest block anyone is assigned, and it holds 2**64
+    addresses that one machine can bind at will. Counted whole, each is a fresh
+    budget — the limit, and the sign-in backoff keyed the same way, stop
+    existing. They share a /64, so that is what we count.
+    """
+    proxy_depth(0)
+    first = _FakeRequest(headers={}, peer="2001:db8:abcd:1234::1")
+    second = _FakeRequest(headers={}, peer="2001:db8:abcd:1234::dead:beef")
+
+    assert client_ip(first) == client_ip(second)
+    assert client_ip(first) == "2001:db8:abcd:1234::"
+
+
+def test_a_different_ipv6_network_is_a_different_bucket(proxy_depth) -> None:
+    """Grouping must not go so wide that unrelated callers share a budget."""
+    proxy_depth(0)
+    here = _FakeRequest(headers={}, peer="2001:db8:abcd:1234::1")
+    elsewhere = _FakeRequest(headers={}, peer="2001:db8:abcd:9999::1")
+
+    assert client_ip(here) != client_ip(elsewhere)
+
+
+def test_ipv6_from_the_forwarded_header_is_grouped_too(proxy_depth) -> None:
+    proxy_depth(1)
+    first = _FakeRequest(headers={"x-forwarded-for": "2001:db8:abcd:1234::1"})
+    second = _FakeRequest(headers={"x-forwarded-for": "2001:db8:abcd:1234::2"})
+
+    assert client_ip(first) == client_ip(second) == "2001:db8:abcd:1234::"
+
+
+def test_something_that_is_not_an_address_is_bounded(proxy_depth) -> None:
+    """`caller_ip` is a varchar(45); an oversized value must not reach it.
+
+    A failed INSERT would escape `_record_failure` as a 500 with the failure
+    unrecorded — untracked guessing, and a 200-vs-500 oracle to go with it.
+    """
+    proxy_depth(2)
+    req = _FakeRequest(headers={"x-forwarded-for": "A" * 500})
+
+    assert len(client_ip(req)) <= 45

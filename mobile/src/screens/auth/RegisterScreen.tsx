@@ -54,7 +54,9 @@ export default function RegisterScreen() {
   async function handleRegister() {
     if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
     if (!form.email) { setError(t('auth.errors.emailRequired')); return }
-    if (form.password.length < 6) { setError(t('auth.errors.passwordTooShort')); return }
+    // Must match RegisterIn in server/app/schemas/auth.py — the server answers a
+    // shorter one with a 422 the user cannot act on.
+    if (form.password.length < 8) { setError(t('auth.errors.passwordTooShort')); return }
 
     setLoading(true); setError('')
     try {
