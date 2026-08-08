@@ -13,7 +13,8 @@ const en: TranslationMap = {
     noAccount: "Don't have an account?", hasAccount: 'Already have an account?',
     loginBtn: 'Sign In', registerBtn: 'Create Account', guestLoginBtn: 'Guest Login (Dev)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'John Doe',
+    namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
+    welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
     errors: {
       emailRequired: 'Please enter your email', passwordRequired: 'Please enter your password',
       nameRequired: 'Please enter your name', invalidEmail: 'Invalid email address',
@@ -67,6 +68,25 @@ const en: TranslationMap = {
     batteryOptimizationNotNow: 'Not now',
     batteryOptimizationOpenSettings: 'Open settings',
   },
+  bluetooth: {
+    title: 'Vehicle Connection',
+    description: 'Select your vehicle\'s Bluetooth device so we can start and end trips automatically.',
+    footerNote: 'A trip will start automatically once your phone connects to the selected device.',
+    connectedTitle: 'Configured successfully',
+    connectedMessage: 'Your vehicle was identified as {name}',
+    saveError: 'Could not save the setting',
+    devBuildTitle: 'Dev Build Required',
+    devBuildText: 'This feature requires a development build of the app (Expo Dev Build) and is not available in Expo Go.',
+    iosTitle: 'iOS Not Supported',
+    iosText: 'Classic Bluetooth connection is only available on Android devices.',
+    offTitle: 'Bluetooth Off',
+    offText: 'Please turn on Bluetooth in your device settings and tap refresh.',
+    permissionTitle: 'Permission Required',
+    permissionText: 'Bluetooth permission was not granted. Please allow access in the app settings and tap refresh.',
+    noDevicesTitle: 'No Devices Found',
+    noDevicesText: 'No paired Bluetooth devices were found. Make sure your phone is paired with your vehicle in the phone\'s settings.',
+    refresh: 'Refresh',
+  },
   rewards: {
     iconLabel: 'Choose icon',
   },
@@ -75,6 +95,7 @@ const en: TranslationMap = {
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',
     perks: 'Perks', locked: 'Locked', unlocked: 'Unlocked',
     pointsNeeded: 'Points needed', completed: 'Completed',
+    pointsToNextLine: '{points} more points to next level',
   },
   marketplace: {
     title: 'Rewards Store', subtitle: 'Redeem your points',
@@ -98,6 +119,7 @@ const en: TranslationMap = {
     addFriend: 'Add friend',
     userNotFound: 'User not found in system',
     sendInvite: 'Send invitation to join',
+    inviteMessage: 'Hi. {name} would like to invite you to join the CARMA app. To install the mobile app, tap the following link: {link}',
     friendRequestSent: 'Friend request sent!',
     yourRank: 'Your rank',
     selectCity: 'Select city',
@@ -153,6 +175,14 @@ const en: TranslationMap = {
     scoreHistory: 'Score History', totalDistance: 'Total Distance',
     totalTrips: 'Total Trips', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
+    chart: {
+      title: 'Score Trend',
+      empty: 'No trips yet',
+      improvement: '📈 A +{pct}% improvement since your first trips',
+      months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+      phaseStart: 'Start', phaseMiddle: 'Middle', phaseRecent: 'Recent',
+      daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly',
+    },
   },
   business: {
     title: 'Business Dashboard',
@@ -205,6 +235,11 @@ const en: TranslationMap = {
     historyCleared: 'History Cleared',
     historyClearedDesc: 'Trip history has been hidden',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
+  },
+  time: {
+    now: 'just now', ago: 'ago',
+    secondsShort: 's', minutesShort: 'm', hoursShort: 'h',
+    hoursWord: 'h', daysWord: 'd',
   },
 }
 

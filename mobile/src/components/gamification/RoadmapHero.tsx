@@ -39,7 +39,7 @@ export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: Roadm
             showValue={false}
           />
           <Text style={styles.heroSub}>
-            עוד {levelData.pointsToNext.toLocaleString()} {t('common.points')} לרמה הבאה
+            {t('roadmap.pointsToNextLine').replace('{points}', levelData.pointsToNext.toLocaleString())}
           </Text>
         </View>
       )}

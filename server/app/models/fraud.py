@@ -23,9 +23,11 @@ class FraudReport(Base):
 
     trip_duration_seconds: Mapped[int | None] = mapped_column(Integer)
     distance_km: Mapped[float | None] = mapped_column(Float)
-    avg_score: Mapped[float | None] = mapped_column(Float)
 
     anomaly_flags: Mapped[list[str] | None] = mapped_column(JSONB)
+    # Validated against FraudDetection on the way in; raw_payload stays the
+    # escape hatch for anything the schema does not model yet.
+    detection: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

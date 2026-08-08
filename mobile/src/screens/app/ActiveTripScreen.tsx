@@ -6,6 +6,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { ActiveTripMonitor } from '@/components/driving/ActiveTripMonitor';
 import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
+import { isAdmin } from '@/lib/utils';
 
 /**
  * Active trip screen.
@@ -19,7 +20,7 @@ export default function ActiveTripScreen() {
   const [ending, setEnding] = useState(false);
 
   // Debug distance button is shown only to admin users
-  const showDebug = user?.role === 'admin';
+  const showDebug = isAdmin(user);
 
   /**
    * Shows a confirmation dialog before ending the trip.

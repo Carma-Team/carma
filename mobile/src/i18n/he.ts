@@ -13,7 +13,8 @@ const he = {
     noAccount: 'אין לך חשבון?', hasAccount: 'יש לך חשבון?',
     loginBtn: 'היכנס', registerBtn: 'צור חשבון', guestLoginBtn: 'כניסה כאורח (לפיתוח)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'ישראל ישראלי',
+    namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
+    welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
     errors: {
       emailRequired: 'אנא הזן אימייל', passwordRequired: 'אנא הזן סיסמה',
       nameRequired: 'אנא הזן שם מלא', invalidEmail: 'אימייל לא תקין',
@@ -67,6 +68,25 @@ const he = {
     batteryOptimizationNotNow: 'לא עכשיו',
     batteryOptimizationOpenSettings: 'פתיחת הגדרות',
   },
+  bluetooth: {
+    title: 'חיבור לרכב',
+    description: 'בחר את התקן ה-Bluetooth של הרכב שלך כדי שנוכל להתחיל ולסיים נסיעות באופן אוטומטי.',
+    footerNote: 'נסיעה תתחיל אוטומטית ברגע שהטלפון יתחבר למכשיר הנבחר.',
+    connectedTitle: 'הוגדר בהצלחה',
+    connectedMessage: 'הרכב שלך זוהה כ-{name}',
+    saveError: 'לא ניתן לשמור את ההגדרה',
+    devBuildTitle: 'נדרש גרסת Dev Build',
+    devBuildText: 'תכונה זו דורשת גרסת פיתוח של האפליקציה (Expo Dev Build) ואינה זמינה ב-Expo Go.',
+    iosTitle: 'iOS אינה נתמכת',
+    iosText: 'חיבור Bluetooth Classic זמין על מכשירי Android בלבד.',
+    offTitle: 'Bluetooth כבוי',
+    offText: 'אנא הפעל את ה-Bluetooth בהגדרות המכשיר ולחץ על רענון.',
+    permissionTitle: 'נדרשת הרשאה',
+    permissionText: 'לא הוענקה הרשאת Bluetooth. אנא אשר גישה בהגדרות האפליקציה ולחץ על רענון.',
+    noDevicesTitle: 'לא נמצאו מכשירים',
+    noDevicesText: 'לא נמצאו מכשירים Bluetooth מוצמדים. ודא שהטלפון מוצמד לרכב בהגדרות הטלפון.',
+    refresh: 'רענן',
+  },
   rewards: {
     iconLabel: 'בחר אייקון',
   },
@@ -75,6 +95,7 @@ const he = {
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
+    pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
   },
   marketplace: {
     title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
@@ -98,6 +119,7 @@ const he = {
     addFriend: 'הוסף חבר',
     userNotFound: 'המשתמש לא קיים במערכת',
     sendInvite: 'שלח/י הזמנה להצטרף',
+    inviteMessage: 'שלום. {name} מעוניין/ת להזמין אותך להצטרף לאפליקציית CARMA. להתקנת האפליקציה לנייד לחצו על הקישור הבא: {link}',
     friendRequestSent: 'בקשת חברות נשלחה!',
     yourRank: 'הדירוג שלך',
     selectCity: 'בחר עיר',
@@ -154,6 +176,14 @@ const he = {
     scoreHistory: 'היסטוריית ציונים', totalDistance: 'מרחק כולל',
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
+    chart: {
+      title: 'מגמת ציונים',
+      empty: 'אין נסיעות עדיין',
+      improvement: '📈 שיפור של +{pct}% מאז תחילת הנסיעות',
+      months: ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'],
+      phaseStart: 'תחילה', phaseMiddle: 'אמצע', phaseRecent: 'לאחרונה',
+      daily: 'לפי יום', weekly: 'לפי שבוע', monthly: 'לפי חודש',
+    },
   },
   business: {
     title: 'ניהול עסק',
@@ -206,6 +236,11 @@ const he = {
     historyCleared: 'ההיסטוריה נמחקה',
     historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
+  },
+  time: {
+    now: 'עכשיו', ago: 'לפני',
+    secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",
+    hoursWord: 'שעות', daysWord: 'ימים',
   },
 } as const
 
