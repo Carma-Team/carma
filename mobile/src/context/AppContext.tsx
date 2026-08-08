@@ -218,6 +218,14 @@ function signTelemetryDigest(digest: TelemetryDigest): string {
 }
 
 
+/**
+ * The Bluetooth device the driver picked as "their car", held locally only.
+ * The server has columns for it, but no endpoint writes them — and a re-install
+ * should force a fresh pick anyway, since a new handset is paired to different
+ * devices and stale settings are worse than none.
+ */
+export type BluetoothTarget = { id: string; name?: string } | null
+
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
@@ -240,6 +248,8 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
+  btDevice: BluetoothTarget
+  setBtDevice: (device: BluetoothTarget) => Promise<void>
   // TODO: Mai — subscribe to `userLevelState` for level-up animations and progress bar UI
   userLevelState: GamificationLevel
 }
@@ -254,6 +264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
+  const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
   const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
 
   // Filtered trips based on lastClearedHistory
@@ -584,17 +595,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async function loadInitialData() {
       const serverOnline = await pingServer();
       try {
-        const [l, u, t, btId, token, levelsRes] = await Promise.all([
+        const [l, u, t, btId, btName, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
           AsyncStorage.getItem('carma_trips'),
           AsyncStorage.getItem('carma_bt_device_id'),
+          AsyncStorage.getItem('carma_bt_device_name'),
           AsyncStorage.getItem('carma_token'),
           levelsApi.list().catch(() => null),
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
         if (l === 'he' || l === 'en') setLangState(l as Language)
-        if (btId) sdk.updateTargetDevice(btId)
+        // Only restores state. Arming the SDK listener is useDriveMode's job, and
+        // only its — two callers racing over one subscription is what broke this.
+        // name may be absent for a device picked before it was stored — the target
+        // still works, the UI just falls back until the driver picks again.
+        if (btId) setBtDeviceState({ id: btId, name: btName ?? undefined })
 
         if (!serverOnline) {
           const tr = l === 'en' ? en : he;
@@ -646,6 +662,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await sdk.stopTrip();
     return tripRef.current;
   }, [sdk]);
+
+  const setBtDevice = useCallback(async (device: BluetoothTarget) => {
+    setBtDeviceState(device);
+    if (device) {
+      await AsyncStorage.multiSet([
+        ['carma_bt_device_id', device.id],
+        ['carma_bt_device_name', device.name ?? ''],
+      ]);
+    } else {
+      await AsyncStorage.multiRemove(['carma_bt_device_id', 'carma_bt_device_name']);
+    }
+  }, []);
 
   const setUser = useCallback(async (u: AppUser | null) => {
     if (!u) {
@@ -718,6 +746,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       debugAddDistance,
       clearTripHistory,
       sdk,
+      btDevice, setBtDevice,
       userLevelState,
     }}>
       {children}

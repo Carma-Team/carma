@@ -18,7 +18,7 @@ import { ICONS } from '@/constants/icons';
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory } = useApp();
+  const { user, setUser, clearTripHistory, btDevice } = useApp();
   const { t, lang, setLang } = useTranslation();
 
   if (!user) return null;
@@ -115,7 +115,7 @@ export default function SettingsScreen() {
                   <View style={styles.linkContent}>
                     <Ionicons name="bluetooth" size={20} color={COLORS.brandLight} />
                     <Text style={styles.linkText}>
-                      {user.bluetoothDeviceName || t('profile.selectDevice')}
+                      {btDevice?.name || t('profile.selectDevice')}
                     </Text>
                   </View>
                   <Ionicons name={lang === 'he' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
