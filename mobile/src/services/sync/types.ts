@@ -63,10 +63,16 @@ export interface ValidTripPayload {
 // ─── Queue Item ───────────────────────────────────────────────────────────────
 // Persisted to AsyncStorage under QUEUE_KEY. Tracks retry state per item.
 
+// Two independent counters, on purpose. A 429 advances the backoff but is not the
+// trip's fault, so it must not spend the budget that deletes it — which means the
+// two cannot be derived from each other. See docs/trip-sync-queue.md.
+
 export interface SyncQueueItem {
   id: string;                // = localTripId — used for dedup inside the queue
   payload: ValidTripPayload;
   queuedAt: string;          // ISO — when enqueued (for future TTL / audit)
-  attempts: number;          // how many times we tried and failed
+  failures: number;          // the only counter that can delete an item
+  backoffStep: number;       // position in BACKOFF_MS — stops growing at the longest interval
   lastAttemptAt: string | null;
+  nextAttemptAt: string | null;  // ISO — not retried before this; a 429 sets it from Retry-After
 }
