@@ -25,7 +25,6 @@ async def test_fraud_requires_auth(api_client: AsyncClient) -> None:
             "idempotencyKey": "fraud-smoke-001",
             "tripDurationSeconds": 300,
             "distanceKm": 5.0,
-            "avgScore": 12.0,
             "anomalyFlags": ["IMPOSSIBLE_SPEED", "GPS_TELEPORT"],
         },
     )

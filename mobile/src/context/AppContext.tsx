@@ -534,16 +534,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // TODO: Mai — implement "public transport trip detected" toast/modal component
 
       // Report to Sean's backend (non-blocking — failure must never affect the user flow)
+      // `signals` and `distanceKm` are missing here on purpose: FraudDetector computes
+      // both and FraudDetectedEvent does not yet carry them across the SDK boundary.
+      // Add them to this call the moment it does (CAR-134) — they are the diagnostic half.
       fraudApi.syncInvalidTrip({
         userId: user?.id ?? 'anonymous',
         timestamp: new Date().toISOString(),
         detectedMode: event.mode,
         fraudScore: event.confidence,
-        telemetrySummary: {
-          avgSpeed: event.telemetry.avgSpeedKmh,
-          maxLateralAccel: event.telemetry.maxLateralAccelG,
-          gyroVariance: event.telemetry.yawVariance,
-        },
+        telemetry: event.telemetry,
         durationMs: event.durationMs,
         maxSpeedKmh: event.maxSpeedKmh,
       }).catch(() => {});
