@@ -8,8 +8,8 @@ moves; it is not a name for the engine.
 July 2026 recalibration: the decay constants were re-fit from the live fleet's
 recency-weighted rate distributions — the initial estimates produced a bimodal
 score distribution (exact 100, or a cliff to ~50 from a single event). They are
-provisional: a proper fit needs ~200 trips, trustworthy client detection
-(CAR-6) and per-event severity. See CAR-102. The same round added
+provisional: a proper fit needs ~200 trips, trustworthy client detection and
+per-event severity. See CAR-102, which owns those dependencies. The same round added
 `apply_confidence`, which caps how far a trip can score above the driver's
 rolling score when the GPS trace is too sparse to prove clean driving.
 
@@ -21,7 +21,7 @@ What is NOT yet available, and how this module copes until it is:
   * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
     sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
     horizontal magnitude, not the per-axis vehicle-frame value the curve maps
-    (CAR-6). Until a phone-to-vehicle rotation exists, weighted counts collapse
+    (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
     to raw counts (each event weight 1.0). `event_severity()` is implemented and
     tested now so the downstream math is unchanged the day that value arrives.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
