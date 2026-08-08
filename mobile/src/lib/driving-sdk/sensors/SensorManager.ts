@@ -86,6 +86,22 @@ const MIN_TICK_INTERVAL_MS = 500;
 // still carry the last reading through; only a sustained one decays.
 const STALE_SPEED_MS = 10000;
 
+// That decay is time-based, but it used to be evaluated only inside handleLocation —
+// so it ran only when a fix arrived, driven by the very stream whose silence it exists
+// to cover. iOS delivers nothing at all while the vehicle is stationary (it ignores
+// timeInterval and paces purely off distanceInterval), and Android can defer fixes well
+// past STALE_SPEED_MS under Doze / OEM power management (#17). This timer separates
+// "needs a new fix" from "needs a tick": it re-evaluates the decay against wall clock
+// and reports the result, leaving the distance filter and its jitter mitigation alone.
+//
+// It emits only once the held speed has decayed to 0, and that is load-bearing.
+// Reporting the held value instead would be worse than staying silent: index.ts gates
+// distance and waypoint collection on speed >= 3 km/h, and appends waypoints from the
+// *last known* location rather than the update's own coordinates — so a tick carrying
+// a live held speed would inject a stationary point into the GPS trace the server
+// scores against. At 0 the gate blocks every one of those paths.
+const SPEED_TICK_INTERVAL_MS = 2000;
+
 const MS2_PER_G = 9.81;
 
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
@@ -103,6 +119,7 @@ export class SensorManager {
   private lastLocation: any = null;
   private lastValidSpeedMs = 0; // carries forward across expo's -1 "unavailable" ticks
   private lastValidSpeedAtMs = 0; // GPS fix timestamp lastValidSpeedMs was captured at — decays it back to 0 if stale (STALE_SPEED_MS)
+  private speedTicker: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private accelAvailable = false;
   private thresholds: MotionThresholds;
@@ -170,6 +187,10 @@ export class SensorManager {
     // this.prevLocTimestamp = null;
     // this.swerveStartTime  = null;
 
+    // Deliberately outside the try below: the tick is what keeps speed honest when the
+    // location stream is unavailable, which includes the case where starting it failed.
+    this.speedTicker = setInterval(() => this.handleSpeedTick(), SPEED_TICK_INTERVAL_MS);
+
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
@@ -202,6 +223,9 @@ export class SensorManager {
           accuracy: Location.Accuracy.High,
           timeInterval: 2000,
           distanceInterval: 5,
+          // iOS-only — Android ignores it. Without it CoreLocation assumes
+          // CLActivityTypeOther and tunes GPS for an unknown activity.
+          activityType: Location.ActivityType.AutomotiveNavigation,
           pausesUpdatesAutomatically: false,
           showsBackgroundLocationIndicator: true,
           foregroundService: {
@@ -232,6 +256,10 @@ export class SensorManager {
   public stop() {
     if (!this.isRunning) return;
     this.isRunning = false;
+    if (this.speedTicker) {
+      clearInterval(this.speedTicker);
+      this.speedTicker = null;
+    }
     try {
       setLocationHandler(null);
       Location.hasStartedLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK)
@@ -278,12 +306,7 @@ export class SensorManager {
       this.lastValidSpeedMs = rawSpeed;
       this.lastValidSpeedAtMs = loc.timestamp;
     }
-    // Held value decays back to 0 once it's been stale for STALE_SPEED_MS — a
-    // sustained speed-unavailable stretch must not pin currentSpeed above the
-    // "stopped" threshold forever (see constant comment above).
-    const effectiveSpeedMs = (loc.timestamp - this.lastValidSpeedAtMs) < STALE_SPEED_MS
-      ? this.lastValidSpeedMs
-      : 0;
+    const effectiveSpeedMs = this.decayedSpeedMs(loc.timestamp);
 
     this.lastLocation = loc;
     this.onUpdate({
@@ -297,6 +320,33 @@ export class SensorManager {
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
     this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
+  }
+
+  /**
+   * Last known-good speed (m/s), decayed to 0 once it has been stale for
+   * STALE_SPEED_MS. `atMs` is the instant to measure staleness against: a GPS fix
+   * timestamp on the fix path, wall clock on the tick path. Both are epoch ms —
+   * expo-location exports the native timestamp as `timeIntervalSince1970 * 1000`.
+   */
+  private decayedSpeedMs(atMs: number): number {
+    return (atMs - this.lastValidSpeedAtMs) < STALE_SPEED_MS ? this.lastValidSpeedMs : 0;
+  }
+
+  /**
+   * Speed-only update, emitted when the GPS stream has gone quiet long enough for the
+   * held speed to expire. Not routed through handleLocation on purpose: there is no
+   * new position, so there is no distance, no waypoint and no motion-event evaluation
+   * to do — fabricating any of those from a stale fix is what this must never become.
+   */
+  private handleSpeedTick() {
+    if (this.decayedSpeedMs(Date.now()) !== 0) return;
+    this.onUpdate({
+      distanceKm:   0,
+      currentSpeed: 0,
+      timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
+      accelX:       this.latestAccelX,
+      gyroZ:        this.latestGyroZ,
+    });
   }
 
   /**
