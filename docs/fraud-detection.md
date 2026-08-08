@@ -204,6 +204,30 @@ Each is `TRUE`, `FALSE`, or `UNKNOWN`, computed over a 60-sample sliding window 
 Signals are named for what the sensor observed, not by letter. These values are read out of
 a database row months later, where "Signal B" means nothing.
 
+**All three are kinematic, and that is a shared failure mode.** Speed, force, and rotation
+are three descriptions of the same motion, not three independent views of the vehicle. The
+dependency is concrete: every signal needs GPS, and signals 2 and 3 additionally share the
+reference-frame resolution of Section 3.2 — so a phone at an unusual orientation, or a
+heading that never converges, takes out both at once. The set has one common cause, and
+weighting it 0.40 / 0.35 / 0.25 does not make it three votes.
+
+This has a consequence for Stage 4 that is easy to miss: **a classifier trained on three
+correlated features does not beat thresholds on three correlated features.** The model
+inherits the correlation. Feature diversity has to come first, and it has to come from
+observations that are not kinematic:
+
+- **Route geometry against the map.** A rail alignment is not a road alignment. Matching the
+  trace against the road and rail networks is independent of every force the phone feels.
+- **Stop cadence and dwell periodicity.** Where a vehicle stops, for how long, and how
+  regularly — timing structure rather than force magnitude. This is what separates bus from
+  car, which Section 9 names as the genuinely hard case.
+- **GPS fix quality and dropout.** Sustained loss of fix with motion continuing is the
+  subway signature, and it is a property of the receiver rather than of the ride.
+
+None of these needs new hardware. All of them need SDK data the fraud path does not receive
+today, which makes them Stage 3 work: the features must be captured before Stage 4 has
+anything to learn from.
+
 ### 3.4 Verdict and confidence
 
 A verdict carries how much of the evidence was actually available.
