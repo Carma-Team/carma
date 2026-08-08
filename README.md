@@ -190,7 +190,7 @@ mobile (Expo dev build)┤
 |---|---|
 | [SYSTEM.md](SYSTEM.md) | The full reference — schema, every endpoint, auth flows, CI/CD, Azure. |
 | [docs/scoring.md](docs/scoring.md) | How the CARMA Score is actually computed. |
-| [docs/fraud-detection.md](docs/fraud-detection.md) | How we detect faked trips. |
+| [docs/fraud-detection.md](docs/fraud-detection.md) | The anti-fraud architecture we build toward — threat model, gates, contracts. |
 | [docs/RFC-001-Hybrid-Validation.md](docs/RFC-001-Hybrid-Validation.md) | Why trip validation is split between client and server. A frozen decision record. |
 | [docs/i18n.md](docs/i18n.md) | Hebrew / English handling. |
 | [mobile/STRUCTURE.md](mobile/STRUCTURE.md) | What belongs in every folder under `mobile/src/`. Read before adding a file. |
