@@ -12,18 +12,24 @@ export interface SupportedLanguage {
   label: string;
 }
 
+// Each language's own endonym — shown as-is regardless of the active app
+// language, same convention as every OS language picker. Not translated text.
+/* eslint-disable no-restricted-syntax */
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
   { code: 'he', label: 'עברית' },
   { code: 'en', label: 'English' },
 ];
+/* eslint-enable no-restricted-syntax */
 
 interface LanguagePickerProps {
   lang: string;
   onSelect: (lang: string) => void;
-  buttonLabel?: string;
+  /** Caller supplies this via t('profile.language') — no in-component default,
+   *  so a missing translation can't silently fall back to one hardcoded language. */
+  buttonLabel: string;
 }
 
-export function LanguagePicker({ lang, onSelect, buttonLabel = 'שפה' }: LanguagePickerProps) {
+export function LanguagePicker({ lang, onSelect, buttonLabel }: LanguagePickerProps) {
   const [open, setOpen] = useState(false);
 
   function handleSelect(code: string) {
