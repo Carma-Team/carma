@@ -28,6 +28,7 @@ jest.mock('@/lib/driving-sdk/sensors/locationTask', () => ({
 
 jest.mock('expo-location', () => ({
   Accuracy: { High: 4, BestForNavigation: 5 },
+  ActivityType: { Other: 1, AutomotiveNavigation: 2 },
   requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   requestBackgroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   hasStartedLocationUpdatesAsync: jest.fn(async () => false),
