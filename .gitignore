@@ -59,6 +59,12 @@ Thumbs.db
 screen*.png
 demo_shots/
 
+# ─── Local check output ──────────────────────────────────────────────────────
+# Standing output file for tsc/eslint/jest runs redirected from the terminal.
+# One fixed path on purpose, so the command can be re-run from shell history.
+tsc-out.txt
+
 # ─── Claude Code ─────────────────────────────────────────────────────────────
 .claude/settings.local.json
 CLAUDE.local.md
+/claude-local/

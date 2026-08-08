@@ -46,6 +46,18 @@ export interface ValidTripPayload {
   payloadSignature?:  string;
   // GPS track recorded during the trip — stored server-side for the route map view
   routeWaypoints?:    Array<{ lat: number; lng: number; ts: number; speedKmh: number }>;
+  // Per-event array — forensic/unsigned; does not affect the score (score is sourced
+  // from the signed telemetryDigest). Retained server-side for route-map markers and
+  // to unblock v2 continuous-severity scoring once peakG/durationMs are populated.
+  events?: Array<{
+    type: string;            // DrivingEventType — server bridges PHONE_USAGE → PHONE_USE
+    timestamp: string;       // ISO 8601
+    severity: number;        // 0..1
+    speedKmh?: number;
+    location?: { latitude: number; longitude: number };
+    peakG?: number;
+    durationMs?: number;
+  }>;
 }
 
 // ─── Queue Item ───────────────────────────────────────────────────────────────

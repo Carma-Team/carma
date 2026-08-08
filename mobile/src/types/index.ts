@@ -18,7 +18,6 @@ export interface AppUser {
   avatarUrl?: string;
   age?: number;
   city?: string;
-  country?: string;
   licenseYear?: number;
   points: number;
   totalPoints: number;
@@ -53,7 +52,11 @@ export interface Trip {
   swerves?: number;                  // EVT_SWERVE — spec §א Table 1
   touchEpochs: number;              // v1.7
   screenInteractionSeconds: number; // v1.7
-  riskMultiplier: number;
+  riskMultiplier: number;           // what the hour is worth in principle
+  effectiveRiskMultiplier?: number; // what the hour was worth to THIS trip — the base above, tapered by the
+                                    // trip score. Show this one; the base overstates what the driver was paid.
+                                    // Optional because the app builds a local Trip before the server replies;
+                                    // always present on anything that came back from the server.
   pointsCapped?: boolean;           // v2.1 — an anti-grind cap (daily or rolling-month) reduced this trip's
                                     // award. Save response only. Nothing renders it yet — see CAR-98.
   userLevel?: number;               // driver's level after this trip, as the server resolved it incl. the
@@ -177,6 +180,11 @@ export interface DrivingStats {
   averageScore: number;
   safeTripsCount: number;
   totalDurationSeconds: number;
+  // Days in a row of good driving, and the driver's own record. Days, not trips,
+  // and worth no points — the count is the whole reward. The server sends these
+  // today; no screen renders them yet (CAR-139).
+  currentStreak: number;
+  bestStreak: number;
   recentScores: { date: string; score: number }[];
   eventCounts: {
     hardBrakes: number;

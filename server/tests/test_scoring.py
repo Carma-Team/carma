@@ -2,18 +2,21 @@
 
 Covers the pure-formula stages: continuous severity, exposure-normalized
 exponential-decay subscores, composite trip score with short-trip dampening,
-driver score via EWMA + credibility, and the points engine with anti-grind caps.
+driver score via EWMA + credibility, the points engine with anti-grind caps, and
+the streak.
 """
 
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 
 from app.services.scoring import (
     CONFIG,
     TripHistoryPoint,
     compute_driver_score,
     compute_points,
+    compute_streak,
     compute_trip_score,
     event_severity,
 )
@@ -23,24 +26,19 @@ from app.services.scoring import (
 
 class TestEventSeverity:
     def test_at_threshold_is_one_times_factors(self) -> None:
-        # peak_g at g_min → g_factor=1.0; low speed/short duration → factors→1.0
-        s = event_severity("brake", peak_g=0.30, duration_ms=0, speed_kmh=0)
+        # peak_g at g_min → g_factor=1.0; short duration → duration_factor=1.0
+        s = event_severity("brake", peak_g=0.30, duration_ms=0)
         assert s == 1.0
 
-    def test_extreme_sustained_highspeed_caps_near_three(self) -> None:
-        # g_norm=1 → g_factor=2; duration≥2000ms → ×1.5; speed≥120 → ×1.5 ⇒ 4.5 cap
-        s = event_severity("brake", peak_g=0.80, duration_ms=5000, speed_kmh=200)
-        assert math.isclose(s, 2.0 * 1.5 * 1.5)
+    def test_extreme_sustained_event_caps_at_three(self) -> None:
+        # g_norm=1 → g_factor=2; duration≥2000ms → ×1.5 ⇒ 3.0 cap
+        s = event_severity("brake", peak_g=0.80, duration_ms=5000)
+        assert math.isclose(s, 3.0)
 
     def test_superlinear_in_g(self) -> None:
-        mid = event_severity("brake", peak_g=0.45, duration_ms=0, speed_kmh=0)
+        mid = event_severity("brake", peak_g=0.45, duration_ms=0)
         # halfway in g (0.45 of 0.30–0.60): g_norm=0.5 → 0.5^1.5+1 ≈ 1.3536
         assert math.isclose(mid, 0.5**1.5 + 1.0)
-
-    def test_speed_factor_scales_maneuver(self) -> None:
-        slow = event_severity("accel", peak_g=0.40, duration_ms=0, speed_kmh=0)
-        fast = event_severity("accel", peak_g=0.40, duration_ms=0, speed_kmh=120)
-        assert math.isclose(fast, slow * 1.5)
 
 
 # ─── trip score ─────────────────────────────────────────────────────────────────
@@ -181,11 +179,6 @@ class TestComputePoints:
         pts = compute_points(trip_score=80.0, distance_km=10.0, risk_multiplier=1.0)
         assert math.isclose(pts, round(80.0 * (math.log(11) / math.log(11)) * 1.0 * 10) / 10)
 
-    def test_streak_bonus_caps_at_25_percent(self) -> None:
-        base = compute_points(trip_score=80.0, distance_km=10.0, risk_multiplier=1.0, streak_days=0)
-        maxed = compute_points(trip_score=80.0, distance_km=10.0, risk_multiplier=1.0, streak_days=10)
-        assert math.isclose(maxed, round(base * 1.25 * 10) / 10)
-
     def test_fraud_flagged_earns_zero(self) -> None:
         assert compute_points(trip_score=100.0, distance_km=50.0, risk_multiplier=2.0, fraud_flagged=True) == 0.0
 
@@ -236,8 +229,89 @@ class TestComputePoints:
         doubled = compute_points(trip_score=80.0, distance_km=5.0, risk_multiplier=1.0, level_multiplier=2.0)
         assert doubled < cap and math.isclose(doubled, plain * 2, rel_tol=0.02)
 
+    def test_the_night_multiplier_is_earned_by_the_score_not_the_hour(self) -> None:
+        """Paid flat, a x2.0 weekend night pays for being on the road at 02:00.
+
+        It is the same context the industry uses to raise measured risk, so it
+        has to be earned: nothing at the floor, in full at 100, straight line
+        between. A cut rather than a taper would swing the payout twofold across
+        a tenth of a point.
+        """
+        floor = CONFIG.risk_multiplier_floor_score
+        at_floor = compute_points(trip_score=floor, distance_km=10.0, risk_multiplier=2.0)
+        flat = compute_points(trip_score=floor, distance_km=10.0, risk_multiplier=1.0)
+        assert math.isclose(at_floor, flat), "at the floor the hour is worth nothing"
+
+        # Half way up (85 of 70–100) earns half the multiplier's excess: x1.5.
+        half = compute_points(trip_score=85.0, distance_km=10.0, risk_multiplier=2.0)
+        half_plain = compute_points(trip_score=85.0, distance_km=10.0, risk_multiplier=1.0)
+        assert math.isclose(half, round(half_plain * 1.5 * 10) / 10, rel_tol=0.01)
+
+        # And a perfect trip is paid the full time-of-day figure.
+        top = compute_points(trip_score=100.0, distance_km=10.0, risk_multiplier=2.0)
+        top_plain = compute_points(trip_score=100.0, distance_km=10.0, risk_multiplier=1.0)
+        assert math.isclose(top, round(top_plain * 2.0 * 10) / 10, rel_tol=0.01)
+
+    def test_a_bad_night_trip_never_out_earns_the_same_trip_by_day(self) -> None:
+        # Below the floor the multiplier is gone entirely, at any hour.
+        night = compute_points(trip_score=40.0, distance_km=20.0, risk_multiplier=2.0)
+        day = compute_points(trip_score=40.0, distance_km=20.0, risk_multiplier=1.0)
+        assert night == day
+
     def test_daily_distance_cap_limits_counted_km(self) -> None:
         # 140 km already farmed today → only 10 km counts toward the next trip.
         capped = compute_points(trip_score=100.0, distance_km=100.0, risk_multiplier=1.0, distance_today_km=140.0)
         equiv = compute_points(trip_score=100.0, distance_km=10.0, risk_multiplier=1.0)
         assert math.isclose(capped, equiv)
+
+
+# ─── streaks ────────────────────────────────────────────────────────────────────
+
+
+_ANCHOR = date(2026, 8, 1)  # stands in for "yesterday" in every case below
+
+
+def _day(offset: int) -> date:
+    return _ANCHOR - timedelta(days=offset)
+
+
+class TestComputeStreak:
+    def test_no_history_is_zero(self) -> None:
+        assert compute_streak([], _ANCHOR) == 0
+
+    def test_consecutive_good_days_count(self) -> None:
+        assert compute_streak([(_day(i), 90.0, 10.0) for i in range(4)], _ANCHOR) == 4
+
+    def test_days_without_a_trip_are_skipped_not_broken(self) -> None:
+        """The rule that keeps the mechanic from paying drivers to take the car out."""
+        sparse = [(_day(0), 90.0, 10.0), (_day(4), 90.0, 10.0), (_day(11), 90.0, 10.0)]
+        assert compute_streak(sparse, _ANCHOR) == 3
+
+    def test_a_bad_day_ends_the_run(self) -> None:
+        mixed = [(_day(0), 90.0, 10.0), (_day(1), 55.0, 10.0), (_day(2), 90.0, 10.0)]
+        assert compute_streak(mixed, _ANCHOR) == 1, "the run reaches back only as far as the bad day"
+
+    def test_a_bad_latest_day_zeroes_a_long_run(self) -> None:
+        collapsed = [(_day(0), 55.0, 10.0)] + [(_day(i), 95.0, 10.0) for i in range(1, 6)]
+        assert compute_streak(collapsed, _ANCHOR) == 0
+
+    def test_the_day_in_progress_is_not_counted(self) -> None:
+        """Today can be banked on a good morning and spoiled by evening."""
+        today = _ANCHOR + timedelta(days=1)
+        assert compute_streak([(today, 100.0, 10.0), (_day(0), 90.0, 10.0)], _ANCHOR) == 1
+
+    def test_a_day_exactly_on_the_bar_counts(self) -> None:
+        assert compute_streak([(_day(0), CONFIG.streak_qualifying_score, 10.0)], _ANCHOR) == 1
+
+    def test_one_short_bad_trip_does_not_sink_a_good_day(self) -> None:
+        # 95 over 40 km against 30 over 1 km — weighted, still comfortably a good day.
+        assert compute_streak([(_day(0), 95.0, 40.0), (_day(0), 30.0, 1.0)], _ANCHOR) == 1
+
+    def test_one_short_good_trip_does_not_rescue_a_bad_day(self) -> None:
+        # The mirror image, and the reason the day is averaged rather than sampled.
+        assert compute_streak([(_day(0), 50.0, 40.0), (_day(0), 100.0, 1.0)], _ANCHOR) == 0
+
+    def test_a_zero_distance_day_still_has_to_be_earned(self) -> None:
+        """The distance witness can cut a trip to nothing, leaving no weight to average by."""
+        assert compute_streak([(_day(0), 90.0, 0.0)], _ANCHOR) == 1
+        assert compute_streak([(_day(0), 50.0, 0.0)], _ANCHOR) == 0

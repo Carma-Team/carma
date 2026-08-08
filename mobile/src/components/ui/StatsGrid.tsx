@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { Card } from './Card';
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
@@ -11,7 +11,6 @@ export interface StatItem {
   label: string;
   value: string | number;
   icon: IoniconName;
-  fa5Icon?: string;
 }
 
 interface StatsGridProps {
@@ -44,22 +43,18 @@ export function StatsGrid({ items, columns = 2, variant = 'default' }: StatsGrid
             isCompact ? styles.compactCard : undefined
           ]}
         >
-          {item.fa5Icon ? (
-            <FontAwesome5
-              name={item.fa5Icon}
-              size={isCompact ? 16 : 24}
-              color={COLORS.brandLight}
-              style={{ marginBottom: isCompact ? 2 : 6 }}
-            />
-          ) : (
-            <Ionicons
-              name={item.icon}
-              size={isCompact ? 18 : 28}
-              color={COLORS.brandLight}
-              style={{ marginBottom: isCompact ? 2 : 6 }}
-            />
-          )}
-          <Text style={[COMMON_STYLES.statValue, isCompact && styles.compactValue]}>
+          <Ionicons
+            name={item.icon}
+            size={isCompact ? 18 : 28}
+            color={COLORS.brandLight}
+            style={{ marginBottom: isCompact ? 2 : 6 }}
+          />
+          <Text
+            style={[COMMON_STYLES.statValue, isCompact && styles.compactValue]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
             {item.value}
           </Text>
           <Text style={[COMMON_STYLES.statLabel, isCompact && styles.compactLabel]}>
