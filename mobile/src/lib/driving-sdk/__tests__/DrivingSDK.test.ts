@@ -64,6 +64,8 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
     }
     start() { return mockPhoneStart(); }
     stop() { return mockPhoneStop(); }
+    updateSpeed() {}
+    pushGyroSample() {}
   },
 }));
 
