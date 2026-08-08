@@ -141,7 +141,8 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
     """Validate one untrusted client event into an `Event` row, or `None` to drop it.
 
     The events array is unsigned, forensic display data — map markers plus the
-    severity inputs the v2 engine will read once the SDK emits `peak_g`. It never
+    severity inputs the v2 engine will read once `peak_g` arrives per-axis in the
+    vehicle's frame (today it is an unsigned magnitude). It never
     feeds the score, which stays sourced from the signed digest. So parsing is
     strictly defensive: unknown types and junk coordinates are dropped rather than
     guessed, and the full raw payload is retained in `sensor_data` for forensics.
@@ -365,7 +366,8 @@ async def _compute_score(
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
     lives in scoring; this only sources the inputs. Severity is unavailable
-    (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
+    (peak_g arrives as an unsigned magnitude, not a vehicle-frame axis) so
+    weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
     speeding weight is time-over-threshold against a conservative absolute
     limit, and the confidence caps how far above the rolling score a trip can

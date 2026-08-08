@@ -18,10 +18,12 @@ it values sourced from the signed telemetry digest (the oracle) and persists the
 results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
-  * Per-event severity (peak_g, duration_ms, speed_at_event) — needs the SDK
-    change (CAR-6). Until then weighted counts collapse to raw counts (each
-    event weight 1.0). `event_severity()` is implemented and tested now so the
-    downstream math is unchanged the day the SDK lands.
+  * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
+    sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
+    horizontal magnitude, not the per-axis vehicle-frame value the curve maps
+    (CAR-6). Until a phone-to-vehicle rotation exists, weighted counts collapse
+    to raw counts (each event weight 1.0). `event_severity()` is implemented and
+    tested now so the downstream math is unchanged the day that value arrives.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
     speeding weight is redistributed across the other components ("Blending the five").
 """
@@ -150,9 +152,11 @@ def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     at an unknown orientation is a different quantity, and the ranges below do
     not describe it.
 
-    Not called in shadow mode (the SDK does not emit peak_g yet) — kept here,
-    tested, so the moment per-event data arrives the only change upstream is
-    summing severity instead of counting events.
+    Not called yet: the client does send peak_g, but as an unsigned horizontal
+    magnitude — a different quantity from the one above, so feeding it here
+    would collapse every event onto the minimum weight. Kept tested so the day a
+    vehicle-frame value arrives, the only change upstream is summing severity
+    instead of counting events.
     """
     g_min, g_max = _SEVERITY_RANGES[event_type]
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
