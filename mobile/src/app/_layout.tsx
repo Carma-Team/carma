@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
 import { useDriveMode } from '@/hooks/useDriveMode';
+import { isBusiness } from '@/lib/utils';
 
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
@@ -30,7 +31,7 @@ function RootLayoutNav() {
         router.replace('/login');
       }
     } else {
-      if (user.role === 'business') {
+      if (isBusiness(user)) {
         if (!inBusinessGroup) {
           router.replace('/(business)');
         }
@@ -55,7 +56,7 @@ function RootLayoutNav() {
     <View style={{ flex: 1, direction }}>
       <Stack screenOptions={{ headerShown: false }}>
         {user ? (
-          user.role === 'business' ? (
+          isBusiness(user) ? (
             <Stack.Screen name="(business)" />
           ) : (
             <Stack.Screen name="(tabs)" />

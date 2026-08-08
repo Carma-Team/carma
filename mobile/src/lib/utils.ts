@@ -105,6 +105,19 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+/**
+ * True if the user's role is admin. Case-normalized because the real server sends the
+ * UserRole enum's wire value uppercase ("ADMIN"), while the mobile UserRole type is lowercase.
+ */
+export function isAdmin(user: { role?: string } | null | undefined): boolean {
+  return user?.role?.toUpperCase() === 'ADMIN'
+}
+
+/** Same case-normalization as isAdmin() — the real server sends role as "BUSINESS" (uppercase). */
+export function isBusiness(user: { role?: string } | null | undefined): boolean {
+  return user?.role?.toUpperCase() === 'BUSINESS'
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
