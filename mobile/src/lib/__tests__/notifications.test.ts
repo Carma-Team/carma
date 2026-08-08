@@ -1,11 +1,10 @@
 /**
  * The notification screen's decisions, tested without a rendering harness.
  *
- * The repo's jest setup is `ts-jest` on `testEnvironment: 'node'` with no
- * `@testing-library/react-native`, so component rendering is not testable here.
- * That is why this logic lives in `src/lib/` rather than inside the component —
- * which is also what the layer rules in `mobile/STRUCTURE.md` require. What
- * remains in `NotificationsTab` is effects and JSX, with no decisions of its own.
+ * This logic lives in `src/lib/` rather than inside the component because the
+ * layer rules in `mobile/STRUCTURE.md` require it — decisions belong outside the
+ * component regardless of what the test harness can render. What remains in
+ * `NotificationsTab` is effects and JSX, with no decisions of its own.
  */
 import {
   KNOWN_TYPES,
