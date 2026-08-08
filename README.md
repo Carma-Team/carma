@@ -141,6 +141,7 @@ Facts that cost hours and cannot be guessed from the code.
 - **Tests share the development database.** Fixtures left behind by another branch break tests that have nothing to do with your change.
 - **No Docker, no database.** Postgres runs in Docker; nothing server-side works without it.
 - **Never run `alembic revision --autogenerate` to "set up" a fresh database.** The migrations are already written — `alembic upgrade head` is the whole job. Generating one manufactures the second head described above.
+- - **TypeScript is pinned in `mobile/`.** Install from `mobile/` so your local version matches the one the workspace builds against.
 
 ---
 
