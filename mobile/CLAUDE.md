@@ -55,7 +55,9 @@ eas build -p android --profile preview   # Android APK
 eas build -p ios     --profile preview   # iOS IPA (requires Apple Developer account)
 ```
 
-Setup detail lives in **`docs/SERVER-INTEGRATION-SETUP.md`** (repo root, outside `mobile/`).
+Before a device build, confirm `USE_REAL_SERVER = true` and that `STAGING_SERVER_URL` points at the
+deployed server — `serverConfig.ts` is the only file that decides this. Server-side environment
+variables are documented in `server/.env.example`.
 
 ## Disabled features — pattern
 

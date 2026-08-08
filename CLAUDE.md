@@ -70,7 +70,7 @@ carma/
 | Install — mobile | root | `npm install` |
 | Install — server | root | `pip install -r server/requirements-dev.txt` |
 | Start mobile | `mobile/` | `npm start` |
-| Start server | `server/` | `uvicorn app.main:app --reload` |
+| Start server | `server/` | `uvicorn app.main:app --reload --host 0.0.0.0 --port 3000` |
 | Mobile — types / lint / tests | `mobile/` | `npx tsc --noEmit` · `npm run lint` · `npm test -- --no-coverage` |
 | Server — types / lint / tests | `server/` | `mypy app` · `ruff check . && ruff format --check .` · `pytest` |
 | Apply migrations | `server/` | `alembic upgrade head` |
