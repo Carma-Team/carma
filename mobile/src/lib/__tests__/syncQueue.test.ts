@@ -1,4 +1,4 @@
-import { SyncManager } from '@/services/sync/SyncManager';
+import { SyncManager, BACKOFF_MS, MAX_FAILURES_BEFORE_DROP } from '@/services/sync/SyncManager';
 import { ApiError } from '@/services/api/client';
 import { tripsApi } from '@/services/api/trips.api';
 import type { ValidTripPayload } from '@/services/sync/types';
