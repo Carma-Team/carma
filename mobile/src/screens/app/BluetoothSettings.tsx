@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
-import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
 import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
-import { userApi } from '@/services/api/user.api';
 
 type BTStatus = {
   nativeAvailable: boolean;
@@ -19,14 +18,10 @@ type BTStatus = {
 export default function BluetoothSettings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { t } = useTranslation();
-  // `activating` is set only when this screen is reached from a fresh "enable drive mode"
-  // attempt — it gates the "no device selected" warning on back-out below.
-  const { activating } = useLocalSearchParams<{ activating?: string }>();
-  const { sdk, user, setUser, addToast } = useApp();
+  const { sdk, addToast } = useApp();
 
   const [devices, setDevices]       = useState<BluetoothDevice[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(user?.bluetoothDeviceId ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
   const [btStatus, setBTStatus]     = useState<BTStatus>(null);
 
@@ -38,6 +33,9 @@ export default function BluetoothSettings() {
 
       const available = await sdk.getAvailableDevices();
       setDevices(available);
+
+      const savedId = await AsyncStorage.getItem('carma_bt_device_id');
+      setSelectedId(savedId);
     } catch (error) {
       console.error('Failed to load BT settings', error);
     } finally {
@@ -49,31 +47,22 @@ export default function BluetoothSettings() {
     loadSettings();
   }, [loadSettings]);
 
-  const handleBack = () => {
-    if (activating === '1' && !selectedId) {
-      Alert.alert(t('profile.noDeviceSelectedTitle'), t('profile.noDeviceSelectedMessage'), [
-        { text: t('common.confirm'), onPress: () => router.back() },
-      ]);
-      return;
+  const handleSelect = async (device: BluetoothDevice) => {
+    try {
+      const newId = selectedId === device.id ? null : device.id;
+      setSelectedId(newId);
+
+      if (newId) {
+        await AsyncStorage.setItem('carma_bt_device_id', newId);
+        sdk.updateTargetDevice(newId);
+        addToast({ title: 'הוגדר בהצלחה', message: `הרכב שלך זוהה כ-${device.name}`, type: 'success' });
+      } else {
+        await AsyncStorage.removeItem('carma_bt_device_id');
+        sdk.updateTargetDevice(null);
+      }
+    } catch {
+      Alert.alert('שגיאה', 'לא ניתן לשמור את ההגדרה');
     }
-    router.back();
-  };
-
-  // Selecting a device links it and turns drive mode on. Turning drive mode back off
-  // happens from SettingsScreen, not by re-tapping a device here.
-  const handleSelect = (device: BluetoothDevice) => {
-    if (!user) return;
-    setSelectedId(device.id);
-
-    // sdk.updateTargetDevice() is not called here — useDriveMode() reacts to
-    // user.bluetoothDeviceId changes and drives the SDK's BT monitoring on its own.
-    const patch = { driveModeEnabled: true, bluetoothDeviceId: device.id, bluetoothDeviceName: device.name };
-    setUser({ ...user, ...patch });
-    userApi.updateProfile(patch).catch(e =>
-      console.error('[BluetoothSettings] Failed to persist device selection', e)
-    );
-
-    addToast({ title: 'הוגדר בהצלחה', message: `הרכב שלך זוהה כ-${device.name}`, type: 'success' });
   };
 
   const renderItem = ({ item }: { item: BluetoothDevice }) => (
@@ -166,7 +155,7 @@ export default function BluetoothSettings() {
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={COMMON_STYLES.screenHeader}>
-        <TouchableOpacity onPress={handleBack} style={COMMON_STYLES.screenHeaderBackBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
           <Ionicons name="arrow-forward" size={28} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={COMMON_STYLES.screenHeaderTitle}>חיבור לרכב</Text>

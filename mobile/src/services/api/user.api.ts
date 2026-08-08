@@ -25,9 +25,6 @@ export interface UpdateProfilePayload {
   age?: number;
   city?: string;
   isPrivate?: boolean;
-  driveModeEnabled?: boolean;
-  bluetoothDeviceId?: string | null;
-  bluetoothDeviceName?: string | null;
 }
 
 export interface FoundUser {

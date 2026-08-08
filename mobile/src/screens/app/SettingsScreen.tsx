@@ -7,22 +7,19 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useDriveModeToggle } from '@/hooks/useDriveModeToggle';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 
 /**
  * Settings screen.
  * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * Drive mode changes are persisted via PATCH /api/users/me; everything else here is local
- * (AsyncStorage / AppContext).
+ * All actions here are local (AsyncStorage / AppContext) — no server calls.
  */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, setUser, clearTripHistory } = useApp();
   const { t, lang, setLang } = useTranslation();
-  const { handleDriveModeToggle } = useDriveModeToggle();
 
   if (!user) return null;
 
@@ -104,7 +101,7 @@ export default function SettingsScreen() {
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
-                  onPress={handleDriveModeToggle}
+                  onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
                 </Button>

@@ -75,9 +75,6 @@ class UpdateProfileIn(CamelModel):
     age: int | None = Field(default=None, ge=16, le=120)
     city: str | None = Field(default=None, max_length=80)
     is_private: bool | None = None
-    drive_mode_enabled: bool | None = None
-    bluetooth_device_id: str | None = Field(default=None, max_length=120)
-    bluetooth_device_name: str | None = Field(default=None, max_length=120)
 
 
 class UpdateLocationIn(CamelModel):
