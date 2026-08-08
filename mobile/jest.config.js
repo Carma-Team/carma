@@ -1,9 +1,12 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
+  preset: 'jest-expo',
+  // jest-expo's preset does not map the `@/` alias from tsconfig `paths`.
+  // Without this every test that imports `@/...` fails to resolve.
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  testMatch: ['**/__tests__/**/*.test.ts'],
+  // Overrides the preset's platform-suffixed patterns (`.ios.test.ts` etc.),
+  // which this repo does not use. `[jt]s?(x)` is what makes `.test.tsx` run.
+  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
 };

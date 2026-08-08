@@ -14,6 +14,8 @@ This directory is maintained as a self-contained unit and will be extracted into
 | Bluetooth bonded device listing | ✅ | ❌ |
 | Automatic connect / disconnect events | ✅ | ❌ |
 
+For what each platform lets an app observe about phone handling — screen and lock state, foreground app, background sensor delivery, and the cadence differences between the two platforms — see **[PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md)**. Those answers carry verification dates, because platform policy moves.
+
 ### Why Bluetooth auto-start is Android-only
 
 Car audio and multimedia systems use **Classic Bluetooth (BR/EDR)** — the profile family that handles audio streaming (A2DP) and hands-free calls (HFP).

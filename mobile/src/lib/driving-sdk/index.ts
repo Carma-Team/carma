@@ -243,6 +243,11 @@ export class DrivingSDK {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
 
     this.currentTripData.endTime = new Date();
+    // The validator outlives the trip unless it is stopped here — its ticker keeps running on
+    // the last speed it saw, and start() early-returns while that ticker is alive, so the next
+    // session inherits this one's state instead of resetting.
+    this.validationManager.stop();
+    this.isValidating = false;
     this.sensorManager.stop();
     this.phoneManager.stop();
 

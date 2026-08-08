@@ -138,6 +138,7 @@ export default function LeaderboardScreen() {
     leaderboardApi.getLocations()
       .then(data => {
         setLocations(data)
+        // Ensure the user's default city is valid; keep as-is if not in list
         if (user?.city) setSelectedCity(user.city)
       })
       .catch(() => {/* non-critical — fall back to user's own values */})
@@ -211,7 +212,7 @@ export default function LeaderboardScreen() {
 
   const handleSendInvite = useCallback(async () => {
     const senderName = user?.name ?? 'CARMA'
-    const message = `שלום. ${senderName} מעוניין/ת להזמין אותך להצטרף לאפליקציית CARMA. להתקנת האפליקציה לנייד לחצו על הקישור הבא: ${INSTALL_LINK}`
+    const message = t('leaderboard.inviteMessage').replace('{name}', senderName).replace('{link}', INSTALL_LINK)
     const phone = searchPhone.replace(/[^0-9]/g, '')
     const intlPhone = phone.startsWith('0') ? `972${phone.slice(1)}` : phone
     const waUrl = `whatsapp://send?phone=${intlPhone}&text=${encodeURIComponent(message)}`
@@ -221,7 +222,7 @@ export default function LeaderboardScreen() {
     } catch {}
     const sep = Platform.OS === 'ios' ? '&' : '?'
     await Linking.openURL(`sms:${searchPhone}${sep}body=${encodeURIComponent(message)}`)
-  }, [searchPhone, user?.name])
+  }, [searchPhone, user?.name, t])
 
   // ── Remove friend ────────────────────────────────────────────────────────
 
@@ -276,7 +277,7 @@ export default function LeaderboardScreen() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
-  // Single-country deployment — take the (only) country's city list directly.
+  // `citiesByCountry` always has exactly one entry — CARMA is single-country (see leaderboard.api.ts)
   const cities = Object.values(locations?.citiesByCountry ?? {})[0] ?? (selectedCity ? [selectedCity] : [])
 
   const tabs: { key: LeaderboardType; label: string }[] = [
