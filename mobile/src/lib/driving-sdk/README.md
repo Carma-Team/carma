@@ -1,5 +1,7 @@
 # Driving SDK
 
+**Last updated: 2026-08-08**
+
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
 This directory is maintained as a self-contained unit and will be extracted into a standalone npm package. **It must not contain any logic specific to any application** (scoring rules, fraud thresholds, gamification, business decisions about what constitutes a valid trip, etc.). Think of it as a third-party dependency: the application layer sits above it and decides what to do with the raw events it emits.
@@ -154,7 +156,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `PHONE_USAGE` | AppState + accelerometer variance | Host app backgrounded **and** IMU variance indicates the phone is hand-held. Fires once per pickup, not once per second. A bare background transition (Siri, incoming call, Control Center) does not qualify on its own. |
+| `PHONE_USAGE` | AppState + accelerometer variance | Host app backgrounded **and** IMU variance indicates the phone is hand-held. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. A bare background transition (Siri, incoming call, Control Center) does not qualify on its own. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
 
@@ -196,15 +198,24 @@ interface DrivingEvent {
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
   // Motion events only — absent on PHONE_USAGE:
-  peakG?:      number;          // peak gravity-removed horizontal force, in g
+  peakG?:      number;          // peak gravity-removed horizontal force, in g (unsigned)
   durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
 
 `severity` is normalised against the configured threshold, so it changes meaning if
 `motionThresholds` is overridden. `peakG` and `durationMs` are the raw physical
-measurements and do not — consume those if you need an absolute magnitude, or want
-to apply your own severity curve.
+measurements behind it.
+
+`peakG` is an **unsigned horizontal magnitude** — gravity is removed and the horizontal
+component of what remains is reduced to a single number, so longitudinal and lateral
+force are folded together and direction is lost. It is measured in the phone's frame;
+the SDK performs no phone-to-vehicle rotation, so a per-axis figure (braking force vs.
+cornering force) cannot be recovered from it. With no accelerometer present it is
+emitted as `0`, not omitted.
+
+`durationMs` is the longest continuous stretch the horizontal force stayed at or above
+the IMU cross-confirm threshold within the evaluation window.
 
 ---
 
@@ -278,7 +289,7 @@ interface TripData {
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
-  screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
+  screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds (backgrounded only)
 }
 ```
 
@@ -328,7 +339,7 @@ much of it counts. Both guards below live in the orchestrator, not the sensor la
 
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- Waypoints are appended on the same gate — one point per 5 elapsed GPS seconds **while moving**, which caps a 30-minute trip at ~360 waypoints regardless of speed.
+- Waypoints are appended on the same gate, counted in **GPS ticks rather than seconds** — one point every 3 ticks **while moving**. Wall-clock cadence therefore follows however fast the platform delivers fixes: roughly 300 points per 30 minutes when fixes arrive at the requested 2 s interval, appreciably fewer on an Android device whose location updates are being throttled (see #17), and appreciably more on iOS, where cadence is governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
 
 ### Gyroscope — `SensorManager`
 
@@ -336,12 +347,13 @@ Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on e
 
 ### Hand-held detection — `PhoneUsageManager`
 
-Answers one question: **is the phone in a hand, or fixed to the vehicle?** It cannot see
-touches delivered to other apps — no mobile OS exposes that — so device motion is used
-as a proxy. Two metrics are emitted via `onInteractionData`, plus the `PHONE_USAGE` event.
+Answers one question: **is the phone in a hand, or fixed to the vehicle?** Touches delivered
+to other apps are not observable — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md)
+— so device motion is used as a proxy. Two metrics are emitted via `onInteractionData`,
+plus the `PHONE_USAGE` event.
 
 - **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window).
-- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). Each second above the threshold increments `screenInteractionSeconds`; a mounted phone running a navigation app in the background accumulates nothing.
+- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). `screenInteractionSeconds` is driven by a **background-only** 1 Hz timer: each backgrounded second above the threshold increments it, and it does not advance at all while the host app is in the foreground — a driver holding the phone with this app on screen adds nothing to it. A mounted phone running a navigation app in the background likewise accumulates nothing, because its variance stays below the threshold.
 - **Glass-tap proxy:** a single sample above **1.8 g** total magnitude increments `touchEpochs`, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
 - **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — see the `DrivingEventType` table above.
 
