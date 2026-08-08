@@ -297,7 +297,6 @@ Points are the game currency and deliberately **not** the score.
 points = trip score
        × distance factor    (log scale — 1.0 at 10 km)
        × risk multiplier    (Israeli weekend nights ×2.0, weeknights ×1.5)
-       × streak bonus       (+5% per consecutive day with a trip, up to ×1.25)
        × level bonus        (the level entering the trip — ×1.00 to ×2.00)
                             ↓
                      then clipped by the limits below
@@ -305,14 +304,28 @@ points = trip score
 
 The level bonus sits **inside** the formula, before clipping. The level changes how fast a driver reaches the ceiling; it never raises the ceiling itself. This matches tiered loyalty practice — per-tier earn rates under one flat ceiling.
 
-**The risk multiplier rewards driving well at the hardest times. It does not reward being on the road at those times.**
+**The streak is not in this formula, deliberately.** See §4.5.
 
-The multiplier applies to the trip score, which is already a measure of quality. A poorly driven trip at 02:00 earns twice a low number. To make that explicit rather than incidental:
+**The risk multiplier is earned by the score, not granted by the hour.**
 
-- **The multiplier applies only to trips scoring 70 or above.** Below 70 the multiplier is ×1.00, whatever the hour.
+Paid flat, it would pay for being on the road at 02:00 rather than for driving well there — the same context the industry uses to raise measured risk. So it tapers in:
+
+| Trip score | Share of the multiplier earned |
+|---|---|
+| 70 or below | None — the multiplier is ×1.00 at any hour |
+| 85 | Half of the excess above ×1.00 |
+| 100 | The full time-of-day figure |
+
+```
+earned = clamp((trip_score − 70) / 30, 0, 1)
+effective risk multiplier = 1.0 + (base − 1.0) × earned
+```
+
+- **It tapers to the hour's own base**, not to a fixed ×2.0. An ordinary weeknight still tops out at ×1.50.
+- **A taper, not a cut.** Two trips a tenth of a point apart must not differ twofold in what they pay.
 - The multiplier scales quality, never exposure. Distance is priced by the distance factor alone, at the same rate at every hour.
 
-Without the 70 threshold the formula pays a driver more for being out at the riskiest hour regardless of how they drive, which is the opposite of the product's purpose. The threshold is the whole guard, and it is deliberately a hard cut rather than a taper — a driver should be able to state the rule from memory.
+The floor of 70 is uncalibrated. Where the fleet's trip scores actually sit decides whether this gate ever binds.
 
 ### 4.4 Economic limits
 
@@ -322,6 +335,28 @@ Without the 70 threshold the formula pays a driver more for being out at the ris
 | **Daily cap** | 500 points per day | A rate limiter, not a second economic ceiling. It sits above every honest driving pattern (an ordinary commute at level 10 is ~240 points, a Friday night out ~285, an 80 km day ~310) and exists only so a bug or an exploit cannot drain a month in an afternoon. |
 | **Daily distance cap** | 150 km counted toward points | A delivery driver cannot farm the system. |
 | **Fraud exclusion** | Zero points | Fraudulent trips earn nothing and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps. |
+
+---
+
+### 4.5 Streaks
+
+A streak is how many **driving days in a row** the driver drove well. It is worth **no points**.
+
+The points formula already starts at the trip score, so driving well is paid on every trip. A streak multiplier would charge a second time for the same behaviour. This also matches practice outside telematics — Duolingo, Snapchat and Nike Run Club all leave the count itself as the reward.
+
+**The rules:**
+
+| Rule | The wrong version it replaces |
+|---|---|
+| A day counts on its **distance-weighted average** score, against a bar of **80** | "Any trip that day" lets one short good drive whitewash a bad day; "every trip" lets one short bad drive destroy a good one |
+| Days with **no trip are skipped**, not broken | Breaking on a quiet day pays drivers to take the car out, and the safest kilometre is the one nobody drives |
+| One bad day **ends the run**. No forgiveness | A streak freeze suits a 1,000-day identity object. This one is rebuilt in a week, and what it would forgive is the only thing being measured |
+| Counted up to **yesterday** | A day still in progress can be banked on a good morning and spoiled by evening |
+| Reaches back **30 days** at most | Doubles as the expiry: a streak that survives an indefinite absence is not a streak |
+
+The bar of **80** is the same 80 the level cap uses, so "a good day" means one thing across the product. It is a first calibration, not a fitted number.
+
+**The record** (`users.best_streak`) is the only part stored, because the live count is derived from a 30-day window and a record set before that cannot be recomputed. It is a personal best rather than a leaderboard: any accumulating measure ranks driving *volume*, so a public streak board would reward mileage.
 
 ---
 

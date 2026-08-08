@@ -29,7 +29,9 @@ What is NOT yet available, and how this module copes until it is:
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -76,9 +78,22 @@ class ScoringConfig:
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
 
+    # Streak ("Streaks"). A day clears the bar when its distance-weighted average
+    # trip score reaches this. 80 is the top band of the level cap — the score at
+    # which a driver's level stops being held back — so "a good day" means the
+    # same thing in both places.
+    #
+    # A first calibration, not a fitted number: there is no fleet score
+    # distribution yet (CAR-102). Watch two failure modes before moving it — if
+    # almost every day clears, the streak is decoration; if almost none do, it is
+    # dead. One known trap: `apply_confidence` caps a trip at the driver's rolling
+    # score when the GPS trace is sparse, so a driver below 80 on a chronically
+    # under-reporting device can never clear this bar. That is #17 to fix, not a
+    # reason to lower the bar.
+    streak_qualifying_score: float = 80.0
+
     # Points engine ("Points").
-    streak_bonus_per_day: float = 0.05
-    streak_bonus_max_days: int = 5
+    #
     # The night risk multiplier pays for driving well when it is hardest, not for
     # being on the road when it is hardest. Below this score it is worth nothing;
     # it tapers to its full time-of-day value at 100. Uncalibrated — check where
@@ -287,7 +302,7 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 # ─── Stage 7 — points engine ────────────────────────────────────────────────────
 
 
-def _risk_multiplier_earned(base: float, trip_score: float, config: ScoringConfig) -> float:
+def risk_multiplier_earned(base: float, trip_score: float, config: ScoringConfig = CONFIG) -> float:
     """How much of the time-of-day risk multiplier a trip actually earns.
 
     The full multiplier is for driving well at the hardest hours. Paid flat, it
@@ -307,7 +322,6 @@ def compute_points(
     trip_score: float,
     distance_km: float,
     risk_multiplier: float,
-    streak_days: int = 0,
     level_multiplier: float = 1.0,
     points_today: float = 0.0,
     points_month: float = 0.0,
@@ -333,14 +347,8 @@ def compute_points(
     counted_km = min(max(0.0, distance_km), remaining_km)
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
-    streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = (
-        trip_score
-        * distance_factor
-        * _risk_multiplier_earned(risk_multiplier, trip_score, config)
-        * streak_bonus
-        * max(0.0, level_multiplier)
-    )
+    earned_risk = risk_multiplier_earned(risk_multiplier, trip_score, config)
+    points = trip_score * distance_factor * earned_risk * max(0.0, level_multiplier)
 
     # Whichever ceiling is nearer. Applied last, so the level bonus changes how
     # fast a driver reaches a ceiling, never where it sits.
@@ -352,3 +360,60 @@ def compute_points(
         config.rolling_month_points_cap - max(0.0, points_month),
     )
     return round(min(points, max(0.0, remaining)) * 10) / 10
+
+
+# ─── Streaks ────────────────────────────────────────────────────────────────────
+
+
+def compute_streak(
+    trips: Iterable[tuple[date, float, float]],
+    last_day: date,
+    config: ScoringConfig = CONFIG,
+) -> int:
+    """Driving days in a row the driver drove well, counted back from `last_day`.
+
+    Each item is one trip as `(day, trip_score, distance_km)`. The caller owns the
+    timezone the day is read in and how far back the history reaches.
+
+    Deliberately worth nothing (scoring.md "Streaks"). The points formula already
+    pays more for a higher score on every trip, so a streak multiplier would have
+    charged twice for the same behaviour; every large streak mechanic in the wild
+    — Duolingo, Snapchat, Nike Run Club — leaves the count itself as the reward.
+
+    Three rules, each rejecting a simpler one that is wrong:
+
+    * A day counts on its **distance-weighted average**, not on "any trip that
+      day" (which one short good drive would whitewash) and not on "every trip"
+      (which one would destroy).
+    * Days without a trip are **skipped**, not broken. The only thing that ends a
+      run is driving badly — breaking on a quiet day pays drivers to take the car
+      out, and the safest kilometre is the one nobody drives.
+    * Trips after `last_day` are ignored, because callers pass *yesterday*: a day
+      still in progress can be banked on a good morning and spoiled by evening,
+      and points paid at the higher count cannot be taken back.
+
+    A run therefore reaches no further than the history it is handed, so a gap
+    longer than the caller's window ends it — the intended expiry, not an
+    artefact. A streak that survives an indefinite absence is not a streak.
+    """
+    by_day: dict[date, list[tuple[float, float]]] = {}
+    for day, score, distance_km in trips:
+        if day <= last_day:
+            by_day.setdefault(day, []).append((score, max(0.0, distance_km)))
+
+    streak = 0
+    for day in sorted(by_day, reverse=True):
+        scored = by_day[day]
+        total_km = sum(km for _score, km in scored)
+        # The distance witness can cut a trip to nothing, leaving a day with no
+        # weight to average by. Plain mean rather than dropping the day, so a
+        # zero-distance day still has to be earned.
+        average = (
+            sum(score * km for score, km in scored) / total_km
+            if total_km > 0
+            else sum(score for score, _km in scored) / len(scored)
+        )
+        if average < config.streak_qualifying_score:
+            break
+        streak += 1
+    return streak
