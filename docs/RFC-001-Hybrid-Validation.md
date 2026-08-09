@@ -41,6 +41,7 @@ the system where a score or a points total is produced.
 > |---|---|
 > | 1, 2.1, 2.3, 2.4, 6 | **In force.** The threat model, the sensor-node/oracle split, the two dated decisions, and the standing promises. |
 > | 3, 7.2–7.4 | **In force.** The telemetry digest shape and the replay-protection contract. |
+> | 3.1 — the `riskMultiplier` field only | **Removed from the digest (CAR-165).** The server always derived the multiplier from `startTime` and discarded the client's copy, so the field audited nothing. Clients from v1.10 on omit it; the server still accepts it from older ones. The rest of the 3.1 schema stands. |
 > | 2.2 — the fraud row only | **Superseded by [fraud-detection.md](fraud-detection.md).** Transport-mode detection and the server-side gates are specified there. The rest of the 2.2 responsibility table stands. |
 > | 4, 5 | **Completed sprint mechanics.** Per-owner task lists, the accelerated-programme rollout, and its per-person Definition of Done. The work landed; the tasks are history. Note that Section 5 lists "a POST with a `ph:` signature passes" as an acceptance criterion — that was Sprint 1's intent and is no longer the target. |
 > | 7 — the `ph:` placeholder posture | **Superseded by [fraud-detection.md](fraud-detection.md).** Sprint 1 accepted an unverified signature deliberately. The target rejects an absent, placeholder, or unverifiable signature outright. Enforcement timing is CAR-13. |
@@ -220,6 +221,7 @@ export interface TelemetryDigest {
                                       // IMU accelerometer-variance signature.
                                       // High variance = hand-held; low variance = vehicle-mounted.
                                       // Immune to Waze/navigation-app false positives.
+  riskMultiplier:            number;  // time-of-day/day-of-week factor sent for audit; server recomputes
   startTime:                 string;  // ISO 8601 UTC — server uses this to derive riskMultiplier
   endTime:                   string;  // ISO 8601 UTC
   // ── Cryptographic nonce (v1.4) ────────────────────────────────────────────
