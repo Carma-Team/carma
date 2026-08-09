@@ -71,10 +71,12 @@ const INITIAL_TRIP_STATE: TripState = {
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
 // Pure-JS HMAC-SHA256 (FIPS 198-1 / FIPS 180-4) — no native bridge, no packages.
-// Signing key: hardcoded placeholder for Sprint 1. Replace with a value provisioned
-// via App Attestation (iOS) / Play Integrity (Android) in Sprint+1 (RFC-001 §5).
-// 'ph:' prefix on the output tells the server to bypass signature enforcement until
-// Sean removes the bypass after key provisioning is complete.
+// The key ships inside the app bundle, so a valid signature proves the payload came
+// from a copy of the client, not from a trusted device. That limit is accepted
+// deliberately — docs/fraud-detection.md, "What we accept losing"; attestation-
+// provisioned keys are Stage 2 of its maturity path.
+// The 'ph:' prefix marks the signature unverifiable. The server accepts it today;
+// CAR-13 is the switch to rejecting it.
 
 const SIGNING_KEY = 'CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION';
 
@@ -208,7 +210,7 @@ function buildTelemetryDigest(
 
 // Signs the digest with HMAC-SHA256. Canonical JSON (sorted keys) guarantees a
 // deterministic byte sequence regardless of JS engine key-insertion order.
-// 'ph:' prefix keeps the Sprint-1 server bypass active (RFC-001 §5).
+// 'ph:' prefix marks the signature unverifiable — accepted today, rejected under CAR-13.
 function signTelemetryDigest(digest: TelemetryDigest): string {
   const canonical = JSON.stringify(digest, Object.keys(digest).sort() as (keyof TelemetryDigest)[]);
   const hmac = _hmacSha256Hex(SIGNING_KEY, canonical);
