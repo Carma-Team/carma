@@ -26,8 +26,14 @@ class SaveTripIn(CamelModel):
         default=None,
         validation_alias=AliasChoices("screenInteractionSeconds", "screen_interaction_seconds"),
     )
+    # Deprecated (CAR-165). Clients from v1.10 on do not send it, and the value has never
+    # been scored with — `trips._score_trip` calls `risk.get_risk_multiplier(start)` itself.
+    # Still accepted, and must stay accepted: apps already in the field keep sending it, as
+    # do trips queued offline before the upgrade. Removing it would 422 both.
     risk_multiplier: float | None = Field(
-        default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
+        default=None,
+        validation_alias=AliasChoices("riskMultiplier", "risk_multiplier"),
+        deprecated=True,
     )
     telemetry_digest: dict[str, Any] | None = Field(
         default=None,
