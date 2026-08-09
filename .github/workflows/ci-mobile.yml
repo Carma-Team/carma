@@ -113,8 +113,8 @@ jobs:
       # opens a connection: rendering the schema never leaves the process.
       - name: Regenerate types from the server schema
         env:
-          DATABASE_URL: postgresql+asyncpg://schema:schema@localhost:5432/schema
-          JWT_SECRET: ci_schema_drift_placeholder_key
+          DATABASE_URL: postgresql+asyncpg://nobody:no_connection_is_opened@localhost:5432/unused
+          JWT_SECRET: schema_render_signs_nothing
         run: |
           (cd server && python -c "import json;from app.main import app;json.dump(app.openapi(),open('../openapi.json','w'))")
           (cd mobile && npx openapi-typescript ../openapi.json -o src/services/api/generated.ts)
