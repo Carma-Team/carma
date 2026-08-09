@@ -928,7 +928,9 @@ export interface components {
             anomalyFlags?: string[];
             detection?: components["schemas"]["FraudDetection"] | null;
             /** Rawpayload */
-            rawPayload?: Record<string, never> | null;
+            rawPayload?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * InviteLinkOut
@@ -1083,7 +1085,9 @@ export interface components {
             /** Type */
             type: string;
             /** Payload */
-            payload: Record<string, never>;
+            payload: {
+                [key: string]: unknown;
+            };
             /** Readat */
             readAt: string | null;
             /**
@@ -1229,15 +1233,21 @@ export interface components {
             /** Riskmultiplier */
             riskMultiplier?: number | null;
             /** Telemetrydigest */
-            telemetryDigest?: Record<string, never> | null;
+            telemetryDigest?: {
+                [key: string]: unknown;
+            } | null;
             /** Payloadsignature */
             payloadSignature?: string | null;
             /** Penalties */
             penalties?: number | null;
             /** Events */
-            events?: Record<string, never>[] | null;
+            events?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Routewaypoints */
-            routeWaypoints?: Record<string, never>[] | null;
+            routeWaypoints?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Startlocation */
             startLocation?: string | null;
             /** Endlocation */
@@ -1307,7 +1317,9 @@ export interface components {
             /** Userlevel */
             userLevel?: number | null;
             /** Routewaypoints */
-            routeWaypoints?: Record<string, never>[] | null;
+            routeWaypoints?: {
+                [key: string]: unknown;
+            }[] | null;
             /**
              * Events
              * @default []
@@ -1464,6 +1476,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /** VoucherListOut */
         VoucherListOut: {
@@ -2714,7 +2730,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -2734,7 +2752,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
