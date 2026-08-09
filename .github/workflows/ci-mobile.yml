@@ -8,20 +8,32 @@ name: CI · mobile
 # the skip is what let the break survive 100+ commits unnoticed. Do not add it
 # back: if these go red, fix the code.
 #
-# API drift no longer needs its own job. src/services/api/generated.ts is
-# committed and mobile/src/types/index.ts derives from it, so a server schema
-# change that was never regenerated shows up as a tsc failure (CAR-97).
+# contract-check is gone (CAR-97). schema-drift replaces it and is not the same
+# job: it reads the schema straight off the FastAPI app object, so there is no
+# Postgres service, no migrations and no uvicorn to wait on — seconds, not minutes.
+#
+# Why a job at all, when types/index.ts derives from the generated file: tsc only
+# sees what is committed. It compiles happily against a stale generated.ts and
+# says nothing until somebody regenerates. This is the step that notices.
 
+# server/ is in the path filter on purpose. A schema change is a mobile event: it
+# is what makes generated.ts stale, and running mobile tsc against it is what
+# surfaces the consequences. requirements.txt counts too — fastapi and pydantic
+# versions change the generated output, which is how this file went stale once.
 on:
   push:
     branches: [main, develop]
     paths:
       - 'mobile/**'
+      - 'server/app/**'
+      - 'server/requirements.txt'
       - '.github/workflows/ci-mobile.yml'
   pull_request:
     branches: [main, develop]
     paths:
       - 'mobile/**'
+      - 'server/app/**'
+      - 'server/requirements.txt'
       - '.github/workflows/ci-mobile.yml'
   workflow_dispatch:
 
@@ -71,3 +83,41 @@ jobs:
       - name: Run tests
         working-directory: ./mobile
         run: npm test --if-present -- --ci --passWithNoTests
+
+  schema-drift:
+    # Fails when the committed generated.ts is not what the current server schema
+    # produces — i.e. someone changed a schema and skipped `npm run gen:api`.
+    # Pinned deps matter: fastapi/pydantic decide how free-form objects are
+    # rendered, so this installs requirements.txt rather than the latest.
+    needs: install-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: server/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: pip install -r server/requirements.txt
+      - run: npm ci
+
+      # No env vars and no database: importing the app is enough to render the
+      # schema. Anything that needs a connection is not touched here.
+      - name: Regenerate types from the server schema
+        run: |
+          (cd server && python -c "import json;from app.main import app;json.dump(app.openapi(),open('../openapi.json','w'))")
+          (cd mobile && npx openapi-typescript ../openapi.json -o src/services/api/generated.ts)
+
+      - name: Fail if the committed types are stale
+        run: |
+          if ! git diff --exit-code mobile/src/services/api/generated.ts; then
+            echo "::error::mobile/src/services/api/generated.ts is out of date."
+            echo "::error::Run 'cd mobile && npm run gen:api' against a server on :3000 and commit the result."
+            exit 1
+          fi
