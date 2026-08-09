@@ -61,9 +61,10 @@ class Settings(BaseSettings):
         """Refuse to start a production server that cannot enforce trip signatures.
 
         An empty secret makes `_verify_signature` a no-op (trips.py), so the scoring
-        oracle would silently accept any payload. That is acceptable in dev — it is
-        how the app runs today — but shipping it to production is the accident
-        RFC-001 §5 warns about, so it fails loudly at startup instead.
+        oracle would silently accept any payload — the integrity gate in
+        docs/fraud-detection.md would pass without settling anything. That is
+        acceptable in dev, which is how the app runs today; shipping it to production
+        fails loudly at startup instead.
         """
         if self.env != "production":
             return self
