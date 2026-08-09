@@ -3,6 +3,7 @@
 // avgScore and points are intentionally absent — the FastAPI server is the sole
 // scoring oracle (RFC-001 v1.5). timestamp enables server-side replay detection.
 // phoneSeconds REMOVED in v1.7 — replaced by touchEpochs + screenInteractionSeconds.
+// riskMultiplier REMOVED in v1.10 (CAR-165) — the server derives it from startTime below.
 // All fields are plain scalars so the digest is deterministically JSON-serialisable.
 
 export interface TelemetryDigest {
@@ -14,8 +15,7 @@ export interface TelemetryDigest {
   swerves?:                 number;  // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
   screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds
-  riskMultiplier:           number;  // time-of-day multiplier (client-derived, server recomputes)
-  startTime:                string;  // ISO 8601 UTC
+  startTime:                string;  // ISO 8601 UTC — the server derives riskMultiplier from this
   endTime:                  string;  // ISO 8601 UTC
   timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
 }
@@ -39,7 +39,6 @@ export interface ValidTripPayload {
   swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — replaces phoneSeconds
   screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds
-  riskMultiplier: number;
   penalties: number;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;

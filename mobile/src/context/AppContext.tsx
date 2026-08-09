@@ -20,7 +20,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
-import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, DrivingEventType, type RouteWaypoint } from '@/lib/driving-sdk'
@@ -201,7 +200,6 @@ function buildTelemetryDigest(
     // swerves:               state.eventCounts.SWERVE,  // EVT_SWERVE disabled
     touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
-    riskMultiplier:           getRiskMultiplier(new Date(startTime)),
     startTime,
     endTime,
     timestamp:                Date.now(),
@@ -325,7 +323,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
-      riskMultiplier: 1.0,  // server computes — placeholder only
       penalties: 0,         // server computes — placeholder only
       telemetryDigest,
       payloadSignature,

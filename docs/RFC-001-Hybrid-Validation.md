@@ -220,7 +220,6 @@ export interface TelemetryDigest {
                                       // IMU accelerometer-variance signature.
                                       // High variance = hand-held; low variance = vehicle-mounted.
                                       // Immune to Waze/navigation-app false positives.
-  riskMultiplier:            number;  // time-of-day/day-of-week factor sent for audit; server recomputes
   startTime:                 string;  // ISO 8601 UTC — server uses this to derive riskMultiplier
   endTime:                   string;  // ISO 8601 UTC
   // ── Cryptographic nonce (v1.4) ────────────────────────────────────────────
