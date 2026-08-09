@@ -75,7 +75,7 @@ App-wide static values with no business logic.
 
 **`serverConfig.ts` — current state:** `USE_REAL_SERVER = true`, pointing at the cloud server.
 To switch back to local development, set `USE_REAL_SERVER = false`.
-See `docs/SERVER-INTEGRATION-SETUP.md` for full build instructions.
+Build commands live in `mobile/CLAUDE.md` §Builds.
 
 ---
 

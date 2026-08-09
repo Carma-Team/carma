@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +26,15 @@ export default function TripDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [routeWaypoints, setRouteWaypoints] = useState<any[]>([]);
   const [tripEvents, setTripEvents] = useState<DrivingEvent[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (!loading && trip) {
+      // Nudge the scroll indicator so the events section below the fold
+      // doesn't read as the end of the screen on first render.
+      scrollRef.current?.flashScrollIndicators();
+    }
+  }, [loading, trip]);
 
   useEffect(() => {
     const foundTrip = recentTrips.find(t => t.id === tripId);
@@ -77,7 +86,7 @@ export default function TripDetailScreen() {
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
-      <ScrollView style={styles.root} contentContainerStyle={COMMON_STYLES.scrollContent}>
+      <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         <TripDetailHeader />
 

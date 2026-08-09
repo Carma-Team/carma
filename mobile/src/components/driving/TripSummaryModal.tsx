@@ -23,6 +23,7 @@ interface TripSummaryModalProps {
     distanceKm: number;
     durationSeconds?: number;
     points: number;
+    pointsCapped?: boolean;
     eventCounts?: Record<string, number>;
     touchEpochs?: number;
     isTooShort?: boolean;
@@ -84,6 +85,13 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                       <Text style={styles.statLabelSmall}>{t('trip.points')}</Text>
                     </View>
                   </View>
+
+                  {trip.pointsCapped && (
+                    <View style={styles.cappedNotice}>
+                      <Ionicons name="information-circle-outline" size={16} color={COLORS.textMuted} />
+                      <Text style={styles.cappedNoticeText}>{t('trip.pointsCapped')}</Text>
+                    </View>
+                  )}
 
                   <View style={styles.eventsList}>
                     <Text style={styles.eventsTitle}>{t('trip.eventDetails')}</Text>
@@ -167,6 +175,13 @@ const styles = StyleSheet.create({
   },
   statValueSmall: { ...TYPOGRAPHY.h2, fontSize: 18 },
   statLabelSmall: { ...TYPOGRAPHY.caption, fontSize: 11, marginTop: 2, textAlign: 'center' },
+  cappedNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'stretch', marginBottom: SPACING.md,
+    backgroundColor: COLORS.card, borderRadius: 14,
+    paddingVertical: 8, paddingHorizontal: 12,
+  },
+  cappedNoticeText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, fontSize: 12, flex: 1 },
   eventsList: {
     width: '100%', gap: 2,
     backgroundColor: COLORS.card,

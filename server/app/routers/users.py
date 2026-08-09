@@ -81,4 +81,4 @@ stats_router = APIRouter(prefix="/api/user", tags=["user"])
     summary="Aggregate driving stats for the authenticated user",
 )
 async def stats(user: CurrentUser, db: DbSession) -> StatsOut:
-    return await users_service.stats(db, user.id)
+    return await users_service.stats(db, user)

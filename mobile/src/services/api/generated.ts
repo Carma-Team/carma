@@ -759,6 +759,10 @@ export interface components {
             safeTripsCount: number;
             /** Totaldurationseconds */
             totalDurationSeconds: number;
+            /** Currentstreak */
+            currentStreak: number;
+            /** Beststreak */
+            bestStreak: number;
             /** Recentscores */
             recentScores: components["schemas"]["RecentScore"][];
             eventCounts: components["schemas"]["EventCounts"];
@@ -811,6 +815,26 @@ export interface components {
             /** City */
             city?: string | null;
         };
+        /**
+         * FraudDetection
+         * @description Why the device classified a session as non-car travel.
+         *
+         *     The score alone says a trip was flagged; the signals say which gate fired and
+         *     the telemetry says by how much. Both are needed to recalibrate a threshold or
+         *     clear a false positive without a client release.
+         */
+        FraudDetection: {
+            /** Fraudscore */
+            fraudScore?: number | null;
+            /** Detectedmode */
+            detectedMode?: string | null;
+            signals?: components["schemas"]["FraudSignals"] | null;
+            telemetry?: components["schemas"]["FraudTelemetry"] | null;
+            /** Maxspeedkmh */
+            maxSpeedKmh?: number | null;
+            /** Detectedat */
+            detectedAt?: string | null;
+        };
         /** FraudReportOut */
         FraudReportOut: {
             /** Id */
@@ -824,6 +848,34 @@ export interface components {
             reportedAt: string;
             /** Anomalyflags */
             anomalyFlags: string[];
+        };
+        /**
+         * FraudSignals
+         * @description The three rule gates behind the classification, one field per gate.
+         *
+         *     Named after the physical observation rather than the rule letter (A/B/C) that
+         *     computes it on the device: the letters are only meaningful next to
+         *     FraudDetector.ts, and these values are read months later from a table row.
+         */
+        FraudSignals: {
+            /** Constanthighspeed */
+            constantHighSpeed?: boolean | null;
+            /** Nolateralforce */
+            noLateralForce?: boolean | null;
+            /** Noheadingchange */
+            noHeadingChange?: boolean | null;
+        };
+        /**
+         * FraudTelemetry
+         * @description Window aggregates the gates were computed from — never raw sample traces.
+         */
+        FraudTelemetry: {
+            /** Avgspeedkmh */
+            avgSpeedKmh?: number | null;
+            /** Maxlateralaccelg */
+            maxLateralAccelG?: number | null;
+            /** Yawvariance */
+            yawVariance?: number | null;
         };
         /**
          * FriendRequestOut
@@ -872,10 +924,9 @@ export interface components {
             tripDurationSeconds?: number | null;
             /** Distancekm */
             distanceKm?: number | null;
-            /** Avgscore */
-            avgScore?: number | null;
             /** Anomalyflags */
             anomalyFlags?: string[];
+            detection?: components["schemas"]["FraudDetection"] | null;
             /** Rawpayload */
             rawPayload?: Record<string, never> | null;
         };
@@ -1236,6 +1287,8 @@ export interface components {
             screenInteractionSeconds: number;
             /** Riskmultiplier */
             riskMultiplier: number;
+            /** Effectiveriskmultiplier */
+            effectiveRiskMultiplier: number;
             /** Startlocation */
             startLocation: string | null;
             /** Endlocation */
@@ -1302,6 +1355,8 @@ export interface components {
             screenInteractionSeconds: number;
             /** Riskmultiplier */
             riskMultiplier: number;
+            /** Effectiveriskmultiplier */
+            effectiveRiskMultiplier: number;
             /** Startlocation */
             startLocation: string | null;
             /** Endlocation */

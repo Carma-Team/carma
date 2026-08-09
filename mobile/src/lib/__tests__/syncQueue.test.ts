@@ -1,4 +1,5 @@
 import { SyncManager } from '@/services/sync/SyncManager';
+import { ApiError } from '@/services/api/client';
 import { tripsApi } from '@/services/api/trips.api';
 import type { ValidTripPayload } from '@/services/sync/types';
 import type { Trip } from '@/types';
@@ -56,6 +57,7 @@ function makeServerTrip(localTripId: string): Trip {
     touchEpochs: 0,
     screenInteractionSeconds: 0,
     riskMultiplier: 1.0,
+    effectiveRiskMultiplier: 1.0,
     status: 'completed',
     startLocation: null,
     endLocation: null,
@@ -145,7 +147,6 @@ describe('flushQueue', () => {
   });
 
   test('409 Conflict is treated as success — item removed from queue', async () => {
-    const { ApiError } = await import('@/services/api/client');
     mockSave.mockRejectedValueOnce(new ApiError(409, 'Conflict'));
 
     await SyncManager.enqueue(makePayload('trip_conflict'));
@@ -155,7 +156,6 @@ describe('flushQueue', () => {
   });
 
   test('permanent 4xx error drops the item without halting', async () => {
-    const { ApiError } = await import('@/services/api/client');
     mockSave
       .mockRejectedValueOnce(new ApiError(422, 'Unprocessable Entity'))
       .mockResolvedValueOnce(makeServerTrip('trip_b'));
