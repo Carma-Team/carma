@@ -159,6 +159,8 @@ export class DrivingSDK {
   }
 
   private async handleBluetoothDisconnect() {
+    console.log('[SDK] BT disconnected — validating:', this.isValidating, '| trip active:', this.isTripActive);
+
     if (this.isValidating) {
       this.validationManager.stop();
       this.sensorManager.stop();

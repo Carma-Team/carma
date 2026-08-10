@@ -35,6 +35,22 @@ export type Trip = Schemas['TripOut'] & {
   eventsArray?: any[];
 };
 
+// Manual addition — GET /api/trips/:id returns a superset of the list shape.
+// Mirrors EventOut / TripDetailOut in server/app/schemas/trip.py. Note `type`
+// arrives lower-cased there; use lib/tripEvents.ts to reach the SDK's enum.
+export interface TripEvent {
+  id: string;
+  type: string;
+  severity: number;
+  timestamp: string;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface TripDetail extends Trip {
+  events?: TripEvent[];
+}
+
 // ─── Reward ───────────────────────────────────────────────────────────────────
 // `stock` is the total the business allocated; `available` is what is left of it
 // right now, derived server-side from the vouchers issued against it. null means
