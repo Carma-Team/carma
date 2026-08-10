@@ -239,7 +239,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 ### Global middleware (in `app/main.py`)
 
 1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`). Credentials are allowed only when the origins are named explicitly — a wildcard plus credentials is forbidden by the spec, so `settings.cors_allows_credentials` turns them off together.
-2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour; the auth routes tighten this to 5/min. The limiter lives in `app/core/limiter.py` so routers can import it without a cycle. A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
+2. **Rate limiting** — per-IP, `DefaultRateLimitMiddleware` in `app/middlewares/rate_limit.py`. Defaults: 30/min, 500/hour on every route that does not declare its own; the auth routes tighten this to 5/min and the health probes are exempt. Each handler counts against its own budget, so one busy screen cannot lock a caller out of the rest of the app, and a path parameter cannot hand out a fresh budget per id. The limiter itself lives in `app/core/limiter.py` so routers can import it without a cycle. This replaced `SlowAPIMiddleware`, which enforced nothing at all under FastAPI 0.137+ (CAR-126). A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
 3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
 
 Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.

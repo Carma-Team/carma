@@ -79,11 +79,12 @@ PEEK_LIMIT = "60/minute"
 # valid. A burst of redeems with no peeks behind them is not a counter at work.
 REDEEM_LIMIT = "30/minute"
 
-# `shared_limit` only for its scope argument, which is what makes these work at
-# all: SlowAPI buckets a counter by request URL, and the code is *in* the URL
-# here, so a plain `limit` hands every code a fresh budget and never refuses a
-# sweep — the one thing this ceiling exists to stop. A named scope pins a route
-# to one counter whatever code is in the path.
+# `shared_limit` only for its scope argument: it names the counter outright, so
+# these two ceilings do not depend on how the app happens to bucket everything
+# else. The code is *in* the URL here, and a counter keyed on the URL hands every
+# scanned code a fresh budget — never refusing the sweep this ceiling exists to
+# stop. `core.limiter` buckets by handler rather than by URL for that same
+# reason (CAR-126); a named scope says it out loud and survives that changing.
 PEEK_SCOPE = "business-voucher-peek"
 REDEEM_SCOPE = "business-voucher-redeem"
 # `request` goes unused in both handlers below, but SlowAPI reads the limit key

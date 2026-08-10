@@ -102,4 +102,16 @@ def business_key(request: Request) -> str:
     return f"business:{business_id}" if business_id else client_ip(request)
 
 
-limiter = Limiter(key_func=client_ip, default_limits=["500/hour", "30/minute"])
+# `key_style="endpoint"` counts against the handler rather than against the URL,
+# and on a route with a path parameter those are not the same thing. On the URL,
+# `/api/trips/1` and `/api/trips/2` are separate counters, so walking the ids is
+# never refused however fast it goes — which is the sweep a default limit exists
+# to stop. The decorated routes are unaffected: they name their own scope.
+SUSTAINED_LIMIT = "500/hour"
+BURST_LIMIT = "30/minute"
+
+limiter = Limiter(
+    key_func=client_ip,
+    default_limits=[SUSTAINED_LIMIT, BURST_LIMIT],
+    key_style="endpoint",
+)
