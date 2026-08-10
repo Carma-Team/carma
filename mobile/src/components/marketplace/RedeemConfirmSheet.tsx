@@ -5,14 +5,14 @@ import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { useTranslation } from '@/hooks/useTranslation';
 import { localize } from '@/lib/utils';
-import type { Reward } from '@/types';
+import type { Reward, Language } from '@/types';
 
 interface RedeemConfirmSheetProps {
   reward: Reward;
   onConfirm: () => void;
   onCancel: () => void;
   loading: boolean;
-  lang: string;
+  lang: Language;
 }
 
 export const RedeemConfirmSheet: React.FC<RedeemConfirmSheetProps> = ({

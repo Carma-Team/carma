@@ -83,7 +83,7 @@ A change is done when every surface it touched passes locally. CI is the last li
 |---|---|
 | `mobile/**` | `npx tsc --noEmit`, `npm run lint`, `npm test -- --no-coverage` |
 | `server/**` | `mypy app`, `ruff check .`, `pytest` |
-| An API contract or DTO | Both rows above, plus the manual type sync below |
+| An API contract or DTO | Both rows above, plus `npm run gen:api` and the regenerated `generated.ts` committed |
 | `develop` → `main` | `pytest` and `npx tsc --noEmit`, both green locally |
 
 ## Environment traps
@@ -94,12 +94,14 @@ Facts that cost hours and cannot be derived from the code.
 - **The tests share the development database.** Fixtures left behind by another branch break tests that have nothing to do with your change.
 - **PowerShell on Windows is the primary shell.** The server runs in a Python 3.12 venv on port 3000.
 
-## API contract sync — by hand, until CAR-97 lands
+## API contract sync
 
-- Any DTO change is applied manually to **both** `server/app/schemas/` and `mobile/src/types/index.ts`. Never let them drift.
-- **`mobile/src/types/index.ts` is hand-written today.** `npm run gen:api` does not touch it — it writes `mobile/src/services/api/generated.ts`, which is gitignored and imported by nothing.
-- **CAR-97 (Urgent, PR #104) reverses this**: `generated.ts` gets committed and `types/index.ts` becomes aliases over it. Regenerating after a server change stays a human step; what changes is that `tsc` then catches every consequence. Rewrite this section when #104 merges.
-- **`contract-check` cannot pass, and is being deleted rather than fixed.** It diffs the regenerated file against a baseline that gitignore guarantees is absent, so it can only fail, and it is gated behind the `run-full-ci` label. Never send an author off to "just fix contract-check" — CAR-34 and CAR-105 were both filed for it and both closed as duplicates of CAR-97.
+The server's OpenAPI schema is the contract of record. `mobile/src/types/index.ts` is aliases over `mobile/src/services/api/generated.ts`, which is committed.
+
+- **After any change under `server/app/schemas/`, run `cd mobile && npm run gen:api` and commit `generated.ts` in the same PR.** The generator needs a server running on :3000. Regenerating is a human step; what is automatic is that `tsc` then fails on every consequence of the change.
+- **Never hand-edit `generated.ts`.** Hand-written members belong in `types/index.ts`, and only for what the schema cannot express: client-only fields, or a shape OpenAPI flattens to `string` or an opaque object. Comment which of the two it is.
+- **`schema-drift` in `ci-mobile.yml` is what notices when you forget.** It regenerates from the app object and fails if the result differs from what is committed — no database, no running server. It replaced `contract-check`, which diffed the regenerated file against a baseline that gitignore guaranteed was absent and so could only fail. Do not send an author off to "just fix contract-check"; CAR-34 and CAR-105 were both filed for it and both closed as duplicates.
+- **Generate against the pinned dependencies.** `fastapi` and `pydantic` versions decide how free-form objects are rendered, so a venv behind `server/requirements.txt` produces a file that CI rejects. `pip install -r server/requirements-dev.txt` first.
 
 ## `mobile/src/lib/driving-sdk/` — hard boundary
 
@@ -129,7 +131,7 @@ Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `ci-server.yml` | push / PR on `main`, `develop` | Ruff, Mypy, pytest. A push to `develop` runs pytest **without a database**; only PRs and `main` get migrations plus the Postgres job. |
-| `ci-mobile.yml` | push / PR on `main`, `develop` | `tsc --noEmit` and ESLint always; Jest on pushes and PRs into `develop`; `contract-check` only on the `run-full-ci` label or manual dispatch. |
+| `ci-mobile.yml` | push / PR on `main`, `develop`, incl. `server/app/**` | `tsc --noEmit` and ESLint always; Jest on pushes and PRs into `develop`; `schema-drift` regenerates the API types and fails if they differ from what is committed. |
 | `deploy.yml` | push to `main`, or manual | Docker image → ACR → Azure Container App over OIDC. Silently skipped when `AZURE_CLIENT_ID` is unset, so CI stays green. |
 
 - **Never switch a check off to quiet it — fix the cause.** `tsc --noEmit` was skipped on `develop` to work around a broken toolchain (CAR-8); the workaround outlived the bug, and the app went 100+ commits with no type check while CI stayed green.

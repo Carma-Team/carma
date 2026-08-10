@@ -46,7 +46,7 @@ export default function RewardFormScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useApp();
   const { t, lang } = useTranslation();
-  const direction = lang === 'he' ? 'rtl' : 'ltr';
+  const direction = lang === 'HE' ? 'rtl' : 'ltr';
   const { rewardData } = useLocalSearchParams<{ rewardData?: string }>();
 
   const isEdit = !!rewardData;

@@ -6,9 +6,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+import type { Language } from '@/types';
 
 export interface SupportedLanguage {
-  code: string;
+  code: Language;
   label: string;
 }
 
@@ -16,14 +17,14 @@ export interface SupportedLanguage {
 // language, same convention as every OS language picker. Not translated text.
 /* eslint-disable no-restricted-syntax */
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
-  { code: 'he', label: 'עברית' },
-  { code: 'en', label: 'English' },
+  { code: 'HE', label: 'עברית' },
+  { code: 'EN', label: 'English' },
 ];
 /* eslint-enable no-restricted-syntax */
 
 interface LanguagePickerProps {
-  lang: string;
-  onSelect: (lang: string) => void;
+  lang: Language;
+  onSelect: (lang: Language) => void;
   /** Caller supplies this via t('profile.language') — no in-component default,
    *  so a missing translation can't silently fall back to one hardcoded language. */
   buttonLabel: string;
@@ -32,7 +33,7 @@ interface LanguagePickerProps {
 export function LanguagePicker({ lang, onSelect, buttonLabel }: LanguagePickerProps) {
   const [open, setOpen] = useState(false);
 
-  function handleSelect(code: string) {
+  function handleSelect(code: Language) {
     onSelect(code);
     setOpen(false);
   }

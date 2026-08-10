@@ -18,7 +18,7 @@ It defines the purpose of every directory, what belongs in each one, and what is
 | UI components | `src/components/` | Presentational. No direct API calls. |
 | Screens | `src/screens/` | Compose components + hooks. No inline business logic. |
 | API layer | `src/services/api/` | Request/response shaping only. No business decisions. |
-| Types | `src/types/` | **Hand-written today**, synced manually against `server/app/schemas/`. `gen:api` does not write here. CAR-97 / PR #104 turns this into aliases over the generated file — see the root CLAUDE.md. |
+| Types | `src/types/` | Aliases over `src/services/api/generated.ts`, which `gen:api` writes and we commit. Hand-write only what the schema cannot express — see the root CLAUDE.md. |
 
 ## `driving-sdk/` — hard boundary
 
@@ -78,6 +78,6 @@ npm start                  # Expo dev server
 npm test -- --no-coverage  # Jest
 npm run lint               # ESLint
 npx tsc --noEmit           # TypeScript check
-npm run gen:api            # Writes src/services/api/generated.ts (gitignored) from a
-                           # running server on :3000. Never touches src/types/.
+npm run gen:api            # Rewrites src/services/api/generated.ts from a server running
+                           # on :3000. Commit the result; src/types/ aliases it.
 ```
