@@ -142,7 +142,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 │   │   ├── app/                      # expo-router screens (auth, tabs, admin, business)
 │   │   ├── screens/, components/, context/, hooks/
 │   │   ├── services/api/             # client.ts (Bearer), auth.api.ts, trips.api.ts, ...
-│   │   │   └── generated.ts          # auto-generated from /api/openapi.json (gitignored)
+│   │   │   └── generated.ts          # auto-generated from /api/openapi.json (committed)
 │   │   ├── lib/driving-sdk/          # IMU/GPS/BLE simulation
 │   │   └── types/                    # shared TS interfaces
 │   ├── package.json                  # `npm run gen:api` regenerates types from the server

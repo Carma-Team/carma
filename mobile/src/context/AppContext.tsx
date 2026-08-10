@@ -248,7 +248,7 @@ const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AppUser | null>(null)
-  const [lang, setLangState] = useState<Language>('he')
+  const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
@@ -288,7 +288,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
     // Fires here in the trip-summary flow (after the trip has actually ended), not on trip
     // start, so it never pops up in front of a driver who is mid-drive.
-    maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
+    maybePromptBatteryOptimizationExemption(lang === 'HE' ? he : en).catch(() => {});
 
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary({ isTooShort: true });
@@ -373,6 +373,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
+    // Same fallback as the base above: offline there is no server-tapered value,
+    // and SyncManager.onTripSynced replaces the row once the save lands.
+    const serverEffectiveRisk  = savedTrip?.effectiveRiskMultiplier ?? serverRiskMultiplier;
     const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
@@ -398,7 +401,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           touchEpochs: finalState.touchEpochs,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
+          effectiveRiskMultiplier: serverEffectiveRisk,
           status: 'completed',
+          // Server-only fields. This branch runs when the save never landed, so
+          // there is nothing to fill them with — the sync refreshes the row later.
+          startLocation: null,
+          endLocation: null,
+          aiInsight: null,
+          pointsCapped: false,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -593,11 +603,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           levelsApi.list().catch(() => null),
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
-        if (l === 'he' || l === 'en') setLangState(l as Language)
+        // Installs from before the language enum matched the server have 'he'/'en'
+        // on disk. Upper-casing on read migrates them; do not drop it.
+        const storedLang = l?.toUpperCase();
+        if (storedLang === 'HE' || storedLang === 'EN') setLangState(storedLang)
         if (btId) sdk.updateTargetDevice(btId)
 
         if (!serverOnline) {
-          const tr = l === 'en' ? en : he;
+          const tr = storedLang === 'EN' ? en : he;
           addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
         }
 
@@ -677,7 +690,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
-    I18nManager.forceRTL(l === 'he');
+    I18nManager.forceRTL(l === 'HE');
     await AsyncStorage.setItem('carma_lang', l);
   }, [])
 
@@ -697,7 +710,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
-      const tr = lang === 'he' ? he : en;
+      const tr = lang === 'HE' ? he : en;
       addToast({
         title: tr.common.historyCleared,
         message: tr.common.historyClearedDesc,

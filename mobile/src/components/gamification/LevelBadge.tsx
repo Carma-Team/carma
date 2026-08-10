@@ -12,7 +12,7 @@ interface LevelBadgeProps {
   showName?: boolean
 }
 
-export function LevelBadge({ level, size = 'md', lang = 'he', showName }: LevelBadgeProps) {
+export function LevelBadge({ level, size = 'md', lang = 'HE', showName }: LevelBadgeProps) {
   const config = getLevelConfig(level)
   const dim = { sm: 36, md: 48, lg: 64 }[size]
   const fontSize = { sm: 16, md: 22, lg: 30 }[size]

@@ -16,7 +16,7 @@ function RootLayoutNav() {
   const router = useRouter();
   useDriveMode();
   const segments = useSegments();
-  const direction = lang === 'he' ? 'rtl' : 'ltr';
+  const direction = lang === 'HE' ? 'rtl' : 'ltr';
 
   useEffect(() => {
     if (isLoading) return;

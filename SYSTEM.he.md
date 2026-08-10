@@ -142,7 +142,7 @@ carma/                                # Carma-Team/carma (root של המונור
 │   │   ├── app/                      # expo-router screens (auth, tabs, admin, business)
 │   │   ├── screens/, components/, context/, hooks/
 │   │   ├── services/api/             # client.ts (Bearer), auth.api.ts, trips.api.ts, ...
-│   │   │   └── generated.ts          # נוצר אוטומטית מ-/api/openapi.json (gitignored)
+│   │   │   └── generated.ts          # נוצר אוטומטית מ-/api/openapi.json (committed)
 │   │   ├── lib/driving-sdk/          # סימולציית IMU/GPS/BLE
 │   │   └── types/                    # interfaces משותפים ב-TS
 │   ├── package.json                  # `npm run gen:api` מחדש את הטיפוסים מהשרת
