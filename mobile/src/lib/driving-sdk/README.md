@@ -1,6 +1,6 @@
 # Driving SDK
 
-**Last updated: 2026-08-08**
+**Last updated: 2026-08-11**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -207,12 +207,12 @@ interface DrivingEvent {
 `motionThresholds` is overridden. `peakG` and `durationMs` are the raw physical
 measurements behind it.
 
-`peakG` is an **unsigned horizontal magnitude** — gravity is removed and the horizontal
-component of what remains is reduced to a single number, so longitudinal and lateral
-force are folded together and direction is lost. It is measured in the phone's frame;
-the SDK performs no phone-to-vehicle rotation, so a per-axis figure (braking force vs.
-cornering force) cannot be recovered from it. With no accelerometer present it is
-emitted as `0`, not omitted.
+`peakG` is an **orientation-invariant, gravity-relative horizontal magnitude** — gravity is
+removed and the magnitude of the component perpendicular to it is taken, so the same brake
+reads the same on a vent mount, in a cup holder or in a pocket. Longitudinal and lateral are
+not recoverable from it: only the running scalar peak is kept, so direction is discarded
+before the event is emitted. With no accelerometer present `peakG` is emitted as `0`, not
+omitted.
 
 `durationMs` is the longest continuous stretch the horizontal force stayed at or above
 the IMU cross-confirm threshold within the evaluation window.
@@ -285,7 +285,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, ~5-second intervals
+  waypoints:              RouteWaypoint[];  // GPS track, one point per 3 GPS ticks (~6 s at the requested cadence)
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
