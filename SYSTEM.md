@@ -196,7 +196,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # Last known driver location
     last_cleared_history,                            # UI history filter
 
-    is_phone_verified, failed_otp_count, locked_until,   # Spec 5.2.4 enforcement
+    is_phone_verified, locked_until, lockout_reset_at,   # Spec 5.2.4 enforcement
 ```
 
 **Why both `points` and `total_points`?** the mobile frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
@@ -212,6 +212,8 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 - `users (phone)`, `users (email)`, `users (role)`
 - `otp_codes (phone, purpose, consumed_at)` — active-OTP lookup
 - `otp_codes (expires_at)` — for cleanup
+- `login_failures (user_id, caller_ip, created_at)` — per-caller sign-in backoff
+- `login_failures (created_at)` — for the age sweep
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`
@@ -224,7 +226,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 
 | Router (HTTP) | Service (logic) | What it does |
 |---|---|---|
-| `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Enforces lockout after 5 failed OTPs. |
+| `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Backs a caller off per (account, address) after 5 failures; locks the account itself only at 100. |
 | `routers/users.py` | `services/users.py` | `/users/me` profile + location + GDPR delete + `/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
 | `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, valid for `VOUCHER_TTL_DAYS`), my vouchers. |
@@ -298,8 +300,12 @@ Mobile App                                   Server                 Twilio (prod
    │  { phone, code }                           │                        │
    │ ─────────────────────────────────────────► │                        │
    │                                            │ passlib bcrypt.verify  │
-   │                                            │ on fail: failed_otp_count++│
-   │                                            │ if >= 5: locked_until = now+15min │
+   │                                            │ on fail: INSERT LoginFailure│
+   │                                            │   (user_id, caller_ip) │
+   │                                            │ 5+ from this address:  │
+   │                                            │   refuse, wait doubles │
+   │                                            │ 100 account-wide:      │
+   │                                            │   locked_until = now+15min │
    │                                            │ on success: consume,  │
    │                                            │    mark is_phone_verified│
    │  200 { token, user }                       │                        │

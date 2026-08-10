@@ -197,7 +197,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # מיקום אחרון של הנהג
     last_cleared_history,                            # סינון היסטוריה ב-UI
 
-    is_phone_verified, failed_otp_count, locked_until,   # אכיפת spec 5.2.4
+    is_phone_verified, locked_until, lockout_reset_at,   # אכיפת spec 5.2.4
 ```
 
 **למה גם `points` וגם `total_points`?** הפרונט משתמש בשניהם: `points` היא היתרה הנוכחית הניתנת למימוש (יורדת ברכישה ב-Marketplace), `total_points` היא הצבירה ההיסטורית שעליה נשענת הדרגה. בעת מימוש שובר מורידים רק מ-`points`.
@@ -213,6 +213,8 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 - `users (phone)`, `users (email)`, `users (role)`
 - `otp_codes (phone, purpose, consumed_at)` — חיפוש OTP פעיל
 - `otp_codes (expires_at)` — לפינוי קודים שפג תוקפם
+- `login_failures (user_id, caller_ip, created_at)` — השהיית כניסה לפי כתובת הפונה
+- `login_failures (created_at)` — לפינוי שורות שפג תוקפן
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`
@@ -225,7 +227,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 
 | Router (HTTP) | Service (לוגיקה) | מה עושה |
 |---|---|---|
-| `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. אוכף נעילה אחרי 5 כשלונות OTP. |
+| `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. משהה פונה לפי (חשבון, כתובת) אחרי 5 כשלונות; נועל את החשבון עצמו רק ב-100. |
 | `routers/users.py` | `services/users.py` | פרופיל `/users/me`, עדכון מיקום, GDPR delete, ו-`/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | רשימה, שמירה (מקבל snake_case וגם camelCase), שליפה לפי id. מעדכן אוטומטית `points`/`total_points`/`total_distance`. |
 | `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף לפי `VOUCHER_TTL_DAYS`), השוברים שלי. |
@@ -298,8 +300,12 @@ Mobile App                                   Server                 Twilio (prod
    │  { phone, code }                           │                        │
    │ ─────────────────────────────────────────► │                        │
    │                                            │ passlib bcrypt.verify  │
-   │                                            │ on fail: failed_otp_count++│
-   │                                            │ if >= 5: locked_until = now+15min │
+   │                                            │ on fail: INSERT LoginFailure│
+   │                                            │   (user_id, caller_ip) │
+   │                                            │ 5+ מהכתובת הזו: סירוב, │
+   │                                            │   ההמתנה מוכפלת        │
+   │                                            │ 100 ברמת החשבון:       │
+   │                                            │   locked_until = now+15min │
    │                                            │ on success: צרוך,      │
    │                                            │    סמן is_phone_verified│
    │  200 { token, user }                       │                        │

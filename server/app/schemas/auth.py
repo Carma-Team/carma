@@ -10,7 +10,9 @@ from app.schemas.user import UserOut
 class RegisterIn(CamelModel):
     name: str = Field(min_length=2, max_length=80)
     email: EmailStr
-    password: str = Field(min_length=6, max_length=200)
+    # 8 is NIST SP 800-63B's minimum. `LoginIn` deliberately stays at 6: a login
+    # checks a credential, it does not enforce the policy that minted it.
+    password: str = Field(min_length=8, max_length=200)
     phone: str | None = Field(default=None, pattern=r"^[\d\s+()\-]{6,20}$")
     city: str | None = Field(default=None, max_length=80)
     age: int | None = Field(default=None, ge=16, le=120)

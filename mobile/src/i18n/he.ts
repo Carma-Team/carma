@@ -18,7 +18,7 @@ const he = {
     errors: {
       emailRequired: 'אנא הזן אימייל', passwordRequired: 'אנא הזן סיסמה',
       nameRequired: 'אנא הזן שם מלא', invalidEmail: 'אימייל לא תקין',
-      passwordTooShort: 'הסיסמה קצרה מדי (מינימום 6 תווים)',
+      passwordTooShort: 'הסיסמה קצרה מדי (מינימום 8 תווים)',
       emailExists: 'האימייל כבר קיים במערכת', invalidCredentials: 'אימייל או סיסמה שגויים',
     },
   },

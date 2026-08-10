@@ -18,7 +18,7 @@ const en: TranslationMap = {
     errors: {
       emailRequired: 'Please enter your email', passwordRequired: 'Please enter your password',
       nameRequired: 'Please enter your name', invalidEmail: 'Invalid email address',
-      passwordTooShort: 'Password too short (min 6 characters)',
+      passwordTooShort: 'Password too short (min 8 characters)',
       emailExists: 'Email already registered', invalidCredentials: 'Invalid email or password',
     },
   },
