@@ -75,7 +75,7 @@ App-wide static values with no business logic.
 
 **`serverConfig.ts` — current state:** `USE_REAL_SERVER = true`, pointing at the cloud server.
 To switch back to local development, set `USE_REAL_SERVER = false`.
-See `docs/SERVER-INTEGRATION-SETUP.md` for full build instructions.
+Build commands live in `mobile/CLAUDE.md` §Builds.
 
 ---
 
@@ -229,6 +229,6 @@ One file per backend resource.
 TypeScript types shared between the mobile app and the backend.
 
 **Rules:**
-- Ideally generated from the FastAPI OpenAPI schema via `npm run gen:api` (uses `openapi-typescript`).
-- Manual edits are permitted when the generator output is insufficient (e.g. adding optional fields that are disabled in the current build, or fixing a drift between server schema and app state shape). Document any manual addition with a short comment.
+- Everything the server sends is derived from `services/api/generated.ts`, which `npm run gen:api` writes from the FastAPI OpenAPI schema. `generated.ts` is committed; never edit it by hand.
+- Hand-written members are for the two cases the schema cannot express: client-only fields the server never sends, and shapes the schema flattens to `string` or an opaque object. Comment each one with which of the two it is — otherwise the next reader assumes the server sends it and it was never regenerated.
 - App-only types (e.g. UI state shapes) belong in the file that uses them, or in `context/` if they are part of global state.

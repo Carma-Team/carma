@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -37,8 +36,11 @@ async def current_user(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-    if user.locked_until and user.locked_until > datetime.now(UTC):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account is locked")
+    # `locked_until` is deliberately not read here. It counts failed sign-ins,
+    # which say nothing about a session that was already opened — so honouring it
+    # only ever ejected the real driver, mid-trip, on a stranger's guessing.
+    # NIST SP 800-63B scopes the limit to the authenticator, and Auth0 likewise
+    # blocks logins while treating session revocation as a separate act.
     user_id_ctx.set(user.id)
     return user
 

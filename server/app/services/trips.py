@@ -36,11 +36,16 @@ _TZ_IL = ZoneInfo("Asia/Jerusalem")
 # window; query a 30-day slice to cover the long tail.
 _DRIVER_SCORE_WINDOW_DAYS = 30
 
+# How far back a streak can reach (scoring.md "Streaks"). Doubles as its expiry:
+# a gap longer than this leaves no history to walk back to, so the run ends.
+# Its own constant rather than the driver-score window it happens to match —
+# they answer different questions and should be free to move apart.
+_STREAK_WINDOW_DAYS = 30
+
 _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
-_RISK_MULTIPLIER_RANGE = (0.5, 3.0)
 _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
 # Slack allowed between the claimed distance and what the GPS trace witnesses
@@ -135,7 +140,8 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
     """Validate one untrusted client event into an `Event` row, or `None` to drop it.
 
     The events array is unsigned, forensic display data — map markers plus the
-    severity inputs the v2 engine will read once the SDK emits `peak_g`. It never
+    severity inputs the v2 engine will read once `peak_g` arrives per-axis in the
+    vehicle's frame (today it is an unsigned magnitude). It never
     feeds the score, which stays sourced from the signed digest. So parsing is
     strictly defensive: unknown types and junk coordinates are dropped rather than
     guessed, and the full raw payload is retained in `sensor_data` for forensics.
@@ -228,10 +234,8 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         raise HTTPException(422, "touch_epochs must be >= 0")
     if dto.screen_interaction_seconds is not None and dto.screen_interaction_seconds < 0:
         raise HTTPException(422, "screen_interaction_seconds must be >= 0")
-    if dto.risk_multiplier is not None:
-        lo, hi = _RISK_MULTIPLIER_RANGE
-        if not (lo <= dto.risk_multiplier <= hi):
-            raise HTTPException(422, f"risk_multiplier={dto.risk_multiplier} — out of [{lo}, {hi}]")
+    # risk_multiplier is deliberately not range-checked (CAR-165): the value is deprecated and
+    # discarded, and refusing a trip over a number we never read tells the client it matters.
     if dto.distance_km and dto.duration_seconds:
         avg_speed = dto.distance_km / max(dto.duration_seconds / 3600, 0.001)
         if avg_speed > _MAX_AVG_SPEED_KMH:
@@ -359,7 +363,8 @@ async def _compute_score(
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
     lives in scoring; this only sources the inputs. Severity is unavailable
-    (no SDK peak_g yet) so weighted counts equal raw counts. Speeding and the
+    (peak_g arrives as an unsigned magnitude, not a vehicle-frame axis) so
+    weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
     speeding weight is time-over-threshold against a conservative absolute
     limit, and the confidence caps how far above the rolling score a trip can
@@ -426,21 +431,10 @@ async def _compute_score(
     # `_DRIVER_SCORE_WINDOW_DAYS`; move that and you move this.
     points_month = sum((pts or 0.0) for _s, _km, _start, pts in rows)
 
-    # Streak: consecutive days (including today, counting the trip being saved)
-    # with at least one trip (scoring.md "Points").
-    trip_days = {start.astimezone(_TZ_IL).date() for _s, _km, start, _p in rows}
-    trip_days.add(today)
-    streak_days = 0
-    cursor = today
-    while cursor in trip_days:
-        streak_days += 1
-        cursor -= timedelta(days=1)
-
     points = scoring.compute_points(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
-        streak_days=streak_days,
         level_multiplier=level_multiplier,
         points_today=points_today,
         points_month=points_month,
@@ -453,10 +447,34 @@ async def _compute_score(
         trip_score=trip_score,
         distance_km=distance_km,
         risk_multiplier=risk_multiplier,
-        streak_days=streak_days,
         level_multiplier=level_multiplier,
     )
     return trip_score, driver_score, points, round(points) < round(points_uncapped)
+
+
+async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
+    """The driver's live streak of good driving days (scoring.md "Streaks").
+
+    Its own query rather than a fifth value out of `_compute_score`: the streak
+    stopped being a scoring input the moment it stopped paying, and the stats
+    screen reads it for drivers who are not saving a trip at all.
+    """
+    yesterday = now.astimezone(_TZ_IL).date() - timedelta(days=1)
+    rows = (
+        await db.execute(
+            select(Trip.score_v2, Trip.distance_km, Trip.start_time).where(
+                Trip.user_id == user_id,
+                Trip.start_time >= now - timedelta(days=_STREAK_WINDOW_DAYS),
+                # An unscored trip is no evidence either way, so it neither earns
+                # a day nor breaks the run.
+                Trip.score_v2.is_not(None),
+            )
+        )
+    ).all()
+    return scoring.compute_streak(
+        ((start.astimezone(_TZ_IL).date(), score, km or 0.0) for score, km, start in rows),
+        yesterday,
+    )
 
 
 async def list_for_user(db: AsyncSession, user_id: str) -> list[TripOut]:
@@ -564,6 +582,12 @@ async def save(
         gps=gps,
     )
 
+    # Counted to yesterday, so this trip's own day is credited on the driver's
+    # next save. Only a driver who stops for good loses that last day, and the
+    # stats screen reports the larger of the stored record and the live count, so
+    # the number they are shown is right either way.
+    streak = await current_streak(db, user.id, now)
+
     trip = Trip(
         user_id=user.id,
         idempotency_key=idempotency_key,
@@ -625,6 +649,11 @@ async def save(
         }
         # Driver score (scoring.md "The driver's own score") — the headline number.
         values["driver_score"] = new_driver_score
+        # The personal record, which is the whole reward the streak carries.
+        # GREATEST in the statement rather than a Python max(), for the same
+        # reason `level` is resolved by LEAST: a concurrent save cannot lower a
+        # record it read before this one wrote it.
+        values["best_streak"] = func.greatest(User.best_streak, streak)
         # RETURNING so the response can carry the level the database actually
         # resolved, rather than the client re-deriving it from points and
         # missing the cap (#61). The level-up notification below reads the same

@@ -64,6 +64,12 @@ demo_shots/
 # One fixed path on purpose, so the command can be re-run from shell history.
 tsc-out.txt
 
+# ─── Generated schema intermediate ───────────────────────────────────────────
+# The schema-drift recipe renders this on the way to generated.ts, which is the
+# artifact we actually commit. openapi-typescript cannot read stdin, so the file
+# has to land somewhere; it must not land in a commit.
+/openapi.json
+
 # ─── Claude Code ─────────────────────────────────────────────────────────────
 .claude/settings.local.json
 CLAUDE.local.md

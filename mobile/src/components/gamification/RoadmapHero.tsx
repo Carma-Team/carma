@@ -7,13 +7,13 @@ import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
 import { localize } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { LevelConfig } from '@/types';
+import type { LevelConfig, Language } from '@/types';
 
 interface RoadmapHeroProps {
   userPoints: number;
   currentLevel: number;
   levelInfo: LevelConfig;
-  lang: string;
+  lang: Language;
 }
 
 export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: RoadmapHeroProps) {
@@ -39,7 +39,7 @@ export function RoadmapHero({ userPoints, currentLevel, levelInfo, lang }: Roadm
             showValue={false}
           />
           <Text style={styles.heroSub}>
-            עוד {levelData.pointsToNext.toLocaleString()} {t('common.points')} לרמה הבאה
+            {t('roadmap.pointsToNextLine').replace('{points}', levelData.pointsToNext.toLocaleString())}
           </Text>
         </View>
       )}

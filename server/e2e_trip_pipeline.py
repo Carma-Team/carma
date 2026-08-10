@@ -1,14 +1,17 @@
 """
-E2E smoke test — RFC-001 v1.5 pipeline against local FastAPI + PostgreSQL.
+E2E smoke test — the trip save pipeline against local FastAPI + PostgreSQL.
+
+Covers the gate order in docs/fraud-detection.md: plausibility -> drift -> signature,
+then server-side scoring.
 
 Scenarios:
-  A  Normal trip (v1.5)   — server computes and returns score/points
+  A  Normal trip           — server computes and returns score/points
   B  Forged points ignored — client sends avgScore=99/points=99999, server overrides
   C  Stale timestamp       — digest.timestamp > 5 min old -> HTTP 401
   D  Physics violation     — avg_speed > 250 km/h -> HTTP 422
   E  Idempotency           — duplicate Idempotency-Key returns same trip
 
-Run: python e2e_v15.py
+Run: python e2e_trip_pipeline.py
 """
 
 import hashlib

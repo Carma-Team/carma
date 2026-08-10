@@ -20,7 +20,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
-import { getRiskMultiplier } from '@/lib/scoring'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData } from '@/lib/driving-sdk'
@@ -47,10 +46,12 @@ export type { TripState } from './tripState'
 
 // ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
 // Pure-JS HMAC-SHA256 (FIPS 198-1 / FIPS 180-4) — no native bridge, no packages.
-// Signing key: hardcoded placeholder for Sprint 1. Replace with a value provisioned
-// via App Attestation (iOS) / Play Integrity (Android) in Sprint+1 (RFC-001 §5).
-// 'ph:' prefix on the output tells the server to bypass signature enforcement until
-// Sean removes the bypass after key provisioning is complete.
+// The key ships inside the app bundle, so a valid signature proves the payload came
+// from a copy of the client, not from a trusted device. That limit is accepted
+// deliberately — docs/fraud-detection.md, "What we accept losing"; attestation-
+// provisioned keys are Stage 2 of its maturity path.
+// The 'ph:' prefix marks the signature unverifiable. The server accepts it today;
+// CAR-13 is the switch to rejecting it.
 
 const SIGNING_KEY = 'CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION';
 
@@ -176,7 +177,6 @@ function buildTelemetryDigest(
     // swerves:               state.eventCounts.SWERVE,  // EVT_SWERVE disabled
     touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
-    riskMultiplier:           getRiskMultiplier(new Date(startTime)),
     startTime,
     endTime,
     timestamp:                Date.now(),
@@ -185,7 +185,7 @@ function buildTelemetryDigest(
 
 // Signs the digest with HMAC-SHA256. Canonical JSON (sorted keys) guarantees a
 // deterministic byte sequence regardless of JS engine key-insertion order.
-// 'ph:' prefix keeps the Sprint-1 server bypass active (RFC-001 §5).
+// 'ph:' prefix marks the signature unverifiable — accepted today, rejected under CAR-13.
 function signTelemetryDigest(digest: TelemetryDigest): string {
   const canonical = JSON.stringify(digest, Object.keys(digest).sort() as (keyof TelemetryDigest)[]);
   const hmac = _hmacSha256Hex(SIGNING_KEY, canonical);
@@ -232,7 +232,7 @@ const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AppUser | null>(null)
-  const [lang, setLangState] = useState<Language>('he')
+  const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
@@ -273,7 +273,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // #17 — one-time nudge, Android only; no-ops after the first trip (AsyncStorage-gated).
     // Fires here in the trip-summary flow (after the trip has actually ended), not on trip
     // start, so it never pops up in front of a driver who is mid-drive.
-    maybePromptBatteryOptimizationExemption(lang === 'he' ? he : en).catch(() => {});
+    maybePromptBatteryOptimizationExemption(lang === 'HE' ? he : en).catch(() => {});
 
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary({ isTooShort: true });
@@ -310,7 +310,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
-      riskMultiplier: 1.0,  // server computes — placeholder only
       penalties: 0,         // server computes — placeholder only
       telemetryDigest,
       payloadSignature,
@@ -358,6 +357,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
+    // Same fallback as the base above: offline there is no server-tapered value,
+    // and SyncManager.onTripSynced replaces the row once the save lands.
+    const serverEffectiveRisk  = savedTrip?.effectiveRiskMultiplier ?? serverRiskMultiplier;
     const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
@@ -383,7 +385,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           touchEpochs: finalState.touchEpochs,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
+          effectiveRiskMultiplier: serverEffectiveRisk,
           status: 'completed',
+          // Server-only fields. This branch runs when the save never landed, so
+          // there is nothing to fill them with — the sync refreshes the row later.
+          startLocation: null,
+          endLocation: null,
+          aiInsight: null,
+          pointsCapped: false,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -495,7 +504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (btId) setBtDeviceState({ id: btId, name: btName ?? undefined })
 
         if (!serverOnline) {
-          const tr = l === 'en' ? en : he;
+          const tr = storedLang === 'EN' ? en : he;
           addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
         }
 
@@ -587,7 +596,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
-    I18nManager.forceRTL(l === 'he');
+    I18nManager.forceRTL(l === 'HE');
     await AsyncStorage.setItem('carma_lang', l);
   }, [])
 
@@ -607,7 +616,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
-      const tr = lang === 'he' ? he : en;
+      const tr = lang === 'HE' ? he : en;
       addToast({
         title: tr.common.historyCleared,
         message: tr.common.historyClearedDesc,

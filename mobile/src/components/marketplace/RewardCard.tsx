@@ -108,7 +108,7 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
         </View>
 
         <Text style={styles.voucherExpiry}>
-          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US')}
+          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString(lang === 'HE' ? 'he-IL' : 'en-US')}
         </Text>
         <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
           <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>

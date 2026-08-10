@@ -61,11 +61,11 @@ export default function ProfileScreen() {
   if (!user) return null
 
   const sectionTabs: { key: Section; label: string; icon: IoniconName }[] = [
-    { key: 'stats',          label: t('profile.achievements') || 'הישגים',          icon: ICONS.achievements },
-    { key: 'chart',          label: t('profile.chart') || 'סטטיסטיקות',             icon: ICONS.chart },
-    { key: 'trips',          label: t('profile.tripHistory'),                        icon: ICONS.trips },
-    { key: 'notifications',  label: t('profile.notifications') || 'הודעות',          icon: ICONS.notifications },
-    { key: 'friendRequests', label: t('profile.friendRequests') || 'בקשות חברות',   icon: 'people-outline' },
+    { key: 'stats',          label: t('profile.achievements'),   icon: ICONS.achievements },
+    { key: 'chart',          label: t('profile.chart'),          icon: ICONS.chart },
+    { key: 'trips',          label: t('profile.tripHistory'),    icon: ICONS.trips },
+    { key: 'notifications',  label: t('profile.notifications'),  icon: ICONS.notifications },
+    { key: 'friendRequests', label: t('profile.friendRequests'), icon: 'people-outline' },
   ]
 
   return (
