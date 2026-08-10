@@ -1230,7 +1230,10 @@ export interface components {
             touchEpochs?: number | null;
             /** Screeninteractionseconds */
             screenInteractionSeconds?: number | null;
-            /** Riskmultiplier */
+            /**
+             * Riskmultiplier
+             * @deprecated
+             */
             riskMultiplier?: number | null;
             /** Telemetrydigest */
             telemetryDigest?: {
