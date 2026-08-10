@@ -25,7 +25,7 @@ export default function BusinessDashboardScreen() {
 
   const [rewards, setRewards] = useState<BusinessReward[]>([]);
   const [loading, setLoading] = useState(true);
-  const direction = lang === 'he' ? 'rtl' : 'ltr';
+  const direction = lang === 'HE' ? 'rtl' : 'ltr';
 
   useFocusEffect(
     useCallback(() => {
@@ -80,7 +80,7 @@ export default function BusinessDashboardScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <LanguagePicker lang={lang} onSelect={code => setLang(code as 'he' | 'en')} buttonLabel={t('profile.language')} />
+          <LanguagePicker lang={lang} onSelect={setLang} buttonLabel={t('profile.language')} />
 
           {/* Logout */}
           <TouchableOpacity onPress={() => setUser(null)} style={styles.logoutBtn}>
@@ -159,7 +159,7 @@ export default function BusinessDashboardScreen() {
                     </Text>
                     {reward.expiresAt && (
                       <Text style={TYPOGRAPHY.caption}>
-                        {t('business.expires')}: {new Date(reward.expiresAt).toLocaleDateString(lang === 'he' ? 'he-IL' : 'en-US')}
+                        {t('business.expires')}: {new Date(reward.expiresAt).toLocaleDateString(lang === 'HE' ? 'he-IL' : 'en-US')}
                       </Text>
                     )}
                   </View>

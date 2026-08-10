@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
+import { isBusiness } from '@/lib/utils';
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 
@@ -45,17 +46,22 @@ export default function LoginScreen() {
       const data = await authApi.login(email, password);
       await loginUser(data);
 
-      if (data.user.role === 'business') router.replace('/(business)');
+      if (isBusiness(data.user)) router.replace('/(business)');
       else router.replace('/(tabs)');
-    } catch (e: any) {
-      setError(e.message || t('auth.errors.invalidCredentials'));
+    } catch {
+      // The server's error detail is always English — show the localized
+      // message instead so Hebrew users don't see raw English error text (CAR-59).
+      setError(t('auth.errors.invalidCredentials'));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior="padding">
+    <KeyboardAvoidingView
+      style={[COMMON_STYLES.screen, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Ionicons name={ICONS.car} size={64} color={COLORS.brand} style={{ marginBottom: 8 }} />

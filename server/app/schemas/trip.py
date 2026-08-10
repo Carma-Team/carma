@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import AliasChoices, Field, model_validator
 
 from app.schemas._base import CamelModel
+from app.services.scoring import risk_multiplier_earned
 
 
 class SaveTripIn(CamelModel):
@@ -25,8 +26,14 @@ class SaveTripIn(CamelModel):
         default=None,
         validation_alias=AliasChoices("screenInteractionSeconds", "screen_interaction_seconds"),
     )
+    # Deprecated (CAR-165). Clients from v1.10 on do not send it, and the value has never
+    # been scored with — `trips._score_trip` calls `risk.get_risk_multiplier(start)` itself.
+    # Still accepted, and must stay accepted: apps already in the field keep sending it, as
+    # do trips queued offline before the upgrade. Removing it would 422 both.
     risk_multiplier: float | None = Field(
-        default=None, validation_alias=AliasChoices("riskMultiplier", "risk_multiplier")
+        default=None,
+        validation_alias=AliasChoices("riskMultiplier", "risk_multiplier"),
+        deprecated=True,
     )
     telemetry_digest: dict[str, Any] | None = Field(
         default=None,
@@ -71,6 +78,13 @@ class TripOut(CamelModel):
     touch_epochs: int
     screen_interaction_seconds: int
     risk_multiplier: float
+    # What the hour was worth *to this trip* — the base above, tapered by the trip
+    # score (scoring.md §4.3). Derived here rather than stored, so it can never
+    # drift from what the points engine actually paid.
+    #
+    # The screen must show this one. A driver told "x2.0" and paid x1.33 has been
+    # given a number that is true of the hour and false of their trip.
+    effective_risk_multiplier: float
     start_location: str | None
     end_location: str | None
     ai_insight: str | None
@@ -103,6 +117,9 @@ class TripOut(CamelModel):
                 "touch_epochs": trip.touch_epochs,
                 "screen_interaction_seconds": trip.screen_interaction_seconds,
                 "risk_multiplier": trip.risk_multiplier,
+                "effective_risk_multiplier": round(
+                    risk_multiplier_earned(trip.risk_multiplier, trip.avg_score or 0.0), 3
+                ),
                 "start_location": trip.start_location,
                 "end_location": trip.end_location,
                 "ai_insight": trip.ai_insight,

@@ -48,6 +48,12 @@ class User(Base, TimestampMixin):
     # level a driver is shown; no API schema exposes it yet — CAR-85.
     driver_score: Mapped[float | None] = mapped_column(Float)
 
+    # Longest run of good driving days this driver has ever held (scoring.md
+    # "Streaks"). Stored because it is the one streak figure that cannot be
+    # recomputed: the live count is derived from a 30-day window, so a record set
+    # before that falls out of history for good.
+    best_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Short code behind this user's invite link. Minted on first use, then stable.
     invite_code: Mapped[str | None] = mapped_column(String(12), unique=True)
 

@@ -1,6 +1,6 @@
 """Business-side voucher validation — the far end of the redemption loop.
 
-A voucher is issued with a 5-minute TTL and, until now, nothing ever moved it off
+Vouchers are issued with a TTL and, until now, nothing ever moved them off
 PENDING. These cover the three ways that must not go wrong:
 
   1. A voucher can be consumed exactly once, and the second attempt is refused.

@@ -35,11 +35,32 @@ name: Deploy to Azure
 #   TRUSTED_PROXY_COUNT=1          - set by this workflow, see the update step
 #   SMS_PROVIDER + TWILIO_*        - only when sending real SMS
 #
-# TRIP_SIGNING_SECRET is NOT set on the live app today, and with ENV=production
-# the server refuses to start without it (32+ chars). The app currently runs an
-# older image built before that guard existed, so it is up. Provision the secret
-# on the Container App BEFORE the first run of this workflow reaches main, or
-# the new image will crash-loop. See #13.
+# Database migrations run as a one-off Container Apps job, `carma-migrate`,
+# between the image push and the rollout. If it fails the deploy stops and the
+# old revision keeps serving — which is the whole point of doing it here rather
+# than in the container's CMD, where a bad migration is an outage. It runs
+# inside the Container Apps environment, so the runner never needs a database
+# password or a hole in the Postgres firewall.
+#
+# The job is created once, by hand. It is not in this workflow because it holds
+# a copy of the database secret, and a workflow that can mint that is a workflow
+# that can leak it:
+#
+#   az containerapp job create \
+#     --name carma-migrate --resource-group carma-rg --environment carma-env \
+#     --trigger-type Manual --replica-timeout 600 --replica-retry-limit 0 \
+#     --image carmaregistry3819.azurecr.io/carma-server:<any-existing-tag> \
+#     --cpu 0.5 --memory 1Gi \
+#     --registry-server carmaregistry3819.azurecr.io \
+#     --registry-username <acr-user> --registry-password <acr-password> \
+#     --secrets db-url=<same value as the app's db-url secret> \
+#     --env-vars DATABASE_URL=secretref:db-url JWT_SECRET=migrations_do_not_sign_tokens \
+#     --command alembic --args upgrade head
+#
+# JWT_SECRET is a throwaway on purpose. alembic/env.py imports app.config, which
+# validates every setting including this one, but a migration never signs a
+# token — so the real key stays in one place. ENV is left at its default, which
+# is why TRIP_SIGNING_SECRET is not needed here.
 #
 # Two things this workflow depends on, which are easy to break by accident:
 #   - `permissions: id-token: write` — without it there is no OIDC token at all.
@@ -103,6 +124,46 @@ jobs:
           docker build -t "$IMAGE" ./server
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migrations
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -euo pipefail
+            RG=${{ secrets.AZURE_RESOURCE_GROUP }}
+
+            # The job runs the image being deployed, so the migrations applied
+            # are exactly the ones this commit carries.
+            az containerapp job update \
+              --name carma-migrate --resource-group "$RG" \
+              --image ${{ steps.build.outputs.image }} --output none
+
+            EXEC=$(az containerapp job start \
+              --name carma-migrate --resource-group "$RG" --query name -o tsv)
+            echo "migration run: $EXEC"
+
+            # `job start` returns as soon as the execution is queued, so the
+            # rollout below would otherwise race the schema it depends on.
+            for _ in $(seq 1 60); do
+              STATUS=$(az containerapp job execution show \
+                --name carma-migrate --resource-group "$RG" \
+                --job-execution-name "$EXEC" \
+                --query properties.status -o tsv)
+              case "$STATUS" in
+                Succeeded)
+                  echo "migrations applied"
+                  exit 0
+                  ;;
+                Failed|Degraded)
+                  echo "::error::migration $STATUS — nothing was deployed, the running revision is untouched. Logs: az containerapp job execution show -n carma-migrate -g $RG --job-execution-name $EXEC"
+                  exit 1
+                  ;;
+              esac
+              sleep 10
+            done
+
+            echo "::error::migration still running after 10 minutes — deploy stopped. Check $EXEC before retrying."
+            exit 1
 
       - name: Update Azure Container App
         uses: azure/cli@v2

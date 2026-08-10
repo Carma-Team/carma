@@ -30,6 +30,7 @@ from app.models import (
     UserFriend,
     UserRole,
 )
+from app.services.rewards import VOUCHER_TTL_DAYS
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -518,7 +519,7 @@ async def run() -> None:
                     qr_code="SEEDPAZ234",
                     qr_data="SEEDPAZ234",
                     status=RedemptionStatus.USED,
-                    expires_at=used_at + timedelta(minutes=5),
+                    expires_at=used_at + timedelta(days=VOUCHER_TTL_DAYS),
                     used_at=used_at,
                 )
             )

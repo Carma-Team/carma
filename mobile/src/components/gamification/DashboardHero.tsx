@@ -44,6 +44,7 @@ export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {
               value={levelData.progress}
               color={levelData.config.color}
               height={6}
+              showValue={false}
             />
             <View style={styles.progressStatsRow}>
               <Text style={styles.progressPointsText}>

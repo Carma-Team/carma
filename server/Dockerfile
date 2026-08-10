@@ -26,4 +26,10 @@ USER carma
 ENV PORT=3000
 EXPOSE 3000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Migrations deliberately do NOT run here. This app scales 0→10 replicas, and
+# every replica booting `alembic upgrade head` at once races: one wins, the rest
+# die on an object that already exists and crash-loop. Booting is also the worst
+# place to fail — a bad migration takes the whole app down instead of stopping
+# the deploy. The `carma-migrate` job in deploy.yml runs them once, before the
+# new image is rolled out.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

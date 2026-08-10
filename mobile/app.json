@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "carma-app",
-    "slug": "carma-app",
+    "slug": "carma-app-tzvaig",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -65,6 +65,14 @@
       ],
       "expo-web-browser",
       [
+        "expo-font",
+        {
+          "fonts": [
+            "../node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"
+          ]
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "CARMA uses your location to track driving safety and distance.",
@@ -80,9 +88,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "f45a83b9-40e4-4eb8-a778-a2b468af6547"
+        "projectId": "78f1201a-7951-49fa-8d59-39789cb7e649"
       }
     },
-    "owner": "mayhajbi"
+    "owner": "carma-app"
   }
 }
