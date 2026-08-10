@@ -83,14 +83,27 @@ Build commands live in `mobile/CLAUDE.md` §Builds.
 
 React Context providers — global state accessible from anywhere in the component tree.
 
-| File | Contents |
-|---|---|
-| `AppContext.tsx` | Core state: authenticated user, active trip, trip list, toasts, language. Owns the `CarmaDrivingSDK` instance and wires its callbacks to app state and server sync. |
+| File | Contents | Owner |
+|---|---|---|
+| `AppContext.tsx` | The provider itself: authenticated user, trip list, toasts, language, Bluetooth target, offline sync. Owns the `DrivingSDK` instance and composes the binding modules below. | May |
+| `tripState.ts` | `TripState` shape + `INITIAL_TRIP_STATE`. Imported by the provider *and* the bindings, which is what keeps them out of an import cycle. | shared |
+| `sdkBindings.ts` | Trip lifecycle callbacks — `onTripStart`, `onUpdate`, `onTripEnd` → React state. Sensor plumbing only. | May |
+| `scoringEvents.ts` | `sdk.on()` listeners and CARMA's speed thresholds; maintains the per-trip event counters. | Dan |
+| `fraudBinding.ts` | `onFraudDetected` → state reset + `fraudApi.syncInvalidTrip()`. | Dan |
 
 **Rules:**
 - Context is the bridge between the SDK/lib layer and the UI layer.
 - Server calls triggered by SDK events (e.g. `tripsApi.save()` after `onTripEnd`, `fraudApi.syncInvalidTrip()` after `onFraudDetected`) live here.
 - Do not add unrelated state to `AppContext` — create a separate context file if needed.
+- **Split by owner, not only by cohesion.** The table above assigns each file to one
+  person. A file that both a scoring change and a UI change have to touch is the file
+  that produces merge conflicts, so when a block has a clear single owner, give it its
+  own file and record the owner here.
+- **A binding module must never import from `AppContext.tsx`.** The provider imports
+  *them*, so an import back forms a cycle. Type-only cycles are erased at compile time
+  and are harmless; a cycle over a *value* is not — one side reads `undefined` during
+  module init, and load order can differ between the dev bundle and a release build.
+  Shared values belong in `tripState.ts` or another leaf module.
 
 ---
 
@@ -216,6 +229,6 @@ One file per backend resource.
 TypeScript types shared between the mobile app and the backend.
 
 **Rules:**
-- Ideally generated from the FastAPI OpenAPI schema via `npm run gen:api` (uses `openapi-typescript`).
-- Manual edits are permitted when the generator output is insufficient (e.g. adding optional fields that are disabled in the current build, or fixing a drift between server schema and app state shape). Document any manual addition with a short comment.
+- Everything the server sends is derived from `services/api/generated.ts`, which `npm run gen:api` writes from the FastAPI OpenAPI schema. `generated.ts` is committed; never edit it by hand.
+- Hand-written members are for the two cases the schema cannot express: client-only fields the server never sends, and shapes the schema flattens to `string` or an opaque object. Comment each one with which of the two it is — otherwise the next reader assumes the server sends it and it was never regenerated.
 - App-only types (e.g. UI state shapes) belong in the file that uses them, or in `context/` if they are part of global state.

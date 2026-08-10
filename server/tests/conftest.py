@@ -18,7 +18,7 @@ file exists to prevent; see `db_api_client` for why.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import pytest
 import pytest_asyncio
@@ -114,4 +114,36 @@ async def db_api_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
     finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture
+async def client_from_ip(db_session: AsyncSession) -> AsyncIterator[Callable[[str], AsyncClient]]:
+    """Build in-process clients that arrive from an address of your choosing.
+
+    `ASGITransport` writes its `client` argument into `scope["client"]`, which is
+    what `core.limiter.client_ip` reads when no proxy is configured — so one test
+    can be two different callers without a network. That is the only way to prove
+    the sign-in backoff falls on a guesser and not on the account's owner.
+
+    Otherwise identical to `db_api_client`, including the session override, and
+    for the same reasons.
+    """
+
+    async def _use_the_test_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = _use_the_test_session
+    clients: list[AsyncClient] = []
+
+    def _from(ip: str) -> AsyncClient:
+        client = AsyncClient(transport=ASGITransport(app=app, client=(ip, 12345)), base_url="http://test")
+        clients.append(client)
+        return client
+
+    try:
+        yield _from
+    finally:
+        for client in clients:
+            await client.aclose()
         app.dependency_overrides.pop(get_db, None)

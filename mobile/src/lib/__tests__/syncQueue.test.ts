@@ -1,4 +1,4 @@
-import { SyncManager } from '@/services/sync/SyncManager';
+import { SyncManager, BACKOFF_MS, MAX_FAILURES_BEFORE_DROP } from '@/services/sync/SyncManager';
 import { ApiError } from '@/services/api/client';
 import { tripsApi } from '@/services/api/trips.api';
 import type { ValidTripPayload } from '@/services/sync/types';
@@ -36,7 +36,6 @@ function makePayload(localTripId: string): ValidTripPayload {
     swerves: 0,
     touchEpochs: 0,
     screenInteractionSeconds: 0,
-    riskMultiplier: 1.0,
     penalties: 9,
   };
 }
@@ -57,7 +56,12 @@ function makeServerTrip(localTripId: string): Trip {
     touchEpochs: 0,
     screenInteractionSeconds: 0,
     riskMultiplier: 1.0,
+    effectiveRiskMultiplier: 1.0,
     status: 'completed',
+    startLocation: null,
+    endLocation: null,
+    aiInsight: null,
+    pointsCapped: false,
   };
 }
 
@@ -258,6 +262,106 @@ describe('concurrency safety', () => {
     // A second flush drains the preserved item
     await SyncManager.flushQueue();
     expect(mockSave).toHaveBeenCalledTimes(2);
+    expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+});
+
+// ─── Retry budget and backoff (CAR-138) ───────────────────────────────────────
+// A trip the driver completed must not be deleted because the upload could not get
+// through. These tests hold the line at the two answers that used to delete one:
+// no network, and a rate limit shared with every other driver behind the same NAT.
+//
+// The clock is stubbed rather than injected — the backoff is a real wall-clock wait,
+// and production code should not carry a seam that exists only for tests.
+
+describe('retry budget and backoff', () => {
+  const RATE_LIMIT_WAIT_SECONDS = 60;
+  const LONGEST_BACKOFF_MS = BACKOFF_MS[BACKOFF_MS.length - 1];
+
+  let clock = 0;
+
+  function rateLimited(): ApiError {
+    return new ApiError(429, 'Too many attempts. Try again shortly.', RATE_LIMIT_WAIT_SECONDS);
+  }
+
+  beforeEach(() => {
+    clock = Date.parse('2026-08-05T09:00:00.000Z');
+    jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('a trip survives more than five 429 responses', async () => {
+    mockSave.mockRejectedValue(rateLimited());
+    await SyncManager.enqueue(makePayload('trip_429'));
+
+    for (let i = 0; i < 8; i++) {
+      await SyncManager.flushQueue();
+      clock += RATE_LIMIT_WAIT_SECONDS * 1000; // wait exactly what the server asked for
+    }
+
+    expect(mockSave).toHaveBeenCalledTimes(8);
+    expect(await SyncManager.getQueueLength()).toBe(1);
+  });
+
+  test('a trip survives more than five network failures', async () => {
+    mockSave.mockRejectedValue(new Error('Network request failed'));
+    await SyncManager.enqueue(makePayload('trip_offline'));
+
+    for (let i = 0; i < 8; i++) {
+      await SyncManager.flushQueue();
+      clock += LONGEST_BACKOFF_MS;
+    }
+
+    expect(mockSave).toHaveBeenCalledTimes(8);
+    expect(await SyncManager.getQueueLength()).toBe(1);
+  });
+
+  test('a failed trip is not retried before its backoff has elapsed', async () => {
+    mockSave.mockRejectedValue(new Error('Network request failed'));
+    await SyncManager.enqueue(makePayload('trip_backoff'));
+
+    await SyncManager.flushQueue();
+    expect(mockSave).toHaveBeenCalledTimes(1);
+
+    clock += BACKOFF_MS[0] - 1; // one millisecond short of the first interval
+    await SyncManager.flushQueue();
+    expect(mockSave).toHaveBeenCalledTimes(1);
+
+    clock += 1;
+    await SyncManager.flushQueue();
+    expect(mockSave).toHaveBeenCalledTimes(2);
+  });
+
+  test('429s never spend the delete budget, however many arrive', async () => {
+    mockSave.mockRejectedValue(rateLimited());
+    await SyncManager.enqueue(makePayload('trip_throttled'));
+
+    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP + 5; i++) {
+      await SyncManager.flushQueue();
+      clock += RATE_LIMIT_WAIT_SECONDS * 1000;
+    }
+
+    expect(await SyncManager.getQueueLength()).toBe(1);
+  });
+
+  test('a trip is dropped once the failure budget is exhausted', async () => {
+    mockSave.mockRejectedValue(new Error('Network request failed'));
+    await SyncManager.enqueue(makePayload('trip_exhausted'));
+
+    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP; i++) {
+      await SyncManager.flushQueue();
+      clock += LONGEST_BACKOFF_MS;
+    }
+    // Budget exactly spent — the trip is still queued and was retried every time
+    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
+    expect(await SyncManager.getQueueLength()).toBe(1);
+
+    // The next pass is the one that drops it, without another attempt
+    await SyncManager.flushQueue();
+    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
     expect(await SyncManager.getQueueLength()).toBe(0);
   });
 });

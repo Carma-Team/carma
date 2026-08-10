@@ -1,0 +1,64 @@
+diff --git a/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/RNBluetoothClassicModule.java b/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/RNBluetoothClassicModule.java
+index f994a0a..e008281 100644
+--- a/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/RNBluetoothClassicModule.java
++++ b/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/RNBluetoothClassicModule.java
+@@ -1384,6 +1384,25 @@ public class RNBluetoothClassicModule
+         sendEvent(EventType.DEVICE_DISCONNECTED, event.map());
+     }
+ 
++    /**
++     * PATCHED (CARMA): called on a system-level ACL connection — a device connecting
++     * to the handset, rather than a socket this app opened. Upstream defines
++     * DEVICE_CONNECTED in EventType but never emits it, so onDeviceConnected() on the
++     * JS side can never fire. This emits it, mirroring onACLDisconnected.
++     *
++     * mConnections is deliberately untouched: it tracks RFCOMM sockets this app owns,
++     * and an ACL connection is not one.
++     *
++     * @param device the {@link NativeDevice} which was just connected
++     */
++    @Override
++    public void onACLConnected(NativeDevice device) {
++        Log.d(TAG, "onACLConnected to " + device.getAddress());
++
++        BluetoothDeviceEvent event = new BluetoothDeviceEvent(EventType.DEVICE_CONNECTED, device);
++        sendEvent(EventType.DEVICE_CONNECTED, event.map());
++    }
++
+     /**
+      * Sends a {@link EventType} to the React Native JS module
+      * {@link com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter}.
+diff --git a/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/receiver/ActionACLReceiver.java b/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/receiver/ActionACLReceiver.java
+index a4b081b..0459308 100644
+--- a/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/receiver/ActionACLReceiver.java
++++ b/node_modules/react-native-bluetooth-classic/android/src/main/java/kjd/reactnative/bluetooth/receiver/ActionACLReceiver.java
+@@ -52,10 +52,13 @@ public class ActionACLReceiver extends BroadcastReceiver {
+                     String.format("ACL Disconnected for device %s", device.getAddress()));
+             mCallback.onACLDisconnected(new NativeDevice(device));
+         } else if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action)) {
+-            // This is currently ignored for now, all Connections should be managed by the device
+-            // telling the Module when it has successfully opened the connection.
++            // PATCHED (CARMA): upstream logs this and stops, because it only tracks
++            // connections the app itself opened over RFCOMM. We need system-level
++            // connections too — a car stereo pairing with the handset is what starts
++            // a trip — so the event is forwarded like its disconnect counterpart.
+             Log.d(this.getClass().getSimpleName(),
+                     String.format("ACL Connected for device %s", device.getAddress()));
++            mCallback.onACLConnected(new NativeDevice(device));
+         } else if (BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED.equals(action)) {
+             Log.d(this.getClass().getSimpleName(),
+                     String.format("Connection state changed for device %s from %s to %s",
+@@ -93,5 +96,13 @@ public class ActionACLReceiver extends BroadcastReceiver {
+          */
+         void onACLDisconnected(NativeDevice device);
+ 
++        /**
++         * PATCHED (CARMA): fires on ACTION_ACL_CONNECTED, the system-level connection
++         * that upstream deliberately drops. Mirror of {@link #onACLDisconnected}.
++         *
++         * @param device the {@link NativeDevice} which just connected
++         */
++        void onACLConnected(NativeDevice device);
++
+     }
+ }

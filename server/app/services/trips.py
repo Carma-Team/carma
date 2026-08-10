@@ -46,7 +46,6 @@ _MAX_POINTS_PER_TRIP = 10_000
 _MAX_DISTANCE_KM = 2_000
 _MAX_AVG_SPEED_KMH = 250
 _MAX_HARD_BRAKES = 500
-_RISK_MULTIPLIER_RANGE = (0.5, 3.0)
 _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 
 # Slack allowed between the claimed distance and what the GPS trace witnesses
@@ -235,10 +234,8 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         raise HTTPException(422, "touch_epochs must be >= 0")
     if dto.screen_interaction_seconds is not None and dto.screen_interaction_seconds < 0:
         raise HTTPException(422, "screen_interaction_seconds must be >= 0")
-    if dto.risk_multiplier is not None:
-        lo, hi = _RISK_MULTIPLIER_RANGE
-        if not (lo <= dto.risk_multiplier <= hi):
-            raise HTTPException(422, f"risk_multiplier={dto.risk_multiplier} — out of [{lo}, {hi}]")
+    # risk_multiplier is deliberately not range-checked (CAR-165): the value is deprecated and
+    # discarded, and refusing a trip over a number we never read tells the client it matters.
     if dto.distance_km and dto.duration_seconds:
         avg_speed = dto.distance_km / max(dto.duration_seconds / 3600, 0.001)
         if avg_speed > _MAX_AVG_SPEED_KMH:

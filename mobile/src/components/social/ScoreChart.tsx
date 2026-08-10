@@ -47,7 +47,7 @@ function bucketKey(date: Date, g: Granularity): string {
 function bucketLabel(key: string, g: Granularity, lang: Language): string {
   if (g === 'monthly') {
     const [, m] = key.split('-')
-    const months = (lang === 'he' ? he : en).stats.chart.months
+    const months = (lang === 'HE' ? he : en).stats.chart.months
     return months[parseInt(m, 10) - 1] ?? m
   }
   // daily or weekly — show day/month
@@ -105,7 +105,7 @@ function phaseAvgs(buckets: Bucket[], lang: Language): { label: string; avg: num
     buckets.slice(third, third * 2),
     buckets.slice(third * 2),
   ].filter(s => s.length > 0)
-  const c = (lang === 'he' ? he : en).stats.chart
+  const c = (lang === 'HE' ? he : en).stats.chart
   const labels = [c.phaseStart, c.phaseMiddle, c.phaseRecent]
   return segs.map((seg, i) => ({
     label: labels[i],
@@ -114,7 +114,7 @@ function phaseAvgs(buckets: Bucket[], lang: Language): { label: string; avg: num
 }
 
 function granularityLabel(g: Granularity, lang: Language): string {
-  const c = (lang === 'he' ? he : en).stats.chart
+  const c = (lang === 'HE' ? he : en).stats.chart
   if (g === 'daily')   return c.daily
   if (g === 'weekly')  return c.weekly
   return c.monthly
@@ -132,7 +132,7 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   const granularity = useMemo(() => chooseGranularity(sorted), [sorted])
   const buckets     = useMemo(() => groupIntoBuckets(sorted, granularity, lang), [sorted, granularity, lang])
   const phases      = useMemo(() => phaseAvgs(buckets, lang), [buckets, lang])
-  const chartText   = (lang === 'he' ? he : en).stats.chart
+  const chartText   = (lang === 'HE' ? he : en).stats.chart
 
   const first = phases[0]?.avg ?? 0
   const last  = phases[phases.length - 1]?.avg ?? 0

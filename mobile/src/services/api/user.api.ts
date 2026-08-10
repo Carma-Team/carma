@@ -17,11 +17,11 @@
  * - POST /api/users/match-contacts — real server
  */
 import { request } from './client';
-import type { AppUser, ContactMatch, DrivingStats } from '@/types';
+import type { AppUser, ContactMatch, DrivingStats, Language } from '@/types';
 
 export interface UpdateProfilePayload {
   name?: string;
-  language?: string;
+  language?: Language;
   age?: number;
   city?: string;
   isPrivate?: boolean;
