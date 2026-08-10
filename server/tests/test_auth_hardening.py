@@ -336,9 +336,24 @@ async def _spend_failures(client: AsyncClient, email: str, count: int) -> None:
         await client.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
 
 
-# Enough failures to put a caller well inside its wait: at 5 + 4 the wait is 16
-# seconds, far longer than the bcrypt those nine requests cost. Stopping exactly
-# at the threshold would leave a one-second window and flake on a loaded CI box.
+async def _seed_failures(db: AsyncSession, user_id: str, caller_ip: str, count: int) -> None:
+    """Put a caller `count` failures deep without going through the door.
+
+    Necessary whenever a test needs the wait to still be running after something
+    slow happens in between — see `_PAST_THE_THRESHOLD` for why sending the
+    requests cannot get you there.
+    """
+    db.add_all(LoginFailure(user_id=user_id, caller_ip=caller_ip, created_at=_now()) for _ in range(count))
+    await db.commit()
+
+
+# Enough requests to prove the gate engages — but note what it does *not* buy.
+# An attempt made while the caller is already backed off is refused before
+# `_record_failure`, so it is never counted: sending nine of these leaves the
+# tally at exactly `login_backoff_after` and the wait at one second, not the
+# sixteen the arithmetic suggests. Fine for a test that checks the very next
+# request; any test with a bcrypt in between must seed the rows instead
+# (`_seed_failures`), or it passes or fails on how loaded the box is.
 _PAST_THE_THRESHOLD = settings.login_backoff_after + 4
 
 
@@ -592,11 +607,14 @@ async def test_a_success_from_one_address_leaves_another_address_waiting(
     app opened every drive, is not much of a wait at all.
     """
     email = f"scoped-{uuid.uuid4().hex[:8]}@carmatest.com"
-    await _password_driver(db_session, email, "CorrectHorse1")
+    user = await _password_driver(db_session, email, "CorrectHorse1")
     guesser = client_from_ip("198.51.100.7")
     owner = client_from_ip("203.0.113.9")
     try:
-        await _spend_failures(guesser, email, _PAST_THE_THRESHOLD)
+        # Seeded, not sent: the owner's bcrypt sits between the guesser's last
+        # failure and the check below, and a wait earned through the door is
+        # only a second long.
+        await _seed_failures(db_session, user.id, "198.51.100.7", _PAST_THE_THRESHOLD)
 
         ok = await owner.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
         assert ok.status_code == 200
