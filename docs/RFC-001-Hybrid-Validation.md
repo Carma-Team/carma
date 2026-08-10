@@ -1,16 +1,54 @@
 # RFC-001: ארכיטקטורת Hybrid Validation — "Double Brain"
 **מסמך:** RFC-001 | **גרסה:** 1.7 | **תאריך:** 2026-05-21
 **מחבר:** Dan Ofri (CTO) | **ענף:** `feature/hybrid-validation-contract` → ממוזג ל-`main` (`a66fb42`)
-**סטטוס:** 🚨 CRASH-PROGRAM — כל משימות הליבה מבוצעות בספרינט הנוכחי. אין דחייה לעתיד.
+**סטטוס:** רשומת החלטה. התוכנית המואצת הושלמה — מכניקת הליבה שתוארה כאן נמצאת בייצור.
 
-> **⚠️ §8 (Server Scoring Algorithm Specification) is superseded.**
-> The `100 − penalties` formula and the parity test vectors in §8 describe the v1
-> engine, which has since been deleted. The live algorithm is documented in
-> [scoring.md](scoring.md). §2, §3 and §7 — the sensor-node/oracle split and the
-> replay-protection contract — are still in force.
+---
+
+## Executive summary (English)
+
+*Sections 1 to 6 of this record are written in Hebrew. This summary carries the two parts
+that still govern code today. It is a reading aid, not a substitute for them.*
+
+**The threat that produced this architecture (Section 1).** An architectural audit on
+2026-05-20 found that scoring, fraud detection, and points calculation all ran exclusively
+on the client, while the server persisted whatever payload it received without ever checking
+the contents. Anyone holding a valid JWT could claim a score of 100 and 99,999 points for a
+thirty-second trip, and the server would store it. The "Double Brain" model does not replace
+the client logic — it adds a server-side examiner that acts as a final judge and cannot be
+bypassed.
+
+**Why the client no longer computes a score (Absolute Metrics Decoupling, Section 2.3).**
+Through v1.4 the client calculated a score and sent it to the server. Any later change to
+the formula would have produced two different numbers for one trip: the in-trip display
+showing the installed app's arithmetic, the database storing the server's. A driver would
+see one score when the trip ended and a different one in their history. The decision removes
+that possibility rather than managing it. The client reports measurements only — speed,
+events, distance — and the server is the sole scoring oracle. The trip result appears only
+after the server has answered.
+
+**What this means in the code today.** The client is a sensor node: it builds and signs a raw
+telemetry digest, and never sends a score or a points total. The server verifies the
+signature, checks the payload against physical limits, scores it, and is the only place in
+the system where a score or a points total is produced.
+
+---
+
+> **⚠️ Parts of this record are superseded. It is kept for the rationale, not as a guide to
+> current behaviour.**
 >
-> This is a decision record. It is not edited into currency; read it as what was
-> decided on 2026-05-21.
+> | Section | Status |
+> |---|---|
+> | 1, 2.1, 2.3, 2.4, 6 | **In force.** The threat model, the sensor-node/oracle split, the two dated decisions, and the standing promises. |
+> | 3, 7.2–7.4 | **In force.** The telemetry digest shape and the replay-protection contract. |
+> | 3.1 — the `riskMultiplier` field only | **Removed from the digest (CAR-165).** The server always derived the multiplier from `startTime` and discarded the client's copy, so the field audited nothing. Clients from v1.10 on omit it; the server still accepts it from older ones. The rest of the 3.1 schema stands. |
+> | 2.2 — the fraud row only | **Superseded by [fraud-detection.md](fraud-detection.md).** Transport-mode detection and the server-side gates are specified there. The rest of the 2.2 responsibility table stands. |
+> | 4, 5 | **Completed sprint mechanics.** Per-owner task lists, the accelerated-programme rollout, and its per-person Definition of Done. The work landed; the tasks are history. Note that Section 5 lists "a POST with a `ph:` signature passes" as an acceptance criterion — that was Sprint 1's intent and is no longer the target. |
+> | 7 — the `ph:` placeholder posture | **Superseded by [fraud-detection.md](fraud-detection.md).** Sprint 1 accepted an unverified signature deliberately. The target rejects an absent, placeholder, or unverifiable signature outright. Enforcement timing is CAR-13. |
+> | 8 | **Superseded by [scoring.md](scoring.md).** The `100 − penalties` formula and its parity test vectors describe the v1 engine, which has since been deleted. |
+>
+> This is a decision record. It is not edited into currency — read it as what was decided on
+> 2026-05-21. Only the metadata, this banner, and the summary above have been updated since.
 
 > **v1.4 Amendment:** Time-Based Nonce + HMAC-SHA256 replay protection added — see §7.
 > **v1.5 Amendment:** Absolute Metrics Decoupling — score and points calculation moved
@@ -886,7 +924,7 @@ Baseline
 
 ### 8.1 Formula Contract
 
-The scoring formula is a deliberate design choice locked by the CTO. It must not be
+The scoring formula is a deliberate design choice locked by Dan. It must not be
 altered on either side without a versioned RFC amendment.
 
 ```

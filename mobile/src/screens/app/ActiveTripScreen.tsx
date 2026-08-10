@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Alert, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -14,11 +14,14 @@ import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
  */
 export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
-  const { tripState, endTrip, user, debugAddDistance } = useApp();
+  const { tripState, endTrip, debugAddDistance } = useApp();
   const { t } = useTranslation();
+  const [ending, setEnding] = useState(false);
 
-  // Debug distance button is shown only to admin users
-  const showDebug = user?.role === 'admin';
+  // Debug tools exist in dev builds only. Not gated on the admin role any more:
+  // that tied my own tooling to a DB classification I don't control, and it also
+  // meant a production build shipped debug controls to anyone marked admin.
+  const showDebug = __DEV__;
 
   /**
    * Shows a confirmation dialog before ending the trip.
@@ -42,7 +45,12 @@ export default function ActiveTripScreen() {
           text: t('trip.endBtn'),
           style: 'destructive',
           onPress: async () => {
-            await endTrip();
+            setEnding(true);
+            try {
+              await endTrip();
+            } finally {
+              setEnding(false);
+            }
           }
         }
       ]
@@ -65,6 +73,14 @@ export default function ActiveTripScreen() {
           onDebugAddDistance={debugAddDistance}
         />
       </ScrollView>
+
+      {ending && (
+        <View style={styles.endingOverlay}>
+          <ActivityIndicator size="large" color={COLORS.brand} />
+          <Text style={styles.endingTitle}>{t('trip.calculatingScore')}</Text>
+          <Text style={styles.endingSubtitle}>{t('trip.calculatingScoreDesc')}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -96,5 +112,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingBottom: 60,
     flexGrow: 1
-  }
+  },
+  endingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  endingTitle: { ...TYPOGRAPHY.h3, color: COLORS.text, marginTop: 12 },
+  endingSubtitle: { ...TYPOGRAPHY.caption, color: COLORS.textMuted },
 });

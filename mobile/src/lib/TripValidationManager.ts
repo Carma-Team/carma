@@ -1,5 +1,5 @@
-import { ValidationState, TransportMode, ValidationSample } from '@/lib/driving-sdk/types';
-import { FraudDetector, FraudEvaluation, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
+import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
+import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -7,7 +7,7 @@ const START_THRESHOLD_MS     = 30_000;   // Rule 1: 30s continuous > 10 km/h
 const END_THRESHOLD_MS       = 180_000;  // Rule 2: 3 min continuous < 10 km/h
 const TICK_INTERVAL_MS       = 1_000;    // 1Hz — downsample from SensorManager's 10Hz
 
-export class TripValidationManager {
+export class TripValidationManager implements TripValidator {
   private state: ValidationState = ValidationState.IDLE;
   private continuousAboveThresholdMs = 0;
   private continuousBelowThresholdMs = 0;
@@ -22,8 +22,10 @@ export class TripValidationManager {
   public onTripConfirmed?: () => void;
   public onTripEnded?: () => void;
   public onStateChange?: (state: ValidationState) => void;
-  // Fires when FraudDetector classifies non-car transport — passes full evaluation for API payload
-  public onFraudSuspected?: (evaluation: FraudEvaluation) => void;
+  // Fires when FraudDetector classifies non-car transport. Declared against the
+  // driving-sdk's generic SuspiciousActivityEvaluation (TripValidator interface) —
+  // the FraudEvaluation this class actually passes is a superset, so it satisfies it.
+  public onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 

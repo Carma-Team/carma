@@ -29,7 +29,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): string {
 
 export function useTranslation() {
   const { lang, setLang } = useApp()
-  const translations: TranslationMap = lang === 'he' ? he : en
+  const translations: TranslationMap = lang === 'HE' ? he : en
 
   function t(key: string): string {
     return getNestedValue(translations as unknown as Record<string, unknown>, key)

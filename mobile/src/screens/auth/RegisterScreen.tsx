@@ -54,7 +54,9 @@ export default function RegisterScreen() {
   async function handleRegister() {
     if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
     if (!form.email) { setError(t('auth.errors.emailRequired')); return }
-    if (form.password.length < 6) { setError(t('auth.errors.passwordTooShort')); return }
+    // Must match RegisterIn in server/app/schemas/auth.py — the server answers a
+    // shorter one with a 422 the user cannot act on.
+    if (form.password.length < 8) { setError(t('auth.errors.passwordTooShort')); return }
 
     setLoading(true); setError('')
     try {
@@ -69,11 +71,13 @@ export default function RegisterScreen() {
       })
 
       await loginUser(data)
-      const firstName = data.user?.name?.split(' ')[0] ?? 'משתמש'
-      addToast({ type: 'success', message: `ברוך הבא, ${firstName}! 🎉` })
+      const firstName = data.user?.name?.split(' ')[0] ?? t('auth.defaultUserName')
+      addToast({ type: 'success', message: t('auth.welcomeToast').replace('{name}', firstName) })
       // No need for router.replace — the root Layout detects the logged-in user and redirects to tabs
-    } catch (e: any) {
-      setError(e.message || t('auth.errors.emailExists'))
+    } catch {
+      // The server's error detail is always English — show the localized
+      // message instead so Hebrew users don't see raw English error text (CAR-59).
+      setError(t('auth.errors.emailExists'))
     } finally {
       setLoading(false)
     }
@@ -84,13 +88,16 @@ export default function RegisterScreen() {
     { key: 'email',       label: t('auth.email'),       placeholder: t('auth.emailPlaceholder'), keyboard: 'email-address', required: true },
     { key: 'password',    label: t('auth.password'),    placeholder: t('auth.passwordPlaceholder'), secure: true, required: true },
     { key: 'phone',       label: t('auth.phone'),       placeholder: '050-0000000', keyboard: 'phone-pad' },
-    { key: 'city',        label: t('auth.city'),        placeholder: 'תל אביב' },
+    { key: 'city',        label: t('auth.city'),        placeholder: t('auth.cityPlaceholder') },
     { key: 'age',         label: t('auth.age'),         placeholder: '25', keyboard: 'numeric' },
     { key: 'licenseYear', label: t('auth.licenseYear'), placeholder: '2020', keyboard: 'numeric' },
   ]
 
   return (
-    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={[COMMON_STYLES.screen, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Ionicons name={ICONS.car} size={48} color={COLORS.brand} style={{ marginBottom: 6 }} />

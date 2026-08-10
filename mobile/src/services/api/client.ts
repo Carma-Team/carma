@@ -19,10 +19,23 @@ import { USE_REAL_SERVER, LOCAL_SERVER_URL, STAGING_SERVER_URL } from '@/constan
 
 // Carries the HTTP status so callers (e.g. SyncManager) can distinguish 4xx from network errors
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    // Seconds the server asked us to wait before retrying. Only ever set on a 429.
+    public readonly retryAfterSeconds?: number
+  ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+// The server sends the wait twice — `Retry-After` and a `retryAfterSeconds` body field.
+// Prefer the body: it is already a number, while the header is a string and the HTTP-date
+// form of it is not something our server ever emits.
+function parseRetryAfter(header: string | null, bodyValue: unknown): number | undefined {
+  const seconds = typeof bodyValue === 'number' ? bodyValue : Number(header);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 const BASE_URL = USE_REAL_SERVER ? STAGING_SERVER_URL : LOCAL_SERVER_URL;
@@ -50,7 +63,11 @@ export async function request<T>(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, data.detail || data.error || 'Request failed');
+    throw new ApiError(
+      res.status,
+      data.detail || data.error || 'Request failed',
+      parseRetryAfter(res.headers.get('Retry-After'), data.retryAfterSeconds)
+    );
   }
 
   if (res.status === 204) return undefined as unknown as T;

@@ -380,9 +380,9 @@ async def test_a_lapsed_voucher_typed_in_by_hand_reads_as_expired(db_session: As
 async def test_codes_issued_before_the_change_still_resolve(db_session: AsyncSession) -> None:
     """Old vouchers are 16 characters and may contain 0/O/1/I/L.
 
-    Live ones drain within five minutes of deploy, but USED ones stay for good
-    and the driver's history has to keep working. Nothing normalises them away:
-    they are already upper case with no separators.
+    Live ones drain within one `VOUCHER_TTL_DAYS` window of deploy, but USED
+    ones stay for good and the driver's history has to keep working. Nothing
+    normalises them away: they are already upper case with no separators.
     """
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
