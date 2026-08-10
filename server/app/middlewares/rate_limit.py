@@ -18,7 +18,7 @@ Counting happens here rather than in a dependency so that it lands before
 authentication and before the body is parsed: an unauthenticated flood should
 cost us a dictionary lookup, not a database round trip.
 
-The three underscore-prefixed attributes reached for below are SlowAPI's, and
+The four underscore-prefixed attributes reached for below are SlowAPI's, and
 using them is the price of keeping its decorators, its storage and its error
 type. `tests/test_default_rate_limit.py` is what makes that safe to do.
 """
@@ -87,7 +87,10 @@ class DefaultRateLimitMiddleware(BaseHTTPMiddleware):
         name = f"{endpoint.__module__}.{endpoint.__name__}"
         # A route carrying `@limiter.limit` counts itself inside the handler, and
         # a tighter ceiling there must not be shadowed by the looser one here.
-        if name in limiter._exempt_routes or name in limiter._route_limits:
+        # SlowAPI files a limit under `_dynamic_route_limits` instead when its
+        # value is a callable, so checking only `_route_limits` would stack the
+        # default on top of a ceiling that route already declared.
+        if name in limiter._exempt_routes or name in limiter._route_limits or name in limiter._dynamic_route_limits:
             return await call_next(request)
 
         try:
