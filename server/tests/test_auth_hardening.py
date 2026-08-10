@@ -391,6 +391,65 @@ async def test_failures_from_many_addresses_still_lock_the_account(
         await _cleanup_email(db_session, email)
 
 
+async def test_signing_in_rewinds_the_account_wide_tally(
+    db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
+) -> None:
+    """Without this the march to 100 never rewinds, and a patient guesser always arrives.
+
+    One address spends about 17 failures an hour once the wait is doubling, so six
+    networks reach the ceiling inside the window — the driver signing in daily
+    changed nothing, because clearing was scoped to the address that succeeded.
+    NIST SP 800-63B §5.2.2 disregards prior failures on a success; the guesser's
+    own wait is untouched, which is the point.
+    """
+    email = f"rewind-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        await _seed_failures(db_session, user.id, "198.51.100.7", settings.account_lockout_after - 1)
+
+        owner = client_from_ip("203.0.113.9")
+        ok = await owner.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert ok.status_code == 200
+
+        # One more failure would have been the hundredth before this change.
+        closer = client_from_ip("192.0.2.44")
+        await closer.post("/api/auth/login", json={"email": email, "password": "wrongpass"})
+
+        await db_session.refresh(user)
+        assert user.locked_until is None, "a successful sign-in must rewind the account tally"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
+async def test_a_locked_account_does_not_eject_a_session_already_open(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The lock closes the doors; it must not throw out whoever is already inside.
+
+    `locked_until` counts failed sign-ins, which say nothing about a session that
+    was opened with the right credential. Honouring it on every authenticated
+    request meant the residual attack logged a driver out mid-trip — losing the
+    trip, which is the one thing this product exists to record.
+    """
+    email = f"session-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    try:
+        signed_in = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert signed_in.status_code == 200
+        token = signed_in.json()["token"]
+
+        user.locked_until = _now() + timedelta(minutes=10)
+        await db_session.commit()
+
+        still = await db_api_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert still.status_code == 200, "a lock on the front door must not end a live session"
+
+        refused = await db_api_client.post("/api/auth/login", json={"email": email, "password": "CorrectHorse1"})
+        assert refused.status_code == 401, "the door itself stays shut"
+    finally:
+        await _cleanup_email(db_session, email)
+
+
 async def test_a_successful_login_clears_the_callers_count(
     db_session: AsyncSession, client_from_ip: Callable[[str], AsyncClient]
 ) -> None:

@@ -101,13 +101,18 @@ async def _sweep_expired(db: AsyncSession, since: datetime) -> None:
     await db.execute(delete(LoginFailure).where(LoginFailure.created_at < since))
 
 
-async def _clear_failures(db: AsyncSession, user_id: str, caller_ip: str) -> None:
+async def _clear_failures(db: AsyncSession, user: User, caller_ip: str) -> None:
     """A correct credential proves whoever is at *this* address owns the account.
 
-    Scoped to the address deliberately: clearing every address would hand a
-    guesser a clean slate each time the real owner signed in.
+    Two different clears, and they must not be confused. The *rows* go only for
+    this address — dropping every address would hand a guesser a clean slate each
+    time the real owner signed in. The *account-wide tally* restarts for everyone,
+    because NIST SP 800-63B §5.2.2 says a success disregards prior failures, and
+    without it the march to `account_lockout_after` never rewinds: a driver who
+    signs in daily still ends up locked by someone else's patient guessing.
     """
-    await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user_id, LoginFailure.caller_ip == caller_ip))
+    await db.execute(delete(LoginFailure).where(LoginFailure.user_id == user.id, LoginFailure.caller_ip == caller_ip))
+    user.lockout_reset_at = _now()
     await _sweep_expired(db, _now() - timedelta(seconds=settings.login_failure_window_seconds))
 
 
@@ -163,7 +168,7 @@ async def login_with_password(db: AsyncSession, dto: LoginIn, caller_ip: str) ->
         await _record_failure(db, user, caller_ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
-    await _clear_failures(db, user.id, caller_ip)
+    await _clear_failures(db, user, caller_ip)
     user.last_logged_at = _now()
     await db.commit()
     await db.refresh(user)
@@ -306,7 +311,7 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> Auth
 
     otp.consumed_at = _now()
     user.is_phone_verified = True
-    await _clear_failures(db, user.id, caller_ip)
+    await _clear_failures(db, user, caller_ip)
     user.locked_until = None
     user.last_logged_at = _now()
     await db.commit()
@@ -319,9 +324,9 @@ async def _record_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
     """Bank a failed sign-in against the caller, and against the account as a backstop.
 
     Called from both doors — wrong password and wrong code. `locked_until` shuts
-    the account to everyone, including whoever holds a valid session
-    (`core.deps.current_user`), so it is set at NIST's maximum rather than at a
-    number a stranger can reach cheaply.
+    both doors to everyone, so it is set at NIST's maximum rather than at a number
+    a stranger can reach cheaply. It no longer touches sessions already open; see
+    `core.deps.current_user` for why.
 
     Commits, because the caller raises a 401 immediately after and a discarded
     session would throw the failure away.
