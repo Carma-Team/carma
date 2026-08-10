@@ -143,6 +143,22 @@ def test_ipv6_from_the_forwarded_header_is_grouped_too(proxy_depth) -> None:
     assert client_ip(first) == client_ip(second) == "2001:db8:abcd:1234::"
 
 
+def test_an_ipv4_caller_in_mapped_form_keeps_its_own_bucket(proxy_depth) -> None:
+    """`::ffff:203.0.113.9` is an IPv4 caller, however `ipaddress` classifies it.
+
+    Its top 80 bits are zero, so grouping it on a /64 like any other v6 address
+    puts *every* IPv4 caller on `::` — case 1 rebuilt out of an address family,
+    and the sign-in backoff becomes one wait the whole user base shares. This is
+    express-rate-limit's GHSA-46wh-pxpv-q5gq; unmap before bucketing.
+    """
+    proxy_depth(1)
+    here = _FakeRequest(headers={"x-forwarded-for": "::ffff:203.0.113.9"})
+    there = _FakeRequest(headers={"x-forwarded-for": "::ffff:198.51.100.7"})
+
+    assert client_ip(here) == "203.0.113.9"
+    assert client_ip(there) == "198.51.100.7"
+
+
 def test_something_that_is_not_an_address_is_bounded(proxy_depth) -> None:
     """`caller_ip` is a varchar(45); an oversized value must not reach it.
 

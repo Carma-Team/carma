@@ -37,7 +37,15 @@ def _bucket(address: str) -> str:
         # an arbitrary string through — it is also what reaches a varchar column
         # in `services.auth._record_failure`.
         return address[:45]
-    if parsed.version == 6:
+    # `isinstance` rather than `.version == 6` so mypy narrows the union and
+    # `ipv4_mapped` type-checks.
+    if isinstance(parsed, ipaddress.IPv6Address):
+        # An IPv4 caller reaching us through a dual-stack hop is written
+        # `::ffff:203.0.113.9`. Its top 80 bits are zero, so bucketing it as v6
+        # would land every IPv4 caller on `::` — one shared budget for the whole
+        # user base, which is the opposite of what this function is for.
+        if parsed.ipv4_mapped is not None:
+            return str(parsed.ipv4_mapped)
         return str(ipaddress.ip_network(f"{parsed}/{_IPV6_BUCKET_PREFIX}", strict=False).network_address)
     return str(parsed)
 
