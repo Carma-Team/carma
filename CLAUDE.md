@@ -47,6 +47,11 @@ Applies to chat and to everything drafted on Dan's behalf.
 | **Shaun — CEO** | Business-logic API endpoints, third-party integrations |
 | **May — Mobile & Frontend Lead** | Mobile screens, UI components and styling, Driving SDK (IMU/GPS/BLE), battery consumption, client-side interactions |
 
+Inside `mobile/src/lib/` the line is drawn per file: each one opens with an `@owner` header naming
+who decides what it does. **Before editing a file owned by someone else, say what you want to change
+and get their agreement first.** The rule and the header format are in `mobile/CLAUDE.md`; the
+current owner of every file is listed in `mobile/STRUCTURE.md`.
+
 ---
 
 # Pillar 2 — Architecture & Engineering Rules
@@ -107,7 +112,7 @@ The server's OpenAPI schema is the contract of record. `mobile/src/types/index.t
 
 A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (`index.ts`), `types.ts`.
 
-**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`.
 
 Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving any file under `mobile/src/`.
 

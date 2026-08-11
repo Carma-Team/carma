@@ -139,9 +139,12 @@ Translation strings for Hebrew and English.
 **Pure TypeScript business logic with no React dependencies.**
 This is the most important layer to keep clean. Files here must be independently testable.
 
-Every file below opens with a `@file` / `@owner` / `@brief` header. The `@brief` is the same
-two sentences as the Contents column here — change one and you change the other in the same
-commit. The convention itself is documented in `mobile/CLAUDE.md`.
+Every file below opens with a `@file` / `@owner` / `@brief` header, and the Contents column
+here repeats that `@brief`. **Where the two differ, the header in the code is the current one** —
+it is written by whoever changed the file. This table is a map: it is what you read to see the
+whole layer at once, or to check that a change landed where it belongs, and it is brought back
+into line after a batch of changes rather than in every commit. The convention itself is
+documented in `mobile/CLAUDE.md`.
 
 | File | Owner | Contents |
 |---|---|---|
@@ -152,33 +155,29 @@ commit. The convention itself is documented in `mobile/CLAUDE.md`.
 | `utils.ts` | May | Generic display formatting shared across screens and components. Numbers, distances, durations, dates and relative times in Hebrew and English, plus score/level to icon, colour and grade mappings. |
 | `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
 | `rewardStock.ts` | Shaun | The two reward-stock rules the business screens share. Formats the "left out of allocated" line, and parses the stock field where blank means no cap. |
-| `fraud-detection/` | Dan | Transport-mode / fraud classification — see below |
-| `trip-scoring/` | Dan | Everything the client computes that feeds the score — see below |
+| `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
+| `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
 | `__tests__/` | — | Unit tests for the files directly under `lib/` |
 
 **Rules:**
 - No React, no `useState`, no `useEffect`, no imports from `components/` or `context/`.
 - No direct server calls — lib functions are pure transformations.
-- Tests live in `__tests__/` and must not require a running server or device. A subfolder keeps
-  its own `__tests__/` (`trip-scoring/__tests__/`), matching the convention `driving-sdk/sensors/` already uses.
+- Tests live in `__tests__/` and must not require a running server or device.
 
-### `lib/fraud-detection/` and `lib/trip-scoring/` — ownership boundary
+### `lib/` — ownership boundary
 
 Two people work inside `lib/`. Fraud detection (deciding a session is not the driver privately
 driving their own car) and the scoring algorithm are Dan's; the trip lifecycle, the SDK and the
-UI layer are May's. These two folders make that split visible in the tree rather than leaving it
-to whoever remembers it.
-
-| File | Contents |
-|---|---|
-| `fraud-detection/FraudDetector.ts` | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
-| `trip-scoring/riskMultiplier.ts` | Time-of-drive risk multiplier, sent up with every trip payload. The only piece of the scoring algorithm the client computes — it must stay in numeric parity with `get_risk_multiplier` in `server/app/services/risk.py`. |
+UI layer are May's. That split is carried by the `@owner` header on each file and by the Owner
+column above — not by the directory tree, so a file can change hands without moving path.
 
 **Rules:**
-- Neither folder may hold anything that is not fraud or scoring. A helper both sides need goes to
-  `utils.ts`, not into one of these.
-- Nothing that belongs in either folder may live inside `driving-sdk/`. The SDK has no awareness
+- **Before editing a file whose `@owner` is someone else, say what you intend to change and get
+  their agreement.** The header is there to be read before the edit, not found afterwards in a diff.
+- A helper both owners need goes to `utils.ts`, so neither side imports from the other's file for
+  something generic.
+- Nothing that is fraud or scoring may live inside `driving-sdk/`. The SDK has no awareness
   that its output is used for scoring or for catching a train ride.
 - **A file that genuinely cannot be split by owner is not split.** `constants.ts` and
   `gamification.ts` stay where they are, marked `Shared`, with the header saying who holds which
@@ -192,8 +191,7 @@ The critical rule: **do not add CARMA application logic to `driving-sdk/`.**
 If you are writing code that uses sensor events to make a CARMA-specific decision, it belongs in `lib/` (directly under it), not inside `driving-sdk/`.
 
 Examples:
-- New fraud signal for bus detection → `lib/fraud-detection/`
-- Trip scoring tweak → `lib/trip-scoring/`
+- New fraud signal for bus detection → `lib/FraudDetector.ts`
 - New gamification rule → `lib/gamification.ts`
 - New sensor type or Bluetooth feature → `lib/driving-sdk/` (after confirming it is generic)
 

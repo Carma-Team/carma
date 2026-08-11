@@ -44,9 +44,10 @@ to make the exception quietly.
 
 Files that must NOT be inside `driving-sdk/`:
 - Trip validation rules (start/end thresholds) → `src/lib/TripValidationManager.ts`
-- Fraud / transport-mode detection → `src/lib/fraud-detection/`
+- Fraud / transport-mode detection → `src/lib/FraudDetector.ts`
 - Gamification levels, point multipliers → `src/lib/gamification.ts`
-- Scoring formulas → `src/lib/trip-scoring/`
+- Scoring formulas → nowhere in the client. The server is the sole scoring oracle; the app renders
+  what `POST /api/trips` returns and computes no part of it, and no input to it.
 
 Test before asking: *"If a different app used this SDK, would this file make sense?"*
 If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
@@ -66,10 +67,10 @@ Each file opens with a JSDoc block carrying three tags, and nothing else is mand
 ```
 
 - **`@owner`** — the person who decides what this file does, not whoever edited it last. Use `Shared` when a file genuinely cannot be split by owner, and say who holds which half. Files inside `driving-sdk/` name the maintainer without a CARMA job title, because the library is meant to be extracted and a role from this org means nothing to whoever receives it.
-- **`@brief`** — two sentences. **The same two sentences appear in the `lib/` table in `STRUCTURE.md`.** One wording, two places; if you change one, change the other in the same commit.
-- Existing `@description` blocks, threshold reasoning and inline comments stay where they are — the header sits above them, it does not replace them.
+- **`@brief`** — two sentences, also repeated in the `lib/` table in `STRUCTURE.md`. **The header is the current one**: it is written by whoever changed the file, and `STRUCTURE.md` is realigned to it afterwards. Never edit the table and leave the header behind.
+- The header replaces the older `@fileoverview` / `@module` pair, which said the same thing in more lines. Everything below it — `@description`, `@remarks`, threshold reasoning, inline comments — stays exactly where it is.
 
-Why it exists: two people work inside `lib/`, and the folders `fraud-detection/` and `trip-scoring/` are the visible half of that boundary. The header is the half you see once the file is already open.
+**Before editing a file under `src/lib/` whose `@owner` is not the developer you are working for: stop.** Say what you want to change and why, and ask for explicit confirmation. Do not edit first and mention it after. This is the whole point of the header — two people work inside `lib/`, both of them through Claude Code, and a file that changes hands silently is discovered by the other owner days later, in a `git pull`.
 
 These tags are JSDoc, which is what TypeDoc reads. Doxygen does not support TypeScript — if we ever generate an API reference, TypeDoc is the tool, and scoping it to `driving-sdk/` is the case worth making.
 
