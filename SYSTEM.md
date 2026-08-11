@@ -622,14 +622,31 @@ Two things the workflow depends on and that are easy to break by accident:
 
 > **`TRIP_SIGNING_SECRET` is provisioned.** It exists on the app as the secret
 > `trip-secret` (64 chars, random), referenced by `TRIP_SIGNING_SECRET`. The
-> value is not recorded anywhere outside the Container App — read it back with
-> `az containerapp secret show` if you ever need it. This was the last thing
+> value is not recorded anywhere outside the Container App and EAS — read it back
+> with `az containerapp secret show` if you ever need it. This was the last thing
 > stopping the first automated deploy from crash-looping. (#95)
 >
 > Setting it only makes the server *able* to verify signatures. It does not
 > enforce them: the mobile client still sends a `ph:`-prefixed placeholder that
 > `_verify_signature` deliberately lets through. Enforcement is #13, and it waits
 > on the mobile signing path (#96).
+
+The client half of the same key is an EAS environment variable,
+`EXPO_PUBLIC_TRIP_SIGNING_KEY`, set on all three environments of the
+`@carma-app/carma-app-tzvaig` project and bound to the build profiles by the
+`environment` key in `mobile/eas.json` (CAR-147). Copy both sides together —
+rotating `trip-secret` without re-running `eas env:update` 403s every build in
+the field.
+
+`EXPO_PUBLIC_` means the bundler inlines it, so the key ships extractable inside
+the app. That is the accepted ceiling, not an oversight: a valid signature proves
+the payload came from a copy of the client, never from a trusted device. The
+visibility is `sensitive` rather than `secret` because EAS never lets a `secret`
+variable off its servers, which also puts it out of reach of the bundle. Only
+per-device attestation moves this line (#13).
+
+To sign against the real server while developing, `eas env:pull development`
+writes the key into `mobile/.env.local`, which is gitignored.
 >
 > `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
 > passes it on every update, which is now belt-and-braces rather than the only
