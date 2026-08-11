@@ -27,19 +27,22 @@ jest.mock('react-native', () => ({
 type Handler = (event: unknown) => void;
 let connectHandler: Handler | null = null;
 let disconnectHandler: Handler | null = null;
-const removeConnect = jest.fn();
-const removeDisconnect = jest.fn();
+// `mock`-prefixed because jest.mock() factories are hoisted above these declarations:
+// babel allows an out-of-scope reference only for a literal initialiser or a mock* name,
+// and `jest.fn()` is neither.
+const mockRemoveConnect = jest.fn();
+const mockRemoveDisconnect = jest.fn();
 
 jest.mock('react-native-bluetooth-classic', () => ({
   __esModule: true,
   default: {
     onDeviceConnected: jest.fn((handler: Handler) => {
       connectHandler = handler;
-      return { remove: removeConnect };
+      return { remove: mockRemoveConnect};
     }),
     onDeviceDisconnected: jest.fn((handler: Handler) => {
       disconnectHandler = handler;
-      return { remove: removeDisconnect };
+      return { remove: mockRemoveDisconnect};
     }),
     isBluetoothAvailable: jest.fn(async () => true),
     isBluetoothEnabled: jest.fn(async () => true),
@@ -177,8 +180,8 @@ describe('BluetoothManager', () => {
       manager.startMonitoring();
       manager.stopMonitoring();
 
-      expect(removeConnect).toHaveBeenCalledTimes(1);
-      expect(removeDisconnect).toHaveBeenCalledTimes(1);
+      expect(mockRemoveConnect).toHaveBeenCalledTimes(1);
+      expect(mockRemoveDisconnect).toHaveBeenCalledTimes(1);
     });
 
     it('can be re-armed after stopMonitoring', () => {
