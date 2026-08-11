@@ -496,7 +496,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           levelsApi.list().catch(() => null),
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
-        if (l === 'he' || l === 'en') setLangState(l as Language)
+        if (l === 'HE' || l === 'EN') setLangState(l)
         // Only restores state. Arming the SDK listener is useDriveMode's job, and
         // only its — two callers racing over one subscription is what broke this.
         // name may be absent for a device picked before it was stored — the target
@@ -504,7 +504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (btId) setBtDeviceState({ id: btId, name: btName ?? undefined })
 
         if (!serverOnline) {
-          const tr = storedLang === 'EN' ? en : he;
+          const tr = l === 'EN' ? en : he;
           addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
         }
 
