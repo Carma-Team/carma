@@ -5,12 +5,12 @@ import { Card } from '@/components/ui/Card';
 import { COLORS, TYPOGRAPHY } from '@/constants/theme';
 import { CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { localize } from '@/lib/utils';
-import type { Voucher } from '@/types';
+import type { Voucher, Language } from '@/types';
 
 interface VoucherCardProps {
   voucher: Voucher;
   onPress: (voucher: Voucher) => void;
-  lang: string;
+  lang: Language;
 }
 
 export const VoucherCard: React.FC<VoucherCardProps> = ({ voucher, onPress, lang }) => {

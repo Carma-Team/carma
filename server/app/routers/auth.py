@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Request, status
 
 from app.core.deps import CurrentUser, DbSession
-from app.core.limiter import limiter
+from app.core.limiter import client_ip, limiter
 from app.schemas.auth import (
     AuthOut,
     LoginIn,
@@ -31,13 +31,16 @@ SENSITIVE_LIMIT = "5/minute"
 # Login and register get a looser ceiling than the OTP routes. An address is a
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
 # one address via CGNAT, so 5/minute there is a shared budget a household can
-# exhaust by accident. Brute force is held off per *account* instead
-# (`services.auth._record_failure` locks after `OTP_MAX_ATTEMPTS`), which is the
-# control that does not care how many addresses the guesser rotates through.
+# exhaust by accident. Brute force is held off per (account, address) instead
+# (`services.auth._backoff_active`), which makes a guesser wait without giving a
+# stranger a way to make the account's owner wait.
 # The OTP routes keep the tight limit: each one spends money on an SMS.
 CREDENTIAL_LIMIT = "20/minute"
-# `request` is unused in the handlers below, but SlowAPI reads the limit key off
-# it — the decorator raises at import time if the parameter is missing.
+# Every handler below takes `request` because SlowAPI reads the limit key off it
+# and the decorator raises at import time without it. `login` and `otp_verify`
+# also read the caller's address from it — via `client_ip`, never
+# `request.client.host`, which behind a proxy is the ingress and would put every
+# driver in one backoff bucket.
 
 
 # ─── Email + password (mobile app's primary flow) ────────────────────────────
@@ -58,7 +61,7 @@ async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
 @limiter.limit(CREDENTIAL_LIMIT)
 async def login(request: Request, dto: LoginIn, db: DbSession) -> AuthOut:
-    return await auth_service.login_with_password(db, dto)
+    return await auth_service.login_with_password(db, dto, client_ip(request))
 
 
 @router.get("/me", response_model=UserOut, response_model_by_alias=True, summary="Get the authenticated user profile")
@@ -94,4 +97,4 @@ async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> Otp
 @router.post("/otp/verify", response_model=AuthOut, response_model_by_alias=True, summary="Exchange an OTP for a JWT")
 @limiter.limit(SENSITIVE_LIMIT)
 async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
-    return await auth_service.verify_otp(db, dto)
+    return await auth_service.verify_otp(db, dto, client_ip(request))

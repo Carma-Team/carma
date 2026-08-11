@@ -8,8 +8,8 @@ moves; it is not a name for the engine.
 July 2026 recalibration: the decay constants were re-fit from the live fleet's
 recency-weighted rate distributions — the initial estimates produced a bimodal
 score distribution (exact 100, or a cliff to ~50 from a single event). They are
-provisional: a proper fit needs ~200 trips, trustworthy client detection
-(CAR-6) and per-event severity. See CAR-102. The same round added
+provisional: a proper fit needs ~200 trips, trustworthy client detection and
+per-event severity. See CAR-102, which owns those dependencies. The same round added
 `apply_confidence`, which caps how far a trip can score above the driver's
 rolling score when the GPS trace is too sparse to prove clean driving.
 
@@ -18,10 +18,12 @@ it values sourced from the signed telemetry digest (the oracle) and persists the
 results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
-  * Per-event severity (peak_g, duration_ms, speed_at_event) — needs the SDK
-    change (CAR-6). Until then weighted counts collapse to raw counts (each
-    event weight 1.0). `event_severity()` is implemented and tested now so the
-    downstream math is unchanged the day the SDK lands.
+  * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
+    sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
+    horizontal magnitude, not the per-axis vehicle-frame value the curve maps
+    (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
+    to raw counts (each event weight 1.0). `event_severity()` is implemented and
+    tested now so the downstream math is unchanged the day that value arrives.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
     speeding weight is redistributed across the other components ("Blending the five").
 """
@@ -29,7 +31,9 @@ What is NOT yet available, and how this module copes until it is:
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -76,9 +80,27 @@ class ScoringConfig:
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
 
+    # Streak ("Streaks"). A day clears the bar when its distance-weighted average
+    # trip score reaches this. 80 is the top band of the level cap — the score at
+    # which a driver's level stops being held back — so "a good day" means the
+    # same thing in both places.
+    #
+    # A first calibration, not a fitted number: there is no fleet score
+    # distribution yet (CAR-102). Watch two failure modes before moving it — if
+    # almost every day clears, the streak is decoration; if almost none do, it is
+    # dead. One known trap: `apply_confidence` caps a trip at the driver's rolling
+    # score when the GPS trace is sparse, so a driver below 80 on a chronically
+    # under-reporting device can never clear this bar. That is #17 to fix, not a
+    # reason to lower the bar.
+    streak_qualifying_score: float = 80.0
+
     # Points engine ("Points").
-    streak_bonus_per_day: float = 0.05
-    streak_bonus_max_days: int = 5
+    #
+    # The night risk multiplier pays for driving well when it is hardest, not for
+    # being on the road when it is hardest. Below this score it is worth nothing;
+    # it tapers to its full time-of-day value at 100. Uncalibrated — check where
+    # the fleet's trip scores actually sit before treating 70 as settled.
+    risk_multiplier_floor_score: float = 70.0
     # Two ceilings, two jobs — and only one of them is about money.
     #
     # The month is the economic ceiling: what the catalogue will pay one driver.
@@ -115,22 +137,32 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # ─── Stage 1 — continuous severity weight (ready for the SDK) ──────────────────
 
 
-def event_severity(event_type: str, peak_g: float, duration_ms: float, speed_kmh: float) -> float:
+def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     """Continuous severity weight for one kinematic event.
 
-    Ranges from 1.0 at the detection threshold to ~3.0 for an extreme, sustained,
-    high-speed event. Replaces tier counting so there is no threshold to game.
+    Ranges from 1.0 at the detection threshold to 3.0 for an extreme, sustained
+    event. Replaces tier counting so there is no threshold to game.
 
-    Not called in shadow mode (the SDK does not emit peak_g yet) — kept here,
-    tested, so the moment per-event data arrives the only change upstream is
-    summing severity instead of counting events.
+    Speed is deliberately not an input. It is already scored as its own component
+    at weight 0.25, so scaling event severity by it charged a hard brake at
+    motorway speed twice.
+
+    `peak_g` must be a single axis in the vehicle's frame — longitudinal for
+    brake and accel, lateral for corner. A raw horizontal magnitude from a phone
+    at an unknown orientation is a different quantity, and the ranges below do
+    not describe it.
+
+    Not called yet: the client does send peak_g, but as an unsigned horizontal
+    magnitude — a different quantity from the one above, so feeding it here
+    would collapse every event onto the minimum weight. Kept tested so the day a
+    vehicle-frame value arrives, the only change upstream is summing severity
+    instead of counting events.
     """
     g_min, g_max = _SEVERITY_RANGES[event_type]
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
     g_factor = g_norm**1.5 + 1.0
     duration_factor = 1.0 + min(duration_ms / 2000.0, 0.5)
-    speed_factor = 1.0 + min(speed_kmh / 120.0, 1.0) * 0.5
-    return float(g_factor * duration_factor * speed_factor)
+    return float(g_factor * duration_factor)
 
 
 # ─── Stages 3–5 — trip score ───────────────────────────────────────────────────
@@ -274,12 +306,26 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 # ─── Stage 7 — points engine ────────────────────────────────────────────────────
 
 
+def risk_multiplier_earned(base: float, trip_score: float, config: ScoringConfig = CONFIG) -> float:
+    """How much of the time-of-day risk multiplier a trip actually earns.
+
+    The full multiplier is for driving well at the hardest hours. Paid flat, it
+    pays for *being out* at those hours instead — the same context the industry
+    uses to raise measured risk, we would be using to raise the payout.
+
+    A taper rather than a cut at the floor: two trips a tenth of a point apart
+    must not differ twofold in what they pay.
+    """
+    span = 100.0 - config.risk_multiplier_floor_score
+    earned = _clamp((trip_score - config.risk_multiplier_floor_score) / span, 0.0, 1.0)
+    return 1.0 + (max(1.0, base) - 1.0) * earned
+
+
 def compute_points(
     *,
     trip_score: float,
     distance_km: float,
     risk_multiplier: float,
-    streak_days: int = 0,
     level_multiplier: float = 1.0,
     points_today: float = 0.0,
     points_month: float = 0.0,
@@ -305,8 +351,8 @@ def compute_points(
     counted_km = min(max(0.0, distance_km), remaining_km)
 
     distance_factor = math.log(counted_km + 1.0) / math.log(11.0)
-    streak_bonus = 1.0 + config.streak_bonus_per_day * min(max(0, streak_days), config.streak_bonus_max_days)
-    points = trip_score * distance_factor * risk_multiplier * streak_bonus * max(0.0, level_multiplier)
+    earned_risk = risk_multiplier_earned(risk_multiplier, trip_score, config)
+    points = trip_score * distance_factor * earned_risk * max(0.0, level_multiplier)
 
     # Whichever ceiling is nearer. Applied last, so the level bonus changes how
     # fast a driver reaches a ceiling, never where it sits.
@@ -318,3 +364,60 @@ def compute_points(
         config.rolling_month_points_cap - max(0.0, points_month),
     )
     return round(min(points, max(0.0, remaining)) * 10) / 10
+
+
+# ─── Streaks ────────────────────────────────────────────────────────────────────
+
+
+def compute_streak(
+    trips: Iterable[tuple[date, float, float]],
+    last_day: date,
+    config: ScoringConfig = CONFIG,
+) -> int:
+    """Driving days in a row the driver drove well, counted back from `last_day`.
+
+    Each item is one trip as `(day, trip_score, distance_km)`. The caller owns the
+    timezone the day is read in and how far back the history reaches.
+
+    Deliberately worth nothing (scoring.md "Streaks"). The points formula already
+    pays more for a higher score on every trip, so a streak multiplier would have
+    charged twice for the same behaviour; every large streak mechanic in the wild
+    — Duolingo, Snapchat, Nike Run Club — leaves the count itself as the reward.
+
+    Three rules, each rejecting a simpler one that is wrong:
+
+    * A day counts on its **distance-weighted average**, not on "any trip that
+      day" (which one short good drive would whitewash) and not on "every trip"
+      (which one would destroy).
+    * Days without a trip are **skipped**, not broken. The only thing that ends a
+      run is driving badly — breaking on a quiet day pays drivers to take the car
+      out, and the safest kilometre is the one nobody drives.
+    * Trips after `last_day` are ignored, because callers pass *yesterday*: a day
+      still in progress can be banked on a good morning and spoiled by evening,
+      and points paid at the higher count cannot be taken back.
+
+    A run therefore reaches no further than the history it is handed, so a gap
+    longer than the caller's window ends it — the intended expiry, not an
+    artefact. A streak that survives an indefinite absence is not a streak.
+    """
+    by_day: dict[date, list[tuple[float, float]]] = {}
+    for day, score, distance_km in trips:
+        if day <= last_day:
+            by_day.setdefault(day, []).append((score, max(0.0, distance_km)))
+
+    streak = 0
+    for day in sorted(by_day, reverse=True):
+        scored = by_day[day]
+        total_km = sum(km for _score, km in scored)
+        # The distance witness can cut a trip to nothing, leaving a day with no
+        # weight to average by. Plain mean rather than dropping the day, so a
+        # zero-distance day still has to be earned.
+        average = (
+            sum(score * km for score, km in scored) / total_km
+            if total_km > 0
+            else sum(score for score, _km in scored) / len(scored)
+        )
+        if average < config.streak_qualifying_score:
+            break
+        streak += 1
+    return streak

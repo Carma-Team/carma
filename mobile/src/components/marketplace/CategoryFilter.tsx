@@ -5,6 +5,7 @@ import { COLORS, TYPOGRAPHY } from '@/constants/theme';
 import { CATEGORY_CONFIG } from '@/constants/icons';
 import { localize } from '@/lib/utils';
 import type { IoniconName } from '@/constants/icons';
+import type { Language } from '@/types';
 
 interface Category {
   key: string;
@@ -17,7 +18,7 @@ interface CategoryFilterProps {
   categories: Category[];
   selectedCategory: string;
   onSelectCategory: (key: string) => void;
-  lang: string;
+  lang: Language;
 }
 
 export const CategoryFilter: React.FC<CategoryFilterProps> = ({

@@ -14,12 +14,14 @@ import { ActiveTripHeader } from '@/components/driving/ActiveTripHeader';
  */
 export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
-  const { tripState, endTrip, user, debugAddDistance } = useApp();
+  const { tripState, endTrip, debugAddDistance } = useApp();
   const { t } = useTranslation();
   const [ending, setEnding] = useState(false);
 
-  // Debug distance button is shown only to admin users
-  const showDebug = user?.role === 'admin';
+  // Debug tools exist in dev builds only. Not gated on the admin role any more:
+  // that tied my own tooling to a DB classification I don't control, and it also
+  // meant a production build shipped debug controls to anyone marked admin.
+  const showDebug = __DEV__;
 
   /**
    * Shows a confirmation dialog before ending the trip.

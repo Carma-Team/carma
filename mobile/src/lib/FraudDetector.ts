@@ -65,11 +65,20 @@ class CircularBuffer {
 
 // ─── FraudEvaluation ─────────────────────────────────────────────────────────
 
+/** The three rule gates, named after what the sensor showed rather than by
+ *  letter — these values leave the device and are read from a table row later,
+ *  where "a" and "b" mean nothing. Order matches Signals A/B/C below. */
+export interface FraudSignals {
+  constantHighSpeed: boolean;
+  noLateralForce: boolean;
+  noHeadingChange: boolean;
+}
+
 export interface FraudEvaluation {
   score: number;
   isReady: boolean;
   mode: TransportMode;
-  signals: { a: boolean; b: boolean; c: boolean };
+  signals: FraudSignals;
   // Raw computed values — passed through to the API payload for Sean's analytics
   telemetry: {
     avgSpeedKmh: number;
@@ -97,7 +106,8 @@ export class FraudDetector {
     if (this.speedBuffer.size < MIN_SAMPLES_TO_EVALUATE) {
       return {
         score: 0, isReady: false, mode: TransportMode.UNKNOWN,
-        signals: { a: false, b: false, c: false }, telemetry: emptyTelemetry,
+        signals: { constantHighSpeed: false, noLateralForce: false, noHeadingChange: false },
+        telemetry: emptyTelemetry,
       };
     }
 
@@ -128,7 +138,7 @@ export class FraudDetector {
 
     return {
       score, isReady: true, mode,
-      signals: { a: signalA, b: signalB, c: signalC },
+      signals: { constantHighSpeed: signalA, noLateralForce: signalB, noHeadingChange: signalC },
       telemetry: { avgSpeedKmh, maxLateralAccelG, yawVariance },
     };
   }

@@ -120,6 +120,9 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
+      // Share SensorManager's gyroscope rather than letting PhoneUsageManager open a
+      // second subscription to the same sensor.
+      ({ x, y, z }) => this.phoneManager.pushGyroSample(x, y, z),
     );
 
     this.phoneManager = new PhoneUsageManager(
@@ -159,6 +162,8 @@ export class DrivingSDK {
   }
 
   private async handleBluetoothDisconnect() {
+    console.log('[SDK] BT disconnected — validating:', this.isValidating, '| trip active:', this.isTripActive);
+
     if (this.isValidating) {
       this.validationManager.stop();
       this.sensorManager.stop();
@@ -246,6 +251,11 @@ export class DrivingSDK {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
 
     this.currentTripData.endTime = new Date();
+    // The validator outlives the trip unless it is stopped here — its ticker keeps running on
+    // the last speed it saw, and start() early-returns while that ticker is alive, so the next
+    // session inherits this one's state instead of resetting.
+    this.validationManager.stop();
+    this.isValidating = false;
     this.sensorManager.stop();
     this.phoneManager.stop();
 
@@ -343,6 +353,9 @@ export class DrivingSDK {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
+    // PhoneUsageManager has no speed source of its own — it reports handling, and the
+    // speed it happened at travels with it.
+    this.phoneManager.updateSpeed(update.currentSpeed);
 
     // Keep last known location for event stamping
     if (update.lat !== undefined && update.lng !== undefined) {

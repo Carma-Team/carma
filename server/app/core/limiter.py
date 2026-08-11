@@ -10,11 +10,44 @@ money or guard a credential declare a tighter limit of their own — see
 
 from __future__ import annotations
 
+import ipaddress
+
 from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.config import settings
+
+# An IPv6 allocation is a network, not an address. Any VPS or home line with a
+# routed /64 can bind 18 quintillion source addresses, so counting the full
+# address gives one machine that many budgets — the limit stops existing, and so
+# does the per-caller sign-in backoff built on the same key. /64 is the smallest
+# block anyone is assigned, which is why Auth0 and Cloudflare group on it too.
+# IPv4 has no equivalent: an address there really is one caller, so it is used
+# whole.
+_IPV6_BUCKET_PREFIX = 64
+
+
+def _bucket(address: str) -> str:
+    """Collapse an address to the unit a budget is actually counted against."""
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        # Not an address at all. Bucket the garbage together rather than letting
+        # an arbitrary string through — it is also what reaches a varchar column
+        # in `services.auth._record_failure`.
+        return address[:45]
+    # `isinstance` rather than `.version == 6` so mypy narrows the union and
+    # `ipv4_mapped` type-checks.
+    if isinstance(parsed, ipaddress.IPv6Address):
+        # An IPv4 caller reaching us through a dual-stack hop is written
+        # `::ffff:203.0.113.9`. Its top 80 bits are zero, so bucketing it as v6
+        # would land every IPv4 caller on `::` — one shared budget for the whole
+        # user base, which is the opposite of what this function is for.
+        if parsed.ipv4_mapped is not None:
+            return str(parsed.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{parsed}/{_IPV6_BUCKET_PREFIX}", strict=False).network_address)
+    return str(parsed)
 
 
 def client_ip(request: Request) -> str:
@@ -35,6 +68,9 @@ def client_ip(request: Request) -> str:
 
     At `trusted_proxy_count = 0` the header is ignored entirely, which is what
     we want in local development where nothing sits in front of us.
+
+    The result is a *bucket*, not a literal address: IPv6 is grouped on its /64,
+    because otherwise one machine holds more budgets than it could ever spend.
     """
     depth = settings.trusted_proxy_count
     if depth:
@@ -45,8 +81,8 @@ def client_ip(request: Request) -> str:
                 # Fewer hops than proxies means the header did not come from our
                 # own chain. Fall back to the oldest entry rather than indexing
                 # off the front of the list.
-                return hops[-depth] if len(hops) >= depth else hops[0]
-    return get_remote_address(request)
+                return _bucket(hops[-depth] if len(hops) >= depth else hops[0])
+    return _bucket(get_remote_address(request))
 
 
 def business_key(request: Request) -> str:
@@ -66,4 +102,16 @@ def business_key(request: Request) -> str:
     return f"business:{business_id}" if business_id else client_ip(request)
 
 
-limiter = Limiter(key_func=client_ip, default_limits=["500/hour", "30/minute"])
+# `key_style="endpoint"` counts against the handler rather than against the URL,
+# and on a route with a path parameter those are not the same thing. On the URL,
+# `/api/trips/1` and `/api/trips/2` are separate counters, so walking the ids is
+# never refused however fast it goes — which is the sweep a default limit exists
+# to stop. The decorated routes are unaffected: they name their own scope.
+SUSTAINED_LIMIT = "500/hour"
+BURST_LIMIT = "30/minute"
+
+limiter = Limiter(
+    key_func=client_ip,
+    default_limits=[SUSTAINED_LIMIT, BURST_LIMIT],
+    key_style="endpoint",
+)

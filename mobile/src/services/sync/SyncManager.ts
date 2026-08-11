@@ -12,7 +12,9 @@
  * - Idempotency: each trip carries a `localTripId`; the server must store a
  *   UNIQUE idempotency_key so retries after timeout are safe.
  * - Double-enqueue guard: if `localTripId` is already in the queue it is not added again.
- * - MAX_ATTEMPTS=5: after five failures the item is dropped and logged.
+ * - A transient failure never deletes a trip — it only delays the next attempt.
+ *   Retention policy and the value of MAX_FAILURES_BEFORE_DROP are open questions:
+ *   see docs/trip-sync-queue.md.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Trip } from '@/types';
@@ -23,15 +25,44 @@ import type { ValidTripPayload, SyncQueueItem } from './types';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const QUEUE_KEY = 'carma_unsynced_trips';
-const MAX_ATTEMPTS = 5;
 
 // 4xx client errors (except 408 Request Timeout) — retrying will never help
 const PERMANENT_FAILURE_STATUSES = new Set([400, 401, 403, 422]);
+
+const RATE_LIMITED = 429;
+
+// How long to wait before the next attempt, by backoff step. The last entry is the
+// ceiling — a queue that cannot drain settles into hourly retries instead of trying
+// on every single foreground return, which is what used to cost battery.
+export const BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+
+// PLACEHOLDER — not a calibrated number, and deliberately far beyond any plausible
+// outage. It exists so local storage has *some* bound while the real retention policy
+// is decided; nothing in the project documents one today. See docs/trip-sync-queue.md.
+export const MAX_FAILURES_BEFORE_DROP = 50;
 
 // ─── Module-level flush mutex ─────────────────────────────────────────────────
 // Prevents concurrent flushes if AppState fires multiple 'active' events quickly.
 
 let isFlushing = false;
+
+// ─── Retry state helpers ──────────────────────────────────────────────────────
+
+// Items queued by a build that predates the two-counter fields read back without them.
+// Treat that as a clean slate rather than as an exhausted budget — a trip already
+// waiting on someone's phone must not be deleted by the upgrade that was meant to save it.
+function withRetryState(item: SyncQueueItem): SyncQueueItem {
+  return {
+    ...item,
+    failures: item.failures ?? 0,
+    backoffStep: item.backoffStep ?? 0,
+    nextAttemptAt: item.nextAttemptAt ?? null,
+  };
+}
+
+function backoffMsFor(step: number): number {
+  return BACKOFF_MS[Math.min(step, BACKOFF_MS.length) - 1];
+}
 
 // ─── SyncManager (exported singleton) ────────────────────────────────────────
 
@@ -53,9 +84,11 @@ export const SyncManager = {
     items.push({
       id: payload.localTripId,
       payload,
-      queuedAt: new Date().toISOString(),
-      attempts: 0,
+      queuedAt: new Date(Date.now()).toISOString(),
+      failures: 0,
+      backoffStep: 0,
       lastAttemptAt: null,
+      nextAttemptAt: null,
     });
 
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(items));
@@ -63,7 +96,7 @@ export const SyncManager = {
   },
 
   // ─── flushQueue ────────────────────────────────────────────────────────────
-  // Sequential FIFO flush. Halts immediately on the first network / 5xx error
+  // Sequential FIFO flush. Halts on the first item that fails or is still backing off,
   // to avoid hammering a dead server and to preserve battery.
   async flushQueue(): Promise<void> {
     if (isFlushing) return;
@@ -82,12 +115,23 @@ export const SyncManager = {
       let haltedAt = -1;
 
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
+        const item = withRetryState(items[i]);
+        const now = Date.now();
 
-        // Drop permanently failed items to prevent queue bloat
-        if (item.attempts >= MAX_ATTEMPTS) {
-          console.warn(`[SyncManager] Dropping ${item.id} — exceeded ${MAX_ATTEMPTS} attempts`);
+        // The only count that deletes anything. A trip reaches this having failed to
+        // upload MAX_FAILURES_BEFORE_DROP times for reasons the server called permanent
+        // on none of them — an outcome we have no policy for yet.
+        if (item.failures >= MAX_FAILURES_BEFORE_DROP) {
+          console.warn(`[SyncManager] Dropping ${item.id} — ${item.failures} failed uploads`);
           continue;
+        }
+
+        // Still backing off. Halt rather than skip ahead: a later trip jumping the queue
+        // gains nothing and breaks the FIFO order the rest of this method preserves.
+        if (item.nextAttemptAt && now < Date.parse(item.nextAttemptAt)) {
+          remaining.push(item);
+          haltedAt = i;
+          break;
         }
 
         try {
@@ -111,12 +155,30 @@ export const SyncManager = {
             continue;
           }
 
-          // Network error or transient server error (0, 5xx, 408) — HALT
-          // Increment attempts for the failed item, preserve all subsequent items untouched
+          // Network error or transient server error (0, 5xx, 408, 429) — HALT.
+          // Back off and preserve all subsequent items untouched. Nothing here deletes
+          // a trip: the driver completed it, and none of these answers say otherwise.
+          const isRateLimited = status === RATE_LIMITED;
+          const retryAfterSeconds =
+            error instanceof ApiError ? error.retryAfterSeconds : undefined;
+
+          const backoffStep = item.backoffStep + 1;
+          // On a 429 the server named the wait — honour it over our own schedule, and
+          // fall back to the schedule if this particular response omitted the header.
+          const waitMs =
+            isRateLimited && retryAfterSeconds !== undefined
+              ? retryAfterSeconds * 1000
+              : backoffMsFor(backoffStep);
+
           remaining.push({
             ...item,
-            attempts: item.attempts + 1,
-            lastAttemptAt: new Date().toISOString(),
+            // A 429 is the server rationing capacity shared with every other driver
+            // behind the same carrier NAT. It is not this trip's failure, so it delays
+            // the retry without ever bringing the trip closer to being deleted.
+            failures: isRateLimited ? item.failures : item.failures + 1,
+            backoffStep,
+            lastAttemptAt: new Date(now).toISOString(),
+            nextAttemptAt: new Date(now + waitMs).toISOString(),
           });
           haltedAt = i;
           break;

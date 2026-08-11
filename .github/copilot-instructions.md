@@ -24,7 +24,7 @@ Full details: **`mobile/STRUCTURE.md`**. Read it before creating or moving files
 | `src/components/` | UI components grouped by domain | Direct API calls |
 | `src/screens/` | Full-screen views | Inline business logic |
 | `src/services/api/` | HTTP request/response per resource | Business decisions |
-| `src/types/` | Types generated from server schema (`npm run gen:api`) | Manually written types |
+| `src/types/` | Aliases over `src/services/api/generated.ts` | Re-declaring what the schema already says |
 
 ### Critical rule — `src/lib/driving-sdk/`
 
@@ -46,7 +46,7 @@ Any change to API response shapes MUST be followed by:
 ```bash
 cd mobile && npm run gen:api
 ```
-Then commit the updated `src/types/index.ts`. Never edit generated types manually.
+Then commit the updated `src/services/api/generated.ts` — that is the file `gen:api` writes, and it is committed. Never edit it by hand; `src/types/index.ts` aliases it.
 
 ## No stubs
 

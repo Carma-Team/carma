@@ -14,37 +14,46 @@
  *
  * @remarks No server calls — local functions only.
  */
-export function formatPoints(points: number, lang: 'he' | 'en' = 'he'): string {
+import he from '@/i18n/he'
+import en from '@/i18n/en'
+import type { Language } from '@/types'
+
+export function formatPoints(points: number, lang: Language = 'HE'): string {
   const rounded = Math.round(points)
-  return lang === 'he' ? `${rounded.toLocaleString('he-IL')} נקודות` : `${rounded.toLocaleString('en-US')} pts`
+  const dict = lang === 'HE' ? he : en
+  return lang === 'HE'
+    ? `${rounded.toLocaleString('he-IL')} ${dict.common.points}`
+    : `${rounded.toLocaleString('en-US')} ${dict.common.points}`
 }
 
-export function formatDistance(km: number, lang: 'he' | 'en' = 'he'): string {
+export function formatDistance(km: number, lang: Language = 'HE'): string {
   const rounded = Math.round(km * 10) / 10
-  return lang === 'he' ? `${rounded} ק"מ` : `${rounded} km`
+  const dict = lang === 'HE' ? he : en
+  return `${rounded} ${dict.trip.km}`
 }
 
-export function formatDuration(seconds: number, lang: 'he' | 'en' = 'he'): string {
-  if (!seconds || isNaN(seconds)) return lang === 'he' ? '0 דק\'' : '0m'
+export function formatDuration(seconds: number, lang: Language = 'HE'): string {
+  const t = (lang === 'HE' ? he : en).time
+  if (!seconds || isNaN(seconds)) return lang === 'HE' ? `0 ${t.minutesShort}` : `0${t.minutesShort}`
   const totalMins = Math.floor(seconds / 60)
   const secs = seconds % 60
   const hours = Math.floor(totalMins / 60)
   const mins = totalMins % 60
-  if (totalMins === 0) return lang === 'he' ? `${secs} שנ'` : `${secs}s`
-  if (hours === 0) return lang === 'he' ? `${mins} דק'` : `${mins}m`
-  return lang === 'he' ? `${hours} שע' ${mins} דק'` : `${hours}h ${mins}m`
+  if (totalMins === 0) return lang === 'HE' ? `${secs} ${t.secondsShort}` : `${secs}${t.secondsShort}`
+  if (hours === 0) return lang === 'HE' ? `${mins} ${t.minutesShort}` : `${mins}${t.minutesShort}`
+  return lang === 'HE' ? `${hours} ${t.hoursShort} ${mins} ${t.minutesShort}` : `${hours}${t.hoursShort} ${mins}${t.minutesShort}`
 }
 
 export function formatScore(score: number): string {
   return Math.round(score).toString()
 }
 
-export function formatDate(dateStr: string, lang: 'he' | 'en' = 'he'): string {
+export function formatDate(dateStr: string, lang: Language = 'HE'): string {
   if (!dateStr) return '';
   const date = new Date(dateStr)
   if (isNaN(date.getTime())) return '';
 
-  return lang === 'he'
+  return lang === 'HE'
     ? date.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })
     : date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
 }
@@ -54,26 +63,27 @@ export function formatTime(dateStr: string): string {
   return date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
 }
 
-export function formatRelativeTime(dateStr: string, lang: 'he' | 'en' = 'he'): string {
+export function formatRelativeTime(dateStr: string, lang: Language = 'HE'): string {
   const date      = new Date(dateStr)
   const now       = new Date()
   const diffMs    = now.getTime() - date.getTime()
   const diffMins  = Math.floor(diffMs / 60000)
   const diffHours = Math.floor(diffMins / 60)
   const diffDays  = Math.floor(diffHours / 24)
+  const t = (lang === 'HE' ? he : en).time
 
-  if (lang === 'he') {
-    if (diffMins < 1) return 'עכשיו'
-    if (diffMins < 60) return `לפני ${diffMins} דק'`
-    if (diffHours < 24) return `לפני ${diffHours} שעות`
-    if (diffDays < 7) return `לפני ${diffDays} ימים`
-    return formatDate(dateStr, 'he')
+  if (lang === 'HE') {
+    if (diffMins < 1) return t.now
+    if (diffMins < 60) return `${t.ago} ${diffMins} ${t.minutesShort}`
+    if (diffHours < 24) return `${t.ago} ${diffHours} ${t.hoursWord}`
+    if (diffDays < 7) return `${t.ago} ${diffDays} ${t.daysWord}`
+    return formatDate(dateStr, 'HE')
   }
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return formatDate(dateStr, 'en')
+  if (diffMins < 1) return t.now
+  if (diffMins < 60) return `${diffMins}${t.minutesShort} ${t.ago}`
+  if (diffHours < 24) return `${diffHours}${t.hoursWord} ${t.ago}`
+  if (diffDays < 7) return `${diffDays}${t.daysWord} ${t.ago}`
+  return formatDate(dateStr, 'EN')
 }
 
 /** Presentation only — the score itself is computed server-side, never here. */
@@ -123,6 +133,19 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+/**
+ * True if the user's role is admin. Case-normalized because the real server sends the
+ * UserRole enum's wire value uppercase ("ADMIN"), while the mobile UserRole type is lowercase.
+ */
+export function isAdmin(user: { role?: string } | null | undefined): boolean {
+  return user?.role?.toUpperCase() === 'ADMIN'
+}
+
+/** Same case-normalization as isAdmin() — the real server sends role as "BUSINESS" (uppercase). */
+export function isBusiness(user: { role?: string } | null | undefined): boolean {
+  return user?.role?.toUpperCase() === 'BUSINESS'
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -131,6 +154,6 @@ export function sleep(ms: number): Promise<void> {
  * Returns the correctly localised string from a bilingual server object.
  * Used for voucher titles, level names, categories, and any object with titleHe/titleEn fields.
  */
-export function localize(he: string, en: string | null | undefined, lang: string): string {
-  return lang === 'he' ? he : (en || he)
+export function localize(he: string, en: string | null | undefined, lang: Language): string {
+  return lang === 'HE' ? he : (en || he)
 }
