@@ -90,39 +90,33 @@ Events are detected twice — once on the phone in real time, once on the server
 
 ### 3.1 Phone distraction — weight 0.30
 
-Distraction is measured in **seconds of phone use per driving hour**, counted only while the vehicle is moving **above 15 km/h**. A red light, a traffic jam, or the stationary tail at the end of a trip costs nothing.
+We measure **distraction by the phone, not contact with it.** A tap is not the unit. A hand off the wheel and eyes off the road is.
 
-Two separate counters feed it, matching CMT's two published metrics:
+One metric: **seconds of phone handling per driving hour.** A second counts when both conditions hold.
 
-| Counter | What it counts | How it is detected |
-|---|---|---|
-| **Screen interaction** | Typing, tapping, using apps | Foreground and background app interaction, confirmed by IMU movement |
-| **Phone motion** | Physically handling the device | Accelerometer variance above **0.025 g²** over a 1-second window |
-
-The counters are **mutually exclusive**. A second already counted as screen interaction is not counted again as phone motion, so a driver typing while holding the phone is charged once.
-
-```
-distraction rate = (screen_interaction_seconds + phone_motion_seconds)
-                 / driving_hours_above_15_kmh
-```
-
-**Reference baseline (CMT, US average 2024):**
-
-| Metric | Average per driving hour |
+| Condition | Measured by |
 |---|---|
-| Screen interaction | 1 min 56 s |
-| Phone motion | 1 min 22 s |
+| The vehicle is moving **above 15 km/h** | GPS speed |
+| The phone is **in a hand**, not fixed to the vehicle | Gyroscope variance over a 1-second window |
 
-Our measured population averages should land in the same region. A large gap indicates a sensor problem, not a fleet of unusually good or bad drivers.
+```
+distraction rate = handling_seconds / driving_hours_above_15_kmh
+```
+
+**Reference baseline (CMT, US average 2024): 1 min 22 s per driving hour.**
+
+Our measured population average should land in the same region. A large gap indicates a sensor problem, not a fleet of unusually good or bad drivers.
 
 **Design decisions:**
 
 | Decision | Reason |
 |---|---|
-| Count time, not taps | "What is one tap?" has no answer — typing a message is dozens. Counting seconds removes the question. |
+| Count seconds, not taps | "What is one tap?" has no answer — typing a message is dozens. It also cannot be measured: no app observes touches delivered to another app, on either platform, and a sharp road impact is indistinguishable from a finger on glass at any single-sample threshold. |
 | Holding without touching counts | The hand and the eyes are the risk, not the tap. |
 | Below 15 km/h is free | Stopped traffic is not distracted driving. |
-| Screen-lock state is ignored | Android exposes it, iOS does not. Using it would score the same behaviour differently on two phones. |
+| Screen state is not a condition | iOS does not expose it. Requiring it would mean measuring nothing at all on every iPhone, and scoring the same behaviour differently on two handsets. |
+| The gyroscope decides, not the accelerometer | CMT's own placement study tested accelerometer variance and published it as a negative result — most of that variance comes from vehicle dynamics, not from a hand. Rotational variance is the feature that separates a held phone. |
+| One metric, where CMT reports two | CMT separates screen interaction from phone motion because their SDK reads Android screen state. We can reproduce only the second, so we report only the second — and compare against its baseline alone, never the sum of both. |
 
 ### 3.2 Speeding — weight 0.25
 
@@ -374,7 +368,7 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 
 - **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform. Handling is inferred from how the device moves.
 - **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
-- **A phone loose on a seat can read as a phone in a hand.** A sliding phone produces variance similar to handling.
+- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two — a hand stabilises orientation, a phone sliding on a seat tumbles — but the study behind that finding normalises its features before clustering, so it hands us the right signal and no threshold. Until ours is fitted against labelled drives, the separation is assumed rather than measured.
 - **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
 
 ### Calibration limits
