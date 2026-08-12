@@ -151,9 +151,15 @@ Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving 
 
 | Where | What it holds |
 |---|---|
-| `docs/*.md` | How the system works today. Always current. |
+| `docs/*.md` | The specification — either how the system works today, or the target it is being built to. |
 | A Linear document | Why we decided it. |
 | A Linear issue | Work to be done, with an owner and a priority. |
+
+**Every document declares which it is on the first line** — `Current behaviour.` or `Target architecture.` — before the first heading.
+
+**A target document is written entirely in the target.** No status columns, no "not yet", no ticket ids, no list of what is missing. The distance between the target and today is work, and work lives in issues.
+
+**A current-behaviour document is updated in the change that alters the behaviour**, not afterwards.
 
 A task list is never a file — it has no owner, no priority, and nobody opens it. Never put a version number in a filename. Deleting a stale document is correct; git keeps it. Details in `.claude/rules/writing-docs.md`.
 

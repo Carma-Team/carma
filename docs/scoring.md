@@ -1,6 +1,6 @@
 # How the CARMA Score Works
 
-**Target architecture and product specification.**
+**Target architecture.**
 
 This document defines the CARMA scoring system: what it measures, how a trip becomes a number, and how that number drives the rewards economy.
 
