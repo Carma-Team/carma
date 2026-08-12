@@ -494,7 +494,7 @@ outcome and MUST be representable.
 
 Points are credited synchronously inside `POST /api/trips`. A co-travel pair is only
 discoverable after both trips are paid, and `users.points` is a fungible integer decremented at
-redemption by the conditional `UPDATE` in `rewards.redeem_reward()`. Reversal is therefore
+redemption by the conditional `UPDATE` in `rewards.redeem()`. Reversal is therefore
 best-effort.
 
 Normative:
