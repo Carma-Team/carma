@@ -23,6 +23,8 @@ import {
   TripValidator, SuspiciousActivityEvaluation,
 } from '@/lib/driving-sdk/types';
 
+const WAYPOINT_INTERVAL_MS = 5000;
+
 export class DrivingSDK {
   private config: SDKConfig;
   private btManager: BluetoothManager;
@@ -55,8 +57,8 @@ export class DrivingSDK {
   private currentSpeedKmh = 0;
   // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
   private lastKnownLocation: { lat: number; lng: number } | null = null;
-  // Elapsed seconds since the last waypoint was appended — used for 5-second time-based downsampling
-  private secondsSinceLastWaypoint = 0;
+  // Wall-clock timestamp of the last appended waypoint — used for time-based downsampling
+  private lastWaypointTs: number | null = null;
 
   // ─── Trip lifecycle callbacks ────────────────────────────────────────────────
   public onTripStart?: (tripId: string) => void;
@@ -208,7 +210,7 @@ export class DrivingSDK {
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -262,7 +264,7 @@ export class DrivingSDK {
     this.currentTripData = null;
     this.tripStartTime = 0;
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     return finalData;
   }
 
@@ -380,17 +382,17 @@ export class DrivingSDK {
       const maxDistKm = (update.currentSpeed / 3600) * update.timeDeltaS * 1.5;
       this.currentTripData.distanceKm += Math.min(update.distanceKm, maxDistKm);
 
-      // Waypoint collection: append one point every 5 elapsed GPS seconds while moving.
-      // This caps a 30-minute trip at ~360 waypoints regardless of speed.
-      this.secondsSinceLastWaypoint += 2; // GPS fires every ~2s
-      if (this.secondsSinceLastWaypoint >= 5 && this.lastKnownLocation) {
+      // Waypoint collection: append one point every WAYPOINT_INTERVAL_MS of wall-clock time
+      // while moving, not GPS tick count — real tick cadence drifts from the nominal 2s
+      // (OS throttling, background suspension), same class of bug as D-SDK-5.
+      if (this.lastKnownLocation && (this.lastWaypointTs === null || Date.now() - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
           lng: this.lastKnownLocation.lng,
           ts: Date.now(),
           speedKmh: update.currentSpeed,
         });
-        this.secondsSinceLastWaypoint = 0;
+        this.lastWaypointTs = Date.now();
       }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
