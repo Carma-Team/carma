@@ -1,6 +1,6 @@
 # Driving SDK
 
-**Last updated: 2026-08-11**
+**Last updated: 2026-08-12**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -50,7 +50,7 @@ npx expo install react-native-maps
 | `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (`AppState` + accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
+| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---
@@ -156,7 +156,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `PHONE_USAGE` | AppState + accelerometer variance | Host app backgrounded **and** IMU variance indicates the phone is hand-held. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. A bare background transition (Siri, incoming call, Control Center) does not qualify on its own. |
+| `PHONE_USAGE` | Accelerometer variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
 
@@ -289,7 +289,7 @@ interface TripData {
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
-  screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds (backgrounded only)
+  screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
 }
 ```
 
@@ -353,7 +353,7 @@ to other apps are not observable — see [PLATFORM-CAPABILITIES.md](./PLATFORM-C
 plus the `PHONE_USAGE` event.
 
 - **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window).
-- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). `screenInteractionSeconds` is driven by a **background-only** 1 Hz timer: each backgrounded second above the threshold increments it, and it does not advance at all while the host app is in the foreground — a driver holding the phone with this app on screen adds nothing to it. A mounted phone running a navigation app in the background likewise accumulates nothing, because its variance stays below the threshold.
+- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). `screenInteractionSeconds` is driven by a 1 Hz timer that runs from `start()` to `stop()`: each second above the threshold increments it, whichever app is in front. A mounted phone running a navigation app accumulates nothing, because its variance stays below the threshold.
 - **Glass-tap proxy:** a single sample above **1.8 g** total magnitude increments `touchEpochs`, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
 - **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — see the `DrivingEventType` table above.
 
