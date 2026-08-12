@@ -95,6 +95,8 @@ type SensorUpdate = {
   timeDeltaS: number;
   accelX: number;
   gyroZ: number;
+  accelAvailable: boolean;
+  gyroAvailable: boolean;
   lat?: number;
   lng?: number;
 };
@@ -190,6 +192,8 @@ describe('DrivingSDK', () => {
       timeDeltaS: 2,
       accelX: 0,
       gyroZ: 0,
+      accelAvailable: true,
+      gyroAvailable: true,
       ...update,
     });
   }
@@ -551,6 +555,15 @@ describe('DrivingSDK', () => {
     expect(validator.samples).toHaveLength(1);
     expect(validator.samples[0]).toMatchObject({ speedKmh: 30, gyroYaw: 0.2 });
     expect(instance.getStatus().isActive).toBe(false);
+  });
+
+  it('forwards sensor availability to the validator instead of a false zero (CAR-161)', async () => {
+    const validator = new StubValidator();
+    wire(new DrivingSDK({ tripValidator: validator }));
+
+    sendSensorUpdate({ accelX: 0, gyroZ: 0, accelAvailable: false, gyroAvailable: false });
+
+    expect(validator.samples[0]).toMatchObject({ accelAvailable: false, gyroAvailable: false });
   });
 
   it('starts the trip when the validator confirms one', async () => {
