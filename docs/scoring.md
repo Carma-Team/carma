@@ -92,31 +92,38 @@ Events are detected twice — once on the phone in real time, once on the server
 
 We measure **distraction by the phone, not contact with it.** A tap is not the unit. A hand off the wheel and eyes off the road is.
 
-One metric: **seconds of phone handling per driving hour.** A second counts when both conditions hold.
+Two counters, matching CMT's two published metrics. Both count only while the vehicle is moving **above 15 km/h** — a red light, a traffic jam, or the stationary tail at the end of a trip costs nothing.
 
-| Condition | Measured by |
+| Counter | What it counts | How it is detected |
+|---|---|---|
+| **Screen interaction** | Typing, tapping, scrolling | A rhythmic **pattern** of gyroscope peaks. Tapping a screen produces taps in a cadence; that cadence is the signature, not the force of any one of them. |
+| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A hand stabilises orientation while the vehicle moves under it; a mount does not. |
+
+The counters are **mutually exclusive**. Each second is assigned to one or the other, never both, so a driver typing while holding the phone is charged once.
+
+```
+distraction rate = (screen_interaction_seconds + phone_motion_seconds)
+                 / driving_hours_above_15_kmh
+```
+
+**Reference baselines (CMT, US average 2024). Each counter is checked against its own:**
+
+| Counter | Average per driving hour |
 |---|---|
-| The vehicle is moving **above 15 km/h** | GPS speed |
-| The phone is **in a hand**, not fixed to the vehicle | Gyroscope variance over a 1-second window |
+| Screen interaction | 1 min 56 s |
+| Phone motion | 1 min 22 s |
 
-```
-distraction rate = handling_seconds / driving_hours_above_15_kmh
-```
-
-**Reference baseline (CMT, US average 2024): 1 min 22 s per driving hour.**
-
-Our measured population average should land in the same region. A large gap indicates a sensor problem, not a fleet of unusually good or bad drivers.
+Our measured population averages should land in the same region, counter by counter. Collapsing them into a single figure and comparing that against a combined total would hide which of the two detectors drifted — separating them is the whole diagnostic value. A large gap on one indicates a sensor problem in that detector, not a fleet of unusually good or bad drivers.
 
 **Design decisions:**
 
 | Decision | Reason |
 |---|---|
-| Count seconds, not taps | "What is one tap?" has no answer — typing a message is dozens. It also cannot be measured: no app observes touches delivered to another app, on either platform, and a sharp road impact is indistinguishable from a finger on glass at any single-sample threshold. |
 | Holding without touching counts | The hand and the eyes are the risk, not the tap. |
 | Below 15 km/h is free | Stopped traffic is not distracted driving. |
-| Screen state is not a condition | iOS does not expose it. Requiring it would mean measuring nothing at all on every iPhone, and scoring the same behaviour differently on two handsets. |
-| The gyroscope decides, not the accelerometer | CMT's own placement study tested accelerometer variance and published it as a negative result — most of that variance comes from vehicle dynamics, not from a hand. Rotational variance is the feature that separates a held phone. |
-| One metric, where CMT reports two | CMT separates screen interaction from phone motion because their SDK reads Android screen state. We can reproduce only the second, so we report only the second — and compare against its baseline alone, never the sum of both. |
+| Screen state is not required by either counter | iOS exposes no screen state to a backgrounded app, so a detector that depended on it would measure nothing on every iPhone. CMT's patent treats it as one optional corroborator — "screen state **and/or** phone-lock state" — never as the discriminator. |
+| The gyroscope decides both counters, not the accelerometer | CMT's placement study tested accelerometer variance and published it as a negative result: most of that variance is vehicle dynamics, not hands. The same sensor separates both metrics — a *pattern* of peaks is typing, a sustained *variance* is holding. |
+| Taps are counted as seconds, not as events | "What is one tap?" has no answer — typing a message is dozens. And a single-sample force threshold cannot separate a finger from a pothole at any value, which is why counting individual taps was abandoned. The cadence can; a single sample cannot. |
 
 ### 3.2 Speeding — weight 0.25
 
@@ -366,7 +373,7 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 
 ### Measurement limits
 
-- **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform. Handling is inferred from how the device moves.
+- **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform, and iOS exposes no screen state to a backgrounded app. Both counters therefore read the motion a touch produces rather than the touch itself — which is why the signature is a cadence of gyroscope peaks and not any single reading.
 - **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
 - **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two — a hand stabilises orientation, a phone sliding on a seat tumbles — but the study behind that finding normalises its features before clustering, so it hands us the right signal and no threshold. Until ours is fitted against labelled drives, the separation is assumed rather than measured.
 - **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
