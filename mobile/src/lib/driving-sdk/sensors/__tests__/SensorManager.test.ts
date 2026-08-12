@@ -97,11 +97,6 @@ function feedStrongForce() {
   mockAccelHandler?.({ x: 1, y: 0, z: 1 });
 }
 
-/** Horizontal force just over the ~1.0 m/s² cross-confirm gate, and no more. */
-function feedWeakForce() {
-  mockAccelHandler?.({ x: 0.136, y: 0, z: 1 });
-}
-
 /** Drives the gravity EMA to `g` so the phone reads as held in that orientation. */
 function settleGravity(g: Vec, samples = 300) {
   for (let i = 0; i < samples; i++) mockAccelHandler?.(g);
@@ -179,7 +174,7 @@ describe('SensorManager', () => {
     expect(typesFired()).toEqual([DrivingEventType.AGGRESSIVE_ACCEL]);
   });
 
-  it('carries peakG and durationMs on a motion event', () => {
+  it('carries durationMs on a motion event', () => {
     sendFix({ t: 0, speed: 20 });
     feedStrongForce();
     jest.advanceTimersByTime(300);
@@ -187,7 +182,6 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     const [event] = events();
-    expect(event.peakG).toBeGreaterThan(0);
     expect(event.durationMs).toBeGreaterThanOrEqual(300);
   });
 
@@ -246,11 +240,10 @@ describe('SensorManager', () => {
 
   // ── Orientation invariance — the point of the GPS+IMU fusion ───────────────
 
-  it('reports the same peak force regardless of how the phone is oriented', async () => {
+  it('fires a motion event regardless of how the phone is oriented', async () => {
     // Four mountings, and for each a force of equal magnitude applied
     // perpendicular to that orientation's gravity vector. A per-axis detector
-    // would report wildly different values here; the horizontal-magnitude
-    // projection must not.
+    // would miss most of these; the horizontal-magnitude projection must not.
     const cases: { name: string; gravity: Vec; force: Vec }[] = [
       { name: 'flat',     gravity: { x: 0, y: 0, z: 1 }, force: { x: 0.5, y: 0, z: 0 } },
       { name: 'upright',  gravity: { x: 0, y: 1, z: 0 }, force: { x: 0.5, y: 0, z: 0 } },
@@ -261,8 +254,6 @@ describe('SensorManager', () => {
         force:   { x: 0.3536, y: -0.3536, z: 0 }, // ⊥ to the above, magnitude 0.5
       },
     ];
-
-    const peaks: number[] = [];
 
     for (const c of cases) {
       manager.stop();
@@ -277,17 +268,8 @@ describe('SensorManager', () => {
       mockAccelHandler?.(add(c.gravity, c.force));
       sendFix({ t: 2000, speed: 14 });
 
-      const [event] = events();
-      expect(event).toBeDefined();
-      peaks.push(event.peakG as number);
+      expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
     }
-
-    // All four must agree; the absolute value is the same 0.5 g force each time,
-    // damped slightly by the EMA absorbing part of it.
-    for (const peak of peaks) {
-      expect(peak).toBeCloseTo(peaks[0], 2);
-    }
-    expect(peaks[0]).toBeCloseTo(0.45, 1);
   });
 
   // ── GPS hygiene ────────────────────────────────────────────────────────────
@@ -338,24 +320,6 @@ describe('SensorManager', () => {
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ distanceKm: 0 }),
     );
-  });
-
-  // ── Severity normalisation ─────────────────────────────────────────────────
-
-  it('reports severity 0 for an event sitting exactly on the threshold', () => {
-    sendFix({ t: 0, speed: 20 });
-    feedWeakForce(); // ~1.2 m/s² — confirms, but does not out-weigh the GPS figure
-    sendFix({ t: 2000, speed: 14.6 }); // exactly −2.7 m/s²
-
-    expect(events()[0].severity).toBeCloseTo(0, 5);
-  });
-
-  it('clamps severity at 1 for an event far past the threshold', () => {
-    sendFix({ t: 0, speed: 30 });
-    feedStrongForce();
-    sendFix({ t: 2000, speed: 0 }); // −15 m/s²
-
-    expect(events()[0].severity).toBe(1);
   });
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────

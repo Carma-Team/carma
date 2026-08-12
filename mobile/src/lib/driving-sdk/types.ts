@@ -35,14 +35,14 @@ export enum DrivingEventType {
 export interface DrivingEvent {
   type: DrivingEventType;
   timestamp: Date;
-  severity: number; // 0.0 to 1.0
+  severity?: number; // 0.0 to 1.0. PHONE_USAGE only — motion events omit it (scoring.md §3.4: no vehicle-frame axis, no severity)
   speedKmh?: number; // vehicle speed at the moment the event fired — stamped by DrivingSDK
   location?: {
     latitude: number;
     longitude: number;
   };
   // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
-  peakG?: number;      // gravity-removed peak horizontal g-force, the value already compared against the detection threshold
+  peakG?: number;      // reserved for a single vehicle-frame axis once a phone→vehicle rotation stage exists; not populated until then
   durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 

@@ -10,12 +10,13 @@
  * - **Trigger + direction (orientation-free):** GPS.
  *   - Longitudinal accel = Δspeed / Δt  → brake (deceleration) / accel.
  *   - Lateral accel      = speed × heading-rate → sharp turn.
- * - **Severity + cross-confirm (orientation-free):** accelerometer.
+ * - **Cross-confirm (orientation-free):** accelerometer.
  *   - We remove gravity (EMA) and take the magnitude of the *horizontal* component.
  *     That magnitude is invariant to rotation about the vertical axis, so it does
  *     not depend on the phone's yaw — no per-axis assumption.
- *   - The IMU peak refines the GPS-averaged severity and rejects GPS glitches
- *     (an event fires only if the IMU also saw a real horizontal force).
+ *   - An event fires only if the IMU also saw a real horizontal force, rejecting
+ *     pure GPS glitches. This magnitude is not a vehicle-frame axis, so it is not
+ *     reported as event severity (scoring.md §3.4) — only used as a gate.
  *
  * Why not per-axis IMU? An earlier version read brake from accel-Y and turns from
  * accel-X (spec §א Table 1: 0.459g / 0.408g / 0.357g, later recalibrated to
@@ -54,9 +55,6 @@ export const DEFAULT_MOTION_THRESHOLDS: MotionThresholds = {
   accelThresholdMs2: 3.0, // acceleration ≳ 0.31 g
   turnThresholdMs2:  3.5, // lateral accel ≳ 0.36 g
 };
-
-// Maps (value − threshold) → severity 0..1 over this span.
-const SEVERITY_RANGE_MS2 = 5.0;
 
 // Evaluate GPS-derived dynamics over a window of at least this long, so a burst of
 // high-frequency location updates (distanceInterval) doesn't turn Doppler-speed
@@ -396,11 +394,9 @@ export class SensorManager {
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
     if (aLong <= -this.thresholds.brakeThresholdMs2 && imuConfirms) {
-      const mag = Math.max(-aLong, imuPeak); // IMU peak refines GPS-averaged severity
-      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity: this.severity(mag, this.thresholds.brakeThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), durationMs: imuPeakDurationMs });
     } else if (aLong >= this.thresholds.accelThresholdMs2 && imuConfirms) {
-      const mag = Math.max(aLong, imuPeak);
-      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity: this.severity(mag, this.thresholds.accelThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), durationMs: imuPeakDurationMs });
     }
 
     // ── Lateral: sharp turn — orientation-free via GPS heading rate × speed ──
@@ -410,8 +406,7 @@ export class SensorManager {
       const yawRate = (Math.abs(dHead) * Math.PI / 180) / dt;    // rad/s
       const aLat = speedMs * yawRate;                            // m/s²
       if (aLat >= this.thresholds.turnThresholdMs2 && imuConfirms) {
-        const mag = Math.max(aLat, imuPeak);
-        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity: this.severity(mag, this.thresholds.turnThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), durationMs: imuPeakDurationMs });
       }
     }
 
@@ -422,10 +417,6 @@ export class SensorManager {
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
     this.peakDurationMs = 0;
-  }
-
-  private severity(magMs2: number, thresholdMs2: number): number {
-    return Math.min(1, Math.max(0, (magMs2 - thresholdMs2) / SEVERITY_RANGE_MS2));
   }
 
   // EVT_SWERVE detection — disabled (not yet in UI/scoring; re-enable when ready)
