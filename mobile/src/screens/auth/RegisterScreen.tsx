@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, KeyboardAvoidingView, Platform
@@ -7,9 +7,11 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { Button }   from '@/components/ui/Button'
+import { LocationPicker } from '@/components/ui/LocationPicker'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
+import { leaderboardApi } from '@/services/api/leaderboard.api'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
 
@@ -33,6 +35,13 @@ export default function RegisterScreen() {
   const [form,    setForm]    = useState<FormState>(INITIAL)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const [cities,  setCities]  = useState<string[]>([])
+
+  useEffect(() => {
+    leaderboardApi.getLocations()
+      .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
+      .catch(() => {/* non-critical — city stays optional either way */})
+  }, [])
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
@@ -119,17 +128,26 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            <TextInput
-              style={COMMON_STYLES.input}
-              value={form[field.key]}
-              onChangeText={v => update(field.key, v)}
-              placeholder={field.placeholder}
-              placeholderTextColor={COLORS.textMuted}
-              secureTextEntry={field.secure}
-              keyboardType={field.keyboard ?? 'default'}
-              autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
-              textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
-            />
+            {field.key === 'city' ? (
+              <LocationPicker
+                value={form.city}
+                options={cities}
+                placeholder={field.placeholder}
+                onChange={v => update('city', v)}
+              />
+            ) : (
+              <TextInput
+                style={COMMON_STYLES.input}
+                value={form[field.key]}
+                onChangeText={v => update(field.key, v)}
+                placeholder={field.placeholder}
+                placeholderTextColor={COLORS.textMuted}
+                secureTextEntry={field.secure}
+                keyboardType={field.keyboard ?? 'default'}
+                autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
+                textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
+              />
+            )}
           </View>
         ))}
 
