@@ -256,16 +256,28 @@ describe('PhoneUsageManager', () => {
       expect(manager.getMotionFeatures().rotationSampleCount).toBe(0);
     });
 
-    it('does not let rotation influence the hand-held decision', () => {
-      // Plumbing only (CAR-82): heavy rotation with mounted-phone acceleration must
-      // still read as not-handheld. Changing that is CAR-46, and needs CAR-31 data.
+    it('gates on gyroscope variance instead of accelerometer variance once gyro samples exist (CAR-46)', () => {
+      // Mounted-phone acceleration alone would read as not-handheld (see the
+      // no-gyro tests above), but heavy rotation is what a hand actually adds —
+      // CMT's research says accelerometer variance doesn't separate the two.
       feedAccel(MOUNTED_SAMPLES);
       for (let i = 0; i < 10; i++) manager.pushGyroSample(i % 2 === 0 ? 4 : 0, 0, 0);
       jest.advanceTimersByTime(1000);
 
-      expect(onEvent).not.toHaveBeenCalled();
-      expect(onInteractionData).not.toHaveBeenCalled();
       expect(manager.getMotionFeatures().rotationVariance).toBeGreaterThan(0);
+      expect(onEvent).toHaveBeenCalledTimes(1);
+      expect(onEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: DrivingEventType.PHONE_USAGE }),
+      );
+    });
+
+    it('falls back to accelerometer variance when no gyroscope samples fed this window', () => {
+      // rotationSampleCount stays 0 — same not-handheld result as the no-gyro tests.
+      feedAccel(MOUNTED_SAMPLES);
+      jest.advanceTimersByTime(1000);
+
+      expect(manager.getMotionFeatures().rotationSampleCount).toBe(0);
+      expect(onEvent).not.toHaveBeenCalled();
     });
   });
 });

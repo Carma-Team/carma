@@ -19,13 +19,18 @@
  *
  * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
  * features are exposed through getMotionFeatures() alongside the acceleration variance.
- * They are descriptive only — the hand-held decision here is unchanged.
+ *
+ * v1.10 (CAR-46): the hand-held gate reads gyroscope variance when a gyroscope fed
+ * the window — accelerometer variance alone doesn't separate hand-held from a phone
+ * loose on a seat. Accelerometer variance remains the fallback when there is no
+ * gyroscope data for the window.
  *
  * Two metrics emitted via onInteractionData callback:
  *   - touchEpochs              count of sharp single-sample acceleration transients
  *                               (glass-tap proxy; also fires on foreground touch events)
  *   - screenInteractionSeconds  seconds where IMU variance indicates a hand-held phone
- *                               (low variance = vehicle-mounted → not counted)
+ *                               (low gyroscope variance, or accel variance as fallback,
+ *                               = vehicle-mounted → not counted)
  *   - speedKmh                  vehicle speed last reported via updateSpeed(), passed
  *                               through as-is so the host can relate handling to motion
  *
@@ -39,11 +44,23 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 // ── IMU calibration constants ─────────────────────────────────────────────────
 //
 // HANDHELD_VARIANCE_THRESHOLD (g²):
+//   CAR-46: accelerometer variance does not reliably separate hand-held from a
+//   phone loose on a seat (CMT, IEEE TITS 2019) — demoted to the fallback path,
+//   used only when no gyroscope samples are available for the window.
 //   Phone on a vehicle mount → variance ~0.002–0.010 g² (road vibration only).
 //   Phone hand-held          → variance ~0.030–0.150 g² (micro hand-movements).
 //   0.025 g² gives a comfortable separation margin.
 //   Requires empirical calibration before Sprint+1 — see RFC-001 §4.3.
 const HANDHELD_VARIANCE_THRESHOLD = 0.025;
+
+// HANDHELD_GYRO_VARIANCE_THRESHOLD ((rad/s)²):
+//   CAR-46: gyroscope variance is what CMT's research found actually separates
+//   hand-held from mounted — a hand stabilises orientation, a phone loose on a
+//   seat tumbles. PROVISIONAL: no labelled drive data exists yet to calibrate
+//   this number. CAR-31 is what sets a real value; this only exists so the
+//   gating logic can be reviewed and tested ahead of that data. Do not treat
+//   this as tuned, and do not merge to develop without recalibrating it first.
+const HANDHELD_GYRO_VARIANCE_THRESHOLD = 0.05;
 
 // GLASS_TAP_MAGNITUDE_THRESHOLD (g):
 //   A finger tap on glass/screen produces a sharp transient of 1.8–3.0 g total
@@ -77,8 +94,8 @@ export interface InteractionData {
  * variance — a hand stabilises orientation, a phone loose on a seat tumbles, and
  * only the rotational terms separate those two.
  *
- * Descriptive only: nothing here is interpreted, and the hand-held decision below
- * still reads `accelVariance` alone.
+ * `rotationVariance` is the primary hand-held signal (CAR-46) when
+ * `rotationSampleCount` is nonzero; `accelVariance` is the fallback otherwise.
  */
 export interface MotionFeatures {
   /** Variance of total acceleration magnitude (g²). */
@@ -223,7 +240,14 @@ export class PhoneUsageManager {
     // Low variance (mounted phone navigating via Waze) → zero penalty.
     this.handheldTimer = setInterval(() => {
       if (!this.isActive) return;
-      if (this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD) {
+      // CAR-46: gyroscope variance is the primary signal when a gyroscope actually
+      // fed this window; accelerometer variance is only the fallback for devices
+      // (or hosts) with none — "no gyro" and "not handheld" are not the same thing.
+      const features = this.getMotionFeatures();
+      const isHandheld = features.rotationSampleCount > 0
+        ? features.rotationVariance > HANDHELD_GYRO_VARIANCE_THRESHOLD
+        : this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD;
+      if (isHandheld) {
         this.screenInteractionSeconds++;
         // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
         // IMU-confirmed signal replacing the old "any AppState change" trigger.
