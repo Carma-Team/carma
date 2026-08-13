@@ -64,6 +64,10 @@ demo_shots/
 # One fixed path on purpose, so the command can be re-run from shell history.
 tsc-out.txt
 
+# ─── Scratch PR bodies ────────────────────────────────────────────────────────
+# --body-file drafts for gh pr create, never meant to be committed.
+*-pr-body.md
+
 # ─── Generated schema intermediate ───────────────────────────────────────────
 # The schema-drift recipe renders this on the way to generated.ts, which is the
 # artifact we actually commit. openapi-typescript cannot read stdin, so the file

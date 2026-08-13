@@ -22,6 +22,13 @@ export interface ValidationSample {
   timestamp: number;          // Date.now()
   accel?: { x: number; y: number; z: number };  // Phase 2 (fraud detection)
   gyroYaw?: number;                              // Phase 2
+  // accel/gyroYaw are 0 when their sensor was never registered — these say whether
+  // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
+  accelAvailable?: boolean;
+  gyroAvailable?: boolean;
+  // false means background/"Always" location permission was denied, so automatic
+  // (background) trip tracking cannot run — not that tracking is simply idle.
+  backgroundLocationAvailable?: boolean;
 }
 
 export enum DrivingEventType {
