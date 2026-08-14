@@ -29,6 +29,8 @@ export function AchievementsTab({ stats, loading }: AchievementsTabProps) {
         { icon: ICONS.avgScore, label: t('stats.avgScore'), value: stats?.averageScore || 0 },
         { icon: ICONS.safeTrips, label: t('stats.safeTrips'),     value: stats?.safeTripsCount || 0 },
         { icon: ICONS.duration,  label: t('stats.totalDuration'), value: formatDuration(stats?.totalDurationSeconds || 0, lang) },
+        { icon: ICONS.streak,     label: t('stats.currentStreak'), value: stats?.currentStreak || 0 },
+        { icon: ICONS.bestStreak, label: t('stats.bestStreak'),    value: stats?.bestStreak || 0 },
       ]}
     />
   );

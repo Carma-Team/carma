@@ -176,6 +176,7 @@ const he = {
     scoreHistory: 'היסטוריית ציונים', totalDistance: 'מרחק כולל',
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
+    currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
     chart: {
       title: 'מגמת ציונים',
       empty: 'אין נסיעות עדיין',

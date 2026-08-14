@@ -175,6 +175,7 @@ const en: TranslationMap = {
     scoreHistory: 'Score History', totalDistance: 'Total Distance',
     totalTrips: 'Total Trips', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
+    currentStreak: 'Current Streak', bestStreak: 'Best Streak',
     chart: {
       title: 'Score Trend',
       empty: 'No trips yet',
