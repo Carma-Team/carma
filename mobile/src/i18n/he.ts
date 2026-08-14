@@ -4,7 +4,7 @@ const he = {
   app:   { name: 'CARMA', tagline: 'נהג בצורה בטוחה. הרווח פרסים.' },
   nav: {
     dashboard: 'בית', trip: 'נסיעה', roadmap: 'מסלול',
-    marketplace: 'חנות', leaderboard: 'דירוג', profile: 'פרופיל',
+    marketplace: 'חנות', leaderboard: 'דירוג',
   },
   auth: {
     login: 'כניסה', register: 'הרשמה', logout: 'יציאה', logoutConfirm: 'האם אתה בטוח שברצונך להתנתק מהמערכת?',
@@ -142,6 +142,7 @@ const he = {
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
+    updatesTitle: 'עדכונים', friendsTitle: 'חברים',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     level: 'רמה', joined: 'הצטרף', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',

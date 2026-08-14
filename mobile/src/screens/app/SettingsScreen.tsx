@@ -9,6 +9,7 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+import { formatDate } from '@/lib/utils';
 
 /**
  * Settings screen.
@@ -81,6 +82,22 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
+
+          {/* Account Section */}
+          <View>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.profile} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.title')}</Text>
+            </View>
+            <Card style={styles.settingCard}>
+              <View style={styles.row}>
+                <Text style={styles.statusText}>{t('profile.joined')}</Text>
+                <Text style={styles.settingDescription}>
+                  {user.createdAt ? formatDate(user.createdAt, lang) : '—'}
+                </Text>
+              </View>
+            </Card>
+          </View>
 
           {/* Drive Mode Section */}
           <View>

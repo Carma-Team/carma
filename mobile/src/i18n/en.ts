@@ -4,7 +4,7 @@ const en: TranslationMap = {
   app:   { name: 'CARMA', tagline: 'Drive safely. Earn rewards.' },
   nav: {
     dashboard: 'Home', trip: 'Trip', roadmap: 'Roadmap',
-    marketplace: 'Store', leaderboard: 'Rank', profile: 'Profile',
+    marketplace: 'Store', leaderboard: 'Rank',
   },
   auth: {
     login: 'Login', register: 'Register', logout: 'Logout', logoutConfirm: 'Are you sure you want to log out?',
@@ -142,6 +142,7 @@ const en: TranslationMap = {
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',
     tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',
+    updatesTitle: 'Updates', friendsTitle: 'Friends',
     totalDistance: 'km', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     level: 'Level', joined: 'Joined', phone: 'Phone', city: 'City', age: 'Age',
     licenseYear: 'Licensed', noTrips: 'No trips yet',
