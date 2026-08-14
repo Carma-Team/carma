@@ -55,6 +55,7 @@ const he = {
     viewFullDetails: 'לצפייה בפרטים המלאים',
     closeAndHome: 'סגור וחזור לדף הבית',
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
+    openInMaps: 'פתח באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
   },
   driving: {

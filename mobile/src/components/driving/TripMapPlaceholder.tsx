@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // react-native-maps requires a native build (dev build / production).
@@ -88,7 +88,15 @@ class MapErrorBoundary extends React.Component<
   render() { return this.state.hasError ? this.props.fallback : this.props.children; }
 }
 
+function openInExternalMaps(coordinates: { latitude: number; longitude: number }[]) {
+  const origin = coordinates[0];
+  const destination = coordinates[coordinates.length - 1];
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+  Linking.openURL(url);
+}
+
 export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps) {
+  const { t } = useTranslation();
   const eventsWithLocation = useMemo(
     () => events.filter(e => e.location?.latitude !== undefined && e.location?.longitude !== undefined),
     [events]
@@ -109,7 +117,14 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
   return (
     <MapErrorBoundary fallback={<MapFallback />}>
       <View style={styles.container}>
-      <MapView style={styles.map} initialRegion={region} scrollEnabled={false} zoomEnabled={false}>
+      <TouchableOpacity
+        style={styles.openMapsButton}
+        onPress={() => openInExternalMaps(coordinates)}
+        accessibilityLabel={t('trip.openInMaps')}
+      >
+        <Ionicons name={ICONS.openInMaps} size={18} color={COLORS.text} />
+      </TouchableOpacity>
+      <MapView style={styles.map} initialRegion={region}>
         <Polyline
           coordinates={coordinates}
           strokeColor={COLORS.brand}
@@ -160,6 +175,12 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
 const styles = StyleSheet.create({
   container: { marginTop: 20, borderRadius: 16, overflow: 'hidden', height: 220 },
   map:       { flex: 1 },
+  openMapsButton: {
+    position: 'absolute', top: 10, right: 10, zIndex: 1,
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
   fallback: {
     marginTop: 20,
     paddingVertical: 40,

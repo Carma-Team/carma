@@ -55,6 +55,7 @@ const en: TranslationMap = {
     viewFullDetails: 'View Full Details',
     closeAndHome: 'Close and Return Home',
     mapUnavailable: 'Route not available',
+    openInMaps: 'Open in Maps',
     eventsLabel: 'Safety events',
   },
   driving: {
