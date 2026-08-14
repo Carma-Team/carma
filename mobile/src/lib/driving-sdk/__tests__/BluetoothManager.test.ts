@@ -25,21 +25,21 @@ jest.mock('react-native', () => ({
 }));
 
 type Handler = (event: unknown) => void;
-let connectHandler: Handler | null = null;
-let disconnectHandler: Handler | null = null;
-const removeConnect = jest.fn();
-const removeDisconnect = jest.fn();
+let mockConnectHandler: Handler | null = null;
+let mockDisconnectHandler: Handler | null = null;
+const mockRemoveConnect = jest.fn();
+const mockRemoveDisconnect = jest.fn();
 
 jest.mock('react-native-bluetooth-classic', () => ({
   __esModule: true,
   default: {
     onDeviceConnected: jest.fn((handler: Handler) => {
-      connectHandler = handler;
-      return { remove: removeConnect };
+      mockConnectHandler = handler;
+      return { remove: mockRemoveConnect };
     }),
     onDeviceDisconnected: jest.fn((handler: Handler) => {
-      disconnectHandler = handler;
-      return { remove: removeDisconnect };
+      mockDisconnectHandler = handler;
+      return { remove: mockRemoveDisconnect };
     }),
     isBluetoothAvailable: jest.fn(async () => true),
     isBluetoothEnabled: jest.fn(async () => true),
@@ -76,8 +76,8 @@ describe('BluetoothManager', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    connectHandler = null;
-    disconnectHandler = null;
+    mockConnectHandler = null;
+    mockDisconnectHandler = null;
     platform.OS = 'android';
     nativeModules.RNBluetoothClassic = {};
 
@@ -91,7 +91,7 @@ describe('BluetoothManager', () => {
       manager.setTargetDevice(TARGET);
       manager.startMonitoring();
 
-      connectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
+      mockConnectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
 
       expect(onConnect).toHaveBeenCalledTimes(1);
     });
@@ -100,7 +100,7 @@ describe('BluetoothManager', () => {
       manager.setTargetDevice(TARGET);
       manager.startMonitoring();
 
-      disconnectHandler?.(deviceEvent(TARGET, 'DEVICE_DISCONNECTED'));
+      mockDisconnectHandler?.(deviceEvent(TARGET, 'DEVICE_DISCONNECTED'));
 
       expect(onDisconnect).toHaveBeenCalledTimes(1);
     });
@@ -112,7 +112,7 @@ describe('BluetoothManager', () => {
       manager.setTargetDevice(TARGET);
       manager.startMonitoring();
 
-      connectHandler?.({ address: TARGET, name: 'Car Stereo' });
+      mockConnectHandler?.({ address: TARGET, name: 'Car Stereo' });
 
       expect(onConnect).not.toHaveBeenCalled();
     });
@@ -121,7 +121,7 @@ describe('BluetoothManager', () => {
       manager.setTargetDevice(TARGET);
       manager.startMonitoring();
 
-      expect(() => connectHandler?.({ eventType: 'DEVICE_CONNECTED' })).not.toThrow();
+      expect(() => mockConnectHandler?.({ eventType: 'DEVICE_CONNECTED' })).not.toThrow();
       expect(onConnect).not.toHaveBeenCalled();
     });
   });
@@ -131,8 +131,8 @@ describe('BluetoothManager', () => {
       manager.setTargetDevice(TARGET);
       manager.startMonitoring();
 
-      connectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
-      disconnectHandler?.(deviceEvent(OTHER, 'DEVICE_DISCONNECTED'));
+      mockConnectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
+      mockDisconnectHandler?.(deviceEvent(OTHER, 'DEVICE_DISCONNECTED'));
 
       expect(onConnect).not.toHaveBeenCalled();
       expect(onDisconnect).not.toHaveBeenCalled();
@@ -143,7 +143,7 @@ describe('BluetoothManager', () => {
       manager.startMonitoring();
       manager.setTargetDevice(OTHER);
 
-      connectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
+      mockConnectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
 
       expect(onConnect).toHaveBeenCalledTimes(1);
     });
@@ -153,7 +153,7 @@ describe('BluetoothManager', () => {
       manager.startMonitoring();
       manager.setTargetDevice(null);
 
-      connectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
+      mockConnectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
 
       expect(onConnect).not.toHaveBeenCalled();
     });
@@ -177,8 +177,8 @@ describe('BluetoothManager', () => {
       manager.startMonitoring();
       manager.stopMonitoring();
 
-      expect(removeConnect).toHaveBeenCalledTimes(1);
-      expect(removeDisconnect).toHaveBeenCalledTimes(1);
+      expect(mockRemoveConnect).toHaveBeenCalledTimes(1);
+      expect(mockRemoveDisconnect).toHaveBeenCalledTimes(1);
     });
 
     it('can be re-armed after stopMonitoring', () => {
