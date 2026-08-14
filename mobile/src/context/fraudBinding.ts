@@ -37,11 +37,7 @@ export function useFraudBinding(
         timestamp: new Date().toISOString(),
         detectedMode: event.mode,
         fraudScore: event.confidence,
-        telemetrySummary: {
-          avgSpeed: event.telemetry.avgSpeedKmh,
-          maxLateralAccel: event.telemetry.maxLateralAccelG,
-          gyroVariance: event.telemetry.yawVariance,
-        },
+        telemetry: event.telemetry,
         durationMs: event.durationMs,
         maxSpeedKmh: event.maxSpeedKmh,
       }).catch(() => {});
