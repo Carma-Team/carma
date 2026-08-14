@@ -1,5 +1,7 @@
 # Driving SDK
 
+**Last updated: 2026-08-12**
+
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
 This directory is maintained as a self-contained unit and will be extracted into a standalone npm package. **It must not contain any logic specific to any application** (scoring rules, fraud thresholds, gamification, business decisions about what constitutes a valid trip, etc.). Think of it as a third-party dependency: the application layer sits above it and decides what to do with the raw events it emits.
@@ -48,7 +50,7 @@ npx expo install react-native-maps
 | `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (`AppState` + accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
+| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---
@@ -154,7 +156,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `PHONE_USAGE` | AppState | App moved to background (Home button / app switch) while trip is active — counts as one phone-touch event |
+| `PHONE_USAGE` | Accelerometer variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
 
@@ -195,8 +197,25 @@ interface DrivingEvent {
   severity:  number;            // 0.0 (threshold) → 1.0 (maximum)
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
+  // Motion events only — absent on PHONE_USAGE:
+  peakG?:      number;          // peak gravity-removed horizontal force, in g (unsigned)
+  durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
+
+`severity` is normalised against the configured threshold, so it changes meaning if
+`motionThresholds` is overridden. `peakG` and `durationMs` are the raw physical
+measurements behind it.
+
+`peakG` is an **orientation-invariant, gravity-relative horizontal magnitude** — gravity is
+removed and the magnitude of the component perpendicular to it is taken, so the same brake
+reads the same on a vent mount, in a cup holder or in a pocket. Longitudinal and lateral are
+not recoverable from it: only the running scalar peak is kept, so direction is discarded
+before the event is emitted. With no accelerometer present `peakG` is emitted as `0`, not
+omitted.
+
+`durationMs` is the longest continuous stretch the horizontal force stayed at or above
+the IMU cross-confirm threshold within the evaluation window.
 
 ---
 
@@ -266,7 +285,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, ~5-second intervals
+  waypoints:              RouteWaypoint[];  // GPS track, one point per 3 GPS ticks (~6 s at the requested cadence)
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
@@ -301,27 +320,48 @@ pocket — all work the same):
 
 - Update interval: **2 s** / **5 m** (whichever comes first, `Accuracy.High` — GPS chip only, no network/cell fallback)
 - Distance: Haversine formula between consecutive samples
-- Speed: from `loc.coords.speed` (m/s → km/h), floored at 0
-- Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
-- Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
+- Speed: from `loc.coords.speed` (m/s → km/h). expo reports **`-1`**, not `0`, when speed is momentarily unavailable (weak fix, urban canyon, parking garage) — clamping that to `0` would read as a real deceleration to a standstill, so the last known-good reading is carried forward instead. It decays back to `0` only after **10 s** without a valid reading, so a sustained dropout can't pin the reported speed above a consumer's "stopped" threshold indefinitely.
 - Duplicate-tick guard: a fix arriving less than 500ms after the previous one is dropped before it reaches distance/motion math — some devices emit near-duplicate GPS fixes in bursts (#17), which would otherwise imply physically impossible accelerations.
 - Background tracking: a TaskManager task keeps GPS updates flowing while the app is backgrounded or the phone is locked.
 
 #### Waypoint cadence — `Accuracy.BestForNavigation` tried and reverted — #17
 
-Waypoint cadence was found to degrade badly on some devices (~6s median gaps instead of the requested 2s, per live cloud data), which caps how much a trip can score above the driver's rolling average. Raising accuracy from `High` to `BestForNavigation` looked like the direct lever to improve this, but on Android it isn't one: expo-location's `mapAccuracyToPriority` maps both `High` and `BestForNavigation` to the same `PRIORITY_HIGH_ACCURACY`, and the caller-supplied `timeInterval`/`distanceInterval` override the accuracy-derived request params regardless — so the resulting `LocationRequest` is identical either way. On iOS, `BestForNavigation` *is* a distinct, higher-power tier, so raising it there would cost real battery for zero cadence benefit on Android.
+Live cloud data found waypoint cadence degrading badly on some devices — a ~6 s median gap instead of the requested 2 s, with individual gaps over 15 s — which coarsens the route trace and any speed or distance figure derived from it. **Root cause:** some Android OEMs (Xiaomi, Huawei, Samsung, …) throttle background location under Doze, battery-saver, or their own power management, regardless of the requested accuracy tier.
 
-Staying on `Accuracy.High`. **#17 remains open** — the duplicate-tick guard below is fully implemented, but the underlying cadence/gap problem on throttling Android OEMs (Xiaomi, Huawei, Samsung, etc.) is not solved by any accuracy setting alone; it needs the user to manually exempt the app from battery optimization, or a different mitigation.
+Raising accuracy from `High` to `BestForNavigation` looked like the direct lever, but on Android it isn't one: expo-location's `mapAccuracyToPriority` maps both `High` and `BestForNavigation` to the same `PRIORITY_HIGH_ACCURACY`, and the caller-supplied `timeInterval`/`distanceInterval` override the accuracy-derived request params regardless — so the resulting `LocationRequest` is identical either way. On iOS, `BestForNavigation` *is* a distinct, higher-power tier, so raising it there would cost real battery for zero cadence benefit on Android.
+
+Staying on `Accuracy.High`. The duplicate-tick guard above is fully implemented, but no accuracy setting alone fixes the underlying throttling — the only real lever is the user exempting the app from battery optimization, which is what `PowerManagement` below exists to support. **#17 remains open**; that nudge is a mitigation, not a fix.
+
+### Distance accumulation — `DrivingSDK`
+
+`SensorManager` reports the raw per-tick Haversine distance; `DrivingSDK` decides how
+much of it counts. Both guards below live in the orchestrator, not the sensor layer.
+
+- Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
+- Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
+- Waypoints are appended on the same gate, counted in **GPS ticks rather than seconds** — one point every 3 ticks **while moving**. Wall-clock cadence therefore follows however fast the platform delivers fixes: roughly 300 points per 30 minutes when fixes arrive at the requested 2 s interval, appreciably fewer on an Android device whose location updates are being throttled (see #17), and appreciably more on iOS, where cadence is governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
 
 ### Gyroscope — `SensorManager`
 
 Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g. transport-mode fraud detection). It does not itself trigger any `DrivingEventType`.
 
-#### Waypoint cadence — Android background throttling — #17
+### Hand-held detection — `PhoneUsageManager`
 
-Live cloud data found waypoint cadence degrading badly on some devices (~6s median gaps instead of the requested 2s), which caps how much a trip can score above the driver's rolling average. Root cause: some Android OEMs (Xiaomi, Huawei, Samsung, etc.) throttle background location under Doze / battery-saver / OEM power management, regardless of the requested accuracy tier — `SensorManager`'s accuracy/interval settings alone can't override this (see #17 for the investigation, including why raising `Accuracy` to `BestForNavigation` turned out to be a no-op on Android).
+Answers one question: **is the phone in a hand, or fixed to the vehicle?** Touches delivered
+to other apps are not observable — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md)
+— so device motion is used as a proxy. Two metrics are emitted via `onInteractionData`,
+plus the `PHONE_USAGE` event.
 
-The only real lever is the user manually exempting the app from battery optimization in device settings — see `PowerManagement` below. **#17 remains open**; this is a mitigation (an opt-in nudge), not a fix.
+- **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window).
+- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). `screenInteractionSeconds` is driven by a 1 Hz timer that runs from `start()` to `stop()`: each second above the threshold increments it, whichever app is in front. A mounted phone running a navigation app accumulates nothing, because its variance stays below the threshold.
+- **Glass-tap proxy:** a single sample above **1.8 g** total magnitude increments `touchEpochs`, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
+- **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — see the `DrivingEventType` table above.
+
+> **These three constants are IMU calibration values, not tuned parameters.** They were
+> chosen from expected separation margins and **have never been validated against real
+> drive data.** In particular the glass-tap proxy cannot distinguish a finger tap from a
+> sharp road bump, and variance alone cannot distinguish a hand from a phone sliding
+> loose on a seat. Treat both metrics as indicative until calibrated.
 
 ### Power management — `PowerManagement`
 
