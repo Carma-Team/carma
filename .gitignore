@@ -74,3 +74,9 @@ tsc-out.txt
 .claude/settings.local.json
 CLAUDE.local.md
 /claude-local/
+
+# Scratch files a session may drop in the repo root by mistake instead of the
+# scratchpad — draft PR bodies, saved command output. Belongs local, never committed.
+*-pr-body.md
+pr-body.txt
+git-diff-*.txt
