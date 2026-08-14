@@ -144,7 +144,7 @@ const en: TranslationMap = {
     tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',
     updatesTitle: 'Updates', friendsTitle: 'Friends',
     totalDistance: 'km', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
-    level: 'Level', joined: 'Joined', phone: 'Phone', city: 'City', age: 'Age',
+    level: 'Level', joined: 'Join date', phone: 'Phone', city: 'City', age: 'Age',
     licenseYear: 'Licensed', noTrips: 'No trips yet',
     noNotifications: 'No new notifications',
     notificationsSubtitle: 'Updates about rewards, scores, and system alerts will appear here.',
@@ -178,7 +178,7 @@ const en: TranslationMap = {
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
     chart: {
       title: 'Score Trend',
-      empty: 'No trips yet',
+      empty: "Your score trend will appear here once you've logged a few trips",
       improvement: '📈 A +{pct}% improvement since your first trips',
       months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
       phaseStart: 'Start', phaseMiddle: 'Middle', phaseRecent: 'Recent',

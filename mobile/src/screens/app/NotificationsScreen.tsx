@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -128,78 +128,77 @@ export default function NotificationsScreen() {
         <Text style={COMMON_STYLES.screenHeaderTitle}>{t('profile.updatesTitle')}</Text>
       </View>
 
-      {state.status === 'loading' ? (
-        <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
-      ) : state.status === 'error' ? (
-        // A failed first load must never read as "you have no notifications".
-        <Card style={COMMON_STYLES.emptyState}>{banner}</Card>
-      ) : rows.length === 0 ? (
-        <Card style={COMMON_STYLES.emptyState}>
-          {banner}
-          <Ionicons name={ICONS.noNotifs} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
-          <Text style={COMMON_STYLES.emptyText}>{t('profile.noNotifications')}</Text>
-          <Text style={styles.emptySubtitle}>{t('profile.notificationsSubtitle')}</Text>
-        </Card>
-      ) : (
-        <View style={styles.list}>
-          {banner}
-          {hasUnread(state.items) ? (
-            <TouchableOpacity onPress={() => void handleMarkAll()} style={styles.markAll} accessibilityRole="button">
-              <Text style={styles.markAllText}>{t('notifications.markAllRead')}</Text>
-            </TouchableOpacity>
-          ) : null}
+      <ScrollView contentContainerStyle={styles.content}>
+        {state.status === 'loading' ? (
+          <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
+        ) : state.status === 'error' ? (
+          // A failed first load must never read as "you have no notifications".
+          <Card style={styles.card}>{banner}</Card>
+        ) : rows.length === 0 ? (
+          <Card style={[styles.card, styles.emptyCard]}>
+            {banner}
+            <Ionicons name={ICONS.noNotifs} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
+            <Text style={COMMON_STYLES.emptyText}>{t('profile.noNotifications')}</Text>
+            <Text style={styles.emptySubtitle}>{t('profile.notificationsSubtitle')}</Text>
+          </Card>
+        ) : (
+          <View style={{ gap: SPACING.sm }}>
+            {banner}
+            {hasUnread(state.items) ? (
+              <TouchableOpacity onPress={() => void handleMarkAll()} style={styles.markAll} accessibilityRole="button">
+                <Text style={styles.markAllText}>{t('notifications.markAllRead')}</Text>
+              </TouchableOpacity>
+            ) : null}
 
-          {rows.map(({ notification, view }) => (
-            <TouchableOpacity
-              key={notification.id}
-              style={styles.row}
-              onPress={() => void handleTap(notification)}
-              disabled={busyId === notification.id}
-              accessibilityRole="button"
-            >
-              <View style={styles.icon}>
-                <Ionicons name={view.icon} size={22} color={COLORS.brand} />
-              </View>
-              <View style={styles.info}>
-                <Text style={styles.message}>{view.text}</Text>
-                <Text style={styles.when}>{formatWhen(notification.createdAt, lang)}</Text>
-              </View>
-              {notification.readAt === null ? <View style={styles.unreadDot} /> : null}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+            {rows.map(({ notification, view }) => (
+              <TouchableOpacity
+                key={notification.id}
+                onPress={() => void handleTap(notification)}
+                disabled={busyId === notification.id}
+                accessibilityRole="button"
+              >
+                <Card style={[styles.card, styles.row]}>
+                  <View style={styles.icon}>
+                    <Ionicons name={view.icon} size={22} color={COLORS.brand} />
+                  </View>
+                  <View style={styles.info}>
+                    <Text style={styles.message}>{view.text}</Text>
+                    <Text style={styles.when}>{formatWhen(notification.createdAt, lang)}</Text>
+                  </View>
+                  {notification.readAt === null ? <View style={styles.unreadDot} /> : null}
+                </Card>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  content: { padding: SPACING.lg },
+  card: { backgroundColor: COLORS.card, padding: 16 },
+  emptyCard: { alignItems: 'center', paddingVertical: SPACING.xl },
   emptySubtitle: {
     ...TYPOGRAPHY.caption,
     textAlign: 'center',
     marginTop: 8
   },
-  list: { paddingTop: SPACING.sm },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     gap: SPACING.sm,
   },
   bannerText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, flex: 1 },
   retry: { ...TYPOGRAPHY.caption, color: COLORS.brand, fontWeight: '700' },
-  markAll: { alignSelf: 'flex-end', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm },
+  markAll: { alignSelf: 'flex-end', paddingVertical: SPACING.sm },
   markAllText: { ...TYPOGRAPHY.caption, color: COLORS.brand, fontWeight: '700' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     gap: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
   icon: { width: 36, alignItems: 'center', justifyContent: 'center' },
   info: { flex: 1, minWidth: 0 },

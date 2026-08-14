@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { Card } from '@/components/ui/Card'
 import { levelToIcon } from '@/lib/utils'
 import { friendsApi } from '@/services/api/friends.api'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -72,70 +73,72 @@ export default function FriendRequestsScreen() {
         <Text style={COMMON_STYLES.screenHeaderTitle}>{t('profile.friendsTitle')}</Text>
       </View>
 
-      {loading ? (
-        <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
-      ) : requests.length === 0 ? (
-        <Text style={styles.empty}>{t('profile.noFriendRequests')}</Text>
-      ) : (
-        <View style={styles.list}>
-          {requests.map(req => (
-            <View key={req.id} style={styles.row}>
-              <View style={styles.avatar}>
-                <Ionicons
-                  name={levelToIcon(req.fromUserLevel) as any}
-                  size={22}
-                  color={levelColor(req.fromUserLevel)}
-                />
-              </View>
-              <View style={styles.info}>
-                <Text style={styles.message}>
-                  <Text style={styles.name}>{req.fromUserName}</Text>
-                  {'  '}
-                  {t('profile.sentFriendRequest')}
-                </Text>
-                {req.fromUserCity ? (
-                  <Text style={styles.city}>{req.fromUserCity}</Text>
-                ) : null}
-              </View>
-              <View style={styles.actions}>
-                {acting.has(req.id) ? (
-                  <ActivityIndicator size="small" color={COLORS.brand} />
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      onPress={() => handleAccept(req)}
-                      style={[styles.actionBtn, styles.acceptBtn]}
-                    >
-                      <Ionicons name="checkmark" size={16} color="#fff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleReject(req)}
-                      style={[styles.actionBtn, styles.rejectBtn]}
-                    >
-                      <Ionicons name="close" size={16} color={COLORS.text} />
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
+      <ScrollView contentContainerStyle={styles.content}>
+        {loading ? (
+          <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
+        ) : requests.length === 0 ? (
+          <Card style={[styles.card, styles.emptyCard]}>
+            <Text style={styles.empty}>{t('profile.noFriendRequests')}</Text>
+          </Card>
+        ) : (
+          <View style={{ gap: SPACING.sm }}>
+            {requests.map(req => (
+              <Card key={req.id} style={[styles.card, styles.row]}>
+                <View style={styles.avatar}>
+                  <Ionicons
+                    name={levelToIcon(req.fromUserLevel) as any}
+                    size={22}
+                    color={levelColor(req.fromUserLevel)}
+                  />
+                </View>
+                <View style={styles.info}>
+                  <Text style={styles.message}>
+                    <Text style={styles.name}>{req.fromUserName}</Text>
+                    {'  '}
+                    {t('profile.sentFriendRequest')}
+                  </Text>
+                  {req.fromUserCity ? (
+                    <Text style={styles.city}>{req.fromUserCity}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.actions}>
+                  {acting.has(req.id) ? (
+                    <ActivityIndicator size="small" color={COLORS.brand} />
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        onPress={() => handleAccept(req)}
+                        style={[styles.actionBtn, styles.acceptBtn]}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleReject(req)}
+                        style={[styles.actionBtn, styles.rejectBtn]}
+                      >
+                        <Ionicons name="close" size={16} color={COLORS.text} />
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </Card>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  empty: { ...TYPOGRAPHY.body, textAlign: 'center', color: COLORS.textMuted, marginTop: 40 },
-  list:  { paddingTop: SPACING.sm },
+  content: { padding: SPACING.lg },
+  card: { backgroundColor: COLORS.card, padding: 16 },
+  emptyCard: { alignItems: 'center' },
+  empty: { ...TYPOGRAPHY.body, textAlign: 'center', color: COLORS.textMuted },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     gap: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
   avatar: { width: 36, alignItems: 'center', justifyContent: 'center' },
   info:   { flex: 1, minWidth: 0 },

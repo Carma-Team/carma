@@ -144,7 +144,7 @@ const he = {
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
     updatesTitle: 'עדכונים', friendsTitle: 'חברים',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
-    level: 'רמה', joined: 'הצטרף', phone: 'טלפון', city: 'עיר', age: 'גיל',
+    level: 'רמה', joined: 'תאריך הצטרפות', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',
     noNotifications: 'אין הודעות חדשות',
     notificationsSubtitle: 'כאן יופיעו עדכונים על מבצעים, ציונים והודעות מערכת.',
@@ -179,7 +179,7 @@ const he = {
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     chart: {
       title: 'מגמת ציונים',
-      empty: 'אין נסיעות עדיין',
+      empty: 'כאן תוצג מגמת הציונים שלך לאורך זמן, לאחר שיצטברו נסיעות',
       improvement: '📈 שיפור של +{pct}% מאז תחילת הנסיעות',
       months: ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'],
       phaseStart: 'תחילה', phaseMiddle: 'אמצע', phaseRecent: 'לאחרונה',
