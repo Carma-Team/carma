@@ -26,13 +26,13 @@ export function useScoringEvents(
           eventCounts: { ...prev.eventCounts, HARD_BRAKE: prev.eventCounts.HARD_BRAKE + 1 },
         }));
       }),
-      sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5 }, () => {
+      sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 15 }, () => {
         setTripState(prev => ({
           ...prev,
           eventCounts: { ...prev.eventCounts, AGGRESSIVE_ACCEL: prev.eventCounts.AGGRESSIVE_ACCEL + 1 },
         }));
       }),
-      sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 10 }, () => {
+      sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 25 }, () => {
         setTripState(prev => ({
           ...prev,
           eventCounts: { ...prev.eventCounts, SHARP_TURN: prev.eventCounts.SHARP_TURN + 1 },
