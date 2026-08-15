@@ -32,7 +32,7 @@ let mockSensorEmit: ((event: DrivingEvent) => void) | null = null;
 let mockSensorUpdate: ((update: SensorUpdate) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number }) => void)
+  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockBtConnect: (() => void) | null = null;
 let mockBtDisconnect: (() => void) | null = null;
@@ -532,12 +532,13 @@ describe('DrivingSDK', () => {
 
   // ── Phone interaction metrics ──────────────────────────────────────────────
 
-  it('copies phone interaction metrics onto the trip', async () => {
+  it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
   });
 
   // ── Delegation to the injected TripValidator ───────────────────────────────

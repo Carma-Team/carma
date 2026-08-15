@@ -19,12 +19,14 @@
  *
  * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
  * features are exposed through getMotionFeatures() alongside the acceleration variance.
- * They are descriptive only — the hand-held decision here is unchanged.
+ * A hand stabilises orientation, a phone loose on a seat tumbles — CAR-174 uses that to
+ * veto the acceleration-only hand-held read when rotation says otherwise.
  *
- * Two metrics emitted via onInteractionData callback:
- *   - touchEpochs              count of sharp single-sample acceleration transients
+ * Emitted once per second via onInteractionData, as a delta since the previous emission
+ * (CAR-175) — never a running total:
+ *   - touchEpochs              sharp single-sample acceleration transients this tick
  *                               (glass-tap proxy; also fires on foreground touch events)
- *   - screenInteractionSeconds  seconds where IMU variance indicates a hand-held phone
+ *   - screenInteractionSeconds  1 if this second was judged hand-held, else 0
  *                               (low variance = vehicle-mounted → not counted)
  *   - speedKmh                  vehicle speed last reported via updateSpeed(), passed
  *                               through as-is so the host can relate handling to motion
@@ -45,6 +47,13 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 //   Requires empirical calibration before Sprint+1 — see RFC-001 §4.3.
 const HANDHELD_VARIANCE_THRESHOLD = 0.025;
 
+// ROTATION_VARIANCE_MAX_THRESHOLD ((rad/s)²):
+//   A hand stabilises orientation; a phone loose on the seat tumbles. Below this,
+//   rotation confirms accelVariance's hand-held read; at/above it, the accel spike
+//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-31),
+//   same calibration caveat as the threshold above.
+const ROTATION_VARIANCE_MAX_THRESHOLD = 0.5;
+
 // GLASS_TAP_MAGNITUDE_THRESHOLD (g):
 //   A finger tap on glass/screen produces a sharp transient of 1.8–3.0 g total
 //   magnitude. Road bumps rarely reach 1.8 g with the same sharp onset profile.
@@ -57,7 +66,9 @@ const EPOCH_COOLDOWN_MS = 1500;
 const VARIANCE_WINDOW_SIZE = 10;
 
 export interface InteractionData {
+  /** Touch-epoch transients since the previous emission — a delta, not a running total. */
   touchEpochs: number;
+  /** Whether this second was judged hand-held (0 or 1) — a delta, not a running total. */
   screenInteractionSeconds: number;
   /**
    * Vehicle speed (km/h) as last reported by the host at the moment this data was
@@ -75,10 +86,8 @@ export interface InteractionData {
  * Raw motion features behind the hand-held decision, over the same 1-second window.
  * Exposed for calibration and for classifiers that need more than acceleration
  * variance — a hand stabilises orientation, a phone loose on a seat tumbles, and
- * only the rotational terms separate those two.
- *
- * Descriptive only: nothing here is interpreted, and the hand-held decision below
- * still reads `accelVariance` alone.
+ * only the rotational terms separate those two. The hand-held decision (CAR-174)
+ * reads both: high accelVariance with low rotationVariance.
  */
 export interface MotionFeatures {
   /** Variance of total acceleration magnitude (g²). */
@@ -102,6 +111,7 @@ export class PhoneUsageManager {
   // same second. Fed by pushGyroSample() rather than a subscription of its own.
   private rotationWindow: number[] = [];
   private touchEpochs = 0;
+  private touchEpochsThisTick = 0;
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
   private handheldTimer: ReturnType<typeof setInterval> | null = null;
@@ -123,6 +133,7 @@ export class PhoneUsageManager {
   public start(): void {
     this.isActive = true;
     this.touchEpochs = 0;
+    this.touchEpochsThisTick = 0;
     this.screenInteractionSeconds = 0;
     this.lastEpochMs = 0;
     this.magnitudeWindow = [];
@@ -204,8 +215,8 @@ export class PhoneUsageManager {
     const now = Date.now();
     if (mag > GLASS_TAP_MAGNITUDE_THRESHOLD && now - this.lastEpochMs > EPOCH_COOLDOWN_MS) {
       this.touchEpochs++;
+      this.touchEpochsThisTick++;
       this.lastEpochMs = now;
-      this.onInteractionData(this.getSnapshot());
     }
   }
 
@@ -219,11 +230,17 @@ export class PhoneUsageManager {
   private startHandheldTimer(): void {
     this.stopHandheldTimer();
     // Tick every second for as long as this manager runs, foreground or background.
-    // Only accumulate when IMU variance indicates the phone is hand-held.
-    // Low variance (mounted phone navigating via Waze) → zero penalty.
+    // Hand-held requires high acceleration variance AND low rotation variance (CAR-174) —
+    // a phone loose on a seat also bounces, but only a hand keeps orientation stable.
+    // No gyro pushed yet → fall back to acceleration alone.
     this.handheldTimer = setInterval(() => {
       if (!this.isActive) return;
-      if (this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD) {
+      const motion = this.getMotionFeatures();
+      const isHandheld =
+        motion.accelVariance > HANDHELD_VARIANCE_THRESHOLD &&
+        (motion.rotationSampleCount === 0 || motion.rotationVariance < ROTATION_VARIANCE_MAX_THRESHOLD);
+
+      if (isHandheld) {
         this.screenInteractionSeconds++;
         // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
         // IMU-confirmed signal replacing the old "any AppState change" trigger.
@@ -231,10 +248,17 @@ export class PhoneUsageManager {
           this.isHandheldStretchOpen = true;
           this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
         }
-        this.onInteractionData(this.getSnapshot());
       } else {
         this.isHandheldStretchOpen = false;
       }
+
+      // One emission per tick regardless of outcome (CAR-175) — a delta, not a snapshot.
+      this.onInteractionData({
+        touchEpochs: this.touchEpochsThisTick,
+        screenInteractionSeconds: isHandheld ? 1 : 0,
+        speedKmh: this.speedKmh,
+      });
+      this.touchEpochsThisTick = 0;
     }, 1000);
   }
 

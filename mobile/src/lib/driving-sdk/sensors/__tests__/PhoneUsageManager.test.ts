@@ -93,6 +93,7 @@ describe('PhoneUsageManager', () => {
 
   it('increments touchEpochs on a glass-tap transient', () => {
     feedAccel([2.5]); // magnitude 2.5g > GLASS_TAP_MAGNITUDE_THRESHOLD (1.8g)
+    jest.advanceTimersByTime(1000); // emission happens on the 1s tick, not on the tap itself
 
     expect(onInteractionData).toHaveBeenCalledWith(
       expect.objectContaining({ touchEpochs: 1 }),
@@ -155,6 +156,7 @@ describe('PhoneUsageManager', () => {
   describe('vehicle speed', () => {
     it('reports 0 until the host provides a speed', () => {
       feedAccel([2.5]);
+      jest.advanceTimersByTime(1000);
 
       expect(onInteractionData).toHaveBeenCalledWith(
         expect.objectContaining({ speedKmh: 0 }),
@@ -164,6 +166,7 @@ describe('PhoneUsageManager', () => {
     it('attaches the last reported speed to a touch epoch', () => {
       manager.updateSpeed(62.5);
       feedAccel([2.5]);
+      jest.advanceTimersByTime(1000);
 
       expect(onInteractionData).toHaveBeenCalledWith(
         expect.objectContaining({ touchEpochs: 1, speedKmh: 62.5 }),
@@ -179,13 +182,14 @@ describe('PhoneUsageManager', () => {
         expect.objectContaining({ screenInteractionSeconds: 1, speedKmh: 40 }),
       );
 
-      // A new reading replaces the previous one for every emission after it.
+      // A new reading replaces the previous one for every emission after it. Each tick's
+      // screenInteractionSeconds is a delta (CAR-175), so it stays 1 on the second tick too.
       manager.updateSpeed(0);
       feedAccel(HANDHELD_SAMPLES);
       jest.advanceTimersByTime(1000);
 
       expect(onInteractionData).toHaveBeenLastCalledWith(
-        expect.objectContaining({ screenInteractionSeconds: 2, speedKmh: 0 }),
+        expect.objectContaining({ screenInteractionSeconds: 1, speedKmh: 0 }),
       );
     });
 
@@ -256,16 +260,43 @@ describe('PhoneUsageManager', () => {
       expect(manager.getMotionFeatures().rotationSampleCount).toBe(0);
     });
 
-    it('does not let rotation influence the hand-held decision', () => {
-      // Plumbing only (CAR-82): heavy rotation with mounted-phone acceleration must
-      // still read as not-handheld. Changing that is CAR-46, and needs CAR-31 data.
-      feedAccel(MOUNTED_SAMPLES);
+  });
+
+  // ─── Rotation veto (CAR-174) ────────────────────────────────────────────────
+  // High acceleration variance alone is ambiguous — both a hand and a phone loose
+  // on the seat bounce. Only rotation variance tells them apart.
+  describe('rotation veto (CAR-174)', () => {
+    it('does not count a loose phone (high accel, high rotation) as hand-held', () => {
+      feedAccel(HANDHELD_SAMPLES);
       for (let i = 0; i < 10; i++) manager.pushGyroSample(i % 2 === 0 ? 4 : 0, 0, 0);
       jest.advanceTimersByTime(1000);
 
       expect(onEvent).not.toHaveBeenCalled();
-      expect(onInteractionData).not.toHaveBeenCalled();
-      expect(manager.getMotionFeatures().rotationVariance).toBeGreaterThan(0);
+      expect(manager.getSnapshot().screenInteractionSeconds).toBe(0);
+      expect(onInteractionData).toHaveBeenLastCalledWith(
+        expect.objectContaining({ screenInteractionSeconds: 0 }),
+      );
+    });
+
+    it('counts genuine hand-held use (high accel, low/stable rotation)', () => {
+      feedAccel(HANDHELD_SAMPLES);
+      for (let i = 0; i < 10; i++) manager.pushGyroSample(0.05, 0, 0);
+      jest.advanceTimersByTime(1000);
+
+      expect(onEvent).toHaveBeenCalledTimes(1);
+      expect(onInteractionData).toHaveBeenLastCalledWith(
+        expect.objectContaining({ screenInteractionSeconds: 1 }),
+      );
+    });
+
+    it('falls back to acceleration alone when no gyro sample was ever pushed', () => {
+      // Covered by the existing hand-held-accounting tests (no pushGyroSample calls
+      // there), which must keep passing unchanged: rotationSampleCount === 0 skips
+      // the veto entirely.
+      feedAccel(HANDHELD_SAMPLES);
+      jest.advanceTimersByTime(1000);
+
+      expect(onEvent).toHaveBeenCalledTimes(1);
     });
   });
 });
