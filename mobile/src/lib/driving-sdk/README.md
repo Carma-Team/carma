@@ -1,6 +1,6 @@
 # Driving SDK
 
-**Last updated: 2026-08-12**
+**Last updated: 2026-08-15**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -156,7 +156,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `PHONE_USAGE` | Accelerometer variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. |
+| `PHONE_USAGE` | Accelerometer + gyroscope variance | IMU variance indicates the phone is hand-held, whichever app is in front — a high acceleration-variance reading is vetoed when rotation variance is also high (a loose phone tumbles; a hand doesn't), falling back to acceleration alone if no gyroscope sample was ever pushed. Fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the variance threshold, so one pickup can produce more than one event. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
 
@@ -352,16 +352,17 @@ to other apps are not observable — see [PLATFORM-CAPABILITIES.md](./PLATFORM-C
 — so device motion is used as a proxy. Two metrics are emitted via `onInteractionData`,
 plus the `PHONE_USAGE` event.
 
-- **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window).
-- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements). `screenInteractionSeconds` is driven by a 1 Hz timer that runs from `start()` to `stop()`: each second above the threshold increments it, whichever app is in front. A mounted phone running a navigation app accumulates nothing, because its variance stays below the threshold.
+- **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window). Gyroscope samples, when the host pushes them in, share the same window.
+- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements).
+- **Rotation veto:** a phone loose on a seat also bounces enough to trip that threshold, but it tumbles — a hand keeps the phone's orientation stable, a loose phone doesn't. So a high-variance reading only counts as hand-held when rotation variance over the same window stays below **0.5 (rad/s)²**; at or above it, the acceleration spike is read as a tumbling phone rather than a hand. If the host never calls `pushGyroSample()`, the veto is skipped and the decision falls back to acceleration alone. `screenInteractionSeconds` is driven by a 1 Hz timer that runs from `start()` to `stop()`: each second the decision reads hand-held increments it, whichever app is in front. A mounted phone running a navigation app accumulates nothing, because its variance stays below the threshold.
 - **Glass-tap proxy:** a single sample above **1.8 g** total magnitude increments `touchEpochs`, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
 - **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — see the `DrivingEventType` table above.
 
-> **These three constants are IMU calibration values, not tuned parameters.** They were
+> **These constants are IMU calibration values, not tuned parameters.** They were
 > chosen from expected separation margins and **have never been validated against real
-> drive data.** In particular the glass-tap proxy cannot distinguish a finger tap from a
-> sharp road bump, and variance alone cannot distinguish a hand from a phone sliding
-> loose on a seat. Treat both metrics as indicative until calibrated.
+> drive data** — the rotation threshold most of all, since no drive-test data backs it
+> yet (tracked as CAR-31). The glass-tap proxy also cannot distinguish a finger tap from
+> a sharp road bump. Treat all of these as indicative until calibrated.
 
 ### Power management — `PowerManagement`
 
