@@ -1,5 +1,7 @@
 # Driving SDK
 
+Last updated: 2026-08-15
+
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
 This directory is maintained as a self-contained unit and will be extracted into a standalone npm package. **It must not contain any logic specific to any application** (scoring rules, fraud thresholds, gamification, business decisions about what constitutes a valid trip, etc.). Think of it as a third-party dependency: the application layer sits above it and decides what to do with the raw events it emits.
@@ -322,6 +324,8 @@ Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on e
 Live cloud data found waypoint cadence degrading badly on some devices (~6s median gaps instead of the requested 2s), which caps how much a trip can score above the driver's rolling average. Root cause: some Android OEMs (Xiaomi, Huawei, Samsung, etc.) throttle background location under Doze / battery-saver / OEM power management, regardless of the requested accuracy tier — `SensorManager`'s accuracy/interval settings alone can't override this (see #17 for the investigation, including why raising `Accuracy` to `BestForNavigation` turned out to be a no-op on Android).
 
 The only real lever is the user manually exempting the app from battery optimization in device settings — see `PowerManagement` below. **#17 remains open**; this is a mitigation (an opt-in nudge), not a fix.
+
+Waypoint thinning itself (in `DrivingSDK`, not `SensorManager`) samples on wall-clock time against `WAYPOINT_INTERVAL_MS`, not a GPS-tick count — a tick-count assumption compounds the throttling above instead of just reflecting it. On a throttled device with real ~6s gaps, wall-clock sampling still stores roughly one point every 6s; a tick-count assumption of 2s per tick would have stored one point per three ticks, ~18s apart.
 
 ### Power management — `PowerManagement`
 

@@ -385,14 +385,15 @@ export class DrivingSDK {
       // Waypoint collection: append one point every WAYPOINT_INTERVAL_MS of wall-clock time
       // while moving, not GPS tick count — real tick cadence drifts from the nominal 2s
       // (OS throttling, background suspension), same class of bug as D-SDK-5.
-      if (this.lastKnownLocation && (this.lastWaypointTs === null || Date.now() - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
+      const now = Date.now();
+      if (this.lastKnownLocation && (this.lastWaypointTs === null || now - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
           lng: this.lastKnownLocation.lng,
-          ts: Date.now(),
+          ts: now,
           speedKmh: update.currentSpeed,
         });
-        this.lastWaypointTs = Date.now();
+        this.lastWaypointTs = now;
       }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
