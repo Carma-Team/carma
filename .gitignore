@@ -64,6 +64,12 @@ demo_shots/
 # One fixed path on purpose, so the command can be re-run from shell history.
 tsc-out.txt
 
+# ─── Local draft content ─────────────────────────────────────────────────────
+# Fixed filenames, always overwritten with whatever is currently being worked
+# on — never one file per PR/commit.
+pr-body.txt
+commit-msg.txt
+
 # ─── Generated schema intermediate ───────────────────────────────────────────
 # The schema-drift recipe renders this on the way to generated.ts, which is the
 # artifact we actually commit. openapi-typescript cannot read stdin, so the file

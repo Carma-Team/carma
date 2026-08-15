@@ -236,6 +236,12 @@ const en: TranslationMap = {
     historyClearedDesc: 'Trip history has been hidden',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
   },
+  deviceGate: {
+    regionTitle: 'Not available in your region',
+    regionMessage: 'CARMA is currently available only in Israel.',
+    capabilityTitle: 'Device not supported',
+    capabilityMessage: 'Your device or OS version does not meet CARMA\'s minimum requirements.',
+  },
   time: {
     now: 'just now', ago: 'ago',
     secondsShort: 's', minutesShort: 'm', hoursShort: 'h',

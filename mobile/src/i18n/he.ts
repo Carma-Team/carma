@@ -237,6 +237,12 @@ const he = {
     historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
+  deviceGate: {
+    regionTitle: 'לא זמין באזור שלך',
+    regionMessage: 'CARMA זמינה כרגע רק בישראל.',
+    capabilityTitle: 'המכשיר אינו נתמך',
+    capabilityMessage: 'המכשיר או גרסת מערכת ההפעלה שלך אינם עומדים בדרישות המינימליות של CARMA.',
+  },
   time: {
     now: 'עכשיו', ago: 'לפני',
     secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",

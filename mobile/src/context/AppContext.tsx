@@ -24,6 +24,7 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
+import { checkDeviceSupport } from '@/lib/deviceSupport'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
@@ -211,6 +212,7 @@ interface AppContextValue {
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
   isLoading: boolean
+  deviceBlockedReason: 'region' | 'capability' | null
   tripState: TripState
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
@@ -235,6 +237,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [deviceBlockedReason, setDeviceBlockedReason] = useState<'region' | 'capability' | null>(null)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
@@ -482,6 +485,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
+  // CAR-23: region + device-capability gate, checked once at startup, independent
+  // of the auth/data load below — a blocked device never needs to reach login.
+  useEffect(() => {
+    checkDeviceSupport()
+      .then(result => { if (result.blocked) setDeviceBlockedReason(result.reason); })
+      .catch(() => {}); // fail open — an unexpected error here must not lock out a supported device
+  }, []);
+
   useEffect(() => {
     async function loadInitialData() {
       const serverOnline = await pingServer();
@@ -630,6 +641,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      deviceBlockedReason,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
