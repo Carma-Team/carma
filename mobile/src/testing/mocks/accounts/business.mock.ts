@@ -60,11 +60,17 @@ function handleRequest(method: string, path: string, body: unknown): { status: n
 
   if (method === 'POST' && !id) {
     const payload = body as NewBusinessReward;
+    // NewBusinessReward leaves businessHe/titleEn/descriptionEn/expiresAt optional;
+    // Reward (RewardOut) requires them present, just nullable — `?? null` bridges that.
     const reward: Reward = {
       ...payload,
       id: nextId(),
       businessId: BUSINESS_ID,
       business: user.name ?? 'Mock Business',
+      businessHe: payload.businessHe ?? null,
+      titleEn: payload.titleEn ?? null,
+      descriptionEn: payload.descriptionEn ?? null,
+      expiresAt: payload.expiresAt ?? null,
       available: payload.stock,
     };
     rewards = [reward, ...rewards];
@@ -73,7 +79,20 @@ function handleRequest(method: string, path: string, body: unknown): { status: n
 
   if (method === 'PATCH' && id) {
     const patch = body as Partial<NewBusinessReward>;
-    rewards = rewards.map(r => (r.id === id ? { ...r, ...patch } : r));
+    rewards = rewards.map((r): Reward => {
+      if (r.id !== id) return r;
+      // Same optional-vs-nullable bridging as POST above, keeping the field r already
+      // had when patch didn't send it — an explicit object literal so TS checks each
+      // field against Reward directly instead of inferring a spread's loose type.
+      return {
+        ...r,
+        ...patch,
+        businessHe: patch.businessHe !== undefined ? patch.businessHe ?? null : r.businessHe,
+        titleEn: patch.titleEn !== undefined ? patch.titleEn ?? null : r.titleEn,
+        descriptionEn: patch.descriptionEn !== undefined ? patch.descriptionEn ?? null : r.descriptionEn,
+        expiresAt: patch.expiresAt !== undefined ? patch.expiresAt ?? null : r.expiresAt,
+      };
+    });
     const reward = rewards.find(r => r.id === id);
     if (!reward) return { status: 404, data: { detail: 'Reward not found (mock)' } };
     return { status: 200, data: { reward } };
