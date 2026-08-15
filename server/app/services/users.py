@@ -18,7 +18,7 @@ from app.schemas.user import (
     UpdateProfileIn,
     UserOut,
 )
-from app.services import friends
+from app.services import friends, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
@@ -166,7 +166,8 @@ async def match_contacts(db: AsyncSession, current: User, hashes: list[str]) -> 
     )
 
 
-async def stats(db: AsyncSession, user_id: str) -> StatsOut:
+async def stats(db: AsyncSession, user: User) -> StatsOut:
+    user_id = user.id
     completed = select(Trip).where(Trip.user_id == user_id, Trip.status == TripStatus.COMPLETED)
 
     recent_rows = (await db.scalars(completed.order_by(Trip.start_time.desc()).limit(14))).all()
@@ -203,6 +204,8 @@ async def stats(db: AsyncSession, user_id: str) -> StatsOut:
         or 0
     )
 
+    streak = await trips.current_streak(db, user_id, datetime.now(UTC))
+
     return StatsOut(
         stats=DrivingStats(
             total_trips=int(agg[0] or 0),
@@ -211,6 +214,12 @@ async def stats(db: AsyncSession, user_id: str) -> StatsOut:
             average_score=int(round(agg[4] or 0.0)),
             safe_trips_count=int(safe_trips_count),
             total_duration_seconds=int(agg[3] or 0),
+            current_streak=streak,
+            # The stored record is written on the next save, so a run that just
+            # gained a day is briefly ahead of it. Report the larger of the two
+            # rather than writing on a read — nobody should ever see a current
+            # streak above their own record.
+            best_streak=max(user.best_streak, streak),
             recent_scores=recent_scores,
             event_counts=EventCounts(
                 hard_brakes=int(agg[5] or 0),

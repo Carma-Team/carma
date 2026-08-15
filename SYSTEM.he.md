@@ -142,7 +142,7 @@ carma/                                # Carma-Team/carma (root של המונור
 │   │   ├── app/                      # expo-router screens (auth, tabs, admin, business)
 │   │   ├── screens/, components/, context/, hooks/
 │   │   ├── services/api/             # client.ts (Bearer), auth.api.ts, trips.api.ts, ...
-│   │   │   └── generated.ts          # נוצר אוטומטית מ-/api/openapi.json (gitignored)
+│   │   │   └── generated.ts          # נוצר אוטומטית מ-/api/openapi.json (committed)
 │   │   ├── lib/driving-sdk/          # סימולציית IMU/GPS/BLE
 │   │   └── types/                    # interfaces משותפים ב-TS
 │   ├── package.json                  # `npm run gen:api` מחדש את הטיפוסים מהשרת
@@ -197,7 +197,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # מיקום אחרון של הנהג
     last_cleared_history,                            # סינון היסטוריה ב-UI
 
-    is_phone_verified, failed_otp_count, locked_until,   # אכיפת spec 5.2.4
+    is_phone_verified, locked_until, lockout_reset_at,   # אכיפת spec 5.2.4
 ```
 
 **למה גם `points` וגם `total_points`?** הפרונט משתמש בשניהם: `points` היא היתרה הנוכחית הניתנת למימוש (יורדת ברכישה ב-Marketplace), `total_points` היא הצבירה ההיסטורית שעליה נשענת הדרגה. בעת מימוש שובר מורידים רק מ-`points`.
@@ -213,6 +213,8 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 - `users (phone)`, `users (email)`, `users (role)`
 - `otp_codes (phone, purpose, consumed_at)` — חיפוש OTP פעיל
 - `otp_codes (expires_at)` — לפינוי קודים שפג תוקפם
+- `login_failures (user_id, caller_ip, created_at)` — השהיית כניסה לפי כתובת הפונה
+- `login_failures (created_at)` — לפינוי שורות שפג תוקפן
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`
@@ -225,7 +227,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 
 | Router (HTTP) | Service (לוגיקה) | מה עושה |
 |---|---|---|
-| `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. אוכף נעילה אחרי 5 כשלונות OTP. |
+| `routers/auth.py` | `services/auth.py` | Register, login, /me. שני מסלולים: email+password ו-phone+OTP. משהה פונה לפי (חשבון, כתובת) אחרי 5 כשלונות; נועל את החשבון עצמו רק ב-100. |
 | `routers/users.py` | `services/users.py` | פרופיל `/users/me`, עדכון מיקום, GDPR delete, ו-`/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | רשימה, שמירה (מקבל snake_case וגם camelCase), שליפה לפי id. מעדכן אוטומטית `points`/`total_points`/`total_distance`. |
 | `routers/rewards.py` | `services/rewards.py` | רשימת הטבות (פילטר קטגוריה), מימוש (QR base64 רנדומלי, תוקף לפי `VOUCHER_TTL_DAYS`), השוברים שלי. |
@@ -237,7 +239,7 @@ PostGIS מותקן ב-image של ה-DB (`postgis/postgis:16-3.4`) ומופעל �
 ### Middleware גלובלי (ב-`app/main.py`)
 
 1. **CORS** — `CORSMiddleware`, origins מ-`CORS_ORIGINS` (ברירת מחדל `*`). הרשאות נשלחות רק כשהמקורות מפורטים במפורש — התקן אוסר על שילוב של כוכבית עם הרשאות, ולכן `settings.cors_allows_credentials` מכבה אותן יחד.
-2. **SlowAPI** — rate limit לפי IP. ברירת מחדל: 30/דקה, 500/שעה; מסלולי האימות מוגבלים ל-5/דקה. ה-limiter יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
+2. **Rate limit** — לפי IP, ב-`DefaultRateLimitMiddleware` שב-`app/middlewares/rate_limit.py`. ברירת מחדל: 30/דקה, 500/שעה על כל מסלול שלא הגדיר לעצמו תקרה; מסלולי האימות מוגבלים ל-5/דקה ומסלולי הבריאות פטורים. כל handler סופר מול תקציב משלו, כך שמסך עמוס אחד לא נועל את הקורא משאר האפליקציה, ופרמטר בנתיב לא מחלק תקציב חדש לכל מזהה. ה-limiter עצמו יושב ב-`app/core/limiter.py` כדי שה-routers יוכלו לייבא אותו בלי מעגל. זה החליף את `SlowAPIMiddleware`, שתחת FastAPI 0.137 ומעלה לא אכף כלום (CAR-126). תקרה שנייה, לפי מספר טלפון (`OTP_MAX_PER_HOUR`), נמצאת ב-`services/auth.py` — היא שורדת החלפת כתובות, וזו זו שמגנה על חשבון ה-SMS.
 3. **Unhandled-exception handler** — תופס כל מה שבורח מ-route ומחזיר 500 נקי עם הנתיב בלוג.
 
 האימות הוא **לא** middleware — הוא ה-`CurrentUser` dependency שמוטמע בכל route מוגן.
@@ -298,8 +300,12 @@ Mobile App                                   Server                 Twilio (prod
    │  { phone, code }                           │                        │
    │ ─────────────────────────────────────────► │                        │
    │                                            │ passlib bcrypt.verify  │
-   │                                            │ on fail: failed_otp_count++│
-   │                                            │ if >= 5: locked_until = now+15min │
+   │                                            │ on fail: INSERT LoginFailure│
+   │                                            │   (user_id, caller_ip) │
+   │                                            │ 5+ מהכתובת הזו: סירוב, │
+   │                                            │   ההמתנה מוכפלת        │
+   │                                            │ 100 ברמת החשבון:       │
+   │                                            │   locked_until = now+15min │
    │                                            │ on success: צרוך,      │
    │                                            │    סמן is_phone_verified│
    │  200 { token, user }                       │                        │

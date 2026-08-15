@@ -6,6 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
 import { useDriveMode } from '@/hooks/useDriveMode';
+import { isBusiness } from '@/lib/utils';
+import { ToastContainer } from '@/components/ui/Toast';
 
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
@@ -15,7 +17,7 @@ function RootLayoutNav() {
   const router = useRouter();
   useDriveMode();
   const segments = useSegments();
-  const direction = lang === 'he' ? 'rtl' : 'ltr';
+  const direction = lang === 'HE' ? 'rtl' : 'ltr';
 
   useEffect(() => {
     if (isLoading) return;
@@ -30,7 +32,7 @@ function RootLayoutNav() {
         router.replace('/login');
       }
     } else {
-      if (user.role === 'business') {
+      if (isBusiness(user)) {
         if (!inBusinessGroup) {
           router.replace('/(business)');
         }
@@ -55,7 +57,7 @@ function RootLayoutNav() {
     <View style={{ flex: 1, direction }}>
       <Stack screenOptions={{ headerShown: false }}>
         {user ? (
-          user.role === 'business' ? (
+          isBusiness(user) ? (
             <Stack.Screen name="(business)" />
           ) : (
             <Stack.Screen name="(tabs)" />
@@ -69,12 +71,20 @@ function RootLayoutNav() {
   );
 }
 
+// Sibling of the navigator, not a child of it: RootLayoutNav returns early while
+// isLoading is true, and the "server unreachable" toast is raised during that window.
+function Toasts() {
+  const { toasts, removeToast } = useApp();
+  return <ToastContainer toasts={toasts} onDismiss={removeToast} />;
+}
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppProvider>
         <StatusBar style="light" />
         <RootLayoutNav />
+        <Toasts />
       </AppProvider>
     </SafeAreaProvider>
   );

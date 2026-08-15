@@ -8,6 +8,23 @@ It supplements the root `CLAUDE.md` with mobile-specific boundaries.
 Before creating or moving any file, read **`mobile/STRUCTURE.md`**.
 It defines the purpose of every directory, what belongs in each one, and what is forbidden.
 
+**Every change under `mobile/` follows that hierarchy — no exceptions, including changes
+that only pass through on the way to something else.** Pure logic goes in `lib/`, server
+shaping in `services/`, global state in `context/`, presentation in `components/`. Adding
+code to whichever file already happens to be open is how a 763-line `AppContext.tsx`
+happened: 146 lines of SHA-256 sat in a React context for a whole sprint while three
+documents in this repo said it belonged in `lib/`.
+
+Two costs, both paid later:
+- **Ownership blurs.** A file that several people edit for unrelated reasons becomes the
+  file everyone conflicts on. `mobile/STRUCTURE.md` now records an owner per file — keep
+  it accurate, and give a block its own file when it has a clear single owner.
+- **Bugs hide.** Finding a defect in a 700-line file that mixes four concerns costs far
+  more than finding it in a named 40-line one.
+
+If a change does not fit the hierarchy, that is a signal to discuss the structure — not
+to make the exception quietly.
+
 ## Layer rules (enforced)
 
 | Layer | Path | Rule |
@@ -18,7 +35,7 @@ It defines the purpose of every directory, what belongs in each one, and what is
 | UI components | `src/components/` | Presentational. No direct API calls. |
 | Screens | `src/screens/` | Compose components + hooks. No inline business logic. |
 | API layer | `src/services/api/` | Request/response shaping only. No business decisions. |
-| Types | `src/types/` | Generated via `npm run gen:api`. Do not edit manually. |
+| Types | `src/types/` | Aliases over `src/services/api/generated.ts`, which `gen:api` writes and we commit. Hand-write only what the schema cannot express — see the root CLAUDE.md. |
 
 ## `driving-sdk/` — hard boundary
 
@@ -36,38 +53,28 @@ If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
 
 ## Server config — builds vs. dev
 
-`constants/serverConfig.ts` controls where API calls go:
+`src/constants/serverConfig.ts` controls where API calls go:
 
 | Flag | Value | Where requests go |
 |---|---|---|
 | `USE_REAL_SERVER` | `false` | Metro proxy → local mock server (Expo Go / dev client only) |
 | `USE_REAL_SERVER` | `true` | `STAGING_SERVER_URL` (real or cloud-hosted server) |
 
-### Current state (as of branch `feature/beta-improvements`)
+`USE_REAL_SERVER = true` today, pointed at the deployed Azure Container App. The app talks to the real backend, **not** the local mock server.
 
-`USE_REAL_SERVER = true` and `STAGING_SERVER_URL` is set to the cloud server URL.
-The app is configured to talk to the real backend — **not** the local mock server.
+### Builds
 
-### Before the next APK/IPA build
+The cloud backend is live, so a build is not blocked on it. Confirm `GET <STAGING_SERVER_URL>/health/live` returns 200, then:
 
-The mobile side is ready. The build is **blocked on the backend** until the following are confirmed:
-
-| # | What | Owner |
-|---|---|---|
-| 1 | FastAPI server deployed and running at the URL set in `STAGING_SERVER_URL` | Backend |
-| 2 | PostgreSQL database provisioned and reachable from the server | Backend |
-| 3 | All environment variables set (see `server/.env.example`) | Backend |
-| 4 | Database migrations applied (`alembic upgrade head`) | Backend |
-| 5 | `GET <server-url>/health/live` returns HTTP 200 | Backend |
-
-Once all five are confirmed, run:
 ```bash
 cd mobile
 eas build -p android --profile preview   # Android APK
 eas build -p ios     --profile preview   # iOS IPA (requires Apple Developer account)
 ```
 
-Full step-by-step instructions are in **`docs/SERVER-INTEGRATION-SETUP.md`** (repo root level, outside `mobile/`).
+Before a device build, confirm `USE_REAL_SERVER = true` and that `STAGING_SERVER_URL` points at the
+deployed server — `serverConfig.ts` is the only file that decides this. Server-side environment
+variables are documented in `server/.env.example`.
 
 ## Disabled features — pattern
 
@@ -88,5 +95,6 @@ npm start                  # Expo dev server
 npm test -- --no-coverage  # Jest
 npm run lint               # ESLint
 npx tsc --noEmit           # TypeScript check
-npm run gen:api            # Regenerate types from server OpenAPI schema
+npm run gen:api            # Rewrites src/services/api/generated.ts from a server running
+                           # on :3000. Commit the result; src/types/ aliases it.
 ```

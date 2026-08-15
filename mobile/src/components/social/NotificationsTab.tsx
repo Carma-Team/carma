@@ -21,15 +21,15 @@ import {
   visibleRows,
   type NotificationsState,
 } from '@/lib/notifications';
-import type { Notification } from '@/types';
+import type { Language, Notification } from '@/types';
 
 /** Formats in the app's language, not the device's. Today shows a time —
  *  without it everything from today collapses onto one indistinguishable date. */
-function formatWhen(iso: string, lang: string): string {
+function formatWhen(iso: string, lang: Language): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
 
-  const locale = lang === 'he' ? 'he-IL' : 'en-US';
+  const locale = lang === 'HE' ? 'he-IL' : 'en-US';
   const now = new Date();
   const isToday =
     d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();

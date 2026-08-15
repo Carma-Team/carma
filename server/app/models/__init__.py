@@ -12,6 +12,7 @@ from app.models.enums import (
 from app.models.event import Event
 from app.models.fraud import FraudReport
 from app.models.friendship import UserFriend
+from app.models.login_failure import LoginFailure
 from app.models.notification import (
     NOTIFICATION_FRIEND_ACCEPTED,
     NOTIFICATION_FRIEND_REQUESTED,
@@ -38,6 +39,7 @@ __all__ = [
     "FriendStatus",
     "FraudReport",
     "Language",
+    "LoginFailure",
     "Notification",
     "OtpCode",
     "Redemption",

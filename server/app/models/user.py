@@ -48,6 +48,12 @@ class User(Base, TimestampMixin):
     # level a driver is shown; no API schema exposes it yet — CAR-85.
     driver_score: Mapped[float | None] = mapped_column(Float)
 
+    # Longest run of good driving days this driver has ever held (scoring.md
+    # "Streaks"). Stored because it is the one streak figure that cannot be
+    # recomputed: the live count is derived from a 30-day window, so a record set
+    # before that falls out of history for good.
+    best_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Short code behind this user's invite link. Minted on first use, then stable.
     invite_code: Mapped[str | None] = mapped_column(String(12), unique=True)
 
@@ -62,8 +68,13 @@ class User(Base, TimestampMixin):
     last_cleared_history: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    failed_otp_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Failed sign-ins are `LoginFailure` rows, not a column here — see that model
+    # for why the address they came from is part of the key.
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where the account-wide failure tally restarts. Set when the account locks,
+    # so reopening does not re-lock on the first failure — without discarding the
+    # per-address rows, which is what a guesser would want us to do.
+    lockout_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     last_logged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

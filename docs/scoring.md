@@ -1,45 +1,51 @@
-# How the CARMA score works
+# How the CARMA Score Works
 
-**Status: live.** This is the only scoring engine.
+**Target architecture.**
 
-Every trip is stamped with the version of the formula that scored it — currently `2.1.0`, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from June is still readable today. That stamp is the only thing the version number is for.
+This document defines the CARMA scoring system: what it measures, how a trip becomes a number, and how that number drives the rewards economy.
 
-Where this document and the code disagree, **the code is right**: [`server/app/services/scoring.py`](../server/app/services/scoring.py).
+Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number.
 
----
-
-## The short version
-
-- **Every trip scores 0 to 100**, from five things: phone distraction, speeding, braking, acceleration, cornering. The same five Cambridge Mobile Telematics measure in DriveWell.
-- **Distraction counts most.** CMT measured a 240% rise in crash risk from phone distraction, against 103% for hard braking and 71% for speeding.
-- **We count rates, not totals.** Three hard brakes over 200 km is good driving; three over 2 km is not. Everything is per 100 km or per driving hour, so a long trip is never punished for being long.
-- **The driver's score is separate** and moves slowly. One bad trip fades in about two weeks.
-- **The server decides.** The phone collects sensor data. It never calculates a score anyone can see.
+Reference implementation: [`server/app/services/scoring.py`](../server/app/services/scoring.py).
 
 ---
 
-## Why this follows CMT
+## 1. Core Purpose
 
-Almost every choice below — what to measure, in what units, what counts as distraction — follows Cambridge Mobile Telematics rather than something we invented. That is deliberate, and it is the strongest thing about the algorithm.
+### What the score measures
 
-**Why their method carries weight ours could not:**
+A CARMA trip score is a number from **0 to 100** that rates one drive on five behaviours:
 
-| | |
-|---|---|
-| **Validated against crashes** | The only real proof a driving metric works is that it predicts crashes. CMT matched their measurements against actual insurance claims across tens of millions of drivers. Internal tuning is no substitute. |
-| **Survives regulatory review** | Insurers use CMT scores in rating plans filed with state regulators — examined by people whose job is to reject unfair pricing. A self-invented score has passed no such test. |
-| **Population numbers are published** | Their annual figures let us check our sensors against a known baseline now, instead of waiting years for claims of our own. |
-| **It is in the public record** | Patent 11,485,369 covers the distraction measurement; the crash-risk findings are published with road-safety bodies. It can be read and challenged. |
+| # | Behaviour | Weight |
+|---|---|---|
+| 1 | Phone distraction | 0.30 |
+| 2 | Speeding | 0.25 |
+| 3 | Hard braking | 0.20 |
+| 4 | Aggressive acceleration | 0.15 |
+| 5 | Sharp cornering | 0.10 |
 
-**What copying them buys, and what it does not.** It makes our numbers *comparable* to the industry standard and auditable by anyone who knows the field. It does not make them *validated* — their figures are validated because they had claims to check against, and we have none.
+These are the same five behaviours Cambridge Mobile Telematics (CMT) measures in DriveWell, using the same units. Matching the industry method means our numbers can be compared against a published baseline.
 
-The honest sentence, which is stronger than overclaiming:
+### Design principles
 
-> *"We measure the way the industry leader measures, so our numbers can be checked against theirs. Validating against claims requires claims — that comes after the pilot."*
+- **Rates, not totals.** Three hard brakes over 200 km is good driving. Three over 2 km is not. Every measurement is normalised per 100 km or per driving hour, so a long trip is never punished for being long.
+- **The server decides.** The phone collects sensor data and may show a live preview. Only the server produces a real score.
+- **Counts only move up.** Where the phone and the server disagree, the higher count wins. This is a one-way anti-fraud rule.
+- **Improvement always pays.** The scoring curve never reaches zero, so even a low-scoring driver gains from driving better.
+
+### What the score is for
+
+**Built for:** driver feedback, the leaderboard, the level ladder, and the rewards economy.
+
+**Not built for:** insurance pricing, underwriting, employment or fleet-hiring decisions, or any use with a legal or financial consequence for a person. The score has not been validated against crash or claim data.
+
+**Valid input range:** private cars, Israeli roads, a phone carried or mounted inside the vehicle, and trips that clear the distance and time floors with a GPS trace dense enough to measure. Outside that range — motorcycles, commercial fleets, a phone left at home, a trip through a tunnel — the score is uninformed rather than wrong, and it does not flag this on its face.
 
 ---
 
-## How a trip becomes a score
+## 2. System Architecture & Data Flow
+
+### The journey from phone to score
 
 ```
    Phone                            Server
@@ -55,105 +61,162 @@ The honest sentence, which is stronger than overclaiming:
                          └──────────────────────────────┘
 ```
 
-The phone can show live feedback during a drive, but that is a preview. Only the server's number is real.
+### What the phone sends
+
+The phone uploads two things per trip:
+
+1. **A signed telemetry digest.** Event counts, severities, distraction seconds, and distance. This is the input to the score. The signature is what makes it trustworthy.
+2. **A waypoint trace.** The GPS path, thinned to one point every 5 seconds. The server uses it to re-detect events independently and to verify the claimed distance.
+
+Anything that feeds the score travels inside the signed digest. Unsigned data is stored for diagnostics and never scored.
+
+### Two detectors, one result
+
+Events are detected twice — once on the phone in real time, once on the server from the waypoint trace.
+
+- The phone sees a denser stream and catches short events the thinned trace misses.
+- The server sees a verified trace and cannot be influenced by a modified client.
+- The final count for each event type is `max(phone, server)`.
+
+### Trip boundaries
+
+- A trip **starts** when sustained vehicle movement is detected.
+- A trip **ends** after 3 minutes continuously below 10 km/h.
+- Trips below **4 km or 5 minutes** are scored, but softly (see §3.6).
 
 ---
 
-## The five things we measure
+## 3. The Scoring Engine
 
-Where we stand against CMT, component by component:
+### 3.1 Phone distraction — weight 0.30
 
-| Component (weight) | CMT's method | Ours | Gap |
-|---|---|---|---|
-| Phone distraction (0.30) | Two metrics, seconds per driving hour, counted only while the vehicle moves | One blended metric, same unit, counted above 15 km/h | We collapse their two into one |
-| Speeding (0.25) | Time over the road's actual limit | Time over a flat 120 km/h national maximum | No map data for posted limits |
-| Braking (0.20), acceleration (0.15), cornering (0.10) | Harsh-event detection from phone sensors, normalised by exposure | Same, plus independent GPS re-detection | No per-event severity yet |
+We measure **distraction by the phone, not contact with it.** A tap is not the unit. A hand off the wheel and eyes off the road is.
 
-**The weights themselves are the largest gap, and it is not a row above.** CMT's crash data puts distraction about 3.4x above speeding; our weights put them nearly level at 0.30 and 0.25. Normalising their figures would give distraction roughly 0.58. Re-weighting is CAR-53 — deliberately not before the distraction signal is trustworthy, because raising the weight of a noisy measurement amplifies the noise along with it.
+Two counters, matching CMT's two published metrics. Both count only while the vehicle is moving **above 15 km/h** — a red light, a traffic jam, or the stationary tail at the end of a trip costs nothing.
 
-### Phone distraction
-
-CMT publish two separate figures. Both are useful as a sanity check on our own sensors:
-
-| CMT metric | What it is | US average, 2024 |
+| Counter | What it counts | How it is detected |
 |---|---|---|
-| Screen interaction | Typing, tapping, using apps | 1 min 56 s per driving hour |
-| Phone motion | Physically handling the device | 1 min 22 s per driving hour |
+| **Screen interaction** | Typing, tapping, scrolling | A rhythmic **pattern** of gyroscope peaks. Tapping a screen produces taps in a cadence; that cadence is the signature, not the force of any one of them. |
+| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A hand stabilises orientation while the vehicle moves under it; a mount does not. |
 
-If our number is far off theirs, our sensors are broken — and we find that out now, not after years of collecting claims.
+The counters are **mutually exclusive**. Each second is assigned to one or the other, never both, so a driver typing while holding the phone is charged once.
 
-**Where we fall short.** Our live formula is `touch_epochs + screen_seconds / 60`. It merges CMT's two metrics at a ratio nobody chose: thirty seconds of typing scores like twenty minutes of handling. We use CMT's *unit*, not yet CMT's *method*. Splitting them is CAR-54.
+```
+distraction rate = (screen_interaction_seconds + phone_motion_seconds)
+                 / driving_hours_above_15_kmh
+```
 
-**Decisions made along the way:**
+**Reference baselines (CMT, US average 2024). Each counter is checked against its own:**
 
-| Decision | Why |
+| Counter | Average per driving hour |
 |---|---|
-| Time, not taps | "What is one tap?" is unanswerable — typing a message is dozens. Counting seconds makes the question disappear. |
-| Holding without touching counts | The hand and the eyes are the danger, not the tap. |
-| Below 15 km/h is free | A red light costs nothing, and no special rule had to be written for it. Matches CMT counting distraction only while the vehicle moves. |
-| Screen-lock state ignored | Android exposes it, iOS does not. Using it would score the same behaviour differently on two phones. |
+| Screen interaction | 1 min 56 s |
+| Phone motion | 1 min 22 s |
 
-### Speeding
+Our measured population averages should land in the same region, counter by counter. Collapsing them into a single figure and comparing that against a combined total would hide which of the two detectors drifted — separating them is the whole diagnostic value. A large gap on one indicates a sensor problem in that detector, not a fleet of unusually good or bad drivers.
 
-Time over the limit, weighted by how far over — not a count of incidents.
+**Design decisions:**
 
-| How far over | Weight |
+| Decision | Reason |
 |---|---|
-| under 10 km/h | ignored — GPS noise and traffic flow |
+| Holding without touching counts | The hand and the eyes are the risk, not the tap. |
+| Below 15 km/h is free | Stopped traffic is not distracted driving. |
+| Screen state is not required by either counter | iOS exposes no screen state to a backgrounded app, so a detector that depended on it would measure nothing on every iPhone. CMT's patent treats it as one optional corroborator — "screen state **and/or** phone-lock state" — never as the discriminator. |
+| The gyroscope decides both counters, not the accelerometer | CMT's placement study tested accelerometer variance and published it as a negative result: most of that variance is vehicle dynamics, not hands. The same sensor separates both metrics — a *pattern* of peaks is typing, a sustained *variance* is holding. |
+| Taps are counted as seconds, not as events | "What is one tap?" has no answer — typing a message is dozens. And a single-sample force threshold cannot separate a finger from a pothole at any value, which is why counting individual taps was abandoned. The cadence can; a single sample cannot. |
+
+### 3.2 Speeding — weight 0.25
+
+Speeding measures **time spent over the limit, weighted by how far over** — not a count of incidents.
+
+| How far over the limit | Weight |
+|---|---|
+| Under 10 km/h | Ignored — GPS noise and normal traffic flow |
 | 10–19 km/h | ×1 |
 | 20–29 km/h | ×3 |
 | 30 km/h and above | ×8 |
 
-**Today this runs against a flat 120 km/h national maximum**, not the road's posted limit. With the 10 km/h buffer, **only sustained speed above 130 km/h costs anything** — egregious motorway speeding, nothing else. Until map data arrives, speeding's weight is shared across the other four.
+The limit is the road's **posted speed limit** where map data covers the road. Where it does not, the system falls back to a flat **120 km/h** national maximum. With the 10 km/h buffer, the fallback only charges sustained speed above 130 km/h.
 
-### Braking, acceleration, cornering
+### 3.3 Harsh events — braking, acceleration, cornering
 
-Detected twice, independently: by the phone's accelerometer, and by the server from the GPS trace.
+All three are detected from **GPS dynamics**: change in speed over time, and speed multiplied by rate of heading change. The accelerometer cross-confirms that a real horizontal force occurred and refines the severity. It is a witness, not the trigger.
 
-| Event | Phone detects at | Server detects at (from GPS) |
+This is orientation-free by design. A phone in a vent clip, a cup holder or a pocket points its axes in an unknown direction, so no fixed accelerometer axis can be trusted. Speed change and heading change do not care how the phone is held.
+
+**Detection thresholds:**
+
+| Event | Phone triggers at | Server triggers at (from the waypoint trace) |
 |---|---|---|
-| Hard brake | 0.459 g | 3.0 m/s² sustained deceleration |
-| Aggressive acceleration | 0.408 g | 2.5 m/s² |
-| Sharp turn | 0.357 g lateral | 18°/s bearing change above 25 km/h |
+| Hard brake | GPS deceleration **2.7 m/s²** (~0.28 g) | **3.0 m/s²** sustained deceleration |
+| Aggressive acceleration | GPS acceleration **3.0 m/s²** (~0.31 g) | **2.5 m/s²** |
+| Sharp turn | speed × turn rate ≥ **3.5 m/s²** (~0.36 g) | **18°/s** bearing change |
 
-- **Low-speed events are dropped** — parking, speed bumps, a dropped phone. Standard practice across the industry, and it removes the largest source of false alarms in phone-based telematics. The floor differs by event and by which side detected it:
+The phone averages over a window of at least **1.5 seconds**. The two sides use different thresholds because they see data at different densities; the merge rule (`max`) resolves the difference.
 
-  | Event | Phone drops below | Server drops below |
-  |---|---|---|
-  | Hard brake | 15 km/h | 15 km/h |
-  | Aggressive acceleration | 5 km/h | 15 km/h |
-  | Sharp turn | 10 km/h | 25 km/h |
+**Low-speed floors.** Events below these speeds are discarded on both sides. This removes parking manoeuvres, speed bumps and a dropped phone — the largest source of false alarms in phone-based telematics.
 
-  The two sides disagree on acceleration and cornering, and because counts merge as `max(phone, server)` the looser floor wins — a 6 km/h pull-out counts as an aggressive acceleration. Tracked in CAR-103.
-- **Where the two disagree, the higher count wins.** GPS sampling every 3–6 seconds misses short events an accelerometer catches, so the server's count is a floor, never a ceiling. Counts only ever go up — anti-fraud is one-way.
-- **Severity is built but switched off.** A 0.75 g emergency stop should cost more than a 0.31 g one, on a smooth curve rather than in steps, so there is no "brake at 0.29 g and it's free" gap to game. `event_severity()` is written and tested, but the phone does not send each event's peak force, so **today every event counts as one** (CAR-6).
+| Event | Minimum speed |
+|---|---|
+| Hard brake | 15 km/h |
+| Aggressive acceleration | 15 km/h |
+| Sharp turn | 25 km/h |
 
-> **Before severity ships:** the curve starts at 0.30 g for braking, but the phone reports nothing below 0.459 g. Every reported brake would land mid-curve on day one and the lowest band would be unreachable. The bands need re-anchoring to the SDK's real thresholds.
+### 3.4 Event severity
 
----
+Events are **not** counted equally. An emergency stop costs more than a firm tap on the brakes, on a smooth curve, so there is no threshold to game.
 
-## Turning measurements into a score
+Every event carries its **peak acceleration** and **duration**. These produce a severity weight:
 
-### Rates, not totals
+```
+g_norm          = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
+g_factor        = g_norm^1.5 + 1.0
+duration_factor = 1.0 + min(duration_ms / 2000, 0.5)
+
+severity = g_factor × duration_factor
+```
+
+**Severity ranges by event type:**
+
+| Event | Axis measured | g_min | g_max |
+|---|---|---|---|
+| Braking | Longitudinal (deceleration) | 0.30 g | 0.60 g |
+| Acceleration | Longitudinal | 0.27 g | 0.55 g |
+| Cornering | Lateral | 0.35 g | 0.65 g |
+
+Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+
+**Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
+
+> **Required input format — `peak_g` must be a single axis in the vehicle's frame of reference.**
+>
+> The ranges above are calibrated for isolated longitudinal deceleration (braking, acceleration) and isolated lateral acceleration (cornering), measured relative to the vehicle, not the phone.
+>
+> Passing raw accelerometer magnitude, or any horizontal magnitude taken in the phone's own frame, breaks this curve. Two failures follow:
+>
+> - **The value carries gravity, road vibration and phone movement**, none of which are vehicle dynamics. It is not the quantity the curve maps.
+> - **Detection accepts events from 0.10 g while the curve starts at 0.30 g.** Every event below the range clamps to `g_norm = 0`, so the entire population collapses onto the minimum severity of 1.0 and the curve does nothing.
+>
+> A phone at an unknown orientation cannot supply this value without a phone-to-vehicle rotation step. Until that step exists, the correct behaviour is to send no severity at all and let the engine count events — not to send an uncorrected magnitude.
+
+### 3.5 Rates and subscores
+
+**Exposure normalisation:**
 
 | Measure | Divided by | Floor |
 |---|---|---|
 | Braking, acceleration, cornering, speeding | 100 km | 4 km |
-| Distraction | driving hour | 5 minutes |
+| Distraction | Driving hour | 5 minutes |
 
-The floors stop short trips from exploding: without them, one brake in a 500 m trip reads as 200 brakes per 100 km.
+The floors prevent very short trips from exploding. Without them, one brake in a 500 m trip reads as 200 brakes per 100 km.
 
-### Rate to subscore
-
-Each of the five gets its own 0–100 subscore:
+**Rate to subscore.** Each of the five components produces its own 0–100 subscore:
 
 ```
 subscore = 100 × exp(−k × rate)
 ```
 
-The curve never hits zero and never flattens, so there is always something to gain by improving — even for a driver scoring badly. A straight-line penalty stops mattering once you are bad enough, which kills the incentive exactly where it matters most.
-
-| Component | k |
+| Component | k (legacy — see warning) |
 |---|---|
 | Braking | 0.018 |
 | Acceleration | 0.022 |
@@ -161,11 +224,19 @@ The curve never hits zero and never flattens, so there is always something to ga
 | Speeding | 0.012 |
 | Distraction | 0.020 |
 
-**This is the one place we knowingly depart from CMT.** They score each component against the driver population; we use a fixed curve with a fixed constant. Population-relative scoring is the better method and needs a fleet distribution we do not have yet.
+> ⚠️ **The k constants above are legacy placeholders. They must be re-fitted before release.**
+>
+> They were fitted against **event counts**, where every event contributes exactly 1.0. The engine now sums **severities**, where every event contributes between 1.0 and 3.0.
+>
+> The harsh-event rates therefore rise by a factor of roughly 1.5–2× for identical driving. Applied to `exp(−k × rate)`, the existing constants push every score down across the whole population, with no change in behaviour behind it.
+>
+> The same applies to any change in detection sensitivity. Because the curve is fixed rather than population-relative, the constants are tied to the detector that produced the fit — a new threshold, a new SDK version, or a shift in the handset mix all invalidate them.
+>
+> **Re-fit conditions:** a minimum of 200 trips, recorded with severity-capable detection, on the detector configuration intended for release.
 
-**The constants are provisional.** Fitted July 2026 to 57 real trips — enough to repair a visibly broken curve (every trip scored exactly 100, or fell off a cliff to 50 on a single event), not enough to call settled. A proper fit needs roughly 200 trips, trustworthy phone-side detection (CAR-6) and per-event severity. Treat them as better than a guess, not yet earned. Record and trigger: CAR-102.
+The exponential curve never reaches zero and never flattens. There is always something to gain by improving, including for a driver scoring badly. A straight-line penalty stops mattering once a driver is bad enough, which removes the incentive exactly where it is needed most.
 
-### Blending the five
+### 3.6 Blending the five
 
 ```
 trip score = 0.30 × distraction
@@ -175,110 +246,170 @@ trip score = 0.30 × distraction
            + 0.10 × cornering
 ```
 
-**While posted limits are unavailable**, speeding's share is redistributed: distraction 0.40, braking 0.27, acceleration 0.20, cornering 0.13.
+**When the trace cannot support speed measurement**, speeding drops out and its 0.25 is redistributed across the other four:
 
-### Three adjustments
-
-| Adjustment | What it does |
+| Component | Weight without speeding |
 |---|---|
-| **Short trips are judged gently** | Under 2 km or 5 minutes, the score is blended half-and-half with the driver's standing score. Too little happened to draw a conclusion. |
-| **Bad GPS caps the upside, never the downside** | A sparse or gappy trace stops a trip scoring far above the driver's rolling average. Reported events still count in full — a weak signal must not let a bad trip look good, and must not invent a good one. |
-| **Claimed distance is checked against the trace** | The server integrates the GPS trace itself and rejects a distance claim more than 35% above what the trace witnesses. Distance multiplies points directly, so it was the one scoring input with no independent check. |
+| Distraction | 0.40 |
+| Braking | 0.27 |
+| Acceleration | 0.20 |
+| Cornering | 0.13 |
+
+This is decided **per trip**. A trip qualifies for speeding only with at least **20 waypoints**, covering at least **half its duration**, at a **median gap of 10 seconds or less**. A phone whose location updates are throttled fails this test and is scored on four components. GPS cadence is therefore a scoring concern, not only a battery one.
+
+### 3.7 Final adjustments
+
+| Adjustment | Effect |
+|---|---|
+| **Short trips are judged gently** | Under 2 km or 5 minutes, the trip score is blended half-and-half with the driver's standing score. Too little happened to draw a conclusion. |
+| **Weak GPS caps the upside only** | A sparse or gappy trace stops a trip scoring far above the driver's rolling average. Reported events still count in full. A weak signal must not let a bad trip look good, and must not invent a good one. |
+| **Claimed distance is verified** | The server integrates the GPS trace and rejects a distance claim more than **35%** above what the trace witnesses. Distance multiplies points directly, so it needs an independent check. |
 
 ---
 
-## The driver's own score
+## 4. Gamification & Economy
 
-The trip score is about one drive. The **driver score** is the persistent number a leaderboard, a level ladder or an insurance partner should be built on.
+### 4.1 The driver score
 
-- **Recent trips matter more.** Trips are averaged with a 14-day half-life, weighted by distance — an effective window of about 28 days, matching the rolling window CMT use for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
-- **New drivers start at 75.** Too few trips is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at 300 km. Standard actuarial practice, and better than either a meaningless 100 or a wildly swinging real number.
+The trip score rates one drive. The **driver score** is the persistent number the leaderboard and the level ladder are built on.
 
-**What it drives today:** the level a driver is shown. `total_points` only climbs, so without a cap a driver who earned level 8 and then drove badly would display 8 forever.
+- **Recent trips matter more.** Trips are averaged with a **14-day half-life**, weighted by distance — an effective window of about 28 days, matching the rolling window CMT uses for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
+- **New drivers start at 75.** With too few trips there is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at **300 km**.
 
-| Driver score | Level shown, at most |
+### 4.2 Levels
+
+The driver score caps the level a driver is shown. `total_points` only ever climbs, so without a cap a driver who reached level 8 and then drove badly would display level 8 forever.
+
+| Driver score | Maximum level shown |
 |---|---|
 | 80+ | 10 (no effective cap) |
 | 70–79 | 8 |
 | 60–69 | 6 |
 | 50–59 | 4 |
-| under 50 | 2 |
+| Under 50 | 2 |
 
-Nothing is destroyed — when the driver score recovers, the earned level returns with no points to re-accumulate. These thresholds are a first calibration, not fitted to the fleet.
+Nothing is destroyed. When the driver score recovers, the earned level returns with no points to re-accumulate.
 
-**No API returns the driver score and the app has never displayed it.** Exposing it is CAR-85.
+### 4.3 Points
 
----
-
-## Points
-
-Points are the game currency, and deliberately **not** the score. This part is ours — CMT score risk, they do not run a rewards economy.
+Points are the game currency and deliberately **not** the score.
 
 ```
 points = trip score
        × distance factor    (log scale — 1.0 at 10 km)
        × risk multiplier    (Israeli weekend nights ×2.0, weeknights ×1.5)
-       × streak bonus       (+5% per consecutive day with a trip, up to ×1.25)
        × level bonus        (the level entering the trip — ×1.00 to ×2.00)
                             ↓
                      then clipped by the limits below
 ```
 
-**The streak rewards showing up, not driving well.** It counts consecutive days with any trip, at any score — a driver averaging 40 builds the same ×1.25 as one averaging 95. Tying it to the score is CAR-104.
+The level bonus sits **inside** the formula, before clipping. The level changes how fast a driver reaches the ceiling; it never raises the ceiling itself. This matches tiered loyalty practice — per-tier earn rates under one flat ceiling.
 
-**The level bonus is inside the formula, not applied after it.** It used to be a multiplier laid on top of the already-clipped figure, which made the real ceiling 300 × the level bonus — 600 a day at level 10, the account worth grinding for. The level now changes how fast a driver reaches a ceiling, never where the ceiling sits. That is what tiered loyalty practice does, and what Discovery's Vitality Drive does: per-tier earn rates under one flat monthly ceiling.
+**The streak is not in this formula, deliberately.** See §4.5.
 
-**Limits that protect the rewards economy:**
+**The risk multiplier is earned by the score, not granted by the hour.**
 
-- **3,000 points per rolling 30 days** — the economic ceiling: what the catalogue will pay one driver. At roughly ₪0.10 a point that is ₪300 a month, level with Vitality Drive's 3,000 and well above LETSTOP's free tier (~₪75). Before this there was no monthly limit at all and the daily one implied ~₪900. Rolling rather than calendar, because a reset date is a farming date.
-- **500 points a day** — a rate limiter, not a second economic ceiling. It sits deliberately *above* every honest driving pattern (an ordinary commute at level 10 is ~240, a Friday night out ~285, an 80 km day ~310) and exists only so that a bug or an exploit cannot drain a whole month in an afternoon. A daily cap a real driver can feel has been priced as an economic ceiling by mistake; that job belongs to the month.
-- **150 km a day** counted toward points — a delivery driver cannot farm the system.
-- **Fraudulent trips earn nothing** and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps.
+Paid flat, it would pay for being on the road at 02:00 rather than for driving well there — the same context the industry uses to raise measured risk. So it tapers in:
 
----
-
-## What is live, and what is waiting
-
-**Working today:** the whole pipeline — server-side GPS detection, rates, subscores, blending, confidence cap, distance witness, driver score, level cap, points, anti-grind caps. Unit tests at every stage.
-
-| Designed, not yet live | Waiting on |
+| Trip score | Share of the multiplier earned |
 |---|---|
-| Distraction split into CMT's two metrics | CAR-54 |
-| Per-event severity | CAR-6 — the SDK sending peak g-force |
-| Speeding against real posted limits | Map data |
-| Population-relative subscores | A real fleet distribution — CAR-102 |
-| Driver score visible to the driver | CAR-85 |
+| 70 or below | None — the multiplier is ×1.00 at any hour |
+| 85 | Half of the excess above ×1.00 |
+| 100 | The full time-of-day figure |
+
+```
+earned = clamp((trip_score − 70) / 30, 0, 1)
+effective risk multiplier = 1.0 + (base − 1.0) × earned
+```
+
+- **It tapers to the hour's own base**, not to a fixed ×2.0. An ordinary weeknight still tops out at ×1.50.
+- **A taper, not a cut.** Two trips a tenth of a point apart must not differ twofold in what they pay.
+- The multiplier scales quality, never exposure. Distance is priced by the distance factor alone, at the same rate at every hour.
+
+The floor of 70 is uncalibrated. Where the fleet's trip scores actually sit decides whether this gate ever binds.
+
+### 4.4 Economic limits
+
+| Limit | Value | Purpose |
+|---|---|---|
+| **Monthly cap** | 3,000 points per rolling 30 days | The economic ceiling — what the catalogue will pay one driver. At roughly ₪0.10 a point, that is ₪300 a month. Rolling rather than calendar, because a reset date is a farming date. |
+| **Daily cap** | 500 points per day | A rate limiter, not a second economic ceiling. It sits above every honest driving pattern (an ordinary commute at level 10 is ~240 points, a Friday night out ~285, an 80 km day ~310) and exists only so a bug or an exploit cannot drain a month in an afternoon. |
+| **Daily distance cap** | 150 km counted toward points | A delivery driver cannot farm the system. |
+| **Fraud exclusion** | Zero points | Fraudulent trips earn nothing and are excluded from the driver score entirely: transport-mode mismatch, impossible physics, GPS jumps. |
 
 ---
 
-## Known limits, stated plainly
+### 4.5 Streaks
 
-- **We cannot see phone touches.** No app can see touches delivered to another app, on either platform — including CMT's. Handling is inferred from how the device moves.
-- **A phone typed on in a mount is invisible.** CMT's method looks for the phone *moving* first, and a phone clamped to a mount moves with the car. We inherit the blind spot by copying them. It matters more here than in the US, because Israeli regulation 28(b) bans texting whether the phone is mounted or not. The alternative — screen state, which only Android exposes — would blind us for half our users instead of all of them.
-- **A phone loose on a seat reads as a phone in a hand.** The largest known source of false distraction today, and the one that most needs fixing.
+A streak is how many **driving days in a row** the driver drove well. It is worth **no points**.
+
+The points formula already starts at the trip score, so driving well is paid on every trip. A streak multiplier would charge a second time for the same behaviour. This also matches practice outside telematics — Duolingo, Snapchat and Nike Run Club all leave the count itself as the reward.
+
+**The rules:**
+
+| Rule | The wrong version it replaces |
+|---|---|
+| A day counts on its **distance-weighted average** score, against a bar of **80** | "Any trip that day" lets one short good drive whitewash a bad day; "every trip" lets one short bad drive destroy a good one |
+| Days with **no trip are skipped**, not broken | Breaking on a quiet day pays drivers to take the car out, and the safest kilometre is the one nobody drives |
+| One bad day **ends the run**. No forgiveness | A streak freeze suits a 1,000-day identity object. This one is rebuilt in a week, and what it would forgive is the only thing being measured |
+| Counted up to **yesterday** | A day still in progress can be banked on a good morning and spoiled by evening |
+| Reaches back **30 days** at most | Doubles as the expiry: a streak that survives an indefinite absence is not a streak |
+
+The bar of **80** is the same 80 the level cap uses, so "a good day" means one thing across the product. It is a first calibration, not a fitted number.
+
+**The record** (`users.best_streak`) is the only part stored, because the live count is derived from a 30-day window and a record set before that cannot be recomputed. It is a personal best rather than a leaderboard: any accumulating measure ranks driving *volume*, so a public streak board would reward mileage.
 
 ---
 
-## Sources
+## 5. Known Limitations & Edge Cases
 
-**Cambridge Mobile Telematics** — the primary reference:
+### Driver and passenger are not distinguished
 
-- [How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/) — the five components, and scoring each against the driver population
-- [Distracted driving fell 8.6% in 2024](https://www.cmtelematics.com/news/distracted-driving-fell-8-6-in-2024-preventing-an-estimated-105000-crashes-and-480-fatalities/) — the screen-interaction and phone-motion figures
+- **There is no driver-versus-passenger classifier.** Any trip taken as a passenger is scored as if the user drove it.
+- **It contaminates all five components, not only distraction.** A passenger's phone handling reads as distraction, and the driver's braking and cornering are attributed to the passenger.
+- **The contamination is biased, not random.** A passenger uses their phone far more freely than a driver, so passenger trips push the distraction component — our heaviest, at 0.30 — in one direction.
+- **Manual trip deletion is not a substitute.** It relies on the user, it is unverifiable, and it only ever removes trips the user dislikes.
+- Commercial platforms treat this as a dedicated machine-learning model rather than a heuristic, and report classification accuracy in the high nineties. Until an equivalent exists, the driver score describes a phone, not a driver.
+
+### Measurement limits
+
+- **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform, and iOS exposes no screen state to a backgrounded app. Both counters therefore read the motion a touch produces rather than the touch itself — which is why the signature is a cadence of gyroscope peaks and not any single reading.
+- **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
+- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two — a hand stabilises orientation, a phone sliding on a seat tumbles — but the study behind that finding normalises its features before clustering, so it hands us the right signal and no threshold. Until ours is fitted against labelled drives, the separation is assumed rather than measured.
+- **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
+
+### Calibration limits
+
+- **The decay constants are provisional.** They are fitted to a small trip sample — enough to produce a working curve, not enough to call settled. A proper fit needs roughly 200 trips with severity data.
+- **Subscores use a fixed curve, not the driver population.** Scoring each component as a percentile against the fleet is the stronger method and requires a fleet distribution large enough to be stable.
+- **The level thresholds are a first calibration**, not fitted to real fleet behaviour.
+- **The component weights are not derived from crash data.** They reflect the published direction of risk — distraction highest — but not a measured ratio. CMT does not publish its own weights.
+
+### Scoring edge cases
+
+- **A throttled phone is scored on four components, not five.** Some Android handsets defer location updates hard enough that the trace cannot support speed measurement. That trip loses speeding and has its upside capped. Nobody is penalised, but two drivers can be scored by different formulas on the same drive.
+- **Speeding accuracy depends on map coverage.** On a road with no posted-limit data, only sustained speed above 130 km/h is charged.
+- **The streak bonus rewards showing up, not driving well.** It counts consecutive days with any trip, at any score.
+- **The score has never been validated against crash or claim data.** The method matches the industry leader, which makes the numbers comparable to theirs. It does not make them validated. Validation requires claims data.
+
+---
+
+## References
+
+**Cambridge Mobile Telematics — the primary method reference:**
+
+- [How the DriveWell platform works](https://www.cmtelematics.com/safe-driving-technology/how-it-works/)
+- [DriveWell programme FAQ (MoDOT)](https://www.modot.org/sites/default/files/documents/MO%20Drivewell%20FAQs.pdf) — the five components, and percentile scoring against the driver population over a two-week window
+- [Distracted driving fell 8.6% in 2024](https://www.cmtelematics.com/news/distracted-driving-fell-8-6-in-2024-preventing-an-estimated-105000-crashes-and-480-fatalities/) — the screen-interaction and phone-motion baselines
 - [Rising phone distraction calls for new methods of measurement](https://www.cmtelematics.com/blog/rising-phone-distraction-calls-for-new-methods-of-measurement/)
 - [Portable driving scores with TransUnion](https://beinsure.com/news/cambridge-mobile-telematics-portable-driving-scores/) — the 28-day rolling window
 - [Patent 11,485,369 — determining, scoring and reporting phone distraction](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11485369)
-- [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent)
+- [Patent 9,228,836 — inferring vehicle trajectory from an arbitrarily-oriented phone](https://patents.google.com/patent/US9228836B2/en)
+- [GHSA + CMT — distraction raises crash risk by 240%](https://www.ghsa.org/news/distracted-driving-raises-crash-risk-240-percent) — note the units: 240% is crash likelihood for the most distracted drivers, while the 103% braking and 71% speeding figures are expected losses
 
-**Harsh-event thresholds and low-speed filtering** — industry-wide, not CMT-specific:
+**Harsh-event detection and thresholds — industry-wide:**
 
-- [Geotab — what g-force means for harsh driving](https://www.geotab.com/blog/what-is-g-force/)
+- [Geotab — what g-force means for harsh driving](https://www.geotab.com/blog/what-is-g-force/) — thresholds for a fixed-orientation device
+- [Smartphone-based hard-braking event detection at scale](https://arxiv.org/abs/2202.01934) — a fused model scores 0.83 PR-AUC, 3.8× a GPS-speed heuristic and 166.6× an accelerometer-only heuristic
 - [Damoov — safety score documentation](https://docs.damoov.com/docs/safety-score)
 - [American Academy of Actuaries — regulatory adequacy of usage-based insurance](https://actuary.org/article/toward-the-regulatory-adequacy-of-usage-based-insurance/)
-
----
-
-## Related
-
-- [How CARMA measures phone distraction](https://linear.app/carma-app/document/how-carma-measures-phone-distraction-the-design-and-why-6f8361ad1dcc) — the full reasoning behind the distraction design
-- CAR-102 — the July 2026 recalibration record, and what unblocks a proper fit

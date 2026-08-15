@@ -142,7 +142,7 @@ carma/                                # Carma-Team/carma (monorepo root)
 │   │   ├── app/                      # expo-router screens (auth, tabs, admin, business)
 │   │   ├── screens/, components/, context/, hooks/
 │   │   ├── services/api/             # client.ts (Bearer), auth.api.ts, trips.api.ts, ...
-│   │   │   └── generated.ts          # auto-generated from /api/openapi.json (gitignored)
+│   │   │   └── generated.ts          # auto-generated from /api/openapi.json (committed)
 │   │   ├── lib/driving-sdk/          # IMU/GPS/BLE simulation
 │   │   └── types/                    # shared TS interfaces
 │   ├── package.json                  # `npm run gen:api` regenerates types from the server
@@ -196,7 +196,7 @@ class User(Base, TimestampMixin):
     last_lat, last_lng, last_location_at,            # Last known driver location
     last_cleared_history,                            # UI history filter
 
-    is_phone_verified, failed_otp_count, locked_until,   # Spec 5.2.4 enforcement
+    is_phone_verified, locked_until, lockout_reset_at,   # Spec 5.2.4 enforcement
 ```
 
 **Why both `points` and `total_points`?** the mobile frontend uses both: `points` is the redeemable balance (decreases when buying a voucher), `total_points` is the lifetime accumulation that determines the level. When redeeming a voucher we only decrement `points`.
@@ -212,6 +212,8 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 - `users (phone)`, `users (email)`, `users (role)`
 - `otp_codes (phone, purpose, consumed_at)` — active-OTP lookup
 - `otp_codes (expires_at)` — for cleanup
+- `login_failures (user_id, caller_ip, created_at)` — per-caller sign-in backoff
+- `login_failures (created_at)` — for the age sweep
 - `trips (user_id, start_time)`, `trips (status)`
 - `events (trip_id, timestamp)`, `events (type)`
 - `businesses (category)`, `businesses (location_lat, location_lng)`
@@ -224,7 +226,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 
 | Router (HTTP) | Service (logic) | What it does |
 |---|---|---|
-| `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Enforces lockout after 5 failed OTPs. |
+| `routers/auth.py` | `services/auth.py` | Register, login, /me. Both email+password and phone+OTP paths. Backs a caller off per (account, address) after 5 failures; locks the account itself only at 100. |
 | `routers/users.py` | `services/users.py` | `/users/me` profile + location + GDPR delete + `/user/stats`. |
 | `routers/trips.py` | `services/trips.py` | List, save (accepts snake_case and camelCase), get by id. Auto-updates `points`/`total_points`/`total_distance` on User. |
 | `routers/rewards.py` | `services/rewards.py` | List rewards (filter by category), redeem (random base64 QR, valid for `VOUCHER_TTL_DAYS`), my vouchers. |
@@ -237,7 +239,7 @@ The driver's last location (`User.last_lat`/`last_lng`) is updated via `PUT /api
 ### Global middleware (in `app/main.py`)
 
 1. **CORS** — `CORSMiddleware`, origins from `CORS_ORIGINS` env (default `*`). Credentials are allowed only when the origins are named explicitly — a wildcard plus credentials is forbidden by the spec, so `settings.cors_allows_credentials` turns them off together.
-2. **SlowAPI** — per-IP rate limiting. Defaults: 30/min, 500/hour; the auth routes tighten this to 5/min. The limiter lives in `app/core/limiter.py` so routers can import it without a cycle. A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
+2. **Rate limiting** — per-IP, `DefaultRateLimitMiddleware` in `app/middlewares/rate_limit.py`. Defaults: 30/min, 500/hour on every route that does not declare its own; the auth routes tighten this to 5/min and the health probes are exempt. Each handler counts against its own budget, so one busy screen cannot lock a caller out of the rest of the app, and a path parameter cannot hand out a fresh budget per id. The limiter itself lives in `app/core/limiter.py` so routers can import it without a cycle. This replaced `SlowAPIMiddleware`, which enforced nothing at all under FastAPI 0.137+ (CAR-126). A second, per-phone cap on issuing OTPs (`OTP_MAX_PER_HOUR`) sits in `services/auth.py` — it survives IP rotation, which is what protects the SMS bill.
 3. **Unhandled-exception handler** — catches anything that escapes a route and returns a sanitized 500 with the path logged.
 
 Authentication is **not** a middleware — it's the `CurrentUser` dependency on each protected route. Routes without it are public.
@@ -298,8 +300,12 @@ Mobile App                                   Server                 Twilio (prod
    │  { phone, code }                           │                        │
    │ ─────────────────────────────────────────► │                        │
    │                                            │ passlib bcrypt.verify  │
-   │                                            │ on fail: failed_otp_count++│
-   │                                            │ if >= 5: locked_until = now+15min │
+   │                                            │ on fail: INSERT LoginFailure│
+   │                                            │   (user_id, caller_ip) │
+   │                                            │ 5+ from this address:  │
+   │                                            │   refuse, wait doubles │
+   │                                            │ 100 account-wide:      │
+   │                                            │   locked_until = now+15min │
    │                                            │ on success: consume,  │
    │                                            │    mark is_phone_verified│
    │  200 { token, user }                       │                        │
@@ -616,8 +622,8 @@ Two things the workflow depends on and that are easy to break by accident:
 
 > **`TRIP_SIGNING_SECRET` is provisioned.** It exists on the app as the secret
 > `trip-secret` (64 chars, random), referenced by `TRIP_SIGNING_SECRET`. The
-> value is not recorded anywhere outside the Container App — read it back with
-> `az containerapp secret show` if you ever need it. This was the last thing
+> value is not recorded anywhere outside the Container App and EAS — read it back
+> with `az containerapp secret show` if you ever need it. This was the last thing
 > stopping the first automated deploy from crash-looping. (#95)
 >
 > Setting it only makes the server *able* to verify signatures. It does not
@@ -628,6 +634,24 @@ Two things the workflow depends on and that are easy to break by accident:
 > `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
 > passes it on every update, which is now belt-and-braces rather than the only
 > thing supplying it — so a bare `az containerapp update --image` boots as well.
+
+The client half of the same key is an EAS environment variable,
+`EXPO_PUBLIC_TRIP_SIGNING_KEY`, set on all three environments of the
+`@carma-app/carma-app-tzvaig` project and bound to the build profiles by the
+`environment` key in `mobile/eas.json` (CAR-147). Copy both sides together —
+rotating `trip-secret` without re-running `eas env:update` 403s every build in
+the field.
+
+`EXPO_PUBLIC_` means the bundler inlines it, so the key ships extractable inside
+the app. That is the accepted ceiling, not an oversight: a valid signature proves
+the payload came from a copy of the client, never from a trusted device. The
+visibility is `sensitive` rather than `secret` because EAS never lets a `secret`
+variable off its servers, which also puts it out of reach of the bundle. Only
+per-device attestation moves this line (#13).
+
+A dev client is the exception: it loads its JS from Metro, so the EAS value never
+reaches it at build time. `eas env:pull development` writes the key into
+`mobile/.env.local` — gitignored, and what Metro inlines instead.
 
 ### Container App environment variables
 

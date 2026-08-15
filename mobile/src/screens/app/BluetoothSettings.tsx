@@ -2,9 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
+import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
 import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
 
@@ -18,12 +18,16 @@ type BTStatus = {
 export default function BluetoothSettings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { sdk, addToast } = useApp();
+  const { sdk, addToast, btDevice, setBtDevice } = useApp();
+  const { t } = useTranslation();
 
-  const [devices, setDevices]       = useState<BluetoothDevice[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [btStatus, setBTStatus]     = useState<BTStatus>(null);
+  const [devices, setDevices]   = useState<BluetoothDevice[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [btStatus, setBTStatus] = useState<BTStatus>(null);
+
+  // The selection lives in AppContext, so the settings screen and the SDK listener
+  // can never disagree about which device is the target.
+  const selectedId = btDevice?.id ?? null;
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -33,9 +37,6 @@ export default function BluetoothSettings() {
 
       const available = await sdk.getAvailableDevices();
       setDevices(available);
-
-      const savedId = await AsyncStorage.getItem('carma_bt_device_id');
-      setSelectedId(savedId);
     } catch (error) {
       console.error('Failed to load BT settings', error);
     } finally {
@@ -49,19 +50,18 @@ export default function BluetoothSettings() {
 
   const handleSelect = async (device: BluetoothDevice) => {
     try {
-      const newId = selectedId === device.id ? null : device.id;
-      setSelectedId(newId);
+      const isDeselecting = selectedId === device.id;
+      await setBtDevice(isDeselecting ? null : { id: device.id, name: device.name });
 
-      if (newId) {
-        await AsyncStorage.setItem('carma_bt_device_id', newId);
-        sdk.updateTargetDevice(newId);
-        addToast({ title: 'הוגדר בהצלחה', message: `הרכב שלך זוהה כ-${device.name}`, type: 'success' });
-      } else {
-        await AsyncStorage.removeItem('carma_bt_device_id');
-        sdk.updateTargetDevice(null);
+      if (!isDeselecting) {
+        addToast({
+          title: t('bluetooth.connectedTitle'),
+          message: t('bluetooth.connectedMessage').replace('{name}', device.name),
+          type: 'success',
+        });
       }
     } catch {
-      Alert.alert('שגיאה', 'לא ניתן לשמור את ההגדרה');
+      Alert.alert(t('common.error'), t('bluetooth.saveError'));
     }
   };
 
@@ -85,10 +85,8 @@ export default function BluetoothSettings() {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="construct-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
-          <Text style={styles.emptyTitle}>נדרש גרסת Dev Build</Text>
-          <Text style={styles.emptyText}>
-            תכונה זו דורשת גרסת פיתוח של האפליקציה (Expo Dev Build) ואינה זמינה ב-Expo Go.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('bluetooth.devBuildTitle')}</Text>
+          <Text style={styles.emptyText}>{t('bluetooth.devBuildText')}</Text>
         </View>
       );
     }
@@ -97,10 +95,8 @@ export default function BluetoothSettings() {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="logo-apple" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
-          <Text style={styles.emptyTitle}>iOS אינה נתמכת</Text>
-          <Text style={styles.emptyText}>
-            חיבור Bluetooth Classic זמין על מכשירי Android בלבד.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('bluetooth.iosTitle')}</Text>
+          <Text style={styles.emptyText}>{t('bluetooth.iosText')}</Text>
         </View>
       );
     }
@@ -109,13 +105,11 @@ export default function BluetoothSettings() {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="bluetooth-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
-          <Text style={styles.emptyTitle}>Bluetooth כבוי</Text>
-          <Text style={styles.emptyText}>
-            אנא הפעל את ה-Bluetooth בהגדרות המכשיר ולחץ על רענון.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('bluetooth.offTitle')}</Text>
+          <Text style={styles.emptyText}>{t('bluetooth.offText')}</Text>
           <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
             <Ionicons name="refresh" size={18} color={COLORS.brand} />
-            <Text style={styles.refreshText}>רענן</Text>
+            <Text style={styles.refreshText}>{t('bluetooth.refresh')}</Text>
           </TouchableOpacity>
         </View>
       );
@@ -125,13 +119,11 @@ export default function BluetoothSettings() {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="shield-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
-          <Text style={styles.emptyTitle}>נדרשת הרשאה</Text>
-          <Text style={styles.emptyText}>
-            לא הוענקה הרשאת Bluetooth. אנא אשר גישה בהגדרות האפליקציה ולחץ על רענון.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('bluetooth.permissionTitle')}</Text>
+          <Text style={styles.emptyText}>{t('bluetooth.permissionText')}</Text>
           <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
             <Ionicons name="refresh" size={18} color={COLORS.brand} />
-            <Text style={styles.refreshText}>נסה שוב</Text>
+            <Text style={styles.refreshText}>{t('notifications.retry')}</Text>
           </TouchableOpacity>
         </View>
       );
@@ -140,13 +132,11 @@ export default function BluetoothSettings() {
     return (
       <View style={styles.emptyContainer}>
         <Ionicons name="bluetooth-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: 16 }} />
-        <Text style={styles.emptyTitle}>לא נמצאו מכשירים</Text>
-        <Text style={styles.emptyText}>
-          לא נמצאו מכשירים Bluetooth מוצמדים. ודא שהטלפון מוצמד לרכב בהגדרות הטלפון.
-        </Text>
+        <Text style={styles.emptyTitle}>{t('bluetooth.noDevicesTitle')}</Text>
+        <Text style={styles.emptyText}>{t('bluetooth.noDevicesText')}</Text>
         <TouchableOpacity style={styles.refreshBtn} onPress={loadSettings}>
           <Ionicons name="refresh" size={18} color={COLORS.brand} />
-          <Text style={styles.refreshText}>רענן</Text>
+          <Text style={styles.refreshText}>{t('bluetooth.refresh')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -158,7 +148,7 @@ export default function BluetoothSettings() {
         <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
           <Ionicons name="arrow-forward" size={28} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={COMMON_STYLES.screenHeaderTitle}>חיבור לרכב</Text>
+        <Text style={COMMON_STYLES.screenHeaderTitle}>{t('bluetooth.title')}</Text>
         {!loading && devices.length > 0 && (
           <TouchableOpacity onPress={loadSettings} style={styles.refreshHeaderBtn}>
             <Ionicons name="refresh" size={22} color={COLORS.textMuted} />
@@ -167,9 +157,7 @@ export default function BluetoothSettings() {
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.description}>
-          בחר את התקן ה-Bluetooth של הרכב שלך כדי שנוכל להתחיל ולסיים נסיעות באופן אוטומטי.
-        </Text>
+        <Text style={styles.description}>{t('bluetooth.description')}</Text>
 
         {loading ? (
           <ActivityIndicator size="large" color={COLORS.brand} style={{ marginTop: 50 }} />
@@ -184,9 +172,7 @@ export default function BluetoothSettings() {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          נסיעה תתחיל אוטומטית ברגע שהטלפון יתחבר למכשיר הנבחר.
-        </Text>
+        <Text style={styles.footerText}>{t('bluetooth.footerNote')}</Text>
       </View>
     </View>
   );
