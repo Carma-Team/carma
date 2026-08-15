@@ -100,7 +100,7 @@ battery optimisation. See `PowerManagement.ts`.
 
 ---
 
-## Minimum OS version
+## Minimum OS version (#141)
 
 No app-level policy sets this — it is the floor the pinned `expo` version itself
 imposes. Bump alongside an Expo SDK upgrade, not independently.
