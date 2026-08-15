@@ -630,6 +630,10 @@ Two things the workflow depends on and that are easy to break by accident:
 > enforce them: the mobile client still sends a `ph:`-prefixed placeholder that
 > `_verify_signature` deliberately lets through. Enforcement is #13, and it waits
 > on the mobile signing path (#96).
+>
+> `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
+> passes it on every update, which is now belt-and-braces rather than the only
+> thing supplying it — so a bare `az containerapp update --image` boots as well.
 
 The client half of the same key is an EAS environment variable,
 `EXPO_PUBLIC_TRIP_SIGNING_KEY`, set on all three environments of the
@@ -645,12 +649,9 @@ visibility is `sensitive` rather than `secret` because EAS never lets a `secret`
 variable off its servers, which also puts it out of reach of the bundle. Only
 per-device attestation moves this line (#13).
 
-To sign against the real server while developing, `eas env:pull development`
-writes the key into `mobile/.env.local`, which is gitignored.
->
-> `TRUSTED_PROXY_COUNT=1` is set on the app too (#99). The deploy workflow also
-> passes it on every update, which is now belt-and-braces rather than the only
-> thing supplying it — so a bare `az containerapp update --image` boots as well.
+A dev client is the exception: it loads its JS from Metro, so the EAS value never
+reaches it at build time. `eas env:pull development` writes the key into
+`mobile/.env.local` — gitignored, and what Metro inlines instead.
 
 ### Container App environment variables
 
