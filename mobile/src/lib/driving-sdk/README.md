@@ -1,6 +1,6 @@
 # Driving SDK
 
-**Last updated: 2026-08-12**
+**Last updated: 2026-08-15**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -285,7 +285,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, one point per 3 GPS ticks (~6 s at the requested cadence)
+  waypoints:              RouteWaypoint[];  // GPS track, downsampled to ~1 point per 5 s of real elapsed GPS time
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
@@ -339,7 +339,7 @@ much of it counts. Both guards below live in the orchestrator, not the sensor la
 
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- Waypoints are appended on the same gate, counted in **GPS ticks rather than seconds** — one point every 3 ticks **while moving**. Wall-clock cadence therefore follows however fast the platform delivers fixes: roughly 300 points per 30 minutes when fixes arrive at the requested 2 s interval, appreciably fewer on an Android device whose location updates are being throttled (see #17), and appreciably more on iOS, where cadence is governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
+- Waypoints are appended on the same gate, downsampled to one point per **~5 seconds of real elapsed GPS time** **while moving** — accumulated from each tick's actual measured interval (floored at 0.5 s), not an assumed fixed cadence, so a throttled or jittery GPS stream still crosses the threshold at the wall-clock moment it actually reaches it rather than one it never did. At a steady 2 s tick interval this still lands roughly 300 points per 30 minutes, appreciably fewer on an Android device whose location updates are being throttled (see #17), and appreciably more on iOS, where cadence is governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
 
 ### Gyroscope — `SensorManager`
 
