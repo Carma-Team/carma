@@ -285,7 +285,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, one point per 3 GPS ticks (~6 s at the requested cadence)
+  waypoints:              RouteWaypoint[];  // GPS track, one point every ~5s of wall-clock time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
@@ -339,7 +339,7 @@ much of it counts. Both guards below live in the orchestrator, not the sensor la
 
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- Waypoints are appended on the same gate, counted in **GPS ticks rather than seconds** — one point every 3 ticks **while moving**. Wall-clock cadence therefore follows however fast the platform delivers fixes: roughly 300 points per 30 minutes when fixes arrive at the requested 2 s interval, appreciably fewer on an Android device whose location updates are being throttled (see #17), and appreciably more on iOS, where cadence is governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
+- Waypoints are appended on the same gate, one point every `WAYPOINT_INTERVAL_MS` (5 s) of **wall-clock time**, not a GPS-tick count — a tick-count assumption compounds throttling instead of just reflecting it. On clean 2 s ticks this yields ~360 points per 30 minutes. On a throttled Android device with real ~6 s gaps (see #17), it still stores roughly one point per real tick, ~6 s apart — a tick-count assumption of 2 s per tick would instead have stored one point every 3 ticks, ~18 s apart. Cadence can never be denser than the ticks actually arriving; on iOS it's governed by the distance filter and so rises with speed — see [PLATFORM-CAPABILITIES.md](./PLATFORM-CAPABILITIES.md).
 
 ### Gyroscope — `SensorManager`
 
@@ -362,8 +362,6 @@ plus the `PHONE_USAGE` event.
 > drive data.** In particular the glass-tap proxy cannot distinguish a finger tap from a
 > sharp road bump, and variance alone cannot distinguish a hand from a phone sliding
 > loose on a seat. Treat both metrics as indicative until calibrated.
-
-Waypoint thinning itself (in `DrivingSDK`, not `SensorManager`) samples on wall-clock time against `WAYPOINT_INTERVAL_MS`, not a GPS-tick count — a tick-count assumption compounds the throttling above instead of just reflecting it. On a throttled device with real ~6s gaps, wall-clock sampling still stores roughly one point every 6s; a tick-count assumption of 2s per tick would have stored one point per three ticks, ~18s apart.
 
 ### Power management — `PowerManagement`
 
