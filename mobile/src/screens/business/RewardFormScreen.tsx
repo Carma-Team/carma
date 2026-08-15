@@ -11,19 +11,10 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
-import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons';
+import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { businessApi, type BusinessReward } from '@/services/api/business.api';
 import { parseStockInput } from '@/lib/rewardStock';
-
-// Icons available for reward image selection — sourced from the central icon registry
-const SELECTABLE_ICONS: IoniconName[] = [
-  'gift-outline',
-  'restaurant-outline',
-  'car-outline',
-  'leaf-outline',
-  'film-outline',
-  'cart-outline',
-];
+import { CategoryPicker } from '@/components/business/CategoryPicker';
 
 type FormState = {
   titleHe: string;
@@ -46,13 +37,12 @@ export default function RewardFormScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useApp();
   const { t, lang } = useTranslation();
-  const direction = lang === 'HE' ? 'rtl' : 'ltr';
   const { rewardData } = useLocalSearchParams<{ rewardData?: string }>();
 
   const isEdit = !!rewardData;
   const existing: BusinessReward | undefined = rewardData ? JSON.parse(rewardData) : undefined;
 
-  const category = user?.businessCategory ?? existing?.category ?? 'other';
+  const [category, setCategory] = useState(() => user?.businessCategory ?? existing?.category ?? 'other');
 
   const [form, setForm] = useState<FormState>(() => {
     if (existing) {
@@ -72,10 +62,6 @@ export default function RewardFormScreen() {
     }
     return EMPTY_FORM;
   });
-
-  const [selectedIcon, setSelectedIcon] = useState<IoniconName>(
-    (existing?.imageIcon as IoniconName) ?? 'gift-outline'
-  );
 
   const [saving, setSaving] = useState(false);
 
@@ -107,7 +93,8 @@ export default function RewardFormScreen() {
       titleHe:       form.titleHe.trim(),
       descriptionHe: form.descriptionHe.trim(),
       costPoints:    Number(form.costPoints),
-      imageIcon:     selectedIcon,
+      // Category fully determines the icon now — no independent icon choice.
+      imageIcon:     (CATEGORY_CONFIG[category] ?? DEFAULT_CATEGORY).icon,
       category,
       stock:         parsedStock.stock,
       isActive:      form.isActive,
@@ -125,7 +112,7 @@ export default function RewardFormScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={[COMMON_STYLES.screen, { direction }]} behavior="padding">
+    <KeyboardAvoidingView style={COMMON_STYLES.screen} behavior="padding">
 
       {/* Header */}
       <View style={[COMMON_STYLES.screenHeader, { paddingTop: insets.top + SPACING.sm }]}>
@@ -139,23 +126,13 @@ export default function RewardFormScreen() {
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Icon picker */}
-        <Text style={styles.label}>{t('rewards.iconLabel')}</Text>
-        <View style={styles.iconPicker}>
-          {SELECTABLE_ICONS.map(icon => (
-            <TouchableOpacity
-              key={icon}
-              style={[styles.iconOption, selectedIcon === icon && styles.iconOptionSelected]}
-              onPress={() => setSelectedIcon(icon)}
-            >
-              <Ionicons
-                name={icon}
-                size={24}
-                color={selectedIcon === icon ? COLORS.brand : COLORS.textMuted}
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
+        <Text style={styles.label}>{t('business.form.category')}</Text>
+        <CategoryPicker
+          lang={lang}
+          category={category}
+          onSelect={setCategory}
+          label={t('business.form.category')}
+        />
 
         <Text style={styles.label}>{t('business.form.name')}</Text>
         <TextInput
@@ -164,7 +141,6 @@ export default function RewardFormScreen() {
           placeholderTextColor={COLORS.textMuted}
           value={form.titleHe}
           onChangeText={v => update('titleHe', v)}
-          textAlign="right"
         />
 
         <Text style={styles.label}>{t('business.form.description')}</Text>
@@ -176,7 +152,6 @@ export default function RewardFormScreen() {
           numberOfLines={3}
           value={form.descriptionHe}
           onChangeText={v => update('descriptionHe', v)}
-          textAlign="right"
         />
 
         <Text style={styles.label}>{t('business.form.costPoints')}</Text>
@@ -187,7 +162,6 @@ export default function RewardFormScreen() {
           keyboardType="numeric"
           value={form.costPoints}
           onChangeText={v => update('costPoints', v)}
-          textAlign="right"
         />
 
         <Text style={styles.label}>{t('business.form.expiresAt')}</Text>
@@ -198,7 +172,6 @@ export default function RewardFormScreen() {
           value={form.expiresAt}
           onChangeText={v => update('expiresAt', v)}
           keyboardType="numbers-and-punctuation"
-          textAlign="right"
         />
 
         <Text style={styles.label}>{t('business.form.stockLabel')}</Text>
@@ -209,7 +182,6 @@ export default function RewardFormScreen() {
           keyboardType="numeric"
           value={form.stock}
           onChangeText={v => update('stock', v)}
-          textAlign="right"
         />
 
         <Card style={styles.toggleCard}>
@@ -254,16 +226,7 @@ const styles = StyleSheet.create({
     ...COMMON_STYLES.sectionLabel,
     marginBottom: 6,
     marginTop: SPACING.md,
-    textAlign: 'right',
   },
-  iconPicker: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-  iconOption: {
-    width: 48, height: 48, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  iconOptionSelected: { borderColor: COLORS.brand, backgroundColor: 'rgba(99,102,241,0.12)' },
   multiline:  { height: 80, textAlignVertical: 'top' },
   toggleCard: { marginTop: SPACING.md, padding: SPACING.md },
   toggle: {

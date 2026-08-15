@@ -87,9 +87,6 @@ const en: TranslationMap = {
     noDevicesText: 'No paired Bluetooth devices were found. Make sure your phone is paired with your vehicle in the phone\'s settings.',
     refresh: 'Refresh',
   },
-  rewards: {
-    iconLabel: 'Choose icon',
-  },
   roadmap: {
     title: 'Progress Roadmap', subtitle: 'Your path to Model Driver',
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',

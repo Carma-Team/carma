@@ -60,9 +60,14 @@ screen*.png
 demo_shots/
 
 # ─── Local check output ──────────────────────────────────────────────────────
-# Standing output file for tsc/eslint/jest runs redirected from the terminal.
-# One fixed path on purpose, so the command can be re-run from shell history.
+# Standing output files for tsc/eslint/jest runs redirected from the terminal.
+# One fixed path per command on purpose, so each can be re-run from shell
+# history without one command's output overwriting another's mid-session.
 tsc-out.txt
+lint-out.txt
+jest-out.txt
+commit-msg.txt
+pr-body.txt
 
 # ─── Generated schema intermediate ───────────────────────────────────────────
 # The schema-drift recipe renders this on the way to generated.ts, which is the

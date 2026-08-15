@@ -87,9 +87,6 @@ const he = {
     noDevicesText: 'לא נמצאו מכשירים Bluetooth מוצמדים. ודא שהטלפון מוצמד לרכב בהגדרות הטלפון.',
     refresh: 'רענן',
   },
-  rewards: {
-    iconLabel: 'בחר אייקון',
-  },
   roadmap: {
     title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהג המדגם',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
