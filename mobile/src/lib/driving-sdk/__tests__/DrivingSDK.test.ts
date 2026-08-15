@@ -520,6 +520,17 @@ describe('DrivingSDK', () => {
     expect(tripData()?.waypoints).toHaveLength(1); // 6 s — first point lands
   });
 
+  it('accumulates real elapsed GPS time rather than an assumed fixed 2s tick', async () => {
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.05, lat: 32.1, lng: 34.8, timeDeltaS: 3 };
+
+    sendSensorUpdate(moving);
+    expect(tripData()?.waypoints).toHaveLength(0); // 3 s of real GPS time
+
+    sendSensorUpdate(moving);
+    expect(tripData()?.waypoints).toHaveLength(1); // 6 s — lands on the 2nd tick, not a hardcoded 3rd
+  });
+
   it('collects no waypoints while stationary', async () => {
     await startTripReady();
 

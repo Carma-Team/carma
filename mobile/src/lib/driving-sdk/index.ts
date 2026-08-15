@@ -382,7 +382,7 @@ export class DrivingSDK {
 
       // Waypoint collection: append one point every 5 elapsed GPS seconds while moving.
       // This caps a 30-minute trip at ~360 waypoints regardless of speed.
-      this.secondsSinceLastWaypoint += 2; // GPS fires every ~2s
+      this.secondsSinceLastWaypoint += update.timeDeltaS;
       if (this.secondsSinceLastWaypoint >= 5 && this.lastKnownLocation) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
