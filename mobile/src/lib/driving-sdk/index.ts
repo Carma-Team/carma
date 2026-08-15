@@ -8,7 +8,7 @@
  * - 1-second wall-clock timer that updates TripData
  * - Sensor event listeners (brake/accel/turn) via SensorManager
  * - Phone usage listener via PhoneUsageManager
- * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onFraudDetected
  *
  * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
  * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
