@@ -513,11 +513,15 @@ describe('DrivingSDK', () => {
     const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
 
     sendSensorUpdate(moving);
-    sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(0); // 4 s of GPS time
+    expect(tripData()?.waypoints).toHaveLength(1); // anchor point, recorded immediately
 
+    jest.advanceTimersByTime(4000);
     sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(1); // 6 s — first point lands
+    expect(tripData()?.waypoints).toHaveLength(1); // only 4s since anchor — not yet
+
+    jest.advanceTimersByTime(1000);
+    sendSensorUpdate(moving);
+    expect(tripData()?.waypoints).toHaveLength(2); // 5s since anchor — lands
   });
 
   it('collects no waypoints while stationary', async () => {
