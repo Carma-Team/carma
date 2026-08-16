@@ -53,9 +53,9 @@ const he = {
     pointsCapped: 'הגעת למכסת הנקודות לתקופה זו — נקודות נוספות ייספרו לאחר שהמכסה תתאפס.',
     eventDetails: 'פירוט אירועים:',
     viewFullDetails: 'לצפייה בפרטים המלאים',
-    closeAndHome: 'סגור וחזור לדף הבית',
+    closeAndHome: 'סגירה וחזרה לדף הבית',
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
-    openInMaps: 'פתח באפליקציית מפות',
+    openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
   },
   driving: {

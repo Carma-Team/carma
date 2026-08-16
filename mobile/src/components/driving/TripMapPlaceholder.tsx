@@ -1,14 +1,21 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Card } from '@/components/ui/Card';
+import { COLORS, TYPOGRAPHY } from '@/constants/theme';
+import { ICONS, type IoniconName } from '@/constants/icons';
+import { useTranslation } from '@/hooks/useTranslation';
+import type { DrivingEvent } from '@/lib/driving-sdk/types';
 
 // react-native-maps requires a native build (dev build / production).
 // In Expo Go the native module is not linked — catch at require time so
-// the screen degrades gracefully instead of crashing.
+// the screen degrades gracefully instead of crashing. A static import can't
+// be wrapped in try/catch (ES imports are hoisted), so require() stays here.
 let MapView: any = null;
 let Polyline: any = null;
 let Marker:   any = null;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- see comment above
   const maps = require('react-native-maps');
   MapView   = maps.default;
   Polyline  = maps.Polyline;
@@ -16,11 +23,6 @@ try {
 } catch {
   // Native module unavailable — map will show fallback card
 }
-import { Card } from '@/components/ui/Card';
-import { COLORS, TYPOGRAPHY } from '@/constants/theme';
-import { ICONS, type IoniconName } from '@/constants/icons';
-import { useTranslation } from '@/hooks/useTranslation';
-import type { DrivingEvent, DrivingEventType } from '@/lib/driving-sdk/types';
 
 interface RouteWaypoint {
   lat: number;
