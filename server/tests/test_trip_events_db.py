@@ -118,11 +118,13 @@ def _steady_waypoints() -> list[dict[str, Any]]:
     ]
 
 
-def _trip_dto(*, with_severity: bool) -> SaveTripIn:
+def _trip_dto(*, with_severity: bool, hard_brakes: int = 1) -> SaveTripIn:
     """The same trip twice, differing only in whether the client claims a severity.
 
     No `telemetryDigest`: counts then come from the DTO rather than the signed
     oracle, which is the weaker of the two paths and the one a leak would take.
+
+    `hard_brakes` varies only for the sensitivity canary below.
     """
     event: dict[str, Any] = {"type": "HARD_BRAKE", "timestamp": "2026-06-14T08:03:00Z", "peakG": 0.52}
     turn: dict[str, Any] = {"type": "SHARP_TURN", "timestamp": "2026-06-14T08:07:00Z", "peakG": 0.41}
@@ -134,7 +136,7 @@ def _trip_dto(*, with_severity: bool) -> SaveTripIn:
         durationSeconds=900,
         startTime="2026-06-14T08:00:00Z",
         endTime="2026-06-14T08:15:00Z",
-        hardBrakes=1,
+        hardBrakes=hard_brakes,
         sharpTurns=1,
         events=[event, turn],
         routeWaypoints=_steady_waypoints(),
@@ -151,12 +153,29 @@ async def test_client_event_severity_does_not_move_the_score(db_session: AsyncSe
     """
     plain_user = await _make_user(db_session)
     severe_user = await _make_user(db_session)
+    canary_user = await _make_user(db_session)
     try:
         plain = await trips_service.save(
             db_session, plain_user, _trip_dto(with_severity=False), idempotency_key=uuid.uuid4().hex
         )
         severe = await trips_service.save(
             db_session, severe_user, _trip_dto(with_severity=True), idempotency_key=uuid.uuid4().hex
+        )
+
+        # Sensitivity canary, asserted before the equality below and not merely
+        # once by hand at review time. The equality assertions only mean
+        # something while this fixture can tell two scores apart at all: an
+        # earlier version of this test compared two trips the scorer had already
+        # flattened to the same number, and so passed against a deliberate
+        # severity leak. If a scoring change ever flattens them again, this
+        # fails and says the test has gone blind — rather than passing forever.
+        canary = await trips_service.save(
+            db_session, canary_user, _trip_dto(with_severity=False, hard_brakes=4), idempotency_key=uuid.uuid4().hex
+        )
+        assert canary.avg_score != plain.avg_score, (
+            "the fixture no longer detects a change in event counts, so the equality "
+            "assertions below cannot detect a severity leak either — fix the fixture, "
+            "do not delete this line (CAR-155)"
         )
 
         assert plain.avg_score == severe.avg_score
@@ -185,6 +204,7 @@ async def test_client_event_severity_does_not_move_the_score(db_session: AsyncSe
     finally:
         await _cleanup(db_session, plain_user)
         await _cleanup(db_session, severe_user)
+        await _cleanup(db_session, canary_user)
 
 
 @pytest.mark.asyncio
