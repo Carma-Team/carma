@@ -25,6 +25,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.security import hash_code, hash_password, verify_password
 from app.models import OtpCode, User
 from app.models.enums import UserRole
@@ -53,6 +54,20 @@ async def _driver(db: AsyncSession, phone: str) -> User:
         email=f"reset-{uuid.uuid4().hex[:8]}@carmatest.com",
         password_hash=hash_password(OLD_PASSWORD),
         name="Reset Test",
+        role=UserRole.DRIVER,
+        is_phone_verified=True,
+    )
+    db.add(user)
+    await db.commit()
+    return user
+
+
+async def _phone_only_driver(db: AsyncSession, phone: str) -> User:
+    """A driver who signed up by phone — no email, so no password login to restore."""
+    user = User(
+        id=uuid.uuid4().hex,
+        phone=phone,
+        name="Otp Only",
         role=UserRole.DRIVER,
         is_phone_verified=True,
     )
@@ -261,6 +276,119 @@ async def test_a_wrong_code_and_an_unknown_number_answer_alike(
         await _cleanup(db_session, known)
 
 
+async def test_running_out_of_codes_does_not_name_the_number_either(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The hourly SMS cap was the same oracle, one step further along.
+
+    Only a number with an account behind it ever gets a code, so only that number
+    can spend the cap — a stranger's writes no rows and answers 200 all day. A 429
+    on the sixth request therefore meant "yes, this one is ours". The cap still
+    holds; it just stops announcing itself.
+    """
+    known = _phone()
+    unknown = _phone()
+    await _driver(db_session, known)
+    try:
+        for _ in range(settings.otp_max_per_hour + 1):
+            spent = await db_api_client.post(REQUEST_URL, json={"phone": known})
+        stranger = await db_api_client.post(REQUEST_URL, json={"phone": unknown})
+
+        assert spent.status_code == stranger.status_code == 200
+        assert spent.json() == stranger.json()
+
+        codes = (await db_session.scalars(select(OtpCode).where(OtpCode.phone == known))).all()
+        assert len(codes) == settings.otp_max_per_hour, "answering politely is not a licence to keep sending"
+    finally:
+        await _cleanup(db_session, known)
+
+
+# ─── the number as the driver typed it at signup ─────────────────────────────
+
+
+async def test_a_locally_spelled_phone_still_finds_its_account(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """`0501234567` and `+972501234567` are the same driver.
+
+    Email signup takes free-form input and stores it as typed, and an email is
+    exactly what this endpoint requires — so an `==` lookup would fail for the one
+    group allowed to use it, silently, with "a code has been sent" on screen. The
+    permanent lockout this endpoint exists to end, rebuilt one layer down.
+    """
+    local = f"05{uuid.uuid4().int % 10**8:08d}"
+    e164 = f"+972{local[1:]}"
+    user = User(
+        id=uuid.uuid4().hex,
+        phone=local,  # as `register_with_password` would have stored it
+        email=f"reset-{uuid.uuid4().hex[:8]}@carmatest.com",
+        password_hash=hash_password(OLD_PASSWORD),
+        name="Typed It Locally",
+        role=UserRole.DRIVER,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    try:
+        asked = await db_api_client.post(REQUEST_URL, json={"phone": e164})
+        assert asked.status_code == 200
+
+        codes = (await db_session.scalars(select(OtpCode).where(OtpCode.phone == e164))).all()
+        assert len(codes) == 1, "the request half must recognise the account and send"
+
+        # A code we know the plaintext of, planted after the request above — which
+        # voids anything unconsumed, its own earlier code included.
+        await _seed_code(db_session, e164, "654321")
+        r = await db_api_client.post(CONFIRM_URL, json={"phone": e164, "code": "654321", "newPassword": NEW_PASSWORD})
+        assert r.status_code == 200, r.text
+
+        after = await _reload(db_session, local)
+        assert verify_password(NEW_PASSWORD, after.password_hash or "")
+    finally:
+        await _cleanup(db_session, local)
+        await _cleanup(db_session, e164)
+
+
+# ─── a password only where there is somewhere to type it ─────────────────────
+
+
+async def test_a_phone_only_driver_is_not_offered_a_password(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """Password login is by email, and this driver has none.
+
+    Going through with it ends in "sign in with your new password" and a login
+    screen that cannot take it — a dead end that looks like success. Their way
+    back in is a login code, which needs no password at all.
+    """
+    phone = _phone()
+    await _phone_only_driver(db_session, phone)
+    try:
+        r = await db_api_client.post(REQUEST_URL, json={"phone": phone})
+        assert r.status_code == 200, "the answer stays the same — it must not name who has an email"
+
+        codes = (await db_session.scalars(select(OtpCode).where(OtpCode.phone == phone))).all()
+        assert codes == [], "a code that cannot lead anywhere is a paid message for nothing"
+    finally:
+        await _cleanup(db_session, phone)
+
+
+async def test_a_phone_only_driver_cannot_be_given_a_password(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """Checked on the confirm half too, not only where codes are handed out."""
+    phone = _phone()
+    await _phone_only_driver(db_session, phone)
+    await _seed_code(db_session, phone, "654321")
+    try:
+        r = await db_api_client.post(CONFIRM_URL, json={"phone": phone, "code": "654321", "newPassword": NEW_PASSWORD})
+        assert r.status_code == 401
+
+        after = await _reload(db_session, phone)
+        assert after.password_hash is None, "a password with no way to type it is worse than none"
+    finally:
+        await _cleanup(db_session, phone)
+
+
 # ─── the two kinds of code stay apart ────────────────────────────────────────
 
 
@@ -316,8 +444,8 @@ async def test_asking_to_reset_does_not_cancel_a_login_code(
 async def test_the_reset_request_route_has_its_own_limit(rate_limited: None, db_api_client: AsyncClient) -> None:
     """Every call here can send a billed SMS, so it gets the tight OTP ceiling.
 
-    The global 30/minute does not apply on its own — nothing enforces it until
-    CAR-126, so a route without a decorator has no limit at all.
+    The default 30/minute (live since CAR-126) would let six through — far too
+    generous for a route that spends money on every call.
     """
     codes = [(await db_api_client.post(REQUEST_URL, json={"phone": _phone()})).status_code for _ in range(6)]
 

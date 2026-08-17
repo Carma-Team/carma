@@ -198,14 +198,20 @@ async def login_with_password(db: AsyncSession, dto: LoginIn, caller_ip: str) ->
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
 
 
-async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
-    """Cap the codes a single phone number can trigger in an hour.
+async def _over_otp_quota(db: AsyncSession, phone: str) -> bool:
+    """Whether this number has already had its hour's worth of codes.
 
     The per-route limit in the router is keyed on the caller's IP, which is one
     proxy away from useless. This is keyed on the thing that actually costs
     money — every code is a billed SMS, so the destination number is the budget
     line, and it stays the same however many addresses the caller rotates
-    through. Counts registration and login codes together, because both send.
+    through. Counts registration, login and reset codes together: all three send.
+
+    Returns rather than raises, because only a number we have an account for can
+    ever reach the cap — an unregistered one writes no rows to count. A 429 was
+    therefore the answer to "does this number have a CARMA account?", six requests
+    away from anyone who asked. The two request routes now spend it in silence;
+    the audit line is where an operator still sees it.
     """
     since = _now() - timedelta(hours=1)
     recent = await db.scalar(
@@ -213,6 +219,18 @@ async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
     )
     if (recent or 0) >= settings.otp_max_per_hour:
         audit("auth.otp.throttled", phone_masked=mask_phone(phone), sent_last_hour=recent)
+        return True
+    return False
+
+
+async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
+    """The same cap said out loud — for registration, where it gives nothing away.
+
+    `otp/register` already answers a number that is taken with a 409, so a caller
+    who reaches the cap there learns nothing they could not have asked for
+    directly. A driver signing up also needs to be told why no code arrived.
+    """
+    if await _over_otp_quota(db, phone):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many verification codes requested for this number. Try again later.",
@@ -220,7 +238,12 @@ async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
 
 
 async def _issue_otp(db: AsyncSession, phone: str, purpose: str = OTP_PURPOSE) -> OtpSent:
-    await _assert_otp_quota(db, phone)
+    """Mint a code, store it, send it. The caller owns the quota check.
+
+    Deliberately not checked in here: over the cap, the request routes have to
+    carry on and answer exactly as though a code went out, which a helper that
+    raises from underneath them cannot do.
+    """
     code = random_digits(settings.otp_length)
     expires_at = _now() + timedelta(seconds=settings.otp_ttl_seconds)
 
@@ -249,9 +272,9 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
     if existing and existing.is_phone_verified:
         raise HTTPException(status.HTTP_409_CONFLICT, "A verified user with this phone already exists")
 
-    # Check the quota before writing, not inside `_issue_otp` after. A caller who
-    # is over their hourly cap should change nothing: otherwise the 429 still
-    # leaves the profile fields of an unverified account rewritten, over and over.
+    # Check the quota before writing the profile below, not after. A caller who is
+    # over their hourly cap should change nothing: otherwise the 429 still leaves
+    # the profile fields of an unverified account rewritten, over and over.
     await _assert_otp_quota(db, dto.phone)
 
     if existing:
@@ -288,14 +311,17 @@ def _sent_or_not() -> OtpSent:
 
 async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     user = await db.scalar(select(User).where(User.phone == phone))
+    locked = user is not None and user.locked_until is not None and user.locked_until > _now()
 
-    # Unknown number and locked account answer identically, and neither sends an
-    # SMS. An earlier version explained the lockout here, reasoning that whoever
-    # asks for a code holds the number anyway. That does not hold for someone
-    # probing numbers they do not own: a lockout is something an attacker can
-    # *cause* (five wrong codes), so a distinct answer turns it into a test for
-    # "is this number registered?". The locked user still learns why on verify.
-    if user is not None and not (user.locked_until and user.locked_until > _now()):
+    # Unknown number, locked account and a number over its hourly cap all answer
+    # identically, and none of the three sends an SMS. An earlier version
+    # explained the lockout here, reasoning that whoever asks for a code holds the
+    # number anyway. That does not hold for someone probing numbers they do not
+    # own: a lockout is something an attacker can *cause* (five wrong codes), so a
+    # distinct answer turns it into a test for "is this number registered?". The
+    # locked user still learns why on verify. The cap is the same trap one step
+    # further along — see `_over_otp_quota`.
+    if user is not None and not locked and not await _over_otp_quota(db, phone):
         await _issue_otp(db, phone)
 
     return _sent_or_not()
@@ -353,6 +379,39 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> Auth
 # ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
 
 
+async def _driver_by_phone(db: AsyncSession, phone: str) -> User | None:
+    """Find the account behind an E.164 number, however its phone was typed in.
+
+    `register_with_password` accepts free-form input and stores it as typed, so an
+    email account's number is as likely to read `0501234567` as `+972501234567` —
+    `users.phone_candidates` is here for that exact split, and search already uses
+    it. An `==` match would answer "a code has been sent" to precisely the drivers
+    this endpoint exists for, and never send one.
+
+    Ordered, because both spellings can sit in the table at once: `users.phone` is
+    unique per string, not per number. The older row wins so the answer cannot
+    change under a driver who signs up again.
+    """
+    candidates = users_service.phone_candidates(phone)
+    if not candidates:
+        return None
+    found: User | None = await db.scalar(select(User).where(User.phone.in_(candidates)).order_by(User.created_at))
+    return found
+
+
+def _has_password_login(user: User) -> bool:
+    """Whether a new password would be usable at all.
+
+    `login_with_password` finds the account by email, and a driver who signed up
+    by phone has none. Minting them a password answers "sign in with your new
+    password" and sends them to a screen with nowhere to type it — worse than
+    refusing, because it looks like it worked. Their way back in is `otp/request`,
+    which needs no password. CAR-37 is where an account stops being one row with
+    one credential; the check belongs there when it lands.
+    """
+    return user.email is not None
+
+
 async def request_password_reset(db: AsyncSession, phone: str) -> OtpSent:
     """Send a reset code, and send it to locked accounts too.
 
@@ -366,8 +425,8 @@ async def request_password_reset(db: AsyncSession, phone: str) -> OtpSent:
     Nothing leaks by sending it: the answer is `_sent_or_not()` either way, and a
     caller who does not hold the number never sees the code.
     """
-    user = await db.scalar(select(User).where(User.phone == phone))
-    if user is not None:
+    user = await _driver_by_phone(db, phone)
+    if user is not None and _has_password_login(user) and not await _over_otp_quota(db, phone):
         await _issue_otp(db, phone, RESET_PURPOSE)
 
     return _sent_or_not()
@@ -379,12 +438,20 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
     Every rejection answers with `OTP_REJECTED`, the same string `otp/verify`
     uses — an unknown number, a stale code and a wrong digit are one reply here.
     """
-    user = await db.scalar(select(User).where(User.phone == dto.phone))
+    user = await _driver_by_phone(db, dto.phone)
     if user is None:
         raise _rejected(dto.phone, "no_user")
-    # No lockout check, unlike `verify_otp`. A locked account is the case this
-    # path is for; see `request_password_reset`. The backoff below still applies,
-    # so guessing the code is no cheaper here than anywhere else.
+    # Checked on both halves. `request_password_reset` will not have issued a code
+    # for an account like this, but a code issued before it grew the check — or
+    # before an email was ever removed — must not still be spendable.
+    if not _has_password_login(user):
+        raise _rejected(dto.phone, "no_password_login", user)
+    # No lockout check, unlike `verify_otp`. A locked account is the case this path
+    # is for; see `request_password_reset`. Be honest about what that costs: the
+    # per-address backoff below still slows one guesser down, but the account-wide
+    # ceiling that eventually shuts `verify_otp` cannot fire here, and nothing in
+    # the codebase reads `otp.attempts`. Six digits and a five-minute window are
+    # the whole defence against somebody rotating addresses.
     if await _backoff_active(db, user.id, caller_ip):
         raise _rejected(dto.phone, "caller_backoff", user)
 
