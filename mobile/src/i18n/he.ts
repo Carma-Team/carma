@@ -60,7 +60,6 @@ const he = {
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',
-    addDistance: '+10 ק"מ',
     addDistanceSmall: '+100 מטר',
     btConnected: 'מחובר — נסיעה החלה',
     defaultDeviceName: 'הרכב',

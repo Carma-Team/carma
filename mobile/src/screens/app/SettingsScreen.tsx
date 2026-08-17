@@ -163,6 +163,39 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
+          {/* Debug Section — dev builds only, not gated on role (see ActiveTripScreen.tsx) */}
+          {__DEV__ && (
+            <View>
+              <View style={COMMON_STYLES.sectionLabelRow}>
+                <Ionicons name="bug-outline" size={12} color={COLORS.textMuted} />
+                <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
+              </View>
+              <Card style={styles.settingCard}>
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => router.push('/(business)')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
+                    <Text style={styles.linkText}>Open Business Dashboard</Text>
+                  </View>
+                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
+                <TouchableOpacity
+                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="shield-outline" size={20} color={COLORS.textMuted} />
+                    <Text style={[styles.linkText, { color: COLORS.textMuted }]}>Open Admin Tools (coming soon)</Text>
+                  </View>
+                </TouchableOpacity>
+              </Card>
+            </View>
+          )}
+
           {/* Logout Section */}
           <Button variant="danger" fullWidth onPress={handleLogout} style={styles.logoutBtn}>
             {t('auth.logout')}
