@@ -230,7 +230,13 @@ describe('SensorManager', () => {
     feedStrongForce();
     sendFix({ t: 2000, speed: 14 });
 
-    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
+    // code this event still fires (imuConfirms fails open when accelAvailable is
+    // false), just with peakG stuck at 0 because feedStrongForce() never reached a
+    // real subscription. peakG > 0 is what only the fix makes possible.
+    const [event] = events();
+    expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
+    expect(event.peakG).toBeGreaterThan(0);
   });
 
   it('fails closed — not open — when accelerometer registration itself throws', async () => {
