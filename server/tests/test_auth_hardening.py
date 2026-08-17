@@ -210,16 +210,19 @@ async def test_one_phone_cannot_drain_the_sms_budget(db_session: AsyncSession) -
         for _ in range(settings.otp_max_per_hour):
             await auth_service.request_login_otp(db_session, phone)
 
-        with pytest.raises(Exception) as exc:
-            await auth_service.request_login_otp(db_session, phone)
-        assert "429" in str(exc.value) or "Too many" in str(exc.value)
+        # Refused, but not out loud. This used to raise a 429, and that reply was
+        # itself a directory lookup: only a registered number can spend the cap,
+        # so an unregistered one answers 200 forever (CAR-60). What this test is
+        # actually about is the bill, and that is unchanged — no sixth row.
+        over = await auth_service.request_login_otp(db_session, phone)
+        assert over.expires_in_seconds == settings.otp_ttl_seconds, "the answer must not change at the cap"
 
         issued = await db_session.scalar(
             select(OtpCode).where(OtpCode.phone == phone).order_by(OtpCode.created_at.desc())
         )
         assert issued is not None
         count = len((await db_session.scalars(select(OtpCode).where(OtpCode.phone == phone))).all())
-        assert count == settings.otp_max_per_hour, "the refused request must not have sent a sixth code"
+        assert count == settings.otp_max_per_hour, "answering politely is not a licence to keep sending"
     finally:
         await _cleanup(db_session, phone)
 
