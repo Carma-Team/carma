@@ -25,10 +25,7 @@ export default function LoginScreen() {
   /**
    * Submits login credentials and navigates to the correct screen based on the user's role.
    *
-   * [server] authApi.login — when USE_REAL_SERVER=false:
-   *   - admin / daniel / arcaffe / superpharm → intercepted in auth.api.ts (no HTTP)
-   *   - any other user → POST /api/auth/login to the local server (carma-local-server)
-   * When USE_REAL_SERVER=true → POST /api/auth/login to the real server
+   * [server] authApi.login — POST /api/auth/login to the real server.
    *
    * On success: saves token to AsyncStorage and navigates to the appropriate route:
    *   - admin/driver → /(tabs)
