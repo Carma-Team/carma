@@ -204,6 +204,7 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
+  updateUser: (patch: Partial<AppUser>) => void
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -255,6 +256,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
+  // Same reason as tripRef: updateUser runs from a callback that outlived the
+  // render it was created in, and needs the user as it is now, not as it was.
+  const userRef = useRef(user)
+  useEffect(() => { userRef.current = user; }, [user])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
   const lastTripDataRef = useRef<TripData | null>(null);
 
@@ -589,6 +594,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * Merge one change into the signed-in user.
+   *
+   * For a field, where setUser is for a session: it reads the live user instead of
+   * a caller's copy, so a save that lands late cannot hand back points a trip has
+   * since added, and it does nothing at all once the session is over. It also
+   * skips setUser's trip reload, which a settings change has no reason to trigger.
+   */
+  const updateUser = useCallback((patch: Partial<AppUser>) => {
+    const current = userRef.current;
+    if (!current) return;
+
+    const next = { ...current, ...patch };
+    setUserState(next);
+    setUserLevelState(levelDisplay(next.level ?? 1));
+    // Non-blocking: a storage failure must not read to the caller as a failed save.
+    AsyncStorage.setItem('carma_user', JSON.stringify(next)).catch(e =>
+      console.error('[AppContext] Failed to persist user after update', e)
+    );
+  }, []);
+
   const loginUser = useCallback(async (data: AuthResponse) => {
     await AsyncStorage.setItem('carma_token', data.token);
     await setUser(data.user);
@@ -629,7 +655,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      user, setUser, updateUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,

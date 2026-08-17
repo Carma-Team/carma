@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,15 +20,9 @@ import { ICONS } from '@/constants/icons';
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory, btDevice, addToast } = useApp();
+  const { user, setUser, updateUser, clearTripHistory, btDevice, addToast } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
-
-  // The save outlives the render that started it. A trip ending in between puts
-  // fresh points on the user, and rebuilding it from the closure's copy would
-  // hand the old ones back.
-  const latestUser = useRef(user);
-  useEffect(() => { latestUser.current = user; }, [user]);
 
   if (!user) return null;
 
@@ -89,7 +83,7 @@ export default function SettingsScreen() {
     setSavingDriveMode(true);
     try {
       const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
-      await setUser({ ...(latestUser.current ?? user), driveModeEnabled: updated.driveModeEnabled });
+      updateUser({ driveModeEnabled: updated.driveModeEnabled });
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     } finally {
