@@ -78,6 +78,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city: str
             user_id=u.id,
             rank=idx + 1,
             score=u.total_points,
+            distance_km=u.total_distance,
             follow_status=statuses.get(u.id, "none"),
             user=LeaderboardUserSummary(
                 id=u.id,

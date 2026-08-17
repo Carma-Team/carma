@@ -22,6 +22,10 @@ class LeaderboardEntry(CamelModel):
     user_id: str
     rank: int
     score: int
+    # Lifetime kilometres, covering the same window as `score` (lifetime points),
+    # so the client's points-per-km divides two figures over the same period.
+    # Narrowing either one to a rolling window silently skews the ratio.
+    distance_km: float
     user: LeaderboardUserSummary
     # Wire name kept as `followStatus` for the mobile client; the value is the
     # friendship status from the viewer toward this row's user.

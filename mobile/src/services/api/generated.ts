@@ -968,6 +968,8 @@ export interface components {
             rank: number;
             /** Score */
             score: number;
+            /** Distancekm */
+            distanceKm: number;
             user: components["schemas"]["LeaderboardUserSummary"];
             /**
              * Followstatus
