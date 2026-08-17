@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # either sends a billed SMS or runs bcrypt. These are the routes where a caller
 # repeating themselves is already a bad sign, so they get their own ceiling.
 # Keyed on the caller's address; the per-phone cap that survives IP rotation
-# lives in `services.auth._assert_otp_quota`.
+# lives in `services.auth._over_otp_quota`.
 SENSITIVE_LIMIT = "5/minute"
 # Login and register get a looser ceiling than the OTP routes. An address is a
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
