@@ -607,6 +607,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!current) return;
 
     const next = { ...current, ...patch };
+    // Claimed before the state lands, so a second call in the same tick builds on
+    // this one instead of on the snapshot the effect below has not refreshed yet.
+    userRef.current = next;
     setUserState(next);
     setUserLevelState(levelDisplay(next.level ?? 1));
     // Non-blocking: a storage failure must not read to the caller as a failed save.
