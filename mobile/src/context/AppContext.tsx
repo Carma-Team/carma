@@ -601,6 +601,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * a caller's copy, so a save that lands late cannot hand back points a trip has
    * since added, and it does nothing at all once the session is over. It also
    * skips setUser's trip reload, which a settings change has no reason to trigger.
+   *
+   * This only protects the direction it controls. processEndTrip and
+   * clearTripHistory still rebuild the whole user from their own snapshots, so a
+   * field changed while a trip is saving can be overwritten locally until the next
+   * profile refresh brings the server's copy back.
    */
   const updateUser = useCallback((patch: Partial<AppUser>) => {
     const current = userRef.current;
