@@ -54,3 +54,20 @@ class OtpVerifyIn(CamelModel):
 class OtpSent(CamelModel):
     message: str
     expires_in_seconds: int
+
+
+# ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
+# The request half reuses `OtpRequestIn`: it is the same single field, and a
+# `PasswordResetRequestIn` identical to it would only be a second name to keep
+# in step with the first.
+
+
+class PasswordResetIn(CamelModel):
+    phone: str = Field(pattern=E164_RE)
+    code: str = Field(min_length=4, max_length=10)
+    # 8 to match `RegisterIn` — this mints a credential, so it enforces the policy.
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class MessageOut(CamelModel):
+    message: str

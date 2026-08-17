@@ -18,13 +18,26 @@ from app.core.security import (
     verify_password,
 )
 from app.models import Language, LoginFailure, OtpCode, User, UserRole
-from app.schemas.auth import AuthOut, LoginIn, OtpRegisterIn, OtpSent, OtpVerifyIn, RegisterIn
+from app.schemas.auth import (
+    AuthOut,
+    LoginIn,
+    MessageOut,
+    OtpRegisterIn,
+    OtpSent,
+    OtpVerifyIn,
+    PasswordResetIn,
+    RegisterIn,
+)
 from app.services import users as users_service
 from app.services.sms import sms_sender
 
 log = logging.getLogger(__name__)
 
 OTP_PURPOSE = "LOGIN"
+# A reset code is a second, separate credential, not a login code wearing a hat.
+# Kept apart so that asking to reset does not cancel a login code the driver is
+# already typing, and so a code phished for one door cannot open the other.
+RESET_PURPOSE = "PASSWORD_RESET"
 
 # One answer for every way an OTP can fail to let you in. A different status or
 # wording for "no such phone" turns this endpoint into a directory of who has a
@@ -34,6 +47,12 @@ OTP_REJECTED = "Invalid or expired code — request a new one"
 
 # The same idea one door over: every way password login can fail answers alike.
 LOGIN_REJECTED = "Invalid email or password"
+
+_LOGIN_SMS = "CARMA: קוד האימות שלך הוא {code}. תוקף ל-{minutes} דקות."
+# The reset code names what it opens. A driver who did not ask for one needs to
+# know from the message alone that somebody is trying to take their password —
+# an identical "your verification code" would read as a login they mistyped.
+_RESET_SMS = "CARMA: קוד לאיפוס הסיסמה שלך הוא {code}. תוקף ל-{minutes} דקות. אם לא ביקשת, התעלם."
 
 
 def _now() -> datetime:
@@ -200,7 +219,7 @@ async def _assert_otp_quota(db: AsyncSession, phone: str) -> None:
         )
 
 
-async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
+async def _issue_otp(db: AsyncSession, phone: str, purpose: str = OTP_PURPOSE) -> OtpSent:
     await _assert_otp_quota(db, phone)
     code = random_digits(settings.otp_length)
     expires_at = _now() + timedelta(seconds=settings.otp_ttl_seconds)
@@ -208,19 +227,20 @@ async def _issue_otp(db: AsyncSession, phone: str) -> OtpSent:
     # invalidate previous unconsumed OTPs for this phone+purpose
     await db.execute(
         update(OtpCode)
-        .where(OtpCode.phone == phone, OtpCode.purpose == OTP_PURPOSE, OtpCode.consumed_at.is_(None))
+        .where(OtpCode.phone == phone, OtpCode.purpose == purpose, OtpCode.consumed_at.is_(None))
         .values(consumed_at=_now())
     )
-    db.add(OtpCode(phone=phone, code_hash=hash_code(code), expires_at=expires_at, purpose=OTP_PURPOSE))
+    db.add(OtpCode(phone=phone, code_hash=hash_code(code), expires_at=expires_at, purpose=purpose))
     await db.commit()
 
     minutes = round(settings.otp_ttl_seconds / 60)
-    await sms_sender.send(phone, f"CARMA: קוד האימות שלך הוא {code}. תוקף ל-{minutes} דקות.")
+    body = _RESET_SMS if purpose == RESET_PURPOSE else _LOGIN_SMS
+    await sms_sender.send(phone, body.format(code=code, minutes=minutes))
 
     if settings.env != "production":
-        log.debug("[dev-otp] phone=%s code=%s", phone, code)
+        log.debug("[dev-otp] phone=%s purpose=%s code=%s", phone, purpose, code)
 
-    audit("auth.otp.issued", phone_masked=mask_phone(phone), purpose=OTP_PURPOSE, ttl=settings.otp_ttl_seconds)
+    audit("auth.otp.issued", phone_masked=mask_phone(phone), purpose=purpose, ttl=settings.otp_ttl_seconds)
     return OtpSent(message="OTP sent", expires_in_seconds=settings.otp_ttl_seconds)
 
 
@@ -256,6 +276,16 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
 _OTP_SENT_OR_NOT = "If the phone is registered an OTP has been sent"
 
 
+def _sent_or_not() -> OtpSent:
+    """The one answer both request routes give, code sent or not.
+
+    `_issue_otp` returns "OTP sent", which is true but is also the tell: a caller
+    comparing that against `_OTP_SENT_OR_NOT` reads straight off which numbers
+    are registered, which is the whole thing the branches below exist to hide.
+    """
+    return OtpSent(message=_OTP_SENT_OR_NOT, expires_in_seconds=settings.otp_ttl_seconds)
+
+
 async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     user = await db.scalar(select(User).where(User.phone == phone))
 
@@ -265,10 +295,10 @@ async def request_login_otp(db: AsyncSession, phone: str) -> OtpSent:
     # probing numbers they do not own: a lockout is something an attacker can
     # *cause* (five wrong codes), so a distinct answer turns it into a test for
     # "is this number registered?". The locked user still learns why on verify.
-    if user is None or (user.locked_until and user.locked_until > _now()):
-        return OtpSent(message=_OTP_SENT_OR_NOT, expires_in_seconds=settings.otp_ttl_seconds)
+    if user is not None and not (user.locked_until and user.locked_until > _now()):
+        await _issue_otp(db, phone)
 
-    return await _issue_otp(db, phone)
+    return _sent_or_not()
 
 
 def _rejected(phone: str, reason: str, user: User | None = None) -> HTTPException:
@@ -318,6 +348,73 @@ async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> Auth
     await db.refresh(user)
     audit("auth.otp.success", user_id=user.id)
     return await _auth_response(db, user)
+
+
+# ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
+
+
+async def request_password_reset(db: AsyncSession, phone: str) -> OtpSent:
+    """Send a reset code, and send it to locked accounts too.
+
+    This is where the reset door deliberately parts company with `otp/request`,
+    which stays silent for a locked account. Being locked out is the most likely
+    reason somebody is here at all — a hundred wrong passwords is exactly how a
+    driver who forgot theirs spends the minute before giving up. Refusing them a
+    code would leave the lockout with no exit but waiting, which is the hole this
+    endpoint was opened to close.
+
+    Nothing leaks by sending it: the answer is `_sent_or_not()` either way, and a
+    caller who does not hold the number never sees the code.
+    """
+    user = await db.scalar(select(User).where(User.phone == phone))
+    if user is not None:
+        await _issue_otp(db, phone, RESET_PURPOSE)
+
+    return _sent_or_not()
+
+
+async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str) -> MessageOut:
+    """Trade a valid reset code for a new password, and for the account back.
+
+    Every rejection answers with `OTP_REJECTED`, the same string `otp/verify`
+    uses — an unknown number, a stale code and a wrong digit are one reply here.
+    """
+    user = await db.scalar(select(User).where(User.phone == dto.phone))
+    if user is None:
+        raise _rejected(dto.phone, "no_user")
+    # No lockout check, unlike `verify_otp`. A locked account is the case this
+    # path is for; see `request_password_reset`. The backoff below still applies,
+    # so guessing the code is no cheaper here than anywhere else.
+    if await _backoff_active(db, user.id, caller_ip):
+        raise _rejected(dto.phone, "caller_backoff", user)
+
+    otp = await db.scalar(
+        select(OtpCode)
+        .where(OtpCode.phone == dto.phone, OtpCode.purpose == RESET_PURPOSE, OtpCode.consumed_at.is_(None))
+        .order_by(OtpCode.created_at.desc())
+    )
+    if otp is None:
+        raise _rejected(dto.phone, "no_active_reset_otp", user)
+    if otp.expires_at < _now():
+        raise _rejected(dto.phone, "expired", user)
+
+    if not verify_code(dto.code, otp.code_hash):
+        otp.attempts += 1
+        await _record_failure(db, user, caller_ip)
+        raise _rejected(dto.phone, "bad_reset_code", user)
+
+    otp.consumed_at = _now()
+    user.password_hash = hash_password(dto.new_password)
+    # A real unlock, not a shorter wait. Whoever is here proved they hold the
+    # phone, which is a stronger claim than the password that locked the account.
+    await _clear_failures(db, user, caller_ip)
+    user.locked_until = None
+    await db.commit()
+    audit("auth.password_reset.success", user_id=user.id)
+    # No token. A reset is not a sign-in: the new password should be typed once
+    # while the driver still remembers choosing it, and `is_phone_verified` stays
+    # untouched — proving a phone is CAR-37's business, not this endpoint's.
+    return MessageOut(message="Password updated — sign in with your new password")
 
 
 async def _record_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
