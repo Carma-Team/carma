@@ -78,7 +78,9 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city: str
             user_id=u.id,
             rank=idx + 1,
             score=u.total_points,
-            distance_km=u.total_distance,
+            # Settled to metres, as telemetry.py does: the accumulator is built by
+            # repeated float addition, so it drifts to 596.2000000000003.
+            distance_km=round(u.total_distance, 3),
             follow_status=statuses.get(u.id, "none"),
             user=LeaderboardUserSummary(
                 id=u.id,

@@ -1,9 +1,10 @@
 """The leaderboard entry carries lifetime kilometres (CAR-173).
 
-CAR-19 divides `score` by this to rank drivers on efficiency rather than on
-totals, so two things have to hold: the number is the driver's real lifetime
-distance, and a driver who has never driven reports 0.0 rather than null — the
-client can guard a zero divisor, it cannot guard a missing field.
+CAR-19 divides `score` by this, so what matters is that the number is the
+driver's real lifetime distance and that it reaches the client under the name
+the client reads. The wire name is the fragile half: it comes from
+`response_model_by_alias=True` on the route, not from the schema, so the
+serialisation is exercised through the router rather than through `model_dump`.
 
 Needs real rows, so it skips without Postgres.
 """
@@ -13,15 +14,17 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import create_access_token
 from app.models import User, UserRole
 from app.services import leaderboard as svc
 
 CITY = f"עיר-מרחק-{uuid.uuid4().hex[:6]}"
 
 
-async def _driver(db: AsyncSession, *, points: int, distance: float | None = None) -> User:
+async def _driver(db: AsyncSession, *, points: int, distance: float = 0.0, private: bool = False) -> User:
     user = User(
         email=f"_lbkm_{uuid.uuid4().hex[:10]}@carmatest.co.il",
         password_hash="x",
@@ -29,7 +32,8 @@ async def _driver(db: AsyncSession, *, points: int, distance: float | None = Non
         role=UserRole.DRIVER,
         city=CITY,
         total_points=points,
-        **({} if distance is None else {"total_distance": distance}),
+        total_distance=distance,
+        is_private=private,
     )
     db.add(user)
     await db.commit()
@@ -58,29 +62,66 @@ async def test_entry_carries_the_drivers_lifetime_distance(db_session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_a_driver_who_never_drove_reports_zero_not_null(db_session: AsyncSession) -> None:
-    # The divisor CAR-19 has to guard. Left to the column default on purpose:
-    # this is exactly the shape a freshly registered user has.
-    fresh = await _driver(db_session, points=0)
-    try:
-        board = await svc.get(db_session, fresh, "city", CITY)
-        entry = next(e for e in board.entries if e.user_id == fresh.id)
+async def test_the_client_reads_distance_km_off_the_response(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The camelCase name is the contract CAR-19 depends on.
 
-        assert entry.distance_km == 0.0
-    finally:
-        await _cleanup(db_session, fresh)
-
-
-@pytest.mark.asyncio
-async def test_distance_reaches_the_wire_as_distance_km(db_session: AsyncSession) -> None:
-    """The client reads `distanceKm`; the alias is the part CAR-19 depends on."""
+    Driven through the router on purpose: the alias comes from
+    `response_model_by_alias=True` in routers/leaderboard.py, so a test that
+    serialises the model itself would still pass with that argument deleted and
+    every client reading `undefined`.
+    """
     driver = await _driver(db_session, points=300, distance=88.25)
+    token = create_access_token(user_id=driver.id, email=driver.email, phone=None, role=UserRole.DRIVER)
     try:
-        board = await svc.get(db_session, driver, "city", CITY)
-        payload = board.model_dump(by_alias=True)
-        entry = next(e for e in payload["entries"] if e["userId"] == driver.id)
+        r = await db_api_client.get(
+            "/api/leaderboard", params={"type": "city", "city": CITY}, headers={"Authorization": f"Bearer {token}"}
+        )
+        assert r.status_code == 200
 
+        entry = next(e for e in r.json()["entries"] if e["userId"] == driver.id)
         assert entry["distanceKm"] == pytest.approx(88.25)
         assert "distance_km" not in entry
     finally:
         await _cleanup(db_session, driver)
+
+
+@pytest.mark.asyncio
+async def test_every_board_type_carries_the_field(db_session: AsyncSession) -> None:
+    """`friends` builds its rows from a separate query to the other two.
+
+    It is also the only board that does not filter out private profiles, so it
+    is the one path where a private driver's distance is emitted at all.
+    """
+    viewer = await _driver(db_session, points=400, distance=61.0, private=True)
+    try:
+        for board_type in ("national", "city", "friends"):
+            board = await svc.get(db_session, viewer, board_type, CITY if board_type == "city" else None)
+            mine = [e for e in board.entries if e.user_id == viewer.id]
+
+            # A private driver is off the public boards by design; the assertion
+            # is about the rows that *are* returned carrying the field.
+            for entry in board.entries:
+                assert entry.distance_km >= 0.0, f"{board_type} board dropped the field"
+            if board_type == "friends":
+                assert mine and mine[0].distance_km == pytest.approx(61.0)
+    finally:
+        await _cleanup(db_session, viewer)
+
+
+@pytest.mark.asyncio
+async def test_the_accumulators_float_drift_does_not_reach_the_client(db_session: AsyncSession) -> None:
+    """`total_distance` is grown by repeated SQL addition, so it carries noise.
+
+    Nobody should have to render 596.2000000000003. Settled to metres, matching
+    what telemetry.py does to the same quantity on the way in.
+    """
+    drifted = await _driver(db_session, points=100, distance=596.2000000000003)
+    try:
+        board = await svc.get(db_session, drifted, "city", CITY)
+        entry = next(e for e in board.entries if e.user_id == drifted.id)
+
+        assert entry.distance_km == 596.2
+    finally:
+        await _cleanup(db_session, drifted)

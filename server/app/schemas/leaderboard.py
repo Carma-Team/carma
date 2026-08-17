@@ -22,9 +22,10 @@ class LeaderboardEntry(CamelModel):
     user_id: str
     rank: int
     score: int
-    # Lifetime kilometres, covering the same window as `score` (lifetime points),
-    # so the client's points-per-km divides two figures over the same period.
-    # Narrowing either one to a rolling window silently skews the ratio.
+    # Lifetime kilometres, from the users.total_distance accumulator — which
+    # counts a trip the moment it is saved, so it runs ahead of the COMPLETED-only
+    # sum behind `GET /api/users/:id/stats`. The two answer differently for a
+    # driver mid-trip; do not treat either as the other.
     distance_km: float
     user: LeaderboardUserSummary
     # Wire name kept as `followStatus` for the mobile client; the value is the
