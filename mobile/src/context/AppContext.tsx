@@ -406,16 +406,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecentTrips(updatedTrips);
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
-    if (user) {
+    // The live user, not the copy this callback captured before tripsApi.save().
+    // That copy can be seconds old, and rebuilding the user from it hands back
+    // whatever changed in between — including the drive-mode toggle, which would
+    // silently re-arm the Bluetooth listener the driver had just turned off.
+    // Null means the session ended mid-save; then there is no user to update.
+    const liveUser = userRef.current;
+    if (liveUser) {
       // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
-      const currentPoints = user.totalPoints ?? user.points ?? 0;
+      const currentPoints = liveUser.totalPoints ?? liveUser.points ?? 0;
       const newTotalPoints = currentPoints + earnedPoints;
       // The server resolved the level when it saved the trip — including the
       // driver-score cap, which no amount of local arithmetic can reproduce
       // (#37). Only fall back to a points lookup if the save never landed.
       const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
 
-      const levelChange = detectLevelChange(user.level ?? newLevel, newLevel);
+      const levelChange = detectLevelChange(liveUser.level ?? newLevel, newLevel);
       if (levelChange) {
         const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
         console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
@@ -423,13 +429,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserLevelState(levelDisplay(newLevel));
 
       const updatedUser = {
-        ...user,
+        ...liveUser,
         points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
         totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
-        totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
+        totalDistance: (liveUser.totalDistance || 0) + finalState.distanceKm,
         level: newLevel
       };
       setUserState(updatedUser);
+      userRef.current = updatedUser;
       // Non-blocking — a storage failure must never leave the trip stuck in "active" state (D-CTX-2).
       AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser)).catch(e =>
         console.error('[AppContext] Failed to persist user after trip end', e)
@@ -601,11 +608,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * a caller's copy, so a save that lands late cannot hand back points a trip has
    * since added, and it does nothing at all once the session is over. It also
    * skips setUser's trip reload, which a settings change has no reason to trigger.
-   *
-   * This only protects the direction it controls. processEndTrip and
-   * clearTripHistory still rebuild the whole user from their own snapshots, so a
-   * field changed while a trip is saving can be overwritten locally until the next
-   * profile refresh brings the server's copy back.
    */
   const updateUser = useCallback((patch: Partial<AppUser>) => {
     const current = userRef.current;
@@ -643,12 +645,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearTripHistory = useCallback(async () => {
     try {
-      const now = new Date().toISOString();
-      if (user) {
-        const updatedUser = { ...user, lastClearedHistory: now };
-        setUserState(updatedUser);
-        await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
-      }
+      updateUser({ lastClearedHistory: new Date().toISOString() });
 
       const tr = lang === 'HE' ? he : en;
       addToast({
@@ -659,7 +656,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error('Failed to clear history', e);
     }
-  }, [lang, addToast, user]);
+  }, [lang, addToast, updateUser]);
 
   return (
     <AppContext.Provider value={{
