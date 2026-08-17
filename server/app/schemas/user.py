@@ -75,6 +75,7 @@ class UpdateProfileIn(CamelModel):
     age: int | None = Field(default=None, ge=16, le=120)
     city: str | None = Field(default=None, max_length=80)
     is_private: bool | None = None
+    drive_mode_enabled: bool | None = None
 
 
 class UpdateLocationIn(CamelModel):

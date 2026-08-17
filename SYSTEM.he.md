@@ -355,7 +355,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | תיאור |
 |---|---|---|
 | GET | `/api/users/me` | פרופיל המשתמש |
-| PATCH | `/api/users/me` | עדכון name/language/age/city |
+| PATCH | `/api/users/me` | עדכון name/language/age/city/isPrivate/driveModeEnabled. נכתבים רק השדות שנשלחו |
 | PUT | `/api/users/me/location` | עדכון מיקום אחרון `{ lat, lng }` |
 | DELETE | `/api/users/me` | מחיקת חשבון (GDPR) → 204 |
 | GET | `/api/user/stats` | סטטיסטיקות מצטברות |

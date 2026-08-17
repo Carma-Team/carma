@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { userApi } from '@/services/api/user.api';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
@@ -13,13 +14,15 @@ import { ICONS } from '@/constants/icons';
 /**
  * Settings screen.
  * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * All actions here are local (AsyncStorage / AppContext) — no server calls.
+ * [server] Drive mode is the one setting that is saved server-side (PATCH /api/users/me).
+ * Everything else here is local (AsyncStorage / AppContext).
  */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory, btDevice } = useApp();
+  const { user, setUser, clearTripHistory, btDevice, addToast } = useApp();
   const { t, lang, setLang } = useTranslation();
+  const [savingDriveMode, setSavingDriveMode] = useState(false);
 
   if (!user) return null;
 
@@ -69,6 +72,25 @@ export default function SettingsScreen() {
     );
   };
 
+  /**
+   * Turns automatic trip detection on or off.
+   * [server] PATCH /api/users/me — a choice kept only on the handset is overwritten
+   * the next time AppContext merges the server's user over the cached one.
+   * The reply is spread over the current user, not swapped in: it carries no
+   * lastClearedHistory, which lives on the device.
+   */
+  const handleToggleDriveMode = async () => {
+    setSavingDriveMode(true);
+    try {
+      const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
+      await setUser({ ...user, ...updated });
+    } catch {
+      addToast({ type: 'error', message: t('common.error') });
+    } finally {
+      setSavingDriveMode(false);
+    }
+  };
+
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       {/* Header */}
@@ -101,7 +123,8 @@ export default function SettingsScreen() {
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
-                  onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
+                  loading={savingDriveMode}
+                  onPress={handleToggleDriveMode}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
                 </Button>
