@@ -1,6 +1,6 @@
 # CARMA — Anti-Fraud Architecture
 
-> **Status: target specification.** This describes the architecture we build toward, not
+> **Target architecture.** This describes the architecture we build toward, not
 > a snapshot of what ships today. Where the code differs, the code is wrong and the gap
 > is a Linear issue — never a note in this file.
 >

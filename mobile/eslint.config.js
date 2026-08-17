@@ -17,6 +17,7 @@ module.exports = defineConfig([
     ignores: [
       'src/i18n/he.ts',        // the Hebrew resource file itself
       'src/lib/constants.ts',  // labelHe/name fields — the separate bilingual-data-record pattern, see docs/i18n.md
+      'src/testing/mocks/**',  // dev-only fixture data (titleHe/descriptionHe etc.), same bilingual-data-record shape
       '**/__tests__/**',
       '**/*.test.ts',
       '**/*.test.tsx',

@@ -127,6 +127,7 @@ export class SensorManager {
   private speedTicker: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private accelAvailable = false;
+  private gyroAvailable = false;
   private thresholds: MotionThresholds;
 
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
@@ -162,6 +163,9 @@ export class SensorManager {
   private onUpdate: (data: {
     distanceKm: number; currentSpeed: number; timeDeltaS: number;
     accelX: number; gyroZ: number;
+    // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
+    // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
+    accelAvailable: boolean; gyroAvailable: boolean;
     lat?: number; lng?: number;
   }) => void;
 
@@ -170,6 +174,7 @@ export class SensorManager {
     onUpdate: (data: {
       distanceKm: number; currentSpeed: number; timeDeltaS: number;
       accelX: number; gyroZ: number;
+      accelAvailable: boolean; gyroAvailable: boolean;
       lat?: number; lng?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
@@ -189,6 +194,8 @@ export class SensorManager {
     this.lastValidSpeedAtMs = 0;
     this.latestAccelX = 0;
     this.latestGyroZ  = 0;
+    this.accelAvailable = false;
+    this.gyroAvailable  = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
@@ -255,8 +262,8 @@ export class SensorManager {
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
 
-      const gyroAvailable = await Gyroscope.isAvailableAsync();
-      if (gyroAvailable) {
+      this.gyroAvailable = await Gyroscope.isAvailableAsync();
+      if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
         this.gyroSub = Gyroscope.addListener(data => {
           this.latestGyroZ = data.z;
@@ -330,6 +337,8 @@ export class SensorManager {
       timeDeltaS,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
+      accelAvailable: this.accelAvailable,
+      gyroAvailable:  this.gyroAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
     });
@@ -361,6 +370,8 @@ export class SensorManager {
       timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
+      accelAvailable: this.accelAvailable,
+      gyroAvailable:  this.gyroAvailable,
     });
   }
 

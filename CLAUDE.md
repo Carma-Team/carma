@@ -38,6 +38,17 @@ Applies to chat and to everything drafted on Dan's behalf.
 - **No decorative jargon.** Use a technical term only when it is the subject, and define it in half a sentence.
 - **Hebrew or English per sentence — never both inside one sentence.** Mixing directions makes it unreadable.
 
+## Keep the context small
+
+Every tool call re-sends the whole conversation. Cached, so it is cheap per call — never free, and each call in a long thread costs more than the one before it. The cheapest work takes the fewest calls, not the fewest characters.
+
+- **Batch the gates into one command**, not four round trips. Server — `ruff check . && ruff format --check . && mypy app && pytest -q`. Mobile — `npx tsc --noEmit && npm run lint && npm test -- --no-coverage`.
+- **Never pipe a gate through `tail` inside a `&&` chain.** The pipe returns `tail`'s exit code, so a failing suite reads as a pass. Trim noisy output in a call of its own.
+- **Never read a whole diff.** `gh pr diff <N> --name-only` first, then `gh pr diff <N> -- <path>` for the files that matter. A full diff runs 50 KB and then sits in context for the rest of the session.
+- **Send broad searches to a subagent.** "Where is X handled?" goes to `Explore`, which answers without leaving six files behind in the main context.
+- **Do not re-read a file already in context**, and drop the `cd` prefix — the working directory persists between calls.
+- **One session per ticket.** `/clear` when the work lands, `/compact` only mid-task. Anything worth keeping belongs on the Linear issue or in the branch before you clear — never only in the thread.
+
 ## Roles and ownership
 
 | Owner | Domain |
@@ -156,9 +167,15 @@ Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving 
 
 | Where | What it holds |
 |---|---|
-| `docs/*.md` | How the system works today. Always current. |
+| `docs/*.md` | The specification — either how the system works today, or the target it is being built to. |
 | A Linear document | Why we decided it. |
 | A Linear issue | Work to be done, with an owner and a priority. |
+
+**Every document declares which it is on the first line** — `Current behaviour.` or `Target architecture.` — before the first heading.
+
+**A target document is written entirely in the target.** No status columns, no "not yet", no ticket ids, no list of what is missing. The distance between the target and today is work, and work lives in issues.
+
+**A current-behaviour document is updated in the change that alters the behaviour**, not afterwards.
 
 A task list is never a file — it has no owner, no priority, and nobody opens it. Never put a version number in a filename. Deleting a stale document is correct; git keeps it. Details in `.claude/rules/writing-docs.md`.
 

@@ -315,3 +315,28 @@ class TestComputeStreak:
         """The distance witness can cut a trip to nothing, leaving no weight to average by."""
         assert compute_streak([(_day(0), 90.0, 0.0)], _ANCHOR) == 1
         assert compute_streak([(_day(0), 50.0, 0.0)], _ANCHOR) == 0
+
+
+# ─── CAR-155: the ingest path may not read client severity ──────────────────────
+
+
+class TestClientSeverityIsNotScored:
+    """A tripwire, not a unit test — deliberately crude because it must always run.
+
+    The integration test that proves this properly (`test_trip_events_db.py`)
+    skips without Postgres, and a direct push to `develop` skips the Postgres job
+    entirely. So on the machine most likely to introduce the leak, nothing else
+    checks it.
+    """
+
+    def test_scoring_path_does_not_read_client_severity(self) -> None:
+        import inspect
+
+        from app.services import trips
+
+        assert "event_severity" not in inspect.getsource(trips), (
+            "trips.py now references event_severity(). Client-supplied severity is an "
+            "unsigned horizontal magnitude, not the vehicle-frame value the curve maps "
+            "(CAR-155), and the events array is unsigned so a client could set its own. "
+            "Lift this guard in CAR-157, once severity is sourced from the signed digest."
+        )
