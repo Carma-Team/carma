@@ -260,6 +260,16 @@ describe('PhoneUsageManager', () => {
       expect(manager.getMotionFeatures().rotationSampleCount).toBe(0);
     });
 
+    it('treats the rotation window as empty once the gyro feed goes quiet mid-trip', () => {
+      manager.pushGyroSample(5, 0, 0);
+      expect(manager.getMotionFeatures().rotationSampleCount).toBe(1);
+
+      jest.advanceTimersByTime(1001); // no further pushGyroSample() calls
+
+      const features = manager.getMotionFeatures();
+      expect(features.rotationSampleCount).toBe(0);
+      expect(features.rotationVariance).toBe(0);
+    });
   });
 
   // ─── Rotation veto (CAR-174) ────────────────────────────────────────────────

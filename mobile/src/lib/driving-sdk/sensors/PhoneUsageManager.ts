@@ -65,6 +65,9 @@ const EPOCH_COOLDOWN_MS = 1500;
 // Rolling variance window: 10 samples at 10 Hz = 1-second analysis window.
 const VARIANCE_WINDOW_SIZE = 10;
 
+// Matches the 1 s analysis window at the expected 10 Hz gyro feed.
+const GYRO_STALE_MS = 1000;
+
 export interface InteractionData {
   /** Touch-epoch transients since the previous emission — a delta, not a running total. */
   touchEpochs: number;
@@ -114,6 +117,7 @@ export class PhoneUsageManager {
   private touchEpochsThisTick = 0;
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
+  private lastGyroMs = 0;
   private handheldTimer: ReturnType<typeof setInterval> | null = null;
   // Last speed the host reported. Stored and passed through untouched — no threshold
   // and no weighting here, both of which are scoring decisions outside this SDK.
@@ -136,6 +140,7 @@ export class PhoneUsageManager {
     this.touchEpochsThisTick = 0;
     this.screenInteractionSeconds = 0;
     this.lastEpochMs = 0;
+    this.lastGyroMs = 0;
     this.magnitudeWindow = [];
     this.rotationWindow = [];
     this.speedKmh = 0;
@@ -189,17 +194,22 @@ export class PhoneUsageManager {
    */
   public pushGyroSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
+    this.lastGyroMs = Date.now();
     this.rotationWindow.push(Math.sqrt(x * x + y * y + z * z));
     if (this.rotationWindow.length > VARIANCE_WINDOW_SIZE) this.rotationWindow.shift();
   }
 
   /** Current window's raw motion features. See {@link MotionFeatures}. */
   public getMotionFeatures(): MotionFeatures {
-    const n = this.rotationWindow.length;
+    // A stopped gyro feed leaves rotationWindow holding its last live samples forever —
+    // treat samples older than the window itself as if none had been pushed.
+    const stale = this.rotationWindow.length > 0 && Date.now() - this.lastGyroMs > GYRO_STALE_MS;
+    const window = stale ? [] : this.rotationWindow;
+    const n = window.length;
     return {
       accelVariance: this.computeVariance(this.magnitudeWindow),
-      rotationRateMean: n === 0 ? 0 : this.rotationWindow.reduce((s, v) => s + v, 0) / n,
-      rotationVariance: this.computeVariance(this.rotationWindow),
+      rotationRateMean: n === 0 ? 0 : window.reduce((s, v) => s + v, 0) / n,
+      rotationVariance: this.computeVariance(window),
       rotationSampleCount: n,
     };
   }
