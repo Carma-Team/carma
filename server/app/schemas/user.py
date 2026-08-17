@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
 from app.models.enums import Language, UserRole
 from app.schemas._base import CamelModel
@@ -76,6 +76,18 @@ class UpdateProfileIn(CamelModel):
     city: str | None = Field(default=None, max_length=80)
     is_private: bool | None = None
     drive_mode_enabled: bool | None = None
+
+    @field_validator("language", "is_private", "drive_mode_enabled")
+    @classmethod
+    def _reject_explicit_null(cls, value: Language | bool | None) -> Language | bool:
+        """These three back NOT NULL columns; name, age and city are clearable.
+
+        An unset field never reaches here, so omitting the key still leaves the
+        setting alone. Only an explicit null does, and it used to answer 500.
+        """
+        if value is None:
+            raise ValueError("cannot be null — omit the field to leave it unchanged")
+        return value
 
 
 class UpdateLocationIn(CamelModel):
