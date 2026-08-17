@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +23,12 @@ export default function SettingsScreen() {
   const { user, setUser, clearTripHistory, btDevice, addToast } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
+
+  // The save outlives the render that started it. A trip ending in between puts
+  // fresh points on the user, and rebuilding it from the closure's copy would
+  // hand the old ones back.
+  const latestUser = useRef(user);
+  useEffect(() => { latestUser.current = user; }, [user]);
 
   if (!user) return null;
 
@@ -76,14 +82,14 @@ export default function SettingsScreen() {
    * Turns automatic trip detection on or off.
    * [server] PATCH /api/users/me — a choice kept only on the handset is overwritten
    * the next time AppContext merges the server's user over the cached one.
-   * The reply is spread over the current user, not swapped in: it carries no
-   * lastClearedHistory, which lives on the device.
+   * Only the one field is taken from the reply; the rest of it can already be
+   * behind what this device knows.
    */
   const handleToggleDriveMode = async () => {
     setSavingDriveMode(true);
     try {
       const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
-      await setUser({ ...user, ...updated });
+      await setUser({ ...(latestUser.current ?? user), driveModeEnabled: updated.driveModeEnabled });
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     } finally {
