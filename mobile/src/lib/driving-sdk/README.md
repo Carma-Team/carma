@@ -290,7 +290,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, one point per 3 GPS ticks (~6 s at the requested cadence)
+  waypoints:              RouteWaypoint[];  // GPS track, one point every ~5s of wall-clock time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
