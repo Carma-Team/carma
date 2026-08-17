@@ -59,7 +59,6 @@ const en: TranslationMap = {
   },
   driving: {
     debugTitle: 'Admin tools (demo mode)',
-    addDistance: '+10 km',
     addDistanceSmall: '+100 m',
     btConnected: 'connected — trip started',
     defaultDeviceName: 'Vehicle',

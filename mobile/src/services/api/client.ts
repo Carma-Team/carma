@@ -5,14 +5,8 @@
  * @description
  * `request<T>` function that handles:
  * - Loading the token from AsyncStorage and attaching it as an Authorization header
- * - Sending the request to BASE_URL (local server or real server per USE_REAL_SERVER)
+ * - Sending the request to BASE_URL (STAGING_SERVER_URL, per USE_REAL_SERVER)
  * - Handling HTTP errors and 204 No Content responses
- *
- * @server
- * - USE_REAL_SERVER=false: requests → LOCAL_SERVER_URL (carma-local-server must be running)
- * - USE_REAL_SERVER=true:  requests → real server (update REAL_SERVER_URL accordingly)
- *
- * For a physical device: change LOCAL_SERVER_URL in serverConfig.ts to your machine's IP
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { USE_REAL_SERVER, LOCAL_SERVER_URL, STAGING_SERVER_URL } from '@/constants/serverConfig';

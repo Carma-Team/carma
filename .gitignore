@@ -60,9 +60,20 @@ screen*.png
 demo_shots/
 
 # ─── Local check output ──────────────────────────────────────────────────────
-# Any command output redirected to a file so it can be read back instead of
-# pasted from the terminal — tsc/eslint/jest runs, git status/stash, etc.
-*-out.txt
+# Standing output files for tsc/eslint/jest/git runs redirected from the terminal,
+# and for draft PR body/comment text. One fixed path per purpose on purpose, so the
+# command can be re-run from shell history and nothing accumulates per-PR.
+tsc-out.txt
+lint-out.txt
+jest-out.txt
+commit-msg-out.txt
+git-status-out.txt
+pr-body.txt
+pr-comment.txt
+
+# ─── Drafted PR/comment content ──────────────────────────────────────────────
+# One fixed path, always overwritten — never committed, never per-PR.
+pr-body.txt
 
 # ─── Generated schema intermediate ───────────────────────────────────────────
 # The schema-drift recipe renders this on the way to generated.ts, which is the
