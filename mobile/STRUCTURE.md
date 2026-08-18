@@ -168,8 +168,8 @@ documented in `mobile/CLAUDE.md`.
 ### `lib/` — ownership boundary
 
 Two people work inside `lib/`. Fraud detection (deciding a session is not the driver privately
-driving their own car) and the scoring algorithm are Dan's; the trip lifecycle, the SDK and the
-UI layer are May's. That split is carried by the `@owner` header on each file and by the Owner
+driving their own car) is Dan's; the trip lifecycle, the SDK and the UI layer are May's. That
+split is carried by the `@owner` header on each file and by the Owner
 column above — not by the directory tree, so a file can change hands without moving path.
 
 **Rules:**
