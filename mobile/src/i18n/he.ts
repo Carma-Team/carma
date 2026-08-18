@@ -125,7 +125,7 @@ const he = {
     removeFriendConfirm: 'האם ברצונך להסיר את',
   },
   notifications: {
-    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    // {level} / {name} are substituted in NotificationsScreen — `t` has no interpolation.
     levelUp: 'כל הכבוד! עלית לרמה {level}',
     friendAccepted: '{name} אישר/ה את בקשת החברות שלך',
     friendAcceptedAnon: 'בקשת החברות שלך אושרה',

@@ -125,7 +125,7 @@ const en: TranslationMap = {
     removeFriendConfirm: 'Remove',
   },
   notifications: {
-    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    // {level} / {name} are substituted in NotificationsScreen — `t` has no interpolation.
     levelUp: 'Well done! You reached level {level}',
     friendAccepted: '{name} accepted your friend request',
     friendAcceptedAnon: 'Your friend request was accepted',
