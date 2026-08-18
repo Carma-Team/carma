@@ -1,6 +1,9 @@
 /**
- * @fileoverview GPS + accelerometer + gyroscope listeners for driving event detection — SensorManager
- * @module lib/driving-sdk/sensors/SensorManager
+ * @file SensorManager.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion
+ * that does not depend on how the phone is oriented in the vehicle.
+ * Also streams speed, distance and raw IMU values to the SDK on every fix.
  *
  * @description
  * Detects EVT_BRAKE / EVT_ACCEL / EVT_TURN using a lightweight GPS+IMU fusion that

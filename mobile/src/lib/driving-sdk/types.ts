@@ -1,3 +1,10 @@
+/**
+ * @file types.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Every type and interface the library exposes to its host app.
+ * Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract
+ * through which an app injects its own trip-start, trip-end and suspicion rules.
+ */
 
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 

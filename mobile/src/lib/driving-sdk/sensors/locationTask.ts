@@ -1,6 +1,9 @@
 /**
- * @fileoverview Background location task + bridge for the driving SDK.
- * @module lib/driving-sdk/sensors/locationTask
+ * @file locationTask.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Defines the TaskManager task that receives background location updates.
+ * Forwards each fix to the handler `SensorManager` registers, so distance keeps counting
+ * while the app is backgrounded or the phone is locked.
  *
  * @description
  * Defines the TaskManager task that `Location.startLocationUpdatesAsync` delivers
