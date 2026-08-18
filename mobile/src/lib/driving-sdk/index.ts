@@ -334,7 +334,10 @@ export class DrivingSDK {
     for (const { type, condition, handler } of this.sensorListeners.values()) {
       if (type !== event.type) continue;
       if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      if (condition.minSeverity !== undefined && (event.severity ?? 0) < condition.minSeverity) continue;
+      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
+      // motion events can satisfy, so it must not silently block them either.
+      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
+          && (event.severity ?? 0) < condition.minSeverity) continue;
       try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
     }
 

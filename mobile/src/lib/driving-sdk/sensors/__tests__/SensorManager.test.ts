@@ -258,6 +258,7 @@ describe('SensorManager', () => {
     for (const c of cases) {
       manager.stop();
       onEvent.mockClear();
+      onUpdate.mockClear();
       manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
       await manager.start();
 
@@ -269,6 +270,13 @@ describe('SensorManager', () => {
       sendFix({ t: 2000, speed: 14 });
 
       expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+
+      // An event firing here doesn't prove gravity was removed — since CAR-156
+      // dropped peakG, nothing on the event does. onUpdate's accelX still carries
+      // the gravity-removed dynamic X (this.latestAccelX): if removal broke, it
+      // would report c.gravity.x + c.force.x instead of just c.force.x.
+      const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+      expect(lastUpdate.accelX).toBeCloseTo(c.force.x, 1);
     }
   });
 

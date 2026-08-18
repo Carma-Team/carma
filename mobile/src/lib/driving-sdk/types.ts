@@ -64,7 +64,9 @@ export interface DrivingEvent {
 export interface SensorEventCondition {
   /** GPS speed (km/h) must be at or above this value at the moment of detection. */
   minSpeedKmh?: number;
-  /** Event severity [0–1] must be at or above this value. */
+  /** Event severity [0–1] must be at or above this value. PHONE_USAGE only —
+   *  motion events don't carry severity (CAR-156), so this condition is ignored
+   *  rather than blocking them. */
   minSeverity?: number;
 }
 

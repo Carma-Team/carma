@@ -140,11 +140,14 @@ export class SensorManager {
   private motionPrevSpeedMs = 0;
   private motionPrevHeadingDeg: number | null = null;
   // Peak orientation-invariant horizontal acceleration (m/s²) seen since the last
-  // motion evaluation — the IMU's contribution to severity and cross-confirmation.
+  // motion evaluation — the IMU's contribution to cross-confirmation (CAR-156: no
+  // longer reported as severity, the magnitude isn't a vehicle-frame axis).
   private peakHorizAccelMs2 = 0;
-  // Longest continuous streak (ms) that horizMs2 stayed at/above IMU_CONFIRM_MS2
-  // since the last motion evaluation — reported as DrivingEvent.durationMs.
   private aboveConfirmSinceMs: number | null = null;
+  // Start of the streak that produced peakHorizAccelMs2, not just whichever
+  // streak happens to run longest — a rough road can out-last the actual brake.
+  private peakStreakStartMs: number | null = null;
+  // Duration (ms) of that streak — reported as DrivingEvent.durationMs.
   private peakDurationMs = 0;
 
   // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
@@ -199,6 +202,7 @@ export class SensorManager {
     this.motionPrevHeadingDeg = null;
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
+    this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
     // this.prevLocTimestamp = null;
@@ -393,6 +397,7 @@ export class SensorManager {
       this.motionPrevHeadingDeg = headingDeg >= 0 ? headingDeg : null;
       this.peakHorizAccelMs2 = 0;
       this.aboveConfirmSinceMs = null;
+      this.peakStreakStartMs = null;
       this.peakDurationMs = 0;
       return;
     }
@@ -430,6 +435,7 @@ export class SensorManager {
     if (headingDeg >= 0) this.motionPrevHeadingDeg = headingDeg;
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
+    this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
   }
 
@@ -465,7 +471,7 @@ export class SensorManager {
   //   this.prevLocTimestamp = now;
   // }
 
-  // ─── Accelerometer handler — severity + cross-confirm + fraud telemetry ──────
+  // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──
 
   private handleAccel(data: { x: number; y: number; z: number }) {
     // Step 1: EMA low-pass filter to isolate slow-changing static gravity.
@@ -489,17 +495,24 @@ export class SensorManager {
     const dynMagSq = dynX ** 2 + dynY ** 2 + dynZ ** 2;
     const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * MS2_PER_G; // g → m/s²
 
-    if (horizMs2 > this.peakHorizAccelMs2) this.peakHorizAccelMs2 = horizMs2;
-
-    // Track how long the signal has stayed continuously at/above the cross-confirm
-    // threshold — reported as DrivingEvent.durationMs if an event fires this window.
+    // Track the continuous streak at/above the cross-confirm threshold first, so a
+    // peak recorded on this sample can capture the streak it actually belongs to.
+    const nowMs = Date.now();
     if (horizMs2 >= IMU_CONFIRM_MS2) {
-      const nowMs = Date.now();
       if (this.aboveConfirmSinceMs === null) this.aboveConfirmSinceMs = nowMs;
-      const streakMs = nowMs - this.aboveConfirmSinceMs;
-      if (streakMs > this.peakDurationMs) this.peakDurationMs = streakMs;
     } else {
       this.aboveConfirmSinceMs = null;
+    }
+
+    if (horizMs2 > this.peakHorizAccelMs2) {
+      this.peakHorizAccelMs2 = horizMs2;
+      this.peakStreakStartMs = this.aboveConfirmSinceMs;
+    }
+
+    // durationMs grows only while still inside the streak that holds the peak —
+    // a rough-road streak elsewhere in the window must not out-report the brake.
+    if (this.peakStreakStartMs !== null && this.aboveConfirmSinceMs === this.peakStreakStartMs) {
+      this.peakDurationMs = nowMs - this.peakStreakStartMs;
     }
   }
 
