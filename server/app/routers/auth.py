@@ -10,10 +10,12 @@ from app.core.limiter import client_ip, limiter
 from app.schemas.auth import (
     AuthOut,
     LoginIn,
+    MessageOut,
     OtpRegisterIn,
     OtpRequestIn,
     OtpSent,
     OtpVerifyIn,
+    PasswordResetIn,
     RegisterIn,
 )
 from app.schemas.user import UserOut
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # either sends a billed SMS or runs bcrypt. These are the routes where a caller
 # repeating themselves is already a bad sign, so they get their own ceiling.
 # Keyed on the caller's address; the per-phone cap that survives IP rotation
-# lives in `services.auth._assert_otp_quota`.
+# lives in `services.auth._over_otp_quota`.
 SENSITIVE_LIMIT = "5/minute"
 # Login and register get a looser ceiling than the OTP routes. An address is a
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
@@ -37,8 +39,8 @@ SENSITIVE_LIMIT = "5/minute"
 # The OTP routes keep the tight limit: each one spends money on an SMS.
 CREDENTIAL_LIMIT = "20/minute"
 # Every handler below takes `request` because SlowAPI reads the limit key off it
-# and the decorator raises at import time without it. `login` and `otp_verify`
-# also read the caller's address from it — via `client_ip`, never
+# and the decorator raises at import time without it. The handlers that check a
+# credential also read the caller's address from it — via `client_ip`, never
 # `request.client.host`, which behind a proxy is the ingress and would put every
 # driver in one backoff bucket.
 
@@ -98,3 +100,28 @@ async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> Otp
 @limiter.limit(SENSITIVE_LIMIT)
 async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
     return await auth_service.verify_otp(db, dto, client_ip(request))
+
+
+# ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
+
+
+@router.post(
+    "/password/reset/request",
+    response_model=OtpSent,
+    response_model_by_alias=True,
+    summary="Send a password-reset code to a registered phone",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def password_reset_request(request: Request, dto: OtpRequestIn, db: DbSession) -> OtpSent:
+    return await auth_service.request_password_reset(db, dto.phone)
+
+
+@router.post(
+    "/password/reset/confirm",
+    response_model=MessageOut,
+    response_model_by_alias=True,
+    summary="Set a new password with a reset code, and unlock the account",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def password_reset_confirm(request: Request, dto: PasswordResetIn, db: DbSession) -> MessageOut:
+    return await auth_service.reset_password(db, dto, client_ip(request))

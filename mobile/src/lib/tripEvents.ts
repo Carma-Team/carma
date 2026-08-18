@@ -1,6 +1,9 @@
 /**
- * @fileoverview Server trip-event → SDK DrivingEvent adapter
- * @module lib/tripEvents
+ * @file tripEvents.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape.
+ * Lives here rather than in the map component because the mismatch is in the data,
+ * not in the rendering.
  *
  * @description
  * GET /api/trips/:id returns the event timeline in the server's own shape. The map

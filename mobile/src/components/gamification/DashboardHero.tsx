@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/Progress';
 import { LevelBadge } from './LevelBadge';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
-import { scoreToColor } from '@/lib/scoring';
+import { scoreToColor } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Language } from '@/types';
 

@@ -1,6 +1,9 @@
 /**
- * @fileoverview CARMA-specific nudge for the Android background-throttling risk — #17
- * @module lib/BatteryOptimizationPrompt
+ * @file BatteryOptimizationPrompt.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17).
+ * Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask,
+ * what to say, and that it is asked only once.
  *
  * @description
  * driving-sdk/PowerManagement exposes the generic platform check and the

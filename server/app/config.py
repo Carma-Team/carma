@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     # How far back failures are counted, for the per-address backoff and the
     # account-wide ceiling alike. The same rolling hour `otp_max_per_hour` uses.
     login_failure_window_seconds: int = 3600
-    # Codes one phone number may trigger per hour, across login and registration.
+    # Codes one phone number may trigger per hour — login, registration and
+    # password reset share the one budget, because all three send.
     # Every code is a billed SMS, so the destination number is the budget line.
     otp_max_per_hour: int = 5
 
