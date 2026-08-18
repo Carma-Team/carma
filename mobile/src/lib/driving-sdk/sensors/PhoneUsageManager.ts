@@ -1,8 +1,12 @@
 /**
- * @fileoverview IMU-based active interaction detector — PhoneUsageManager v1.9
- * @module lib/driving-sdk/sensors/PhoneUsageManager
+ * @file PhoneUsageManager.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy.
+ * Reports tap count and hand-held seconds, and deliberately does not count a mounted phone
+ * running a navigation app in the background.
  *
  * @description
+ * IMU-based active interaction detector — v1.9.
  * Detects active phone handling via IMU accelerometer-variance analysis and
  * a glass-tap transient proxy. Replaces a v1.x AppState-only approach that
  * caused false positives when the host app ran in the background behind
