@@ -42,7 +42,7 @@ export default function RewardFormScreen() {
   const isEdit = !!rewardData;
   const existing: BusinessReward | undefined = rewardData ? JSON.parse(rewardData) : undefined;
 
-  const [category, setCategory] = useState(() => user?.businessCategory ?? existing?.category ?? 'other');
+  const [category, setCategory] = useState(() => existing?.category ?? user?.businessCategory ?? 'other');
 
   const [form, setForm] = useState<FormState>(() => {
     if (existing) {
@@ -136,7 +136,9 @@ export default function RewardFormScreen() {
 
         <Text style={styles.label}>{t('business.form.name')}</Text>
         <TextInput
-          style={COMMON_STYLES.input}
+          // titleHe always holds Hebrew content, regardless of the UI language —
+          // forced right-align so it doesn't go left-aligned under an English UI.
+          style={[COMMON_STYLES.input, { textAlign: 'right' }]}
           placeholder={t('business.form.namePlaceholder')}
           placeholderTextColor={COLORS.textMuted}
           value={form.titleHe}
@@ -145,7 +147,7 @@ export default function RewardFormScreen() {
 
         <Text style={styles.label}>{t('business.form.description')}</Text>
         <TextInput
-          style={[COMMON_STYLES.input, styles.multiline]}
+          style={[COMMON_STYLES.input, styles.multiline, { textAlign: 'right' }]}
           placeholder={t('business.form.descriptionPlaceholder')}
           placeholderTextColor={COLORS.textMuted}
           multiline

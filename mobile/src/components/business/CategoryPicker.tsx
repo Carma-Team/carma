@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
-import { CATEGORY_CONFIG, DEFAULT_CATEGORY, REWARD_CATEGORIES } from '@/constants/icons';
+import { CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
 import { SelectSheet } from '@/components/ui/SelectSheet';
 import { localize } from '@/lib/utils';
 import type { Language } from '@/types';
@@ -33,11 +33,11 @@ export function CategoryPicker({ lang, category, onSelect, label }: CategoryPick
         visible={open}
         onClose={() => setOpen(false)}
         title={label}
-        items={REWARD_CATEGORIES.map(c => ({
-          key: c.key,
+        items={Object.entries(CATEGORY_CONFIG).map(([key, c]) => ({
+          key,
           label: localize(c.labelHe, c.labelEn, lang),
           icon: c.icon,
-          iconColor: CATEGORY_CONFIG[c.key]?.color,
+          iconColor: c.color,
         }))}
         selectedKey={category}
         onSelect={key => { onSelect(key); setOpen(false); }}

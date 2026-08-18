@@ -86,7 +86,7 @@ export default function BusinessDashboardScreen() {
                 </View>
               );
             })()}
-            <Text style={TYPOGRAPHY.h2} numberOfLines={1}>{user?.name ?? t('business.title')}</Text>
+            <Text style={[TYPOGRAPHY.h2, { flexShrink: 1 }]} numberOfLines={1}>{user?.name ?? t('business.title')}</Text>
           </View>
           <Text style={[TYPOGRAPHY.caption, { marginTop: 2 }]}>{t('business.subtitle')}</Text>
         </View>
@@ -204,9 +204,11 @@ export default function BusinessDashboardScreen() {
 
 const styles = StyleSheet.create({
   header:     { ...COMMON_STYLES.screenHeader },
-  // Reserves room for the fixed-corner settings button so a long name/subtitle
-  // truncates (numberOfLines={1} above) instead of running underneath it.
-  headerLeft: { gap: 2, paddingEnd: 56 },
+  // flex: 1 gives numberOfLines={1} below something to actually truncate against —
+  // screenHeader has no justifyContent now that this is its only child, so without
+  // it headerLeft sizes to content instead of the row. paddingEnd reserves room for
+  // the fixed-corner settings button so a long name/subtitle doesn't run under it.
+  headerLeft: { flex: 1, gap: 2, paddingEnd: 56 },
   headerCatIcon: {
     width: 30, height: 30, borderRadius: 15,
     alignItems: 'center' as const, justifyContent: 'center' as const,
@@ -214,7 +216,10 @@ const styles = StyleSheet.create({
   },
   settingsBtn: {
     position: 'absolute',
-    right: SPACING.md,
+    // end (not right): a logical property, so it flips with paddingEnd above in
+    // RTL — right is physical and stayed pinned to the device edge, leaving the
+    // reserved gap and the button on opposite sides of a Hebrew layout.
+    end: SPACING.md,
     zIndex: 10,
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
