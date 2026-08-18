@@ -9,6 +9,14 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+// dd-mm-yyyy, distinct from the long-form `formatDate` used elsewhere — this is the one place that wants the numeric format.
+function formatJoinDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
 
 /**
  * Settings screen.
@@ -81,6 +89,19 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
+
+          {/* Account Section */}
+          <View>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.profile} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.title')}</Text>
+            </View>
+            <Card style={styles.settingCard}>
+              <Text style={styles.settingDescription}>
+                {t('profile.joined')}: {user.createdAt ? formatJoinDate(user.createdAt) : '—'}
+              </Text>
+            </Card>
+          </View>
 
           {/* Drive Mode Section */}
           <View>
