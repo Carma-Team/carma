@@ -44,14 +44,16 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2.1.0"
+    version: str = "2.2.0"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
     k_accel: float = 0.022
     k_corner: float = 0.012
     k_speed: float = 0.012
-    k_distraction: float = 0.020
+    # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
+    # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
+    k_distraction: float = 0.0035
 
     # Composite weights when speeding data IS available ("Blending the five").
     w_distraction: float = 0.30
@@ -193,6 +195,7 @@ def compute_trip_score(
     w_speed: float = 0.0,
     distance_km: float,
     duration_min: float,
+    driving_min_above_threshold: float | None = None,
     has_speed_data: bool = False,
     rolling_score: float | None = None,
     config: ScoringConfig = CONFIG,
@@ -202,17 +205,24 @@ def compute_trip_score(
 
     `w_*` are severity-weighted counts (Σ severity per type). In shadow mode each
     event contributes weight 1.0, so these equal raw counts. Distance and time
-    are the exposure denominators. `has_speed_data` selects the weight set;
-    `rolling_score` is the driver's current score, used only to dampen tiny trips.
+    are the exposure denominators. `driving_min_above_threshold` is distraction's
+    own denominator — minutes spent actually driving — and falls back to wall-clock
+    duration when the GPS trace cannot supply it. `has_speed_data` selects the weight
+    set; `rolling_score` is the driver's current score, used only to dampen tiny trips.
     """
     exposure_km = max(distance_km, config.exposure_floor_km)
-    exposure_min = max(duration_min, config.distraction_time_floor_min)
+    # Distraction is charged per *driving* hour, not per hour of trip: a parked
+    # tail dilutes the rate, and picking the phone up on arrival is not driving.
+    distraction_exposure_min = max(
+        duration_min if driving_min_above_threshold is None else driving_min_above_threshold,
+        config.distraction_time_floor_min,
+    )
 
     r_brake = w_brake * 100.0 / exposure_km
     r_accel = w_accel * 100.0 / exposure_km
     r_corner = w_corner * 100.0 / exposure_km
     r_speed = w_speed * 100.0 / exposure_km
-    r_distraction = w_distraction * 60.0 / exposure_min  # per driving-hour
+    r_distraction = w_distraction * 60.0 / distraction_exposure_min  # per driving-hour
 
     sub_brake = _subscore(r_brake, config.k_brake)
     sub_accel = _subscore(r_accel, config.k_accel)

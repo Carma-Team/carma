@@ -172,3 +172,35 @@ class TestTraceDistance:
         trace = [_wp(0, 100.0), _wp(5, 50.0), _wp(10, 0.0)]
         a = telemetry.analyze(trace, 10)
         assert a.distance_km == round(50.0 * 10 / 3600 * 1000) / 1000
+
+
+class TestDrivingSecondsAboveThreshold:
+    """The distraction denominator (CAR-54) — seconds spent above 15 km/h.
+
+    The gate is CMT's 9.3 mph screen-interaction threshold, rounded. It is a
+    separate constant from the kinematic floor, which happens to share its value.
+    """
+
+    def test_a_crawl_witnesses_no_driving_seconds(self) -> None:
+        assert telemetry.analyze(_cruise(600, 10.0), 600).driving_seconds_above_threshold == 0.0
+
+    def test_a_cruise_witnesses_the_whole_span(self) -> None:
+        # _cruise emits n = seconds/dt points, so the trace spans (n-1)*dt = 597 s.
+        assert telemetry.analyze(_cruise(600, 50.0), 600).driving_seconds_above_threshold == 597.0
+
+    def test_a_mixed_trace_splits_at_the_boundary(self) -> None:
+        # 15.0 km/h is driving; 14.9 is not. Segments are credited by their end speed.
+        trace = [_wp(0, 0.0), _wp(3, 14.9), _wp(6, 15.0), _wp(9, 40.0), _wp(12, 5.0)]
+        assert telemetry.analyze(trace, 12).driving_seconds_above_threshold == 6.0
+
+    def test_gaps_are_credited_not_dropped(self) -> None:
+        """Same reason as trace distance: excluding a >15 s hole would shrink the
+        denominator and inflate the rate on exactly the sparse-GPS devices (CAR-7)."""
+        trace = [_wp(0, 80.0), _wp(3, 80.0), _wp(60, 80.0), _wp(63, 80.0)]
+        assert telemetry.analyze(trace, 63).driving_seconds_above_threshold == 63.0
+
+    def test_unusable_trace_reports_zero_via_empty_analysis(self) -> None:
+        """The fallback in trips.py keys on EMPTY_ANALYSIS identity, so this must hold."""
+        assert telemetry.analyze(None, 60) is telemetry.EMPTY_ANALYSIS
+        assert telemetry.analyze([_wp(0, 50.0)], 60) is telemetry.EMPTY_ANALYSIS
+        assert telemetry.EMPTY_ANALYSIS.driving_seconds_above_threshold == 0.0

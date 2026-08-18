@@ -371,9 +371,10 @@ async def _compute_score(
     land when the trace is too sparse to prove clean driving (v2.1).
     Returns (trip_score, driver_score, points, points_capped).
     """
-    # Proxy for the distraction weight until the SDK emits per-epoch speed:
-    # each touch epoch is weight 1, plus screen-on minutes (scoring.md "Phone distraction").
-    w_distraction = touch_epochs + screen_interaction_seconds / 60.0
+    # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
+    # distraction"). `touch_epochs` stays a diagnostic on the payload and the
+    # row: it counts pickups, and summing it with seconds charged one behaviour twice.
+    w_distraction = float(screen_interaction_seconds)
     rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
     trip_v2 = scoring.compute_trip_score(
@@ -384,6 +385,11 @@ async def _compute_score(
         w_speed=gps.speeding_weight,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
+        # A usable trace reporting zero driving seconds is a real measurement (a
+        # crawl), not a missing one — only an unusable trace may fall back.
+        driving_min_above_threshold=(
+            None if gps is telemetry.EMPTY_ANALYSIS else gps.driving_seconds_above_threshold / 60.0
+        ),
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )

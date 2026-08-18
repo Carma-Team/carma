@@ -49,6 +49,12 @@ _TURN_MAX_DT_S = 8.0
 _KINEMATIC_MIN_SPEED_KMH = 15.0  # low-speed floor for brake/accel detection (CAR-103)
 _EVENT_MERGE_WINDOW_S = 5.0  # one physical maneuver, not N samples of it
 
+# ── Distraction exposure (scoring.md "Phone distraction") ──────────────────────
+# CMT gate screen-interaction detection at 9.3 mph; this is that number rounded.
+# Deliberately not _KINEMATIC_MIN_SPEED_KMH — same value today, different reasons
+# (a detection gate vs. a brake/accel noise floor), so they must drift freely.
+_DRIVING_MIN_SPEED_KMH = 15.0
+
 # ── Speeding (scoring.md "Speeding") — conservative absolute limit, no maps ─────
 _ASSUMED_LIMIT_KMH = 120.0  # national maximum — conservative on every road
 _SPEED_BUFFER_KMH = 10.0  # spec's GPS-noise / flow-of-traffic buffer
@@ -86,6 +92,7 @@ class TelemetryAnalysis:
     has_speed_data: bool
     confidence: float  # [0, 1] — how much the trace can prove
     distance_km: float  # trace-derived distance — an independent witness (issue #56)
+    driving_seconds_above_threshold: float  # exposure denominator for distraction
     events: list[GpsEvent]
 
 
@@ -97,6 +104,7 @@ EMPTY_ANALYSIS = TelemetryAnalysis(
     has_speed_data=False,
     confidence=0.0,
     distance_km=0.0,
+    driving_seconds_above_threshold=0.0,
     events=[],
 )
 
@@ -188,6 +196,7 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
     dts: list[float] = []
     covered_s = 0.0
     distance_km = 0.0
+    driving_s = 0.0
 
     for i in range(1, len(pts)):
         prev, cur = pts[i - 1], pts[i]
@@ -200,6 +209,12 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         # median with >15 s holes, and this value is only ever used as an upper
         # bound on the client's claim — under-witnessing would penalise honest users.
         distance_km += ((prev.speed_kmh + cur.speed_kmh) / 2.0 / 3600.0) * dt
+
+        # Distraction exposure, integrated over every segment for the same reason
+        # as distance above: dropping gap segments would shrink the denominator
+        # and inflate the rate on exactly the sparse-GPS devices from CAR-7.
+        if cur.speed_kmh >= _DRIVING_MIN_SPEED_KMH:
+            driving_s += dt
 
         if dt > _MAX_KINEMATIC_GAP_S:
             continue
@@ -309,5 +324,6 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         has_speed_data=has_speed_data,
         confidence=confidence,
         distance_km=round(distance_km * 1000) / 1000,
+        driving_seconds_above_threshold=round(driving_s * 1000) / 1000,
         events=events,
     )

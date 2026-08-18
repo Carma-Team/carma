@@ -317,6 +317,83 @@ class TestComputeStreak:
         assert compute_streak([(_day(0), 50.0, 0.0)], _ANCHOR) == 0
 
 
+# ─── CAR-54: distraction per driving hour ───────────────────────────────────────
+
+
+class TestDistractionExposure:
+    """Handling seconds per hour of *driving*, CMT's definition (scoring.md §3.1)."""
+
+    def test_cmt_population_average_scores_about_75(self) -> None:
+        """The anchor k_distraction was fitted to: CMT's US 2024 national average of
+        82 handling-seconds per driving hour is an average driver, not a failing one.
+        At the old k=0.020 this same trip scored 19.4."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=82.0,
+            distance_km=60.0,
+            duration_min=60.0,
+            driving_min_above_threshold=60.0,
+        )
+        assert r.sub_distraction == 75.1
+
+    def test_parked_tail_does_not_dilute_the_rate(self) -> None:
+        """A trip closes up to three minutes after the car stops, and arrival is when
+        the driver picks the phone up. Charging over wall-clock rewards that."""
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=82.0, distance_km=60.0, duration_min=75.0)
+        driving = compute_trip_score(**common, driving_min_above_threshold=60.0)
+        wall_clock = compute_trip_score(**common, driving_min_above_threshold=75.0)
+        assert driving.sub_distraction == 75.1
+        assert wall_clock.sub_distraction == 79.5
+
+    def test_no_trace_falls_back_to_wall_clock_duration(self) -> None:
+        """`None` means the GPS trace could not measure it — today's behaviour stands."""
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=40.0, distance_km=20.0, duration_min=30.0)
+        assert (
+            compute_trip_score(**common, driving_min_above_threshold=None).sub_distraction
+            == compute_trip_score(**common, driving_min_above_threshold=30.0).sub_distraction
+        )
+
+    def test_zero_driving_minutes_cannot_divide_by_zero(self) -> None:
+        """A measured zero is a crawl, not a missing trace — the floor takes it."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=10.0,
+            distance_km=1.0,
+            duration_min=20.0,
+            driving_min_above_threshold=0.0,
+        )
+        assert r.sub_distraction == 65.7  # 10 s over the 5-minute floor = 120/h
+
+    def test_a_sub_threshold_jam_is_charged_at_the_floor(self) -> None:
+        """The known soft spot, pinned rather than papered over with a second constant.
+
+        A 40-minute crawl below 15 km/h yields no driving seconds, so the 5-minute
+        floor applies a 12x multiplier to any handling. Conservative and bounded;
+        it closes when CAR-184 gates the numerator in the app.
+        """
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=30.0, distance_km=8.0, duration_min=40.0)
+        assert compute_trip_score(**common, driving_min_above_threshold=0.0).sub_distraction == 28.4
+        assert compute_trip_score(**common, driving_min_above_threshold=None).sub_distraction == 85.4
+
+    def test_short_trip_dampening_still_reads_wall_clock(self) -> None:
+        """`duration_min` keeps its other job: a 40-minute crawl is not a short trip."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=0.0,
+            distance_km=8.0,
+            duration_min=40.0,
+            driving_min_above_threshold=0.0,
+            rolling_score=50.0,
+        )
+        assert r.score == 100.0
+
+
 # ─── CAR-155: the ingest path may not read client severity ──────────────────────
 
 
