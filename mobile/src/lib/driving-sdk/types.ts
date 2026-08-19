@@ -22,6 +22,8 @@ export interface ValidationSample {
   timestamp: number;          // Date.now()
   accel?: { x: number; y: number; z: number };  // Phase 2 (fraud detection)
   gyroYaw?: number;                              // Phase 2
+  lat?: number;
+  lng?: number;
 }
 
 export enum DrivingEventType {
@@ -109,6 +111,7 @@ export interface TripValidator {
   onTripConfirmed?: () => void;
   onTripEnded?: () => void;
   onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  onRegionRejected?: () => void;
 }
 
 export interface SDKConfig {

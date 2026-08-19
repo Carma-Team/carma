@@ -1,5 +1,6 @@
 import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
+import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -17,6 +18,10 @@ export class TripValidationManager implements TripValidator {
   private ticker: ReturnType<typeof setInterval> | null = null;
   private fraudDetector        = new FraudDetector();
   private fraudSuspectedFired  = false;
+  // Region is checked once per trip, off the first sample that carries a fix — not
+  // every sample, since reverse-geocoding on every tick would be wasteful and the
+  // answer can't change mid-trip in a way CARMA needs to react to twice.
+  private regionChecked        = false;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
   public onTripConfirmed?: () => void;
@@ -26,6 +31,8 @@ export class TripValidationManager implements TripValidator {
   // driving-sdk's generic SuspiciousActivityEvaluation (TripValidator interface) —
   // the FraudEvaluation this class actually passes is a superset, so it satisfies it.
   public onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  // CAR-23: fires when the first GPS fix of a trip is outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -55,6 +62,22 @@ export class TripValidationManager implements TripValidator {
     if (sample.gyroYaw !== undefined) {
       this.latestGyroZ = sample.gyroYaw;
     }
+    if (!this.regionChecked && sample.lat !== undefined && sample.lng !== undefined) {
+      this.regionChecked = true;
+      this.checkRegion(sample.lat, sample.lng);
+    }
+  }
+
+  // CAR-23: fired once, off the first fix. Async, so it can land after stop()/reset()
+  // has already run — the ticker check below is what makes that a no-op instead of
+  // reviving a session that's no longer running.
+  private async checkRegion(lat: number, lng: number): Promise<void> {
+    const allowed = await isRegionAllowed(lat, lng);
+    if (allowed || !this.ticker) return;
+    console.log('[Validation] Region check failed — trip rejected');
+    this.reset();
+    this.setState(ValidationState.IDLE);
+    this.onRegionRejected?.();
   }
 
   // ─── Public Getters ────────────────────────────────────────────────────────
@@ -181,5 +204,6 @@ export class TripValidationManager implements TripValidator {
     this.latestGyroZ         = 0;
     this.fraudDetector.reset();
     this.fraudSuspectedFired = false;
+    this.regionChecked = false;
   }
 }

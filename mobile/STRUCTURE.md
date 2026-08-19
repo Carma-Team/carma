@@ -90,6 +90,7 @@ React Context providers — global state accessible from anywhere in the compone
 | `sdkBindings.ts` | Trip lifecycle callbacks — `onTripStart`, `onUpdate`, `onTripEnd` → React state. Sensor plumbing only. | May |
 | `scoringEvents.ts` | `sdk.on()` listeners and CARMA's speed thresholds; maintains the per-trip event counters. | Dan |
 | `fraudBinding.ts` | `onFraudDetected` → state reset + `fraudApi.syncInvalidTrip()`. | Dan |
+| `regionBinding.ts` | `onRegionRejected` → state reset + toast. No server call — the trip never happened as far as CARMA is concerned. | May |
 
 **Rules:**
 - Context is the bridge between the SDK/lib layer and the UI layer.

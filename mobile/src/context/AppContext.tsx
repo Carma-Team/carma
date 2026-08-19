@@ -24,8 +24,9 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
-import { checkDeviceSupport } from '@/lib/deviceSupport'
+import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
+import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
@@ -42,6 +43,7 @@ import { INITIAL_TRIP_STATE, type TripState } from './tripState'
 import { useSdkBindings } from './sdkBindings'
 import { useScoringEvents } from './scoringEvents'
 import { useFraudBinding } from './fraudBinding'
+import { useRegionBinding } from './regionBinding'
 
 export type { TripState } from './tripState'
 
@@ -212,7 +214,7 @@ interface AppContextValue {
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
   isLoading: boolean
-  deviceBlockedReason: 'region' | 'capability' | null
+  deviceBlocked: boolean
   tripState: TripState
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
@@ -237,7 +239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [deviceBlockedReason, setDeviceBlockedReason] = useState<'region' | 'capability' | null>(null)
+  const [deviceBlocked, setDeviceBlocked] = useState(false)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
@@ -453,6 +455,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
   useScoringEvents(sdk, setTripState);
   useFraudBinding(sdk, user, setTripState);
+  useRegionBinding(sdk, setTripState, addToast, lang);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
@@ -485,11 +488,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  // CAR-23: region + device-capability gate, checked once at startup, independent
-  // of the auth/data load below — a blocked device never needs to reach login.
+  // CAR-23: device-capability gate, checked once at startup, independent of the
+  // auth/data load below. Region is no longer checked here — a GPS fix on every
+  // cold start was real battery/latency cost for no benefit to a returning user
+  // already known to be in Israel. Region is enforced at trip start instead (see
+  // TripValidationManager's region check), and acknowledged once at registration.
   useEffect(() => {
-    checkDeviceSupport()
-      .then(result => { if (result.blocked) setDeviceBlockedReason(result.reason); })
+    checkDeviceCapabilities()
+      .then(({ hasAccelerometer, hasGyroscope, osSupported }) => {
+        if (!hasAccelerometer || !hasGyroscope || !osSupported) setDeviceBlocked(true);
+      })
       .catch(() => {}); // fail open — an unexpected error here must not lock out a supported device
   }, []);
 
@@ -588,6 +596,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
 
+      // Prime the location prompt right after login/register, so it isn't a
+      // surprise at the driver's first trip start. Foreground only — background
+      // is still asked for at trip start as today. Fire-and-forget: a decline
+      // here doesn't block login, and SensorManager retries at trip start anyway.
+      Location.requestForegroundPermissionsAsync().catch(() => {});
+
       // Load trips immediately on login to sync with the new user context
       try {
         const serverData = await tripsApi.list();
@@ -641,7 +655,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
-      deviceBlockedReason,
+      deviceBlocked,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,

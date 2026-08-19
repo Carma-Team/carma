@@ -1,5 +1,19 @@
+let mockRegionAllowed = true;
+jest.mock('@/lib/regionCheck', () => ({
+  isRegionAllowed: jest.fn(async () => mockRegionAllowed),
+}));
+
 import { TripValidationManager } from '@/lib/TripValidationManager';
 import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
+import { isRegionAllowed } from '@/lib/regionCheck';
+
+// Region check is async — a fake-timer tick doesn't flush its microtask queue,
+// so tests that need the result must await this after the sample is fed in.
+// Several hops: the mocked isRegionAllowed() resolves, then checkRegion()
+// continues past its own await — one Promise.resolve() isn't always enough.
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +48,8 @@ function advanceFraudTicks(
 
 beforeEach(() => {
   jest.useFakeTimers();
+  mockRegionAllowed = true;
+  (isRegionAllowed as jest.Mock).mockClear();
 });
 
 afterEach(() => {
@@ -338,5 +354,70 @@ describe('Rule 3 — FraudDetector (train/bus detection)', () => {
     expect(fraudSuspected).toHaveBeenCalledTimes(1);
     expect(confirmed).not.toHaveBeenCalled();
     m.stop();
+  });
+});
+
+// ─── Rule 4: Region (CAR-23) ──────────────────────────────────────────────────
+
+describe('Rule 4 — region check', () => {
+
+  test('a fix outside Israel rejects the trip and fires onRegionRejected', async () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    const confirmed = jest.fn();
+    const regionRejected = jest.fn();
+    m.onTripConfirmed = confirmed;
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    jest.advanceTimersByTime(1000);
+    await flushMicrotasks();
+
+    expect(regionRejected).toHaveBeenCalledTimes(1);
+    expect(m.getState()).toBe(ValidationState.IDLE);
+    m.stop();
+  });
+
+  test('a fix inside Israel does not reject the trip', async () => {
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    advanceTicks(m, 30, 50); // reaches SCORING via Rule 1 — no lat/lng, region never checked
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    await flushMicrotasks();
+
+    expect(regionRejected).not.toHaveBeenCalled();
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+
+  test('checks the region only once per trip, off the first fix', async () => {
+    const m = new TripValidationManager();
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    await flushMicrotasks();
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(1);
+    m.stop();
+  });
+
+  test('a late rejection after stop() does not revive the session', async () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    m.stop(); // stop before the async check resolves
+    await flushMicrotasks();
+
+    expect(regionRejected).not.toHaveBeenCalled();
   });
 });

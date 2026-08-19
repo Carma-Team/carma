@@ -15,11 +15,13 @@ const en: TranslationMap = {
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
     namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
+    regionAck: "I've read and understand: CARMA may only be used within the State of Israel",
     errors: {
       emailRequired: 'Please enter your email', passwordRequired: 'Please enter your password',
       nameRequired: 'Please enter your name', invalidEmail: 'Invalid email address',
       passwordTooShort: 'Password too short (min 8 characters)',
       emailExists: 'Email already registered', invalidCredentials: 'Invalid email or password',
+      regionAckRequired: 'Please confirm you understand CARMA is Israel-only before continuing',
     },
   },
   dashboard: {

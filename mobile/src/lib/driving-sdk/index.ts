@@ -67,6 +67,8 @@ export class DrivingSDK {
   public onUpdate?: (data: TripData) => void;
   // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
+  // CAR-23: fires when a trip is silently rejected for starting outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Conditional sensor event subscription API ───────────────────────────────
 
@@ -135,6 +137,7 @@ export class DrivingSDK {
     this.validationManager.onTripEnded = () => this.stopTrip();
     this.validationManager.onFraudSuspected = (evaluation) =>
       this.handleFraud(evaluation);
+    this.validationManager.onRegionRejected = () => this.handleRegionRejected();
 
     if (this.config.targetBluetoothId) {
       this.btManager.setTargetDevice(this.config.targetBluetoothId);
@@ -290,6 +293,19 @@ export class DrivingSDK {
     this.onFraudDetected?.(event);
   }
 
+  // CAR-23: same silent-abort shape as handleFraud() — no event payload, since
+  // there's nothing to report and no server call for a region rejection.
+  private handleRegionRejected(): void {
+    console.log('[SDK] Region check failed — aborting session');
+    this.isValidating = false;
+    this.isTripActive = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.currentTripData = null;
+    this.sensorManager.stop();
+    this.phoneManager.stop();
+    this.onRegionRejected?.();
+  }
+
   // --- Internal Handlers ---
 
   private handleEvent(event: DrivingEvent) {
@@ -365,6 +381,8 @@ export class DrivingSDK {
       timestamp: Date.now(),
       accel: { x: update.accelX, y: 0, z: 0 },
       gyroYaw: update.gyroZ,
+      lat: update.lat,
+      lng: update.lng,
     });
 
     if (!this.isTripActive || !this.currentTripData) return;

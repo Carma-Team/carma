@@ -4,20 +4,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY } from '@/constants/theme';
-import type { DeviceSupportResult } from '@/lib/deviceSupport';
 
-// Renders full-screen, before login — no navigation offered, matches CAR-23:
-// the app is not usable at all outside the region or on an unsupported device.
-export default function UnsupportedDeviceScreen({ reason }: { reason: Extract<DeviceSupportResult, { blocked: true }>['reason'] }) {
+// Renders full-screen, before login — no navigation offered. Capability-only:
+// region is no longer checked at startup (CAR-23 — enforced at trip start instead).
+export default function UnsupportedDeviceScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const isRegion = reason === 'region';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + SPACING.xl }]}>
-      <Ionicons name={isRegion ? 'location-outline' : 'phone-portrait-outline'} size={64} color={COLORS.textMuted} />
-      <Text style={styles.title}>{t(isRegion ? 'deviceGate.regionTitle' : 'deviceGate.capabilityTitle')}</Text>
-      <Text style={styles.message}>{t(isRegion ? 'deviceGate.regionMessage' : 'deviceGate.capabilityMessage')}</Text>
+      <Ionicons name="phone-portrait-outline" size={64} color={COLORS.textMuted} />
+      <Text style={styles.title}>{t('deviceGate.capabilityTitle')}</Text>
+      <Text style={styles.message}>{t('deviceGate.capabilityMessage')}</Text>
     </View>
   );
 }

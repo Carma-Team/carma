@@ -15,11 +15,13 @@ const he = {
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
     namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
+    regionAck: 'קראתי ואני מבין/ה: השימוש ב-CARMA מותר רק בתחומי מדינת ישראל',
     errors: {
       emailRequired: 'אנא הזן אימייל', passwordRequired: 'אנא הזן סיסמה',
       nameRequired: 'אנא הזן שם מלא', invalidEmail: 'אימייל לא תקין',
       passwordTooShort: 'הסיסמה קצרה מדי (מינימום 8 תווים)',
       emailExists: 'האימייל כבר קיים במערכת', invalidCredentials: 'אימייל או סיסמה שגויים',
+      regionAckRequired: 'יש לאשר שהבנת ש-CARMA מיועדת לשימוש בישראל בלבד לפני שממשיכים',
     },
   },
   dashboard: {

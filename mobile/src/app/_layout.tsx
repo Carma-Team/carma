@@ -14,7 +14,7 @@ import UnsupportedDeviceScreen from '@/screens/auth/UnsupportedDeviceScreen';
 I18nManager.allowRTL(true);
 
 function RootLayoutNav() {
-  const { user, isLoading, deviceBlockedReason, lang } = useApp();
+  const { user, isLoading, deviceBlocked, lang } = useApp();
   const router = useRouter();
   useDriveMode();
   const segments = useSegments();
@@ -46,8 +46,8 @@ function RootLayoutNav() {
     }
   }, [user, isLoading, segments]);
 
-  if (deviceBlockedReason) {
-    return <UnsupportedDeviceScreen reason={deviceBlockedReason} />;
+  if (deviceBlocked) {
+    return <UnsupportedDeviceScreen />;
   }
 
   if (isLoading) {

@@ -30,9 +30,10 @@ export default function RegisterScreen() {
   const insets = useSafeAreaInsets()
   const { loginUser, addToast } = useApp()
   const { t } = useTranslation()
-  const [form,    setForm]    = useState<FormState>(INITIAL)
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
+  const [form,          setForm]         = useState<FormState>(INITIAL)
+  const [loading,       setLoading]      = useState(false)
+  const [error,         setError]        = useState('')
+  const [regionAck,     setRegionAck]    = useState(false)
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
@@ -57,6 +58,7 @@ export default function RegisterScreen() {
     // Must match RegisterIn in server/app/schemas/auth.py — the server answers a
     // shorter one with a 422 the user cannot act on.
     if (form.password.length < 8) { setError(t('auth.errors.passwordTooShort')); return }
+    if (!regionAck) { setError(t('auth.errors.regionAckRequired')); return }
 
     setLoading(true); setError('')
     try {
@@ -133,6 +135,20 @@ export default function RegisterScreen() {
           </View>
         ))}
 
+        <TouchableOpacity
+          style={styles.ackRow}
+          onPress={() => setRegionAck(prev => !prev)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: regionAck }}
+        >
+          <Ionicons
+            name={regionAck ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={regionAck ? COLORS.brand : COLORS.textMuted}
+          />
+          <Text style={styles.ackText}>{t('auth.regionAck')}</Text>
+        </TouchableOpacity>
+
         <Button fullWidth size="lg" onPress={handleRegister} loading={loading} style={styles.btn}>
           {t('auth.registerBtn')}
         </Button>
@@ -157,6 +173,8 @@ const styles = StyleSheet.create({
   field:    { marginBottom: 14 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
+  ackRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: 4, marginBottom: 4 },
+  ackText:  { ...TYPOGRAPHY.caption, flex: 1 },
   btn:      { marginTop: 8 },
   link:     { marginTop: 20, alignItems: 'center' },
   linkText: { ...TYPOGRAPHY.caption, fontSize: 14 },
