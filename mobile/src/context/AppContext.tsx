@@ -605,11 +605,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Load trips immediately on login to sync with the new user context
       try {
         const serverData = await tripsApi.list();
+        // Log out inside that round trip and this would put the session's trips
+        // back, on screen and in the cache, after it ended.
+        if (userRef.current !== u) return;
         setRecentTrips(serverData.trips);
         await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
       } catch {
         const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached) setRecentTrips(JSON.parse(cached));
+        if (cached && userRef.current === u) setRecentTrips(JSON.parse(cached));
       }
     }
   }, []);
