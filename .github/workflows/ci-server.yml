@@ -39,7 +39,9 @@ defaults:
     working-directory: ./server
 
 jobs:
-  # Always-on, fast — should never block a merge.
+  # Always-on and fast: nothing here needs a database, so it runs on every push
+  # and every pull request. Style, plus the one correctness check that costs
+  # nothing to run.
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -50,11 +52,30 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: server/requirements-dev.txt
-      - run: pip install ruff==0.6.9
+      - run: pip install ruff==0.6.9 alembic==1.18.5
       - name: Ruff (check)
         run: ruff check .
       - name: Ruff (format)
         run: ruff format --check .
+      - name: One alembic head
+        # Two branches numbering a migration off the same parent is invisible to
+        # git (different files, no overlapping lines) and only breaks once both
+        # are merged. It belongs here rather than next to `alembic upgrade head`
+        # because a push to develop never reaches the Postgres job, and develop is
+        # exactly where the two halves meet (CAR-160).
+        #
+        # `alembic heads` reads the migration files alone: no database, no env.py.
+        # That holds only while no migration imports app code at module level.
+        # 0011 imports app.services.levels inside downgrade(), which is fine.
+        run: |
+          HEADS=$(alembic heads)
+          COUNT=$(echo "$HEADS" | grep -c '(head)' || true)
+          echo "$HEADS"
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::$COUNT alembic heads. Two branches added a migration on the same parent."
+            echo "::error::Fix: alembic merge -m \"merge <a> and <b>\" $(echo "$HEADS" | awk '{print $1}' | xargs)"
+            exit 1
+          fi
 
   # develop's push-time correctness gate (issue #25). ruff only checks how the
   # code looks — on a develop push this is the only thing that checks whether it
