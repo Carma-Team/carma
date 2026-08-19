@@ -343,6 +343,32 @@ def _witness_distance(claimed_km: float, gps_km: float) -> float:
     return cap
 
 
+def _distraction_exposure_min(gps: telemetry.TelemetryAnalysis, duration_seconds: int) -> float:
+    """Driving minutes to charge distraction against, crediting whatever the trace
+    could not see (CAR-54).
+
+    The numerator is whole-trip — the digest reports one handling-seconds total —
+    so a denominator drawn only from the trace charges every second of handling
+    against however little the GPS happened to witness. A trace that dies five
+    minutes into a 45-minute drive would cost ~26 composite points for a flat
+    battery. Before this the denominator was wall-clock and trace-independent, so
+    that exposure is ours to avoid, not one we inherited.
+
+    CMT resolve the same mismatch by scoring only the stretch where speed data
+    exists and "err[ing] in favor of a driver being undistracted" everywhere else
+    (US11932257B2). Scoring only that stretch needs a per-second, speed-stamped
+    numerator, which is CAR-175; until it lands, the unwitnessed remainder is
+    credited as driving, which is the same bias in the same direction.
+
+    The two ends stay exactly as designed: a trace covering the whole trip is used
+    as measured, and no usable trace at all falls back to wall-clock duration.
+    Gaps *inside* the span are already counted by `driving_seconds_above_threshold`,
+    so only the untraced head and tail are added here — never both.
+    """
+    unwitnessed_s = max(0.0, duration_seconds - gps.witnessed_span_seconds)
+    return (gps.driving_seconds_above_threshold + unwitnessed_s) / 60.0
+
+
 async def _compute_score(
     db: AsyncSession,
     user: User,
@@ -385,11 +411,7 @@ async def _compute_score(
         w_speed=gps.speeding_weight,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
-        # A usable trace reporting zero driving seconds is a real measurement (a
-        # crawl), not a missing one — only an unusable trace may fall back.
-        driving_min_above_threshold=(
-            None if gps is telemetry.EMPTY_ANALYSIS else gps.driving_seconds_above_threshold / 60.0
-        ),
+        driving_min_above_threshold=_distraction_exposure_min(gps, duration_seconds),
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )

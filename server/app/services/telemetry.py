@@ -93,6 +93,7 @@ class TelemetryAnalysis:
     confidence: float  # [0, 1] — how much the trace can prove
     distance_km: float  # trace-derived distance — an independent witness (issue #56)
     driving_seconds_above_threshold: float  # exposure denominator for distraction
+    witnessed_span_seconds: float  # first-to-last sample — how much of the trip the trace saw
     events: list[GpsEvent]
 
 
@@ -105,6 +106,7 @@ EMPTY_ANALYSIS = TelemetryAnalysis(
     confidence=0.0,
     distance_km=0.0,
     driving_seconds_above_threshold=0.0,
+    witnessed_span_seconds=0.0,
     events=[],
 )
 
@@ -325,5 +327,6 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         confidence=confidence,
         distance_km=round(distance_km * 1000) / 1000,
         driving_seconds_above_threshold=round(driving_s * 1000) / 1000,
+        witnessed_span_seconds=round((pts[-1].ts - pts[0].ts) * 1000) / 1000,
         events=events,
     )

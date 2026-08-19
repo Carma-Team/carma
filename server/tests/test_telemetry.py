@@ -200,7 +200,31 @@ class TestDrivingSecondsAboveThreshold:
         assert telemetry.analyze(trace, 63).driving_seconds_above_threshold == 63.0
 
     def test_unusable_trace_reports_zero_via_empty_analysis(self) -> None:
-        """The fallback in trips.py keys on EMPTY_ANALYSIS identity, so this must hold."""
+        """An unusable trace has to witness nothing at all: the distraction denominator
+        in trips.py credits whatever the trace missed, and that is what makes it fall
+        back to the trip's wall-clock duration here."""
         assert telemetry.analyze(None, 60) is telemetry.EMPTY_ANALYSIS
         assert telemetry.analyze([_wp(0, 50.0)], 60) is telemetry.EMPTY_ANALYSIS
         assert telemetry.EMPTY_ANALYSIS.driving_seconds_above_threshold == 0.0
+
+
+class TestWitnessedSpan:
+    """How much of the trip the trace actually saw (CAR-54).
+
+    The distraction numerator is whole-trip, so the denominator has to know what
+    the trace missed — otherwise a trace that dies early charges every handling
+    second against the few minutes it managed to record.
+    """
+
+    def test_span_is_first_to_last_sample(self) -> None:
+        # _cruise emits n = seconds/dt points, so the trace spans (n-1)*dt = 597 s.
+        assert telemetry.analyze(_cruise(600, 50.0), 600).witnessed_span_seconds == 597.0
+
+    def test_an_unusable_trace_witnesses_nothing(self) -> None:
+        assert telemetry.EMPTY_ANALYSIS.witnessed_span_seconds == 0.0
+
+    def test_a_truncated_trace_reports_only_what_it_covered(self) -> None:
+        """Five minutes of trace on a 45-minute trip: the span, not the duration."""
+        a = telemetry.analyze(_cruise(300, 60.0), 2700)
+        assert a.witnessed_span_seconds == 297.0
+        assert a.driving_seconds_above_threshold == 297.0
