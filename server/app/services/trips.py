@@ -364,6 +364,15 @@ def _distraction_exposure_min(gps: telemetry.TelemetryAnalysis, duration_seconds
     as measured, and no usable trace at all falls back to wall-clock duration.
     Gaps *inside* the span are already counted by `driving_seconds_above_threshold`,
     so only the untraced head and tail are added here — never both.
+
+    Those two ends are untraced in practice, not just in theory: the SDK gates
+    waypoint capture at 3 km/h (`driving-sdk/index.ts`), so a car idling before it
+    pulls away, or parked while the trip runs down its close-out timer, emits
+    nothing and falls outside the span rather than inside it. Up to about three
+    minutes a trip is still credited as driving. That is no worse than the
+    wall-clock denominator this replaces, and CAR-184 closes it from the other
+    side — once the numerator is gated at 15 km/h too, an arrival tail carries no
+    handling seconds for the denominator to dilute.
     """
     unwitnessed_s = max(0.0, duration_seconds - gps.witnessed_span_seconds)
     return (gps.driving_seconds_above_threshold + unwitnessed_s) / 60.0

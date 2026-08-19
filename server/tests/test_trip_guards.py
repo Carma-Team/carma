@@ -302,12 +302,13 @@ class TestDistractionExposure:
         gps = telemetry.analyze(_cruise_trace(2700, 60.0), 2700)
         assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(45.0, abs=0.01)
 
-    def test_a_traced_stop_is_not_charged_as_driving(self) -> None:
-        """Half the trip parked. The trace saw the stop, so it is a measurement, and
-        only the driving half carries the distraction."""
-        trace = _cruise_trace(1350, 60.0) + [_wp_at(1350 + i * 3, 0.0) for i in range(450)]
+    def test_a_traced_crawl_is_not_charged_as_driving(self) -> None:
+        """Half the trip stuck in traffic. Built from 4 km/h waypoints because that is
+        what the SDK actually emits: it gates capture at 3 km/h, so a genuinely
+        stationary car sends nothing and never reaches this layer at all."""
+        trace = _cruise_trace(1350, 60.0) + [_wp_at(1350 + i * 3, 4.0) for i in range(450)]
         gps = telemetry.analyze(trace, 2700)
-        assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(22.5, abs=0.1)
+        assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(22.55, abs=0.05)
 
     def test_a_truncated_trace_does_not_shrink_the_denominator(self) -> None:
         """The regression this class exists for: a 45-minute drive whose trace dies

@@ -350,7 +350,12 @@ class TestDistractionExposure:
 
     def test_parked_tail_does_not_dilute_the_rate(self) -> None:
         """A trip closes up to three minutes after the car stops, and arrival is when
-        the driver picks the phone up. Charging over wall-clock rewards that."""
+        the driver picks the phone up. Charging over wall-clock rewards that.
+
+        Scoring only — the denominator is handed in. `_distraction_exposure_min`
+        cannot yet produce 60.0 for this trip, because a parked tail sits past the
+        trace's last sample instead of inside it; see its docstring.
+        """
         common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=82.0, distance_km=60.0, duration_min=75.0)
         driving = compute_trip_score(**common, driving_min_above_threshold=60.0)
         wall_clock = compute_trip_score(**common, driving_min_above_threshold=75.0)
