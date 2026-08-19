@@ -83,7 +83,7 @@ export default function SettingsScreen() {
     setSavingDriveMode(true);
     try {
       const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
-      updateUser({ driveModeEnabled: updated.driveModeEnabled });
+      await updateUser({ driveModeEnabled: updated.driveModeEnabled });
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     } finally {

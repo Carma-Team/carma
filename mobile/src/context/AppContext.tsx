@@ -204,7 +204,7 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
-  updateUser: (patch: Partial<AppUser>) => void
+  updateUser: (patch: Partial<AppUser>) => Promise<void>
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -258,6 +258,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Same reason as tripRef: updateUser runs from a callback that outlived the
   // render it was created in, and needs the user as it is now, not as it was.
+  // Every setUserState in this file sets it in the same breath — the effect is
+  // only a backstop, because it does not run until after the render commits, and
+  // a request resolving in that gap would read a user that is already gone.
   const userRef = useRef(user)
   useEffect(() => { userRef.current = user; }, [user])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
@@ -477,7 +480,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
-        setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
+        const next = userRef.current ? { ...userRef.current, ...freshUser } : null;
+        userRef.current = next;
+        setUserState(next);
         setUserLevelState(levelDisplay(freshUser.level ?? 1));
         AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
       }).catch(() => {});
@@ -526,6 +531,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const freshUser = await authApi.me();
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
+            userRef.current = merged;
             setUserState(merged);
             setUserLevelState(levelDisplay(merged.level ?? 1));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
@@ -536,6 +542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } catch {
             // Invalid token — clear storage and redirect to login
             await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
+            userRef.current = null;
             setUserState(null);
             setRecentTrips([]);
           }
@@ -579,6 +586,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setUser = useCallback(async (u: AppUser | null) => {
+    // Before the awaits below: a logout takes two storage round trips, and a
+    // request landing inside them must not find a session that is being torn down.
+    userRef.current = u;
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
@@ -609,7 +619,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * since added, and it does nothing at all once the session is over. It also
    * skips setUser's trip reload, which a settings change has no reason to trigger.
    */
-  const updateUser = useCallback((patch: Partial<AppUser>) => {
+  const updateUser = useCallback(async (patch: Partial<AppUser>) => {
     const current = userRef.current;
     if (!current) return;
 
@@ -619,10 +629,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     userRef.current = next;
     setUserState(next);
     setUserLevelState(levelDisplay(next.level ?? 1));
-    // Non-blocking: a storage failure must not read to the caller as a failed save.
-    AsyncStorage.setItem('carma_user', JSON.stringify(next)).catch(e =>
-      console.error('[AppContext] Failed to persist user after update', e)
-    );
+    // Awaited: clearTripHistory withholds its confirmation toast when the cache
+    // write fails, and it can only do that if the failure reaches it.
+    await AsyncStorage.setItem('carma_user', JSON.stringify(next));
   }, []);
 
   const loginUser = useCallback(async (data: AuthResponse) => {
@@ -645,7 +654,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearTripHistory = useCallback(async () => {
     try {
-      updateUser({ lastClearedHistory: new Date().toISOString() });
+      await updateUser({ lastClearedHistory: new Date().toISOString() });
 
       const tr = lang === 'HE' ? he : en;
       addToast({
