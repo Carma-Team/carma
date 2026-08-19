@@ -81,6 +81,13 @@ class ScoringConfig:
     ewma_halflife_days: float = 14.0
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
+    # Most exposure one trip can contribute, so that "no single trip may have a
+    # major impact on the overall score" (CMT, US12071140B2 — their worked example
+    # caps a 200-mile trip's behaviours at a 100-mile threshold). 30 km is a tenth
+    # of the credibility window above, which puts ten capped trips between a new
+    # driver and a fully proven one — the same window CMT state as their other
+    # option, "the last 10 trips".
+    trip_exposure_cap_km: float = 30.0
 
     # Streak ("Streaks"). A day clears the bar when its distance-weighted average
     # trip score reaches this. 80 is the top band of the level cap — the score at
@@ -293,6 +300,12 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 
     A new driver with no history returns the prior (75) rather than a meaningless
     100 — "good, unproven".
+
+    Each trip contributes at most `trip_exposure_cap_km`, to both the average and
+    the credibility blend. Uncapped, one 300 km drive both outvoted a month of
+    commuting and declared the driver fully proven on a single stretch of
+    motorway; the cap is what makes the number an average of drives rather than
+    an average of kilometres.
     """
     if not history:
         return config.prior_score
@@ -302,10 +315,11 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
     total_km = 0.0
     for h in history:
         decay = 0.5 ** (max(0.0, h.age_days) / config.ewma_halflife_days)
-        w = max(0.0, h.distance_km) * decay
+        exposure = min(max(0.0, h.distance_km), config.trip_exposure_cap_km)
+        w = exposure * decay
         weighted_score += h.trip_score * w
         weighted_km += w
-        total_km += max(0.0, h.distance_km)
+        total_km += exposure
 
     driver_raw = weighted_score / weighted_km if weighted_km > 0 else config.prior_score
     credibility = min(total_km / config.credibility_full_km, 1.0)

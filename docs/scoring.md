@@ -283,6 +283,7 @@ The trip score rates one drive. The **driver score** is the persistent number th
 
 - **Recent trips matter more.** Trips are averaged with a **14-day half-life**, weighted by distance — an effective window of about 28 days, matching the rolling window CMT uses for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
 - **New drivers start at 75.** With too few trips there is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at **300 km**.
+- **No single trip can dominate.** A trip contributes at most **30 km** of exposure, however long it actually was, to both the average and the confidence blend. This is CMT's rule — their worked example takes a 200-mile trip and scores it on a 100-mile threshold, so that no one trip has a major impact. Without it a single motorway run outvoted a month of commuting and declared the driver fully proven on one stretch of road. 30 km is a tenth of the 300 km window, which puts ten capped trips between a new driver and a proven one.
 
 ### 4.2 Levels
 

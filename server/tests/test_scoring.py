@@ -133,14 +133,14 @@ class TestComputeDriverScore:
         assert compute_driver_score([]) == CONFIG.prior_score
 
     def test_cold_start_blends_toward_prior(self) -> None:
-        # 50 km of history → credibility 50/300, mostly the 75 prior.
+        # One 50 km trip counts as 30 → credibility 30/300, mostly the 75 prior.
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=50.0, age_days=0.0)])
-        cred = 50.0 / 300.0
+        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_km
         assert math.isclose(score, round((cred * 100.0 + (1 - cred) * 75.0) * 10) / 10)
 
     def test_full_credibility_ignores_prior(self) -> None:
-        # 300+ km of consistent 90s → score ≈ 90, prior no longer pulls.
-        hist = [TripHistoryPoint(trip_score=90.0, distance_km=100.0, age_days=float(i)) for i in range(4)]
+        # Ten capped trips of consistent 90s → score ≈ 90, prior no longer pulls.
+        hist = [TripHistoryPoint(trip_score=90.0, distance_km=100.0, age_days=float(i)) for i in range(10)]
         assert math.isclose(compute_driver_score(hist), 90.0, abs_tol=0.1)
 
     def test_recent_trips_weigh_more_than_old(self) -> None:
@@ -159,16 +159,26 @@ class TestComputeDriverScore:
         assert recent_bad < old_bad
 
     def test_half_life_halves_weight_at_14_days(self) -> None:
-        # One trip at age 0 (score 100) and one at age 14 (score 0), equal km.
-        # 14-day trip has half the weight → raw ≈ 100*1/(1+0.5)=66.67, then credibility.
-        score = compute_driver_score(
-            [
-                TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0),
-                TripHistoryPoint(trip_score=0.0, distance_km=300.0, age_days=14.0),
-            ]
-        )
-        # total_km 600 → full credibility; raw = (100*300 + 0*150)/(300+150) = 66.67
-        assert math.isclose(score, round((100.0 * 300.0) / (300.0 + 150.0) * 10) / 10, abs_tol=0.1)
+        # Five trips at age 0 (score 100) and five at age 14 (score 0). All are at
+        # or above the exposure cap, so credibility is full and only the decay
+        # shows: raw = 100*150 / (150 + 75) = 66.67.
+        hist = [TripHistoryPoint(trip_score=100.0, distance_km=60.0, age_days=0.0) for _ in range(5)]
+        hist += [TripHistoryPoint(trip_score=0.0, distance_km=60.0, age_days=14.0) for _ in range(5)]
+        assert math.isclose(compute_driver_score(hist), 66.7, abs_tol=0.1)
+
+    def test_one_long_drive_cannot_outvote_a_month_of_commuting(self) -> None:
+        """CMT's rule: no single trip may have a major impact on the overall score
+        (US12071140B2). A 400 km drive weighs exactly what a 30 km one does."""
+        commutes = [TripHistoryPoint(trip_score=90.0, distance_km=30.0, age_days=float(i)) for i in range(10)]
+        outlier = TripHistoryPoint(trip_score=40.0, distance_km=400.0, age_days=0.0)
+        capped = TripHistoryPoint(trip_score=40.0, distance_km=30.0, age_days=0.0)
+        assert compute_driver_score([*commutes, outlier]) == compute_driver_score([*commutes, capped])
+
+    def test_a_single_long_drive_does_not_prove_a_driver(self) -> None:
+        """The cap applies to credibility too. One stretch of motorway is one drive,
+        not a proven record — the score stays near the cold-start prior."""
+        score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0)])
+        assert math.isclose(score, 77.5, abs_tol=0.1)
 
 
 # ─── points engine ──────────────────────────────────────────────────────────────
