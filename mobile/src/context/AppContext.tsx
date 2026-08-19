@@ -484,7 +484,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         userRef.current = next;
         setUserState(next);
         setUserLevelState(levelDisplay(freshUser.level ?? 1));
-        AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
+        // The merged user, not the server's: caching freshUser alone drops the
+        // fields only this device holds, and lastClearedHistory is one of them —
+        // every cleared trip would be back on the next launch.
+        if (next) AsyncStorage.setItem('carma_user', JSON.stringify(next)).catch(() => {});
       }).catch(() => {});
     };
   }, []);
