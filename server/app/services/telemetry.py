@@ -212,10 +212,12 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         # bound on the client's claim — under-witnessing would penalise honest users.
         distance_km += ((prev.speed_kmh + cur.speed_kmh) / 2.0 / 3600.0) * dt
 
-        # Distraction exposure, integrated over every segment for the same reason
-        # as distance above: dropping gap segments would shrink the denominator
-        # and inflate the rate on exactly the sparse-GPS devices from CAR-7.
-        if cur.speed_kmh >= _DRIVING_MIN_SPEED_KMH:
+        # Distraction exposure, credited by the segment mean for the same reason
+        # distance is trapezoid-integrated above. Letting the closing sample decide
+        # a whole segment made a one-minute hole worth 60 s or 0 s on identical
+        # driving, depending only on whether the driver happened to be stopped when
+        # the fix came back — on exactly the sparse-GPS devices from CAR-7.
+        if (prev.speed_kmh + cur.speed_kmh) / 2.0 >= _DRIVING_MIN_SPEED_KMH:
             driving_s += dt
 
         if dt > _MAX_KINEMATIC_GAP_S:

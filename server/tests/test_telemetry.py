@@ -188,10 +188,19 @@ class TestDrivingSecondsAboveThreshold:
         # _cruise emits n = seconds/dt points, so the trace spans (n-1)*dt = 597 s.
         assert telemetry.analyze(_cruise(600, 50.0), 600).driving_seconds_above_threshold == 597.0
 
-    def test_a_mixed_trace_splits_at_the_boundary(self) -> None:
-        # 15.0 km/h is driving; 14.9 is not. Segments are credited by their end speed.
+    def test_a_segment_is_credited_by_its_mean_speed(self) -> None:
+        # 15.0 km/h is driving. Each segment is judged on the mean of its two ends,
+        # so 14.9 -> 15.0 falls short and 40 -> 5 still counts.
         trace = [_wp(0, 0.0), _wp(3, 14.9), _wp(6, 15.0), _wp(9, 40.0), _wp(12, 5.0)]
         assert telemetry.analyze(trace, 12).driving_seconds_above_threshold == 6.0
+
+    def test_a_gap_is_not_decided_by_its_closing_sample(self) -> None:
+        """The same minute of driving, once ending at a red light and once starting
+        from one. The closing sample used to make it 3 s or 60 s."""
+        into_a_stop = [_wp(0, 80.0), _wp(3, 80.0), _wp(63, 0.0)]
+        out_of_a_stop = [_wp(0, 0.0), _wp(3, 0.0), _wp(63, 80.0)]
+        assert telemetry.analyze(into_a_stop, 63).driving_seconds_above_threshold == 63.0
+        assert telemetry.analyze(out_of_a_stop, 63).driving_seconds_above_threshold == 60.0
 
     def test_gaps_are_credited_not_dropped(self) -> None:
         """Same reason as trace distance: excluding a >15 s hole would shrink the
