@@ -96,10 +96,14 @@ export class RawSampleRecorder {
     return this.session?.filePath ?? this.lastFilePath;
   }
 
-  /** Shares the last completed recording via the OS share sheet. Null if nothing was ever recorded. */
-  public async exportAsync(): Promise<string | null> {
-    if (!this.lastFilePath) return null;
-    if (!(await Sharing.isAvailableAsync())) return null;
+  /**
+   * Shares the last completed recording via the OS share sheet.
+   * 'none-recorded' and 'sharing-unavailable' were both a bare `null` before — a caller
+   * couldn't tell "nothing to export" from "can't open the share sheet on this device".
+   */
+  public async exportAsync(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
+    if (!this.lastFilePath) return { error: 'none-recorded' };
+    if (!(await Sharing.isAvailableAsync())) return { error: 'sharing-unavailable' };
     await Sharing.shareAsync(this.lastFilePath);
     return this.lastFilePath;
   }

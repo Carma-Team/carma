@@ -293,7 +293,7 @@ need.
 |---|---|
 | `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/GPS stream, tagged with caller-supplied labels |
 | `stopRawRecording()` | Stops and flushes the session to an NDJSON file under app storage |
-| `exportRawRecording()` | Shares the last completed recording via the OS share sheet; `null` if none exists |
+| `exportRawRecording()` | Shares the last completed recording via the OS share sheet; `{ error: 'none-recorded' \| 'sharing-unavailable' }` on failure |
 
 ---
 

@@ -97,10 +97,21 @@ describe('RawSampleRecorder', () => {
     expect(result).toBe(session!.filePath);
   });
 
-  it('exports null when nothing was ever recorded', async () => {
+  it('reports none-recorded when nothing was ever recorded', async () => {
     const result = await recorder.exportAsync();
 
     expect(mockShareAsync).not.toHaveBeenCalled();
-    expect(result).toBeNull();
+    expect(result).toEqual({ error: 'none-recorded' });
+  });
+
+  it('reports sharing-unavailable distinctly from none-recorded when a recording exists', async () => {
+    recorder.start('handheld', 'ios');
+    await recorder.stop();
+    mockIsAvailableAsync.mockResolvedValueOnce(false);
+
+    const result = await recorder.exportAsync();
+
+    expect(mockShareAsync).not.toHaveBeenCalled();
+    expect(result).toEqual({ error: 'sharing-unavailable' });
   });
 });

@@ -474,8 +474,8 @@ export class DrivingSDK {
     if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
   }
 
-  /** Shares the last completed recording via the OS share sheet. Null if nothing was ever recorded. */
-  public async exportRawRecording(): Promise<string | null> {
+  /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
+  public async exportRawRecording(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
     return this.rawRecorder.exportAsync();
   }
 }
