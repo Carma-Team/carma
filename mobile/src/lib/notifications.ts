@@ -1,10 +1,12 @@
 /**
- * @fileoverview Notification screen logic — rendering decisions and screen state
- * @module lib/notifications
+ * @file notifications.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief Every decision the notifications screen makes, with no React and no API calls.
+ * What a row says, where tapping it leads, and what the screen shows after a request fails.
  *
  * @description
  * Pure TypeScript, no React and no API calls, per the layer rules in
- * `mobile/STRUCTURE.md`. `NotificationsTab` owns the effects; everything that
+ * `mobile/STRUCTURE.md`. `NotificationsScreen` owns the effects; everything that
  * can be reasoned about — what a row says, what tapping it should do, and what
  * the screen shows after a request fails — lives here so it can be tested
  * without a rendering harness.

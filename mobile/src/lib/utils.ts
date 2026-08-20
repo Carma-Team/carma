@@ -1,12 +1,15 @@
 /**
- * @fileoverview General display formatting utilities
- * @module lib/utils
+ * @file utils.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief Generic display formatting shared across screens and components.
+ * Numbers, distances, durations, dates and relative times in Hebrew and English,
+ * plus score/level to icon, colour and grade mappings.
  *
  * @description
  * Pure functions for formatting data for UI display:
  * - `formatPoints` / `formatDistance` / `formatDuration` / `formatScore` — number formatting
  * - `formatDate` / `formatTime` / `formatRelativeTime` — date formatting (Hebrew/English)
- * - `scoreToIcon` / `levelToIcon` — score/level to icon mapping
+ * - `scoreToGrade` / `scoreToColor` / `scoreToIcon` / `levelToIcon` — score/level to display mapping
  * - `truncate` / `clamp` / `sleep` — general utilities
  *
  * @remarks No server calls — local functions only.
@@ -81,6 +84,21 @@ export function formatRelativeTime(dateStr: string, lang: Language = 'HE'): stri
   if (diffHours < 24) return `${diffHours}${t.hoursWord} ${t.ago}`
   if (diffDays < 7) return `${diffDays}${t.daysWord} ${t.ago}`
   return formatDate(dateStr, 'EN')
+}
+
+/** Presentation only — the score itself is computed server-side, never here. */
+export function scoreToGrade(score: number): 'excellent' | 'good' | 'fair' | 'poor' {
+  if (score >= 90) return 'excellent'
+  if (score >= 75) return 'good'
+  if (score >= 55) return 'fair'
+  return 'poor'
+}
+
+export function scoreToColor(score: number): string {
+  if (score >= 90) return '#22c55e'
+  if (score >= 75) return '#84cc16'
+  if (score >= 55) return '#f59e0b'
+  return '#ef4444'
 }
 
 export function scoreToIcon(score: number): string {

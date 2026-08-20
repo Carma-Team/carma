@@ -1,5 +1,8 @@
 /**
- * Reward stock as the business owner sees it.
+ * @file rewardStock.ts
+ * @owner Shaun (CEO) — business logic and the rewards domain
+ * @brief The two reward-stock rules the business screens share.
+ * Formats the "left out of allocated" line, and parses the stock field where blank means no cap.
  *
  * `stock` is the allocation the business committed to and the server never
  * decrements it (CAR-47) — what is left is derived per request from the

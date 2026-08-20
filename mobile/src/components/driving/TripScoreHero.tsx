@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { SPACING, COLORS } from '@/constants/theme';
-import { scoreToGrade, scoreToColor } from '@/lib/scoring';
-import { formatDate, scoreToIcon } from '@/lib/utils';
+import { scoreToGrade, scoreToColor, formatDate, scoreToIcon } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Language } from '@/types';
 
