@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { COMMON_STYLES, TYPOGRAPHY, COLORS, SPACING } from '@/constants/theme';
@@ -39,12 +41,12 @@ function formatWhen(iso: string, lang: Language): string {
     : d.toLocaleDateString(locale);
 }
 
-interface NotificationsTabProps {
-  /** Called when a tap should take the user to the friend-requests section. */
-  onOpenFriendRequests?: () => void;
-}
-
-export function NotificationsTab({ onOpenFriendRequests }: NotificationsTabProps) {
+/**
+ * Updates screen — was the "notifications" tab inside the now-retired Profile screen.
+ */
+export default function NotificationsScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { t, lang } = useTranslation();
   const [state, setState] = useState<NotificationsState>(initialState);
   const [pendingRequesterIds, setPendingRequesterIds] = useState<ReadonlySet<string>>(new Set());
@@ -72,7 +74,7 @@ export function NotificationsTab({ onOpenFriendRequests }: NotificationsTabProps
     void load();
   }, [load]);
 
-  // Opening the tab no longer marks everything read — that is an explicit action now.
+  // Opening the screen no longer marks everything read — that is an explicit action now.
   const handleTap = useCallback(
     async (n: Notification) => {
       const action = tapActionFor(n, pendingRequesterIds);
@@ -91,9 +93,9 @@ export function NotificationsTab({ onOpenFriendRequests }: NotificationsTabProps
         }
       }
 
-      if (action === 'open-friend-requests') onOpenFriendRequests?.();
+      if (action === 'open-friend-requests') router.push('/(home)/friend-requests');
     },
-    [pendingRequesterIds, onOpenFriendRequests]
+    [pendingRequesterIds, router]
   );
 
   const handleMarkAll = useCallback(async () => {
@@ -106,10 +108,6 @@ export function NotificationsTab({ onOpenFriendRequests }: NotificationsTabProps
     }
   }, []);
 
-  if (state.status === 'loading') {
-    return <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />;
-  }
-
   const banner = state.banner ? (
     <View style={styles.banner}>
       <Text style={styles.bannerText}>{t(bannerKey(state.banner))}</Text>
@@ -119,82 +117,88 @@ export function NotificationsTab({ onOpenFriendRequests }: NotificationsTabProps
     </View>
   ) : null;
 
-  // A failed first load must never read as "you have no notifications".
-  if (state.status === 'error') {
-    return <Card style={COMMON_STYLES.emptyState}>{banner}</Card>;
-  }
-
   const rows = visibleRows(state.items, t);
 
-  if (rows.length === 0) {
-    return (
-      <Card style={COMMON_STYLES.emptyState}>
-        {banner}
-        <Ionicons name={ICONS.noNotifs} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
-        <Text style={COMMON_STYLES.emptyText}>{t('profile.noNotifications')}</Text>
-        <Text style={styles.emptySubtitle}>{t('profile.notificationsSubtitle')}</Text>
-      </Card>
-    );
-  }
-
   return (
-    <View style={styles.list}>
-      {banner}
-      {hasUnread(state.items) ? (
-        <TouchableOpacity onPress={() => void handleMarkAll()} style={styles.markAll} accessibilityRole="button">
-          <Text style={styles.markAllText}>{t('notifications.markAllRead')}</Text>
+    <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={COMMON_STYLES.screenHeader}>
+        <TouchableOpacity onPress={() => router.back()} style={COMMON_STYLES.screenHeaderBackBtn}>
+          <Ionicons name={lang === 'HE' ? 'arrow-forward' : 'arrow-back'} size={28} color={COLORS.text} />
         </TouchableOpacity>
-      ) : null}
+        <Text style={COMMON_STYLES.screenHeaderTitle}>{t('profile.updatesTitle')}</Text>
+      </View>
 
-      {rows.map(({ notification, view }) => (
-        <TouchableOpacity
-          key={notification.id}
-          style={styles.row}
-          onPress={() => void handleTap(notification)}
-          disabled={busyId === notification.id}
-          accessibilityRole="button"
-        >
-          <View style={styles.icon}>
-            <Ionicons name={view.icon} size={22} color={COLORS.brand} />
+      <ScrollView contentContainerStyle={styles.content}>
+        {state.status === 'loading' ? (
+          <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} />
+        ) : state.status === 'error' ? (
+          // A failed first load must never read as "you have no notifications".
+          <Card style={styles.card}>{banner}</Card>
+        ) : rows.length === 0 ? (
+          <Card style={[styles.card, styles.emptyCard]}>
+            {banner}
+            <Ionicons name={ICONS.noNotifs} size={40} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
+            <Text style={COMMON_STYLES.emptyText}>{t('profile.noNotifications')}</Text>
+            <Text style={styles.emptySubtitle}>{t('profile.notificationsSubtitle')}</Text>
+          </Card>
+        ) : (
+          <View style={{ gap: SPACING.sm }}>
+            {banner}
+            {hasUnread(state.items) ? (
+              <TouchableOpacity onPress={() => void handleMarkAll()} style={styles.markAll} accessibilityRole="button">
+                <Text style={styles.markAllText}>{t('notifications.markAllRead')}</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {rows.map(({ notification, view }) => (
+              <TouchableOpacity
+                key={notification.id}
+                onPress={() => void handleTap(notification)}
+                disabled={busyId === notification.id}
+                accessibilityRole="button"
+              >
+                <Card style={[styles.card, styles.row]}>
+                  <View style={styles.icon}>
+                    <Ionicons name={view.icon} size={22} color={COLORS.brand} />
+                  </View>
+                  <View style={styles.info}>
+                    <Text style={styles.message}>{view.text}</Text>
+                    <Text style={styles.when}>{formatWhen(notification.createdAt, lang)}</Text>
+                  </View>
+                  {notification.readAt === null ? <View style={styles.unreadDot} /> : null}
+                </Card>
+              </TouchableOpacity>
+            ))}
           </View>
-          <View style={styles.info}>
-            <Text style={styles.message}>{view.text}</Text>
-            <Text style={styles.when}>{formatWhen(notification.createdAt, lang)}</Text>
-          </View>
-          {notification.readAt === null ? <View style={styles.unreadDot} /> : null}
-        </TouchableOpacity>
-      ))}
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  content: { padding: SPACING.lg },
+  card: { backgroundColor: COLORS.card, padding: 16 },
+  emptyCard: { alignItems: 'center', paddingVertical: SPACING.xl },
   emptySubtitle: {
     ...TYPOGRAPHY.caption,
     textAlign: 'center',
     marginTop: 8
   },
-  list: { paddingTop: SPACING.sm },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     gap: SPACING.sm,
   },
   bannerText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, flex: 1 },
   retry: { ...TYPOGRAPHY.caption, color: COLORS.brand, fontWeight: '700' },
-  markAll: { alignSelf: 'flex-end', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm },
+  markAll: { alignSelf: 'flex-end', paddingVertical: SPACING.sm },
   markAllText: { ...TYPOGRAPHY.caption, color: COLORS.brand, fontWeight: '700' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
     gap: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
   icon: { width: 36, alignItems: 'center', justifyContent: 'center' },
   info: { flex: 1, minWidth: 0 },

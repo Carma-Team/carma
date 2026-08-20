@@ -86,14 +86,6 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
           <Text style={styles.debugTitle}>{t('driving.debugTitle')}</Text>
           <View style={styles.debugRow}>
             <Button
-              variant="secondary"
-              size="sm"
-              onPress={() => onDebugAddDistance(10)}
-              style={styles.debugBtn}
-            >
-              {t('driving.addDistance')}
-            </Button>
-            <Button
               variant="outline"
               size="sm"
               onPress={() => onDebugAddDistance(0.1)}

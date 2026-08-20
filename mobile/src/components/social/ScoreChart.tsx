@@ -141,7 +141,6 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   if (sorted.length === 0) {
     return (
       <Card style={styles.container}>
-        <Text style={[TYPOGRAPHY.h3, styles.title]}>{chartText.title}</Text>
         <Text style={[TYPOGRAPHY.body, styles.empty]}>{chartText.empty}</Text>
       </Card>
     )
@@ -150,7 +149,6 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
   return (
     <Card style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={[TYPOGRAPHY.h3, styles.title]}>{chartText.title}</Text>
         <Text style={styles.granularityTag}>{granularityLabel(granularity, lang)}</Text>
       </View>
 
@@ -216,7 +214,7 @@ export function ScoreChart({ trips, lang }: ScoreChartProps) {
 // ─── styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container:  { padding: SPACING.md },
+  container:  { padding: SPACING.md, marginBottom: SPACING.lg },
   headerRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   title:      { marginBottom: 0 },
   granularityTag: {

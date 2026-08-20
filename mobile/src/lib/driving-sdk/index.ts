@@ -1,6 +1,9 @@
 /**
- * @fileoverview Generic driving trip SDK — DrivingSDK
- * @module lib/driving-sdk
+ * @file index.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief The SDK's public entry point and orchestrator, `DrivingSDK`.
+ * Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream,
+ * and emits driving events to whatever host app is consuming the library.
  *
  * @description
  * Singleton class managing the full trip lifecycle:
@@ -8,7 +11,7 @@
  * - 1-second wall-clock timer that updates TripData
  * - Sensor event listeners (brake/accel/turn) via SensorManager
  * - Phone usage listener via PhoneUsageManager
- * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onFraudDetected
  *
  * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
  * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
@@ -348,7 +351,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -367,6 +370,9 @@ export class DrivingSDK {
       timestamp: Date.now(),
       accel: { x: update.accelX, y: 0, z: 0 },
       gyroYaw: update.gyroZ,
+      accelAvailable: update.accelAvailable,
+      gyroAvailable: update.gyroAvailable,
+      backgroundLocationAvailable: update.backgroundLocationAvailable,
     });
 
     if (!this.isTripActive || !this.currentTripData) return;

@@ -54,6 +54,7 @@ export const ICONS = {
   achievements:   'trophy'                    as IoniconName,
   chart:          'bar-chart'                 as IoniconName,
   notifications:  'notifications'             as IoniconName,
+  friendRequests: 'people'                    as IoniconName,
 
   // ─── Empty states ────────────────────────────────────────────────────────────
   noTrips:        'map'                       as IoniconName,

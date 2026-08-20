@@ -22,6 +22,10 @@ export default function HomeLayout() {
       {/* Settings screens */}
       <Stack.Screen name="settings" options={{ presentation: 'card' }} />
       <Stack.Screen name="bluetooth-settings" options={{ presentation: 'card' }} />
+
+      {/* Screens formerly nested inside the retired Profile tab */}
+      <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
+      <Stack.Screen name="friend-requests" options={{ presentation: 'card' }} />
     </Stack>
   );
 }
