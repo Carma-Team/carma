@@ -1,23 +1,43 @@
-// ─── Mocks ────────────────────────────────────────────────────────────────────
+import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 
-const mockMakeDirectoryAsync = jest.fn(async () => undefined);
-const mockWriteAsStringAsync = jest.fn(async () => undefined);
+// ─── Mocks ────────────────────────────────────────────────────────────────────
+// expo-file-system's class-based File/Directory API (SDK 54+) is entirely
+// synchronous — only expo-sharing's export step is actually async.
+// jest.mock() calls are hoisted above this import regardless of source position
+// (babel-plugin-jest-hoist), so writing the import first here is safe and keeps
+// eslint's import/first happy.
+
+const mockDirCreate = jest.fn((_opts?: { idempotent?: boolean }) => undefined);
+const mockFileCreate = jest.fn((_opts?: { overwrite?: boolean }) => undefined);
+const mockFileWrite = jest.fn((_content: string) => undefined);
+
+// Plain constructor functions, not `class` — the class-declaration form doesn't
+// survive this project's babel/jest-expo transform inside a jest.mock() factory
+// ("X is not a constructor" at runtime otherwise).
+function MockDirectory(this: any) {
+  this.uri = 'file:///docs/raw-recordings';
+  this.create = (opts?: { idempotent?: boolean }) => mockDirCreate(opts);
+}
+
+function MockFile(this: any, path: string) {
+  this.uri = path;
+  this.create = (opts?: { overwrite?: boolean }) => mockFileCreate(opts);
+  this.write = (content: string) => mockFileWrite(content);
+}
 
 jest.mock('expo-file-system', () => ({
-  documentDirectory: 'file:///docs/',
-  makeDirectoryAsync: (...args: any[]) => mockMakeDirectoryAsync(...args),
-  writeAsStringAsync: (...args: any[]) => mockWriteAsStringAsync(...args),
+  Paths: { document: 'file:///docs/' },
+  Directory: MockDirectory,
+  File: MockFile,
 }));
 
 const mockIsAvailableAsync = jest.fn(async () => true);
-const mockShareAsync = jest.fn(async () => undefined);
+const mockShareAsync = jest.fn(async (_uri: string) => undefined);
 
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: () => mockIsAvailableAsync(),
-  shareAsync: (...args: any[]) => mockShareAsync(...args),
+  shareAsync: (uri: string) => mockShareAsync(uri),
 }));
-
-import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 
 describe('RawSampleRecorder', () => {
   let recorder: RawSampleRecorder;
@@ -33,11 +53,12 @@ describe('RawSampleRecorder', () => {
     expect(session.scenario).toBe('handheld');
     expect(session.platform).toBe('ios');
     expect(session.filePath).toContain(session.sessionId);
+    expect(mockDirCreate).toHaveBeenCalledWith({ idempotent: true });
   });
 
   it('drops samples pushed before start() or after stop()', async () => {
     recorder.pushAccelSample(1, 2, 3);
-    expect(mockWriteAsStringAsync).not.toHaveBeenCalled();
+    expect(mockFileWrite).not.toHaveBeenCalled();
 
     recorder.start('mounted', 'android');
     await recorder.stop();
@@ -45,7 +66,7 @@ describe('RawSampleRecorder', () => {
 
     // Nothing buffered after the session ended — a second stop() has nothing to write.
     await recorder.stop();
-    expect(mockWriteAsStringAsync).toHaveBeenCalledTimes(1);
+    expect(mockFileWrite).toHaveBeenCalledTimes(1);
   });
 
   it('writes one NDJSON line per pushed sample, tagged by kind', async () => {
@@ -56,8 +77,8 @@ describe('RawSampleRecorder', () => {
 
     await recorder.stop();
 
-    expect(mockWriteAsStringAsync).toHaveBeenCalledTimes(1);
-    const [, body] = mockWriteAsStringAsync.mock.calls[0];
+    expect(mockFileWrite).toHaveBeenCalledTimes(1);
+    const body = mockFileWrite.mock.calls[0][0];
     const lines = body.split('\n').map((l: string) => JSON.parse(l));
     expect(lines).toHaveLength(3);
     expect(lines.map((l: any) => l.kind)).toEqual(['accel', 'gyro', 'location']);

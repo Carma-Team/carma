@@ -23,6 +23,7 @@ import {
   SuspiciousActivityEvaluation,
   TransportMode,
 } from '@/lib/driving-sdk/types';
+import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 // Names are `mock`-prefixed so they survive jest's factory hoisting under both
@@ -108,8 +109,6 @@ jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
     simulateDisconnect() { mockBtDisconnect?.(); }
   },
 }));
-
-import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 

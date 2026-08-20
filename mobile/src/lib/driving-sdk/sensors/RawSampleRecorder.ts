@@ -13,7 +13,7 @@
  * `scenario`/`platform` are caller-supplied plain strings; the SDK has no opinion on
  * what labels the host app uses.
  */
-import * as FileSystem from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export type RawSampleKind = 'accel' | 'gyro' | 'location';
@@ -34,18 +34,14 @@ export interface RawRecordingSession {
   filePath: string;
 }
 
-const RECORDINGS_DIR = `${FileSystem.documentDirectory}raw-recordings/`;
+const RECORDINGS_DIR = new Directory(Paths.document, 'raw-recordings');
 
 export class RawSampleRecorder {
   private session: RawRecordingSession | null = null;
-  // Buffered NDJSON lines for the active session. Written in one shot on stop() —
-  // expo-file-system's writeAsStringAsync has no native append, so a per-sample write
-  // would need a queue to serialize calls. A staged session runs minutes, not hours,
-  // so a few thousand buffered lines cost nothing and avoid that machinery entirely.
+  // Buffered NDJSON lines for the active session, written in one shot on stop().
+  // A staged session runs minutes, not hours, so a few thousand buffered lines cost
+  // nothing and avoid building a serialization queue for a single File.write() call.
   private lines: string[] = [];
-  // Resolves once RECORDINGS_DIR exists — awaited before the write in stop() rather
-  // than blocking start(), which stays synchronous like every other manager's start().
-  private dirReady: Promise<void> = Promise.resolve();
   // Survives past stop() — exportAsync() shares the last completed recording, not
   // necessarily one that's still "active" (session is null again by the time you export).
   private lastFilePath: string | null = null;
@@ -53,27 +49,27 @@ export class RawSampleRecorder {
   public start(scenario: string, platform: string): RawRecordingSession {
     const sessionId = `session_${Date.now()}`;
     this.lines = [];
-    this.dirReady = FileSystem.makeDirectoryAsync(RECORDINGS_DIR, { intermediates: true }).then(
-      () => undefined,
-      () => undefined, // directory already exists — not an error
-    );
+    // idempotent: true — safe to call on every start(), whether or not an earlier
+    // session already created this directory.
+    RECORDINGS_DIR.create({ idempotent: true });
     this.session = {
       sessionId,
       scenario,
       platform,
       startedAt: Date.now(),
-      filePath: `${RECORDINGS_DIR}${sessionId}.ndjson`,
+      filePath: `${RECORDINGS_DIR.uri}/${sessionId}.ndjson`,
     };
     return this.session;
   }
 
-  /** Flushes the buffered samples to disk and ends the session. Async because the write is. */
+  /** Flushes the buffered samples to disk and ends the session. */
   public async stop(): Promise<RawRecordingSession | null> {
     const session = this.session;
     if (!session) return null;
     this.session = null;
-    await this.dirReady;
-    await FileSystem.writeAsStringAsync(session.filePath, this.lines.join('\n'));
+    const file = new File(session.filePath);
+    file.create({ overwrite: true });
+    file.write(this.lines.join('\n'));
     this.lines = [];
     this.lastFilePath = session.filePath;
     return session;
