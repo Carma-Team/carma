@@ -1,3 +1,10 @@
+/**
+ * @file FraudDetector.ts
+ * @owner Dan (CPO) — fraud & transport-mode detection
+ * @brief Sliding-window classifier that decides whether a session is private car travel.
+ * Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted
+ * signals against a 0.70 threshold, and reports the transport mode plus raw telemetry.
+ */
 import { TransportMode } from '@/lib/driving-sdk/types';
 
 // ─── Thresholds (Appendix E, Rule 3) ─────────────────────────────────────────

@@ -21,12 +21,26 @@ export function DashboardHeader({ userName }: DashboardHeaderProps) {
         <Text style={styles.welcome}>{t('dashboard.welcome')},</Text>
         <Text style={styles.name}>{firstName}</Text>
       </View>
-      <TouchableOpacity
-        style={styles.settingsBtn}
-        onPress={() => router.push('/(home)/settings')}
-      >
-        <Ionicons name={ICONS.settings} size={18} color={COLORS.text} />
-      </TouchableOpacity>
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => router.push('/(home)/friend-requests')}
+        >
+          <Ionicons name={ICONS.friendRequests} size={18} color={COLORS.text} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => router.push('/(home)/notifications')}
+        >
+          <Ionicons name={ICONS.notifications} size={18} color={COLORS.text} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => router.push('/(home)/settings')}
+        >
+          <Ionicons name={ICONS.settings} size={18} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -34,6 +48,7 @@ export function DashboardHeader({ userName }: DashboardHeaderProps) {
 const styles = StyleSheet.create({
   welcome: { ...TYPOGRAPHY.caption },
   name: { ...TYPOGRAPHY.h2, fontSize: 26 },
+  actions: { flexDirection: 'row', gap: 8 },
   settingsBtn: {
     width: 40,
     height: 40,

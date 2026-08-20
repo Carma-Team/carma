@@ -22,6 +22,11 @@ class LeaderboardEntry(CamelModel):
     user_id: str
     rank: int
     score: int
+    # Lifetime kilometres, from the users.total_distance accumulator — which
+    # counts a trip the moment it is saved, so it runs ahead of the COMPLETED-only
+    # sum behind `GET /api/users/:id/stats`. The two answer differently for a
+    # driver mid-trip; do not treat either as the other.
+    distance_km: float
     user: LeaderboardUserSummary
     # Wire name kept as `followStatus` for the mobile client; the value is the
     # friendship status from the viewer toward this row's user.
