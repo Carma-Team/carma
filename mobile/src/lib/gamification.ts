@@ -1,5 +1,9 @@
 /**
- * Gamification — level presentation.
+ * @file gamification.ts
+ * @owner Shared — May (client-side presentation); the ladder and the level a driver is on
+ *        are decided server-side (`server/app/services/levels.py`).
+ * @brief Turns the level the server reported into what the UI shows: label, band, progress.
+ * Computes no level and applies no multiplier — every value here is a lookup or a percentage.
  *
  * The server owns the ladder (`app/services/levels.py`, served by
  * `GET /api/levels`). Nothing here computes a level or applies a multiplier —

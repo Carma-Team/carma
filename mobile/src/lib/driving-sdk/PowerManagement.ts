@@ -1,6 +1,9 @@
 /**
- * @fileoverview Generic OS-level power-management helpers — PowerManagement
- * @module lib/driving-sdk/PowerManagement
+ * @file PowerManagement.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Detects the platform where OS background throttling can degrade GPS cadence,
+ * and opens the system settings screen from which the user can lift it.
+ * Holds no opinion on when to ask or what to say — that is host-app UX.
  *
  * @description
  * Background GPS reliability on Android depends on whether the OS is allowed to

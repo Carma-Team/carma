@@ -133,14 +133,14 @@ class TestComputeDriverScore:
         assert compute_driver_score([]) == CONFIG.prior_score
 
     def test_cold_start_blends_toward_prior(self) -> None:
-        # 50 km of history → credibility 50/300, mostly the 75 prior.
+        # One 50 km trip counts as 30 → credibility 30/300, mostly the 75 prior.
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=50.0, age_days=0.0)])
-        cred = 50.0 / 300.0
+        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_km
         assert math.isclose(score, round((cred * 100.0 + (1 - cred) * 75.0) * 10) / 10)
 
     def test_full_credibility_ignores_prior(self) -> None:
-        # 300+ km of consistent 90s → score ≈ 90, prior no longer pulls.
-        hist = [TripHistoryPoint(trip_score=90.0, distance_km=100.0, age_days=float(i)) for i in range(4)]
+        # Ten capped trips of consistent 90s → score ≈ 90, prior no longer pulls.
+        hist = [TripHistoryPoint(trip_score=90.0, distance_km=100.0, age_days=float(i)) for i in range(10)]
         assert math.isclose(compute_driver_score(hist), 90.0, abs_tol=0.1)
 
     def test_recent_trips_weigh_more_than_old(self) -> None:
@@ -159,16 +159,26 @@ class TestComputeDriverScore:
         assert recent_bad < old_bad
 
     def test_half_life_halves_weight_at_14_days(self) -> None:
-        # One trip at age 0 (score 100) and one at age 14 (score 0), equal km.
-        # 14-day trip has half the weight → raw ≈ 100*1/(1+0.5)=66.67, then credibility.
-        score = compute_driver_score(
-            [
-                TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0),
-                TripHistoryPoint(trip_score=0.0, distance_km=300.0, age_days=14.0),
-            ]
-        )
-        # total_km 600 → full credibility; raw = (100*300 + 0*150)/(300+150) = 66.67
-        assert math.isclose(score, round((100.0 * 300.0) / (300.0 + 150.0) * 10) / 10, abs_tol=0.1)
+        # Five trips at age 0 (score 100) and five at age 14 (score 0). All are at
+        # or above the exposure cap, so credibility is full and only the decay
+        # shows: raw = 100*150 / (150 + 75) = 66.67.
+        hist = [TripHistoryPoint(trip_score=100.0, distance_km=60.0, age_days=0.0) for _ in range(5)]
+        hist += [TripHistoryPoint(trip_score=0.0, distance_km=60.0, age_days=14.0) for _ in range(5)]
+        assert math.isclose(compute_driver_score(hist), 66.7, abs_tol=0.1)
+
+    def test_one_long_drive_cannot_outvote_a_month_of_commuting(self) -> None:
+        """CMT's rule: no single trip may have a major impact on the overall score
+        (US12071140B2). A 400 km drive weighs exactly what a 30 km one does."""
+        commutes = [TripHistoryPoint(trip_score=90.0, distance_km=30.0, age_days=float(i)) for i in range(10)]
+        outlier = TripHistoryPoint(trip_score=40.0, distance_km=400.0, age_days=0.0)
+        capped = TripHistoryPoint(trip_score=40.0, distance_km=30.0, age_days=0.0)
+        assert compute_driver_score([*commutes, outlier]) == compute_driver_score([*commutes, capped])
+
+    def test_a_single_long_drive_does_not_prove_a_driver(self) -> None:
+        """The cap applies to credibility too. One stretch of motorway is one drive,
+        not a proven record — the score stays near the cold-start prior."""
+        score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0)])
+        assert math.isclose(score, 77.5, abs_tol=0.1)
 
 
 # ─── points engine ──────────────────────────────────────────────────────────────
@@ -315,3 +325,110 @@ class TestComputeStreak:
         """The distance witness can cut a trip to nothing, leaving no weight to average by."""
         assert compute_streak([(_day(0), 90.0, 0.0)], _ANCHOR) == 1
         assert compute_streak([(_day(0), 50.0, 0.0)], _ANCHOR) == 0
+
+
+# ─── CAR-54: distraction per driving hour ───────────────────────────────────────
+
+
+class TestDistractionExposure:
+    """Handling seconds per hour of *driving*, CMT's definition (scoring.md §3.1)."""
+
+    def test_cmt_population_average_scores_about_75(self) -> None:
+        """The anchor k_distraction was fitted to: CMT's US 2024 national average of
+        82 handling-seconds per driving hour is an average driver, not a failing one.
+        At the old k=0.020 this same trip scored 19.4."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=82.0,
+            distance_km=60.0,
+            duration_min=60.0,
+            driving_min_above_threshold=60.0,
+        )
+        assert r.sub_distraction == 75.1
+
+    def test_parked_tail_does_not_dilute_the_rate(self) -> None:
+        """A trip closes up to three minutes after the car stops, and arrival is when
+        the driver picks the phone up. Charging over wall-clock rewards that.
+
+        Scoring only — the denominator is handed in. `_distraction_exposure_min`
+        cannot yet produce 60.0 for this trip, because a parked tail sits past the
+        trace's last sample instead of inside it; see its docstring.
+        """
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=82.0, distance_km=60.0, duration_min=75.0)
+        driving = compute_trip_score(**common, driving_min_above_threshold=60.0)
+        wall_clock = compute_trip_score(**common, driving_min_above_threshold=75.0)
+        assert driving.sub_distraction == 75.1
+        assert wall_clock.sub_distraction == 79.5
+
+    def test_no_trace_falls_back_to_wall_clock_duration(self) -> None:
+        """`None` means the GPS trace could not measure it — today's behaviour stands."""
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=40.0, distance_km=20.0, duration_min=30.0)
+        assert (
+            compute_trip_score(**common, driving_min_above_threshold=None).sub_distraction
+            == compute_trip_score(**common, driving_min_above_threshold=30.0).sub_distraction
+        )
+
+    def test_zero_driving_minutes_cannot_divide_by_zero(self) -> None:
+        """A measured zero is a crawl, not a missing trace — the floor takes it."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=10.0,
+            distance_km=1.0,
+            duration_min=20.0,
+            driving_min_above_threshold=0.0,
+        )
+        assert r.sub_distraction == 65.7  # 10 s over the 5-minute floor = 120/h
+
+    def test_a_sub_threshold_jam_is_charged_at_the_floor(self) -> None:
+        """The known soft spot, pinned rather than papered over with a second constant.
+
+        A 40-minute crawl below 15 km/h yields no driving seconds, so the 5-minute
+        floor applies a 12x multiplier to any handling. Conservative and bounded;
+        it closes when CAR-184 gates the numerator in the app.
+        """
+        common = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=30.0, distance_km=8.0, duration_min=40.0)
+        assert compute_trip_score(**common, driving_min_above_threshold=0.0).sub_distraction == 28.4
+        assert compute_trip_score(**common, driving_min_above_threshold=None).sub_distraction == 85.4
+
+    def test_short_trip_dampening_still_reads_wall_clock(self) -> None:
+        """`duration_min` keeps its other job: a 40-minute crawl is not a short trip."""
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=0.0,
+            distance_km=8.0,
+            duration_min=40.0,
+            driving_min_above_threshold=0.0,
+            rolling_score=50.0,
+        )
+        assert r.score == 100.0
+
+
+# ─── CAR-155: the ingest path may not read client severity ──────────────────────
+
+
+class TestClientSeverityIsNotScored:
+    """A tripwire, not a unit test — deliberately crude because it must always run.
+
+    The integration test that proves this properly (`test_trip_events_db.py`)
+    skips without Postgres, and a direct push to `develop` skips the Postgres job
+    entirely. So on the machine most likely to introduce the leak, nothing else
+    checks it.
+    """
+
+    def test_scoring_path_does_not_read_client_severity(self) -> None:
+        import inspect
+
+        from app.services import trips
+
+        assert "event_severity" not in inspect.getsource(trips), (
+            "trips.py now references event_severity(). Client-supplied severity is an "
+            "unsigned horizontal magnitude, not the vehicle-frame value the curve maps "
+            "(CAR-155), and the events array is unsigned so a client could set its own. "
+            "Lift this guard in CAR-157, once severity is sourced from the signed digest."
+        )

@@ -46,10 +46,33 @@ Files that must NOT be inside `driving-sdk/`:
 - Trip validation rules (start/end thresholds) → `src/lib/TripValidationManager.ts`
 - Fraud / transport-mode detection → `src/lib/FraudDetector.ts`
 - Gamification levels, point multipliers → `src/lib/gamification.ts`
-- Scoring formulas → `src/lib/scoring.ts`
+- Scoring formulas → nowhere in the client. The server is the sole scoring oracle; the app renders
+  what `POST /api/trips` returns and computes no part of it, and no input to it.
 
 Test before asking: *"If a different app used this SDK, would this file make sense?"*
 If the answer is no — it belongs in `src/lib/`, not in `driving-sdk/`.
+
+## File headers — every file under `src/lib/` states who owns it
+
+Each file opens with a JSDoc block carrying three tags, and nothing else is mandatory:
+
+```ts
+/**
+ * @file FraudDetector.ts
+ * @owner Dan (CPO) — fraud & transport-mode detection
+ * @brief Sliding-window classifier that decides whether a session is private car travel.
+ * Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted
+ * signals against a 0.70 threshold, and reports the transport mode plus raw telemetry.
+ */
+```
+
+- **`@owner`** — the person who decides what this file does, not whoever edited it last. Use `Shared` when a file genuinely cannot be split by owner, and say who holds which half. Files inside `driving-sdk/` name the maintainer without a CARMA job title, because the library is meant to be extracted and a role from this org means nothing to whoever receives it.
+- **`@brief`** — two sentences, also repeated in the `lib/` table in `STRUCTURE.md`. **The header is the current one**: it is written by whoever changed the file, and `STRUCTURE.md` is realigned to it afterwards. Never edit the table and leave the header behind.
+- The header replaces the older `@fileoverview` / `@module` pair, which said the same thing in more lines. Everything below it — `@description`, `@remarks`, threshold reasoning, inline comments — stays exactly where it is.
+
+**Before editing a file under `src/lib/` whose `@owner` is not the developer you are working for: stop.** Say what you want to change and why, and ask for explicit confirmation. Do not edit first and mention it after. This is the whole point of the header — two people work inside `lib/`, both of them through Claude Code, and a file that changes hands silently is discovered by the other owner days later, in a `git pull`.
+
+These tags are JSDoc, which is what TypeDoc reads. Doxygen does not support TypeScript — if we ever generate an API reference, TypeDoc is the tool, and scoping it to `driving-sdk/` is the case worth making.
 
 ## Server config — builds vs. dev
 
@@ -84,7 +107,7 @@ Current disabled features:
 
 | Feature | Marker | Files affected |
 |---|---|---|
-| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `scoring.ts`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
+| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
 
 When re-enabling: search for the marker across the repo and uncomment all matching blocks. Also make `swerves` required again in `TelemetryDigest`, `ValidTripPayload`, and `ScoringInput`.
 

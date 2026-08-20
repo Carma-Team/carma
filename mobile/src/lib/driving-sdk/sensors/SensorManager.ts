@@ -1,6 +1,9 @@
 /**
- * @fileoverview GPS + accelerometer + gyroscope listeners for driving event detection — SensorManager
- * @module lib/driving-sdk/sensors/SensorManager
+ * @file SensorManager.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion
+ * that does not depend on how the phone is oriented in the vehicle.
+ * Also streams speed, distance and raw IMU values to the SDK on every fix.
  *
  * @description
  * Detects EVT_BRAKE / EVT_ACCEL / EVT_TURN using a lightweight GPS+IMU fusion that
@@ -126,6 +129,11 @@ export class SensorManager {
   private accelAvailable = false;
   private gyroAvailable = false;
   private backgroundLocationAvailable = false;
+  // True only when the accelerometer registration itself threw — distinct from
+  // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
+  // open for the latter (GPS-only detection is the intended fallback) and fail
+  // closed for this one (a broken subscription must not read as confirmed by design).
+  private accelInitFailed = false;
   private thresholds: MotionThresholds;
 
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
@@ -206,6 +214,7 @@ export class SensorManager {
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
     this.peakDurationMs = 0;
+    this.accelInitFailed = false;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
     // this.prevLocTimestamp = null;
     // this.swerveStartTime  = null;
@@ -266,13 +275,26 @@ export class SensorManager {
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
+    } catch (err) {
+      console.error('[SensorManager] Error starting location:', err);
+    }
 
+    // Deliberately its own try: a location failure above must not skip IMU
+    // registration, and a gyroscope failure below must not misattribute itself
+    // to the accelerometer via a shared catch — each sensor fails independently.
+    try {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
+    } catch (err) {
+      console.error('[SensorManager] Error starting accelerometer:', err);
+      this.accelAvailable = false;
+      this.accelInitFailed = true;
+    }
 
+    try {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
@@ -282,7 +304,7 @@ export class SensorManager {
         });
       }
     } catch (err) {
-      console.error('[SensorManager] Error starting sensors:', err);
+      console.error('[SensorManager] Error starting gyroscope:', err);
     }
   }
 
@@ -418,7 +440,10 @@ export class SensorManager {
     const imuPeak = this.peakHorizAccelMs2;
     const imuPeakDurationMs = this.peakDurationMs;
     // Lenient sanity check: reject GPS-only spikes the phone never physically felt.
-    const imuConfirms = !this.accelAvailable || imuPeak >= IMU_CONFIRM_MS2;
+    // Fails open only for "no accelerometer hardware" — a broken registration
+    // (accelInitFailed) must not read the same way, or a GPS glitch during a
+    // subscription failure fires unconfirmed with peakG:0/durationMs:0.
+    const imuConfirms = (!this.accelAvailable && !this.accelInitFailed) || imuPeak >= IMU_CONFIRM_MS2;
 
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
