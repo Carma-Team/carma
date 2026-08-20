@@ -204,7 +204,7 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
-  updateUser: (patch: Partial<AppUser>) => Promise<void>
+  updateUser: (patch: Partial<AppUser>, ownerId?: string) => Promise<void>
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -480,6 +480,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
+        // Whoever this profile is for has to still be the driver signed in, or a
+        // logout and a different login inside the round trip lands A's on B.
+        if (userRef.current?.id !== freshUser.id) return;
         const next = userRef.current ? { ...userRef.current, ...freshUser } : null;
         userRef.current = next;
         setUserState(next);
@@ -595,9 +598,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
-      // carma_trips goes too. The offline fallback below reads it back, so leaving
-      // it behind shows one driver's trips to whoever signs in next on the handset.
-      await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
+      // carma_trips deliberately survives: it is what a driver signing back in
+      // without a connection has left. The fallback below filters it by owner,
+      // which is what keeps it from being shown to the next driver instead.
+      await AsyncStorage.multiRemove(['carma_user', 'carma_token']);
     } else {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
@@ -614,7 +618,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
       } catch {
         const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached && userRef.current?.id === u.id) setRecentTrips(JSON.parse(cached));
+        // Filtered by owner: the cache outlives a logout, so on a shared handset
+        // it can hold the previous driver's trips.
+        if (cached && userRef.current?.id === u.id) {
+          setRecentTrips((JSON.parse(cached) as Trip[]).filter(t => t.userId === u.id));
+        }
       }
     }
   }, []);
@@ -626,10 +634,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * a caller's copy, so a save that lands late cannot hand back points a trip has
    * since added, and it does nothing at all once the session is over. It also
    * skips setUser's trip reload, which a settings change has no reason to trigger.
+   *
+   * `ownerId` names the driver the patch was computed for. Pass it whenever the
+   * patch crosses an await: on a shared handset one driver can sign out and
+   * another in while a save is in flight, and A's change must not land on B.
    */
-  const updateUser = useCallback(async (patch: Partial<AppUser>) => {
+  const updateUser = useCallback(async (patch: Partial<AppUser>, ownerId?: string) => {
     const current = userRef.current;
-    if (!current) return;
+    if (!current || (ownerId && current.id !== ownerId)) return;
 
     const next = { ...current, ...patch };
     // Claimed before the state lands, so a second call in the same tick builds on

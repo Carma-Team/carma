@@ -66,6 +66,8 @@ const DRIVER = {
   createdAt: '2026-01-01T00:00:00Z',
 } as unknown as AppUser;
 
+const OTHER_DRIVER = { ...DRIVER, id: 'driver-2', name: 'Second Driver' } as AppUser;
+
 const wrapper = ({ children }: { children: React.ReactNode }) => <AppProvider>{children}</AppProvider>;
 
 beforeEach(() => {
@@ -110,6 +112,26 @@ test('a save that lands after logout writes nothing', async () => {
   // The logout cleared this key. Writing it back would leave an account signed in
   // with no token behind it.
   expect(await AsyncStorage.getItem('carma_user')).toBeNull();
+});
+
+test('a save for one driver does not land on the next one to sign in', async () => {
+  const { result } = renderHook(() => useApp(), { wrapper });
+
+  await act(async () => {
+    await result.current.setUser(DRIVER);
+  });
+  await act(async () => {
+    await result.current.setUser(null);
+    await result.current.setUser(OTHER_DRIVER);
+  });
+
+  // Driver 1's toggle finally comes back, on a handset driver 2 is now holding.
+  await act(async () => {
+    await result.current.updateUser({ driveModeEnabled: true }, DRIVER.id);
+  });
+
+  expect(result.current.user?.id).toBe('driver-2');
+  expect(result.current.user?.driveModeEnabled).toBe(false);
 });
 
 test('two patches in a row compose instead of overwriting each other', async () => {

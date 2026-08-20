@@ -85,7 +85,7 @@ export default function SettingsScreen() {
       const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
       // Swallowed on purpose: a failed cache write is not a failed save. The
       // server has the change, and the error toast below means only that it does not.
-      await updateUser({ driveModeEnabled: updated.driveModeEnabled }).catch(() => {});
+      await updateUser({ driveModeEnabled: updated.driveModeEnabled }, updated.id).catch(() => {});
     } catch {
       addToast({ type: 'error', message: t('common.error') });
     } finally {
