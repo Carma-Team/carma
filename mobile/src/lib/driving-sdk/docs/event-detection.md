@@ -33,7 +33,7 @@ flowchart LR
     C -- no --> A
     C -- yes --> D[Accelerometer cross-confirm:<br/>gravity-removed horizontal force]
     D -- no matching force --> E[Rejected — GPS glitch]
-    D -- confirmed --> F[Severity mapped 0→1]
+    D -- confirmed --> F[No severity assigned]
     F --> G{Per-type<br/>cooldown active?}
     G -- yes --> E
     G -- no --> H[DrivingEvent dispatched]

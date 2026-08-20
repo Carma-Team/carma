@@ -54,6 +54,8 @@ import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 const MS2_PER_G = 9.81;
+// Mirrors SensorManager's own LPF_ALPHA — not imported, same reasoning as MS2_PER_G above.
+const LPF_ALPHA = 0.9;
 
 // Deliberately not DEFAULT_MOTION_THRESHOLDS — see file header.
 const THRESHOLDS = {
@@ -185,6 +187,29 @@ describe('SensorManager', () => {
     expect(event.durationMs).toBeGreaterThanOrEqual(300);
   });
 
+  it('reports the duration of the streak holding the peak, not the longest streak', () => {
+    sendFix({ t: 0, speed: 20 });
+
+    // A weaker but longer streak — above the confirm gate, below the peak below.
+    mockAccelHandler?.(scale({ x: 1, y: 0, z: 1 }, 0.3));
+    jest.advanceTimersByTime(600);
+    mockAccelHandler?.(scale({ x: 1, y: 0, z: 1 }, 0.3));
+
+    // Gap: drops below the confirm gate, breaking the streak.
+    mockAccelHandler?.({ x: 0, y: 0, z: 1 });
+
+    // Shorter, stronger streak — becomes the new peak.
+    feedStrongForce();
+    jest.advanceTimersByTime(100);
+    feedStrongForce();
+
+    sendFix({ t: 2000, speed: 14 });
+
+    const [event] = events();
+    expect(event.durationMs).toBeGreaterThanOrEqual(100);
+    expect(event.durationMs).toBeLessThan(300);
+  });
+
   // ── IMU cross-confirmation ─────────────────────────────────────────────────
 
   it('rejects a GPS-only spike the phone never physically felt', () => {
@@ -226,11 +251,12 @@ describe('SensorManager', () => {
 
     // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
     // code this event still fires (imuConfirms fails open when accelAvailable is
-    // false), just with peakG stuck at 0 because feedStrongForce() never reached a
-    // real subscription. peakG > 0 is what only the fix makes possible.
+    // false), and feedStrongForce() never reaching a real subscription would leave
+    // onUpdate's accelX at 0. A nonzero accelX is what only the fix makes possible.
     const [event] = events();
     expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
-    expect(event.peakG).toBeGreaterThan(0);
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate.accelX).toBeGreaterThan(0);
   });
 
   it('fails closed — not open — when accelerometer registration itself throws', async () => {
@@ -315,9 +341,10 @@ describe('SensorManager', () => {
       // An event firing here doesn't prove gravity was removed — since CAR-156
       // dropped peakG, nothing on the event does. onUpdate's accelX still carries
       // the gravity-removed dynamic X (this.latestAccelX): if removal broke, it
-      // would report c.gravity.x + c.force.x instead of just c.force.x.
+      // would report c.gravity.x + c.force.x instead of just c.force.x, scaled
+      // down by one sample of the LPF_ALPHA gravity EMA settling toward the force.
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-      expect(lastUpdate.accelX).toBeCloseTo(c.force.x, 1);
+      expect(lastUpdate.accelX).toBeCloseTo(c.force.x * LPF_ALPHA, 5);
     }
   });
 
