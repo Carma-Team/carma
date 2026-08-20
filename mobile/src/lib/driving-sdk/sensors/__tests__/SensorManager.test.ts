@@ -420,24 +420,42 @@ describe('SensorManager', () => {
   // active, AND a sample within the last 5s — not just "was present at start()".
 
   it('reports gyroAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {
-    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 }); // baseline sample
-    sendFix({ t: 0, speed: 20 });
-    const lastUpdate = () => onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-    expect(lastUpdate()).toMatchObject({ gyroAvailable: true });
-
-    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS — no further gyro sample arrives
+    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS — no gyro sample ever arrives, only the start() grace stamp
     sendFix({ t: 5100, speed: 20 });
 
-    expect(lastUpdate()).toMatchObject({ gyroAvailable: false });
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ gyroAvailable: false });
   });
 
-  it('keeps gyroAvailable: true while samples keep landing inside the window', () => {
-    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 });
+  it('stays gyroAvailable: true past the original window when a sample refreshes it first', () => {
+    // Without the per-sample refresh, this crosses SENSOR_STALE_MS on the start()
+    // grace stamp alone and would read false — the case Dan's review caught: the
+    // old version of this test only ever advanced far enough to see the grace
+    // stamp, never far enough past a *refreshed* one to tell the two apart.
     jest.advanceTimersByTime(4000);
-    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 }); // refreshes the timestamp before staleness
-    sendFix({ t: 4000, speed: 20 });
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 }); // refreshes lastGyroSampleAtMs at t=4000
+    jest.advanceTimersByTime(4000); // t=8000 — 8000ms since start(), but 4000ms since the refresh
+    sendFix({ t: 8000, speed: 20 });
 
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ gyroAvailable: true });
+  });
+
+  it('reports accelAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {
+    jest.advanceTimersByTime(5000);
+    sendFix({ t: 5100, speed: 20 });
+
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ accelAvailable: false });
+  });
+
+  it('stays accelAvailable: true past the original window when a sample refreshes it first', () => {
+    jest.advanceTimersByTime(4000);
+    mockAccelHandler?.({ x: 0, y: 0, z: 1 }); // refreshes lastAccelSampleAtMs at t=4000
+    jest.advanceTimersByTime(4000); // t=8000 — 4000ms since the refresh, not since start()
+    sendFix({ t: 8000, speed: 20 });
+
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ accelAvailable: true });
   });
 });
