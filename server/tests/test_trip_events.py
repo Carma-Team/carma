@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from app.models import EventType
 from app.services.trips import (
     _MAX_EVENTS_PER_TRIP,
@@ -77,29 +79,40 @@ def test_parse_event_non_dict_dropped() -> None:
 # ─── _parse_event — severity ───────────────────────────────────────────────────
 
 
-def test_parse_event_severity_passthrough() -> None:
+def test_parse_event_severity_remapped_to_the_server_axis() -> None:
     ev = _parse_event({"type": "HARD_BRAKE", "severity": 0.73}, TRIP_START)
-    assert ev is not None and ev.severity == 0.73
+    assert ev is not None and ev.severity == pytest.approx(2.46)
 
 
-def test_parse_event_severity_defaults_to_one_when_missing() -> None:
+def test_parse_event_severity_endpoints_pin_the_axis() -> None:
+    # The SDK's 0 and 1 are the floor and ceiling the server already uses, so a
+    # client event can never be worth less than one event nor more than the worst.
+    floor = _parse_event({"type": "HARD_BRAKE", "severity": 0.0}, TRIP_START)
+    ceiling = _parse_event({"type": "HARD_BRAKE", "severity": 1.0}, TRIP_START)
+    assert floor is not None and floor.severity == 1.0
+    assert ceiling is not None and ceiling.severity == 3.0
+
+
+def test_parse_event_severity_defaults_to_the_floor_when_missing() -> None:
     ev = _parse_event({"type": "HARD_BRAKE"}, TRIP_START)
     assert ev is not None and ev.severity == 1.0
 
 
-def test_parse_event_severity_junk_defaults_to_one() -> None:
+def test_parse_event_severity_junk_defaults_to_the_floor() -> None:
     ev = _parse_event({"type": "HARD_BRAKE", "severity": "very-hard"}, TRIP_START)
     assert ev is not None and ev.severity == 1.0
 
 
-def test_parse_event_negative_severity_clamped_to_zero() -> None:
+def test_parse_event_negative_severity_clamped_to_the_floor() -> None:
     ev = _parse_event({"type": "HARD_BRAKE", "severity": -3.0}, TRIP_START)
-    assert ev is not None and ev.severity == 0.0
+    assert ev is not None and ev.severity == 1.0
 
 
-def test_parse_event_huge_severity_clamped() -> None:
+def test_parse_event_huge_severity_clamped_to_the_ceiling() -> None:
+    # The events array is unsigned, so a hostile client claiming 1e9 must land on
+    # the same ceiling as an honest one claiming 1.0.
     ev = _parse_event({"type": "HARD_BRAKE", "severity": 1e9}, TRIP_START)
-    assert ev is not None and ev.severity == 100.0
+    assert ev is not None and ev.severity == 3.0
 
 
 # ─── _parse_event — coordinates ────────────────────────────────────────────────

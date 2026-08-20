@@ -145,6 +145,12 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
     feeds the score, which stays sourced from the signed digest. So parsing is
     strictly defensive: unknown types and junk coordinates are dropped rather than
     guessed, and the full raw payload is retained in `sensor_data` for forensics.
+
+    Client severity arrives on the SDK's own 0-1 axis and is normalised here onto
+    the 1.0-3.0 axis the server's own detectors already produce, so the stored
+    column means one thing whoever detected the event. The raw client number
+    stays recoverable in `sensor_data`. Naming the scoring helper here, even in
+    prose, trips CAR-155's source-text guard in `test_scoring.py`.
     """
     if not isinstance(raw, dict):
         return None
@@ -153,9 +159,10 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
         return None
 
     try:
-        severity = min(max(float(raw.get("severity", 1.0)), 0.0), 100.0)
+        client_severity = min(max(float(raw.get("severity", 0.0)), 0.0), 1.0)
     except (TypeError, ValueError):
-        severity = 1.0
+        client_severity = 0.0
+    severity = 1.0 + 2.0 * client_severity
 
     loc = raw.get("location")
     location = loc if isinstance(loc, dict) else {}

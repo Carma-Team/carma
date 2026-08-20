@@ -195,7 +195,9 @@ async def test_client_event_severity_does_not_move_the_score(db_session: AsyncSe
         severities = (
             (await db_session.execute(select(Event.severity).where(Event.trip_id == severe.id))).scalars().all()
         )
-        assert set(severities) == {0.9}
+        # 0.9 on the SDK's axis is 2.8 on the server's (CAR-144). The raw client
+        # number is asserted below, unchanged, and that is the forensic point.
+        assert set(severities) == {2.8}
         defaults = (await db_session.execute(select(Event.severity).where(Event.trip_id == plain.id))).scalars().all()
         assert set(defaults) == {1.0}
 
