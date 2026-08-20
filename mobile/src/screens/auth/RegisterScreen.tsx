@@ -71,6 +71,9 @@ export default function RegisterScreen() {
         email:       form.email.trim().toLowerCase(),
         password:    form.password,
         phone:       form.phone   || undefined,
+        // City is optional — '' means the placeholder is still showing, i.e. no
+        // pick was made, not "picked nothing." Send undefined so the server sees
+        // an unanswered field, not an empty string.
         city:        form.city    || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
@@ -130,7 +133,9 @@ export default function RegisterScreen() {
                 value={form.city}
                 options={cities}
                 placeholder={field.placeholder}
+                emptyText={t('auth.noCities')}
                 onChange={v => update('city', v)}
+                style={styles.cityTrigger}
               />
             ) : (
               <TextInput
@@ -170,6 +175,7 @@ const styles = StyleSheet.create({
   logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
   heading:  { ...TYPOGRAPHY.h2, marginBottom: 20, textAlign: 'center' },
   field:    { marginBottom: 14 },
+  cityTrigger: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
   btn:      { marginTop: 8 },
