@@ -72,8 +72,12 @@ jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
 
 jest.mock('@/lib/driving-sdk/sensors/RawSampleRecorder', () => ({
   RawSampleRecorder: class {
-    start(...args: any[]) { return mockRawStart(...args); }
-    stop() { return mockRawStop(); }
+    // Mirrors the real class's session flag — DrivingSDK's guard against tearing
+    // down shared sensors mid-recording needs this to actually reflect start/stop.
+    private recording = false;
+    start(...args: any[]) { this.recording = true; return mockRawStart(...args); }
+    async stop() { this.recording = false; return mockRawStop(); }
+    isRecording() { return this.recording; }
     pushAccelSample(...args: any[]) { return mockRawPushAccel(...args); }
     pushGyroSample(...args: any[]) { return mockRawPushGyro(...args); }
     pushLocationSample(...args: any[]) { return mockRawPushLocation(...args); }
@@ -825,5 +829,42 @@ describe('DrivingSDK', () => {
   it('exports through the recorder', async () => {
     await sdk.exportRawRecording();
     expect(mockRawExport).toHaveBeenCalledTimes(1);
+  });
+
+  // Mirror image of the "leaves sensors running on stopRawRecording" tests above:
+  // a raw-recording session outliving a trip that ends around it, not the other way.
+  it('leaves sensors running on stopTrip if a raw-recording session is still active', async () => {
+    await startTripReady();
+    await sdk.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    await sdk.stopTrip();
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('leaves sensors running on BT disconnect mid-validation if a raw-recording session is still active', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    mockBtConnect?.();
+    await flush();
+    await instance.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    mockBtDisconnect?.();
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('leaves sensors running on a fraud abort if a raw-recording session is still active', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    await startTripReady(instance);
+    await instance.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    validator.onFraudSuspected?.(FRAUD);
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
   });
 });

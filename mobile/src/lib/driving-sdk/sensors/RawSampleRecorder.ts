@@ -96,6 +96,11 @@ export class RawSampleRecorder {
     return this.session?.filePath ?? this.lastFilePath;
   }
 
+  /** True between start() and stop() — lets a caller avoid tearing down shared sensors mid-session. */
+  public isRecording(): boolean {
+    return this.session !== null;
+  }
+
   /**
    * Shares the last completed recording via the OS share sheet.
    * 'none-recorded' and 'sharing-unavailable' were both a bare `null` before — a caller

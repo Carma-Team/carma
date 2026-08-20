@@ -177,7 +177,8 @@ export class DrivingSDK {
 
     if (this.isValidating) {
       this.validationManager.stop();
-      this.sensorManager.stop();
+      // Same raw-recording guard as stopTrip() — a staged session may still be running.
+      if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
       this.isValidating = false;
     }
     if (this.isTripActive) {
@@ -267,7 +268,9 @@ export class DrivingSDK {
     // session inherits this one's state instead of resetting.
     this.validationManager.stop();
     this.isValidating = false;
-    this.sensorManager.stop();
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopRawRecording().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     const finalData = { ...this.currentTripData };
@@ -290,7 +293,8 @@ export class DrivingSDK {
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     this.currentTripData = null;
-    this.sensorManager.stop();
+    // Same raw-recording guard as stopTrip() — a staged session may still be running.
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
