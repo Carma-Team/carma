@@ -204,7 +204,6 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
-  updateUser: (patch: Partial<AppUser>, ownerId?: string) => Promise<void>
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -256,13 +255,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
-  // Same reason as tripRef: updateUser runs from a callback that outlived the
-  // render it was created in, and needs the user as it is now, not as it was.
-  // Every setUserState in this file sets it in the same breath — the effect is
-  // only a backstop, because it does not run until after the render commits, and
-  // a request resolving in that gap would read a user that is already gone.
-  const userRef = useRef(user)
-  useEffect(() => { userRef.current = user; }, [user])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
   const lastTripDataRef = useRef<TripData | null>(null);
 
@@ -409,22 +401,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecentTrips(updatedTrips);
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
-    // The live user, not the copy this callback captured before tripsApi.save().
-    // That copy can be seconds old, and rebuilding the user from it hands back
-    // whatever changed in between — including the drive-mode toggle, which would
-    // silently re-arm the Bluetooth listener the driver had just turned off.
-    // Null means the session ended mid-save; then there is no user to update.
-    const liveUser = userRef.current;
-    if (liveUser) {
+    if (user) {
       // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
-      const currentPoints = liveUser.totalPoints ?? liveUser.points ?? 0;
+      const currentPoints = user.totalPoints ?? user.points ?? 0;
       const newTotalPoints = currentPoints + earnedPoints;
       // The server resolved the level when it saved the trip — including the
       // driver-score cap, which no amount of local arithmetic can reproduce
       // (#37). Only fall back to a points lookup if the save never landed.
       const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
 
-      const levelChange = detectLevelChange(liveUser.level ?? newLevel, newLevel);
+      const levelChange = detectLevelChange(user.level ?? newLevel, newLevel);
       if (levelChange) {
         const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
         console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
@@ -432,14 +418,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserLevelState(levelDisplay(newLevel));
 
       const updatedUser = {
-        ...liveUser,
+        ...user,
         points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
         totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
-        totalDistance: (liveUser.totalDistance || 0) + finalState.distanceKm,
+        totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
         level: newLevel
       };
       setUserState(updatedUser);
-      userRef.current = updatedUser;
       // Non-blocking — a storage failure must never leave the trip stuck in "active" state (D-CTX-2).
       AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser)).catch(e =>
         console.error('[AppContext] Failed to persist user after trip end', e)
@@ -453,6 +438,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       points: earnedPoints,
       pointsCapped: serverPointsCapped,
       riskMultiplier: serverRiskMultiplier,
+      effectiveRiskMultiplier: serverEffectiveRisk,
       penalties: 0,
       routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
       tripEvents: lastTripDataRef.current?.events ?? [],
@@ -480,17 +466,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
-        // Whoever this profile is for has to still be the driver signed in, or a
-        // logout and a different login inside the round trip lands A's on B.
-        if (userRef.current?.id !== freshUser.id) return;
-        const next = userRef.current ? { ...userRef.current, ...freshUser } : null;
-        userRef.current = next;
-        setUserState(next);
+        setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
         setUserLevelState(levelDisplay(freshUser.level ?? 1));
-        // The merged user, not the server's: caching freshUser alone drops the
-        // fields only this device holds, and lastClearedHistory is one of them —
-        // every cleared trip would be back on the next launch.
-        if (next) AsyncStorage.setItem('carma_user', JSON.stringify(next)).catch(() => {});
+        AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
       }).catch(() => {});
     };
   }, []);
@@ -537,7 +515,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const freshUser = await authApi.me();
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
-            userRef.current = merged;
             setUserState(merged);
             setUserLevelState(levelDisplay(merged.level ?? 1));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
@@ -548,7 +525,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } catch {
             // Invalid token — clear storage and redirect to login
             await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
-            userRef.current = null;
             setUserState(null);
             setRecentTrips([]);
           }
@@ -592,16 +568,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setUser = useCallback(async (u: AppUser | null) => {
-    // Before the awaits below: a logout takes two storage round trips, and a
-    // request landing inside them must not find a session that is being torn down.
-    userRef.current = u;
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
-      // carma_trips deliberately survives: it is what a driver signing back in
-      // without a connection has left. The fallback below filters it by owner,
-      // which is what keeps it from being shown to the next driver instead.
-      await AsyncStorage.multiRemove(['carma_user', 'carma_token']);
+      await AsyncStorage.removeItem('carma_user');
+      await AsyncStorage.removeItem('carma_token');
     } else {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
@@ -610,48 +581,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Load trips immediately on login to sync with the new user context
       try {
         const serverData = await tripsApi.list();
-        // Log out inside that round trip and this would put the session's trips
-        // back, on screen and in the cache, after it ended. By id, not by object:
-        // any updateUser in the meantime replaces the object for the same driver.
-        if (userRef.current?.id !== u.id) return;
         setRecentTrips(serverData.trips);
         await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
       } catch {
         const cached = await AsyncStorage.getItem('carma_trips');
-        // Filtered by owner: the cache outlives a logout, so on a shared handset
-        // it can hold the previous driver's trips.
-        if (cached && userRef.current?.id === u.id) {
-          setRecentTrips((JSON.parse(cached) as Trip[]).filter(t => t.userId === u.id));
-        }
+        if (cached) setRecentTrips(JSON.parse(cached));
       }
     }
-  }, []);
-
-  /**
-   * Merge one change into the signed-in user.
-   *
-   * For a field, where setUser is for a session: it reads the live user instead of
-   * a caller's copy, so a save that lands late cannot hand back points a trip has
-   * since added, and it does nothing at all once the session is over. It also
-   * skips setUser's trip reload, which a settings change has no reason to trigger.
-   *
-   * `ownerId` names the driver the patch was computed for. Pass it whenever the
-   * patch crosses an await: on a shared handset one driver can sign out and
-   * another in while a save is in flight, and A's change must not land on B.
-   */
-  const updateUser = useCallback(async (patch: Partial<AppUser>, ownerId?: string) => {
-    const current = userRef.current;
-    if (!current || (ownerId && current.id !== ownerId)) return;
-
-    const next = { ...current, ...patch };
-    // Claimed before the state lands, so a second call in the same tick builds on
-    // this one instead of on the snapshot the effect below has not refreshed yet.
-    userRef.current = next;
-    setUserState(next);
-    setUserLevelState(levelDisplay(next.level ?? 1));
-    // Awaited: clearTripHistory withholds its confirmation toast when the cache
-    // write fails, and it can only do that if the failure reaches it.
-    await AsyncStorage.setItem('carma_user', JSON.stringify(next));
   }, []);
 
   const loginUser = useCallback(async (data: AuthResponse) => {
@@ -674,7 +610,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearTripHistory = useCallback(async () => {
     try {
-      await updateUser({ lastClearedHistory: new Date().toISOString() });
+      const now = new Date().toISOString();
+      if (user) {
+        const updatedUser = { ...user, lastClearedHistory: now };
+        setUserState(updatedUser);
+        await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+      }
 
       const tr = lang === 'HE' ? he : en;
       addToast({
@@ -685,11 +626,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error('Failed to clear history', e);
     }
-  }, [lang, addToast, updateUser]);
+  }, [lang, addToast, user]);
 
   return (
     <AppContext.Provider value={{
-      user, setUser, updateUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,

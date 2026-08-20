@@ -48,12 +48,6 @@ export function Button({
   const vStyle = variantStyle[variant]
   const sStyle = sizeStyle[size]
   const isDisabled = disabled || loading
-  // One ink for the label and the spinner. The theme is light, so a white
-  // spinner is invisible on every variant that is not a filled one.
-  const ink =
-    variant === 'primary' || variant === 'danger' ? '#ffffff'
-      : variant === 'outline' ? COLORS.brand
-        : COLORS.text
 
   return (
     <TouchableOpacity
@@ -70,13 +64,14 @@ export function Button({
       ]}
     >
       {loading
-        ? <ActivityIndicator color={ink} size="small" />
+        ? <ActivityIndicator color="#fff" size="small" />
         : <Text
             style={[
               styles.text,
               sStyle.text,
               fullWidth && { flex: 1 },
-              { color: ink },
+              (variant === 'primary' || variant === 'danger') && { color: '#ffffff' },
+              variant === 'outline' && { color: COLORS.brand },
               textStyle
             ]}
             numberOfLines={1}

@@ -1,28 +1,33 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { userApi } from '@/services/api/user.api';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+// dd-mm-yyyy, distinct from the long-form `formatDate` used elsewhere — this is the one place that wants the numeric format.
+function formatJoinDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
 
 /**
  * Settings screen.
  * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * [server] Drive mode is the one setting that is saved server-side (PATCH /api/users/me).
- * Everything else here is local (AsyncStorage / AppContext).
+ * All actions here are local (AsyncStorage / AppContext) — no server calls.
  */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, updateUser, clearTripHistory, btDevice, addToast } = useApp();
+  const { user, setUser, clearTripHistory, btDevice } = useApp();
   const { t, lang, setLang } = useTranslation();
-  const [savingDriveMode, setSavingDriveMode] = useState(false);
 
   if (!user) return null;
 
@@ -72,27 +77,6 @@ export default function SettingsScreen() {
     );
   };
 
-  /**
-   * Turns automatic trip detection on or off.
-   * [server] PATCH /api/users/me — a choice kept only on the handset is overwritten
-   * the next time AppContext merges the server's user over the cached one.
-   * Only the one field is taken from the reply; the rest of it can already be
-   * behind what this device knows.
-   */
-  const handleToggleDriveMode = async () => {
-    setSavingDriveMode(true);
-    try {
-      const updated = await userApi.updateProfile({ driveModeEnabled: !user.driveModeEnabled });
-      // Swallowed on purpose: a failed cache write is not a failed save. The
-      // server has the change, and the error toast below means only that it does not.
-      await updateUser({ driveModeEnabled: updated.driveModeEnabled }, updated.id).catch(() => {});
-    } catch {
-      addToast({ type: 'error', message: t('common.error') });
-    } finally {
-      setSavingDriveMode(false);
-    }
-  };
-
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       {/* Header */}
@@ -105,6 +89,19 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
+
+          {/* Account Section */}
+          <View>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.profile} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.title')}</Text>
+            </View>
+            <Card style={styles.settingCard}>
+              <Text style={styles.settingDescription}>
+                {t('profile.joined')}: {user.createdAt ? formatJoinDate(user.createdAt) : '—'}
+              </Text>
+            </Card>
+          </View>
 
           {/* Drive Mode Section */}
           <View>
@@ -125,8 +122,7 @@ export default function SettingsScreen() {
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
-                  loading={savingDriveMode}
-                  onPress={handleToggleDriveMode}
+                  onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
                 </Button>
@@ -187,6 +183,39 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </Card>
           </View>
+
+          {/* Debug Section — dev builds only, not gated on role (see ActiveTripScreen.tsx) */}
+          {__DEV__ && (
+            <View>
+              <View style={COMMON_STYLES.sectionLabelRow}>
+                <Ionicons name="bug-outline" size={12} color={COLORS.textMuted} />
+                <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
+              </View>
+              <Card style={styles.settingCard}>
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => router.push('/(business)')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
+                    <Text style={styles.linkText}>Open Business Dashboard</Text>
+                  </View>
+                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
+                <TouchableOpacity
+                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="shield-outline" size={20} color={COLORS.textMuted} />
+                    <Text style={[styles.linkText, { color: COLORS.textMuted }]}>Open Admin Tools (coming soon)</Text>
+                  </View>
+                </TouchableOpacity>
+              </Card>
+            </View>
+          )}
 
           {/* Logout Section */}
           <Button variant="danger" fullWidth onPress={handleLogout} style={styles.logoutBtn}>
