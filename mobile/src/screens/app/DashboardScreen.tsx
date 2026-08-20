@@ -14,6 +14,7 @@ import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
+import { userApi } from '@/services/api/user.api';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -21,6 +22,18 @@ export default function DashboardScreen() {
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+
+  // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
+  useEffect(() => {
+    userApi.stats()
+      .then(d => {
+        setCurrentStreak(d.stats.currentStreak);
+        setBestStreak(d.stats.bestStreak);
+      })
+      .catch(err => console.error('Stats error:', err));
+  }, []);
 
   // Controls whether the post-trip summary modal is visible
   const [showSummary, setShowSummary] = useState(false);
@@ -73,7 +86,7 @@ export default function DashboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <DashboardHeader userName={user.name || ''} />
+        <DashboardHeader userName={user.name || ''} currentStreak={currentStreak} bestStreak={bestStreak} />
 
         {/* Level & Points Card */}
         <DashboardHero
