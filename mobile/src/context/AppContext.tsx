@@ -595,8 +595,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
-      await AsyncStorage.removeItem('carma_user');
-      await AsyncStorage.removeItem('carma_token');
+      // carma_trips goes too. The offline fallback below reads it back, so leaving
+      // it behind shows one driver's trips to whoever signs in next on the handset.
+      await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
     } else {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
@@ -606,13 +607,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const serverData = await tripsApi.list();
         // Log out inside that round trip and this would put the session's trips
-        // back, on screen and in the cache, after it ended.
-        if (userRef.current !== u) return;
+        // back, on screen and in the cache, after it ended. By id, not by object:
+        // any updateUser in the meantime replaces the object for the same driver.
+        if (userRef.current?.id !== u.id) return;
         setRecentTrips(serverData.trips);
         await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
       } catch {
         const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached && userRef.current === u) setRecentTrips(JSON.parse(cached));
+        if (cached && userRef.current?.id === u.id) setRecentTrips(JSON.parse(cached));
       }
     }
   }, []);
