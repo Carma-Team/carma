@@ -85,3 +85,7 @@ pr-body.txt
 .claude/settings.local.json
 CLAUDE.local.md
 /claude-local/
+
+# scratch files for redirected command output and drafted PR/commit text —
+# fixed filenames, always overwritten, never one per PR
+.local/
