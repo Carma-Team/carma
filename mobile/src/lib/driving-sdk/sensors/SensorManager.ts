@@ -128,6 +128,7 @@ export class SensorManager {
   private isRunning = false;
   private accelAvailable = false;
   private gyroAvailable = false;
+  private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
   // open for the latter (GPS-only detection is the intended fallback) and fail
@@ -171,6 +172,10 @@ export class SensorManager {
     // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
     // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
     accelAvailable: boolean; gyroAvailable: boolean;
+    // Whether "Always"/background location permission was granted — false means
+    // automatic (background) tracking cannot run, distinct from it just not
+    // having happened yet.
+    backgroundLocationAvailable: boolean;
     lat?: number; lng?: number;
   }) => void;
 
@@ -180,6 +185,7 @@ export class SensorManager {
       distanceKm: number; currentSpeed: number; timeDeltaS: number;
       accelX: number; gyroZ: number;
       accelAvailable: boolean; gyroAvailable: boolean;
+      backgroundLocationAvailable: boolean;
       lat?: number; lng?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
@@ -201,6 +207,7 @@ export class SensorManager {
     this.latestGyroZ  = 0;
     this.accelAvailable = false;
     this.gyroAvailable  = false;
+    this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
@@ -220,8 +227,15 @@ export class SensorManager {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         // Best-effort background permission so distance keeps counting when the
-        // phone is locked / app is backgrounded. Foreground still works if denied.
-        try { await Location.requestBackgroundPermissionsAsync(); } catch { /* ignore */ }
+        // phone is locked / app is backgrounded. Foreground still works if denied —
+        // but the outcome is recorded either way (CAR-16), instead of the previous
+        // swallowed catch that left no trace of a denial.
+        try {
+          const bg = await Location.requestBackgroundPermissionsAsync();
+          this.backgroundLocationAvailable = bg.status === 'granted';
+        } catch {
+          this.backgroundLocationAvailable = false;
+        }
 
         // Feed every location (foreground AND background, via the TaskManager task)
         // through the same accumulation path. High accuracy = GPS only, avoiding
@@ -358,6 +372,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
     });
@@ -391,6 +406,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
   }
 

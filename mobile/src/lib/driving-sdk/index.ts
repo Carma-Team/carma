@@ -351,7 +351,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -372,6 +372,7 @@ export class DrivingSDK {
       gyroYaw: update.gyroZ,
       accelAvailable: update.accelAvailable,
       gyroAvailable: update.gyroAvailable,
+      backgroundLocationAvailable: update.backgroundLocationAvailable,
     });
 
     if (!this.isTripActive || !this.currentTripData) return;

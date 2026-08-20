@@ -97,6 +97,7 @@ type SensorUpdate = {
   gyroZ: number;
   accelAvailable: boolean;
   gyroAvailable: boolean;
+  backgroundLocationAvailable: boolean;
   lat?: number;
   lng?: number;
 };
@@ -194,6 +195,7 @@ describe('DrivingSDK', () => {
       gyroZ: 0,
       accelAvailable: true,
       gyroAvailable: true,
+      backgroundLocationAvailable: true,
       ...update,
     });
   }
@@ -568,6 +570,15 @@ describe('DrivingSDK', () => {
     sendSensorUpdate({ accelX: 0, gyroZ: 0, accelAvailable: false, gyroAvailable: false });
 
     expect(validator.samples[0]).toMatchObject({ accelAvailable: false, gyroAvailable: false });
+  });
+
+  it('forwards a denied background-location permission to the validator (CAR-16)', async () => {
+    const validator = new StubValidator();
+    wire(new DrivingSDK({ tripValidator: validator }));
+
+    sendSensorUpdate({ backgroundLocationAvailable: false });
+
+    expect(validator.samples[0]).toMatchObject({ backgroundLocationAvailable: false });
   });
 
   it('starts the trip when the validator confirms one', async () => {
