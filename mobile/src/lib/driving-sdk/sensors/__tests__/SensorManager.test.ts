@@ -16,6 +16,7 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 
 let mockLocationHandler: ((loc: any) => void) | null = null;
 let mockAccelHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
+let mockGyroHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
 let mockAccelAvailable = true;
 
 // Mocking the task module is what gives the test a handle on the GPS stream:
@@ -45,7 +46,7 @@ jest.mock('expo-sensors', () => ({
   Gyroscope: {
     isAvailableAsync: jest.fn(async () => true),
     setUpdateInterval: jest.fn(),
-    addListener: jest.fn(() => ({ remove: jest.fn() })),
+    addListener: jest.fn((h: any) => { mockGyroHandler = h; return { remove: jest.fn() }; }),
   },
 }));
 
@@ -131,6 +132,7 @@ describe('SensorManager', () => {
     jest.useFakeTimers();
     mockLocationHandler = null;
     mockAccelHandler = null;
+    mockGyroHandler = null;
     mockAccelAvailable = true;
     onEvent = jest.fn();
     onUpdate = jest.fn();
@@ -411,5 +413,31 @@ describe('SensorManager', () => {
   it('detaches the location handler on stop', () => {
     manager.stop();
     expect(mockLocationHandler).toBeNull();
+  });
+
+  // ── Sensor availability (§3.1 staleness) ───────────────────────────────────
+  // docs/fraud-detection.md §3.1: available requires hardware present, subscription
+  // active, AND a sample within the last 5s — not just "was present at start()".
+
+  it('reports gyroAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 }); // baseline sample
+    sendFix({ t: 0, speed: 20 });
+    const lastUpdate = () => onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate()).toMatchObject({ gyroAvailable: true });
+
+    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS — no further gyro sample arrives
+    sendFix({ t: 5100, speed: 20 });
+
+    expect(lastUpdate()).toMatchObject({ gyroAvailable: false });
+  });
+
+  it('keeps gyroAvailable: true while samples keep landing inside the window', () => {
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 });
+    jest.advanceTimersByTime(4000);
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.01 }); // refreshes the timestamp before staleness
+    sendFix({ t: 4000, speed: 20 });
+
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ gyroAvailable: true });
   });
 });
