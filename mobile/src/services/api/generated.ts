@@ -1462,6 +1462,8 @@ export interface components {
             city?: string | null;
             /** Isprivate */
             isPrivate?: boolean | null;
+            /** Drivemodeenabled */
+            driveModeEnabled?: boolean | null;
         };
         /** UserOut */
         UserOut: {

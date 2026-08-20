@@ -355,7 +355,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/users/me` | User profile |
-| PATCH | `/api/users/me` | Update name/language/age/city |
+| PATCH | `/api/users/me` | Update name/language/age/city/isPrivate/driveModeEnabled. Only the keys present are written |
 | PUT | `/api/users/me/location` | Update last location `{ lat, lng }` |
 | DELETE | `/api/users/me` | Delete account (GDPR) → 204 |
 | GET | `/api/user/stats` | Aggregate stats |
