@@ -139,22 +139,49 @@ Translation strings for Hebrew and English.
 **Pure TypeScript business logic with no React dependencies.**
 This is the most important layer to keep clean. Files here must be independently testable.
 
-| File | Contents |
-|---|---|
-| `scoring.ts` | Trip score formula: converts `TripData` (events, distance, phone seconds) into a numeric score |
-| `gamification.ts` | Level progression engine: 10-tier map, `calculateLevel`, `getProgressPercentage`, `detectLevelUp` |
-| `TripValidationManager.ts` | CARMA trip lifecycle rules: 30 s start threshold (Rule 1), 3 min stop threshold (Rule 2), fraud gating (Rule 3) |
-| `FraudDetector.ts` | Sensor-fusion classifier: detects train/bus travel using speed variance, lateral accel, and yaw variance signals — CARMA-specific thresholds from Appendix E |
-| `constants.ts` | Internal lib-layer constants |
-| `utils.ts` | Generic pure-function helpers (formatting, math, date) |
-| `rewardStock.ts` | Reward stock for the business screens: the dashboard's `available/stock` line and the reward form's stock field |
-| `__tests__/` | Unit tests for all lib files |
-| `driving-sdk/` | **Sensor-wrapper SDK** — see its own README |
+Every file below opens with a `@file` / `@owner` / `@brief` header, and the Contents column
+here repeats that `@brief`. **Where the two differ, the header in the code is the current one** —
+it is written by whoever changed the file. This table is a map: it is what you read to see the
+whole layer at once, or to check that a change landed where it belongs, and it is brought back
+into line after a batch of changes rather than in every commit. The convention itself is
+documented in `mobile/CLAUDE.md`.
+
+| File | Owner | Contents |
+|---|---|---|
+| `TripValidationManager.ts` | May | CARMA's implementation of the SDK's generic `TripValidator` interface. A 1 Hz state machine that decides when a trip starts (Rule 1), when it ends (Rule 2), and runs the fraud check before confirming it and again while it runs (Rule 3). |
+| `gamification.ts` | Shared | Turns the level the server reported into what the UI shows: label, band, progress. Computes no level and applies no multiplier — every value here is a lookup or a percentage. |
+| `constants.ts` | Shared | The 10-tier level ladder held as a first-paint cache, replaced by `GET /api/levels`. Also holds the reward-category list used by the marketplace screen. |
+| `notifications.ts` | May | Every decision the notifications screen makes, with no React and no API calls. What a row says, where tapping it leads, and what the screen shows after a request fails. |
+| `utils.ts` | May | Generic display formatting shared across screens and components. Numbers, distances, durations, dates and relative times in Hebrew and English, plus score/level to icon, colour and grade mappings. |
+| `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
+| `rewardStock.ts` | Shaun | The two reward-stock rules the business screens share. Formats the "left out of allocated" line, and parses the stock field where blank means no cap. |
+| `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
+| `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
+| `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
+| `__tests__/` | — | Unit tests for the files directly under `lib/` |
 
 **Rules:**
 - No React, no `useState`, no `useEffect`, no imports from `components/` or `context/`.
 - No direct server calls — lib functions are pure transformations.
 - Tests live in `__tests__/` and must not require a running server or device.
+
+### `lib/` — ownership boundary
+
+Two people work inside `lib/`. Fraud detection (deciding a session is not the driver privately
+driving their own car) is Dan's; the trip lifecycle, the SDK and the UI layer are May's. That
+split is carried by the `@owner` header on each file and by the Owner
+column above — not by the directory tree, so a file can change hands without moving path.
+
+**Rules:**
+- **Before editing a file whose `@owner` is someone else, say what you intend to change and get
+  their agreement.** The header is there to be read before the edit, not found afterwards in a diff.
+- A helper both owners need goes to `utils.ts`, so neither side imports from the other's file for
+  something generic.
+- Nothing that is fraud or scoring may live inside `driving-sdk/`. The SDK has no awareness
+  that its output is used for scoring or for catching a train ride.
+- **A file that genuinely cannot be split by owner is not split.** `constants.ts` and
+  `gamification.ts` stay where they are, marked `Shared`, with the header saying who holds which
+  half. Tearing apart code that belongs together to satisfy the boundary is the wrong trade.
 
 ### `lib/driving-sdk/` — scope boundary
 
@@ -165,7 +192,6 @@ If you are writing code that uses sensor events to make a CARMA-specific decisio
 
 Examples:
 - New fraud signal for bus detection → `lib/FraudDetector.ts`
-- Trip scoring tweak → `lib/scoring.ts`
 - New gamification rule → `lib/gamification.ts`
 - New sensor type or Bluetooth feature → `lib/driving-sdk/` (after confirming it is generic)
 

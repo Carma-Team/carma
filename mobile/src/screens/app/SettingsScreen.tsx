@@ -9,6 +9,14 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+// dd-mm-yyyy, distinct from the long-form `formatDate` used elsewhere — this is the one place that wants the numeric format.
+function formatJoinDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
 
 /**
  * Settings screen.
@@ -81,6 +89,19 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 20 }}>
+
+          {/* Account Section */}
+          <View>
+            <View style={COMMON_STYLES.sectionLabelRow}>
+              <Ionicons name={ICONS.profile} size={12} color={COLORS.textMuted} />
+              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.title')}</Text>
+            </View>
+            <Card style={styles.settingCard}>
+              <Text style={styles.settingDescription}>
+                {t('profile.joined')}: {user.createdAt ? formatJoinDate(user.createdAt) : '—'}
+              </Text>
+            </Card>
+          </View>
 
           {/* Drive Mode Section */}
           <View>
@@ -162,6 +183,39 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </Card>
           </View>
+
+          {/* Debug Section — dev builds only, not gated on role (see ActiveTripScreen.tsx) */}
+          {__DEV__ && (
+            <View>
+              <View style={COMMON_STYLES.sectionLabelRow}>
+                <Ionicons name="bug-outline" size={12} color={COLORS.textMuted} />
+                <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
+              </View>
+              <Card style={styles.settingCard}>
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => router.push('/(business)')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
+                    <Text style={styles.linkText}>Open Business Dashboard</Text>
+                  </View>
+                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
+                <TouchableOpacity
+                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
+                >
+                  <View style={styles.linkContent}>
+                    <Ionicons name="shield-outline" size={20} color={COLORS.textMuted} />
+                    <Text style={[styles.linkText, { color: COLORS.textMuted }]}>Open Admin Tools (coming soon)</Text>
+                  </View>
+                </TouchableOpacity>
+              </Card>
+            </View>
+          )}
 
           {/* Logout Section */}
           <Button variant="danger" fullWidth onPress={handleLogout} style={styles.logoutBtn}>

@@ -1,7 +1,4 @@
-import {
-  scoreToGrade,
-  scoreToColor,
-} from '@/lib/scoring'
+import { scoreToGrade, scoreToColor } from '@/lib/utils'
 
 // ─── scoreToGrade ─────────────────────────────────────────────────────────────
 

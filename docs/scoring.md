@@ -106,6 +106,12 @@ distraction rate = (screen_interaction_seconds + phone_motion_seconds)
                  / driving_hours_above_15_kmh
 ```
 
+**The denominator.** Driving hours come from the GPS trace, under three rules:
+
+- **A segment between two fixes counts by the mean of its two speeds**, not by the closing one. At the 4-5 second cadence a phone actually delivers, letting the last fix decide made one minute of identical driving worth 60 seconds or 3 — depending only on whether the driver happened to be stopped when the fix came back.
+- **Time the trace never saw is credited as driving.** The counters are whole-trip totals, so a denominator drawn only from what the GPS witnessed would charge every handling second against a trace that may have died after five minutes of a 45-minute drive. Crediting the unwitnessed remainder errs in the driver's favour, which is the direction to err when speed data is missing.
+- **It never falls below 5 minutes.** A two-minute drive with fifteen seconds of handling is not a 7.5-minute-per-hour driver, it is a short drive. Small exposure must not produce a large rate. At the driver level the same job is done by weighting each trip by its distance, so one short trip moves the CARMA Score very little either way.
+
 **Reference baselines (CMT, US average 2024). Each counter is checked against its own:**
 
 | Counter | Average per driving hour |
@@ -216,15 +222,17 @@ The floors prevent very short trips from exploding. Without them, one brake in a
 subscore = 100 × exp(−k × rate)
 ```
 
-| Component | k (legacy — see warning) |
+| Component | k |
 |---|---|
-| Braking | 0.018 |
-| Acceleration | 0.022 |
-| Cornering | 0.012 |
-| Speeding | 0.012 |
-| Distraction | 0.020 |
+| Braking | 0.018 ⚠️ |
+| Acceleration | 0.022 ⚠️ |
+| Cornering | 0.012 ⚠️ |
+| Speeding | 0.012 ⚠️ |
+| Distraction | 0.0035 |
 
-> ⚠️ **The k constants above are legacy placeholders. They must be re-fitted before release.**
+Distraction carries no warning. It was never an event count — it has always been seconds per driving hour — and its constant is fitted against CMT's published US average rather than against our own detector. Two anchors nobody can re-derive from the curve: a driver at the US average of 82 seconds per driving hour scores 75, and the subscore reaches 50 at roughly 198.
+
+> ⚠️ **The marked constants are legacy placeholders. They must be re-fitted before release.**
 >
 > They were fitted against **event counts**, where every event contributes exactly 1.0. The engine now sums **severities**, where every event contributes between 1.0 and 3.0.
 >
@@ -275,6 +283,7 @@ The trip score rates one drive. The **driver score** is the persistent number th
 
 - **Recent trips matter more.** Trips are averaged with a **14-day half-life**, weighted by distance — an effective window of about 28 days, matching the rolling window CMT uses for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
 - **New drivers start at 75.** With too few trips there is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at **300 km**.
+- **No single trip can dominate.** A trip contributes at most **30 km** of exposure, however long it actually was, to both the average and the confidence blend. This is CMT's rule — their worked example takes a 200-mile trip and scores it on a 100-mile threshold, so that no one trip has a major impact. Without it a single motorway run outvoted a month of commuting and declared the driver fully proven on one stretch of road. 30 km is a tenth of the 300 km window, which puts ten capped trips between a new driver and a proven one.
 
 ### 4.2 Levels
 

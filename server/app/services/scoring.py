@@ -44,14 +44,16 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2.1.0"
+    version: str = "2.2.0"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
     k_accel: float = 0.022
     k_corner: float = 0.012
     k_speed: float = 0.012
-    k_distraction: float = 0.020
+    # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
+    # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
+    k_distraction: float = 0.0035
 
     # Composite weights when speeding data IS available ("Blending the five").
     w_distraction: float = 0.30
@@ -79,6 +81,13 @@ class ScoringConfig:
     ewma_halflife_days: float = 14.0
     credibility_full_km: float = 300.0
     prior_score: float = 75.0
+    # Most exposure one trip can contribute, so that "no single trip may have a
+    # major impact on the overall score" (CMT, US12071140B2 — their worked example
+    # caps a 200-mile trip's behaviours at a 100-mile threshold). 30 km is a tenth
+    # of the credibility window above, which puts ten capped trips between a new
+    # driver and a fully proven one — the same window CMT state as their other
+    # option, "the last 10 trips".
+    trip_exposure_cap_km: float = 30.0
 
     # Streak ("Streaks"). A day clears the bar when its distance-weighted average
     # trip score reaches this. 80 is the top band of the level cap — the score at
@@ -193,6 +202,7 @@ def compute_trip_score(
     w_speed: float = 0.0,
     distance_km: float,
     duration_min: float,
+    driving_min_above_threshold: float | None = None,
     has_speed_data: bool = False,
     rolling_score: float | None = None,
     config: ScoringConfig = CONFIG,
@@ -202,17 +212,24 @@ def compute_trip_score(
 
     `w_*` are severity-weighted counts (Σ severity per type). In shadow mode each
     event contributes weight 1.0, so these equal raw counts. Distance and time
-    are the exposure denominators. `has_speed_data` selects the weight set;
-    `rolling_score` is the driver's current score, used only to dampen tiny trips.
+    are the exposure denominators. `driving_min_above_threshold` is distraction's
+    own denominator — minutes spent actually driving — and falls back to wall-clock
+    duration when the GPS trace cannot supply it. `has_speed_data` selects the weight
+    set; `rolling_score` is the driver's current score, used only to dampen tiny trips.
     """
     exposure_km = max(distance_km, config.exposure_floor_km)
-    exposure_min = max(duration_min, config.distraction_time_floor_min)
+    # Distraction is charged per *driving* hour, not per hour of trip: a parked
+    # tail dilutes the rate, and picking the phone up on arrival is not driving.
+    distraction_exposure_min = max(
+        duration_min if driving_min_above_threshold is None else driving_min_above_threshold,
+        config.distraction_time_floor_min,
+    )
 
     r_brake = w_brake * 100.0 / exposure_km
     r_accel = w_accel * 100.0 / exposure_km
     r_corner = w_corner * 100.0 / exposure_km
     r_speed = w_speed * 100.0 / exposure_km
-    r_distraction = w_distraction * 60.0 / exposure_min  # per driving-hour
+    r_distraction = w_distraction * 60.0 / distraction_exposure_min  # per driving-hour
 
     sub_brake = _subscore(r_brake, config.k_brake)
     sub_accel = _subscore(r_accel, config.k_accel)
@@ -283,6 +300,12 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 
     A new driver with no history returns the prior (75) rather than a meaningless
     100 — "good, unproven".
+
+    Each trip contributes at most `trip_exposure_cap_km`, to both the average and
+    the credibility blend. Uncapped, one 300 km drive both outvoted a month of
+    commuting and declared the driver fully proven on a single stretch of
+    motorway; the cap is what makes the number an average of drives rather than
+    an average of kilometres.
     """
     if not history:
         return config.prior_score
@@ -292,10 +315,11 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
     total_km = 0.0
     for h in history:
         decay = 0.5 ** (max(0.0, h.age_days) / config.ewma_halflife_days)
-        w = max(0.0, h.distance_km) * decay
+        exposure = min(max(0.0, h.distance_km), config.trip_exposure_cap_km)
+        w = exposure * decay
         weighted_score += h.trip_score * w
         weighted_km += w
-        total_km += max(0.0, h.distance_km)
+        total_km += exposure
 
     driver_raw = weighted_score / weighted_km if weighted_km > 0 else config.prior_score
     credibility = min(total_km / config.credibility_full_km, 1.0)
