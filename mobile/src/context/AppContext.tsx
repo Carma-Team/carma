@@ -220,6 +220,9 @@ interface AppContextValue {
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
   debugAddDistance: (km: number) => void
+  startRawRecording: (scenario: string, platform: string) => Promise<void>
+  stopRawRecording: () => Promise<void>
+  exportRawRecording: () => Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }>
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
@@ -608,6 +611,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sdk.debugAddDistance(km);
   }, [sdk]);
 
+  const startRawRecording = useCallback(
+    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform),
+    [sdk]
+  );
+  const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
+  const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
+
   const clearTripHistory = useCallback(async () => {
     try {
       const now = new Date().toISOString();
@@ -636,6 +646,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       simulateBTConnect, simulateBTDisconnect,
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
+      startRawRecording, stopRawRecording, exportRawRecording,
       clearTripHistory,
       sdk,
       btDevice, setBtDevice,
