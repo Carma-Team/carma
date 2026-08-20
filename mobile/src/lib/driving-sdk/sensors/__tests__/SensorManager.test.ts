@@ -411,4 +411,28 @@ describe('SensorManager', () => {
     manager.stop();
     expect(mockLocationHandler).toBeNull();
   });
+
+  it('leaves no sensor subscriptions behind when stop() runs while start() is still awaiting permissions (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const startPromise = raceManager.start();
+
+    // Simulates a Bluetooth disconnect racing the permission dialog: stop() runs
+    // before start()'s first await resolves, while isRunning is already true.
+    raceManager.stop();
+    resolvePermission({ status: 'granted' });
+    await startPromise;
+
+    expect(Accelerometer.addListener).not.toHaveBeenCalled();
+    expect(Gyroscope.addListener).not.toHaveBeenCalled();
+  });
 });

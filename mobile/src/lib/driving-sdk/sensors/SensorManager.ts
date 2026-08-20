@@ -227,6 +227,10 @@ export class SensorManager {
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      // CAR-177: stop() may have already run while we were awaiting the dialog
+      // above (e.g. a Bluetooth disconnect) — every await past this point re-checks
+      // before doing anything that leaves a subscription or background task running.
+      if (!this.isRunning) return;
       if (status === 'granted') {
         // Best-effort background permission so distance keeps counting when the
         // phone is locked / app is backgrounded. Foreground still works if denied —
@@ -238,6 +242,7 @@ export class SensorManager {
         } catch {
           this.backgroundLocationAvailable = false;
         }
+        if (!this.isRunning) return;
 
         // Feed every location (foreground AND background, via the TaskManager task)
         // through the same accumulation path. High accuracy = GPS only, avoiding
@@ -248,6 +253,10 @@ export class SensorManager {
           .catch(() => false);
         if (alreadyStarted) {
           await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+        }
+        if (!this.isRunning) {
+          setLocationHandler(null);
+          return;
         }
         // #17: cloud data shows some devices deliver these ticks at a ~6s median
         // with >15s gaps instead of the requested 2s — timeInterval/distanceInterval
@@ -274,18 +283,27 @@ export class SensorManager {
             notificationBody: 'Tracking your route and distance',
           },
         });
+        if (!this.isRunning) {
+          // Started after the fact — stop() already ran and won't come back to
+          // clean this up, so undo it ourselves instead of leaking the background task.
+          setLocationHandler(null);
+          await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+          return;
+        }
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
     } catch (err) {
       console.error('[SensorManager] Error starting location:', err);
     }
+    if (!this.isRunning) return;
 
     // Deliberately its own try: a location failure above must not skip IMU
     // registration, and a gyroscope failure below must not misattribute itself
     // to the accelerometer via a shared catch — each sensor fails independently.
     try {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
+      if (!this.isRunning) return;
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
@@ -295,9 +313,11 @@ export class SensorManager {
       this.accelAvailable = false;
       this.accelInitFailed = true;
     }
+    if (!this.isRunning) return;
 
     try {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
+      if (!this.isRunning) return;
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
         this.gyroSub = Gyroscope.addListener(data => {
