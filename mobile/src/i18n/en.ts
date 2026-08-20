@@ -4,7 +4,7 @@ const en: TranslationMap = {
   app:   { name: 'CARMA', tagline: 'Drive safely. Earn rewards.' },
   nav: {
     dashboard: 'Home', trip: 'Trip', roadmap: 'Roadmap',
-    marketplace: 'Store', leaderboard: 'Rank', profile: 'Profile',
+    marketplace: 'Store', leaderboard: 'Rank',
   },
   auth: {
     login: 'Login', register: 'Register', logout: 'Logout', logoutConfirm: 'Are you sure you want to log out?',
@@ -61,7 +61,6 @@ const en: TranslationMap = {
   },
   driving: {
     debugTitle: 'Admin tools (demo mode)',
-    addDistance: '+10 km',
     addDistanceSmall: '+100 m',
     btConnected: 'connected — trip started',
     defaultDeviceName: 'Vehicle',
@@ -128,7 +127,7 @@ const en: TranslationMap = {
     removeFriendConfirm: 'Remove',
   },
   notifications: {
-    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    // {level} / {name} are substituted in NotificationsScreen — `t` has no interpolation.
     levelUp: 'Well done! You reached level {level}',
     friendAccepted: '{name} accepted your friend request',
     friendAcceptedAnon: 'Your friend request was accepted',
@@ -144,8 +143,9 @@ const en: TranslationMap = {
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',
     tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',
+    updatesTitle: 'Updates', friendsTitle: 'Friends',
     totalDistance: 'km', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
-    level: 'Level', joined: 'Joined', phone: 'Phone', city: 'City', age: 'Age',
+    level: 'Level', joined: 'Join date', phone: 'Phone', city: 'City', age: 'Age',
     licenseYear: 'Licensed', noTrips: 'No trips yet',
     noNotifications: 'No new notifications',
     notificationsSubtitle: 'Updates about rewards, scores, and system alerts will appear here.',
@@ -179,7 +179,7 @@ const en: TranslationMap = {
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
     chart: {
       title: 'Score Trend',
-      empty: 'No trips yet',
+      empty: "Your score trend will appear here once you've logged a few trips",
       improvement: '📈 A +{pct}% improvement since your first trips',
       months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
       phaseStart: 'Start', phaseMiddle: 'Middle', phaseRecent: 'Recent',

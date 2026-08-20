@@ -443,6 +443,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       points: earnedPoints,
       pointsCapped: serverPointsCapped,
       riskMultiplier: serverRiskMultiplier,
+      effectiveRiskMultiplier: serverEffectiveRisk,
       penalties: 0,
       routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
       tripEvents: lastTripDataRef.current?.events ?? [],

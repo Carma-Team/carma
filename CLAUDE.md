@@ -38,6 +38,17 @@ Applies to chat and to everything drafted on Dan's behalf.
 - **No decorative jargon.** Use a technical term only when it is the subject, and define it in half a sentence.
 - **Hebrew or English per sentence — never both inside one sentence.** Mixing directions makes it unreadable.
 
+## Keep the context small
+
+Every tool call re-sends the whole conversation. Cached, so it is cheap per call — never free, and each call in a long thread costs more than the one before it. The cheapest work takes the fewest calls, not the fewest characters.
+
+- **Batch the gates into one command**, not four round trips. Server — `ruff check . && ruff format --check . && mypy app && pytest -q`. Mobile — `npx tsc --noEmit && npm run lint && npm test -- --no-coverage`.
+- **Never pipe a gate through `tail` inside a `&&` chain.** The pipe returns `tail`'s exit code, so a failing suite reads as a pass. Trim noisy output in a call of its own.
+- **Never read a whole diff.** `gh pr diff <N> --name-only` first, then `gh pr diff <N> -- <path>` for the files that matter. A full diff runs 50 KB and then sits in context for the rest of the session.
+- **Send broad searches to a subagent.** "Where is X handled?" goes to `Explore`, which answers without leaving six files behind in the main context.
+- **Do not re-read a file already in context**, and drop the `cd` prefix — the working directory persists between calls.
+- **One session per ticket.** `/clear` when the work lands, `/compact` only mid-task. Anything worth keeping belongs on the Linear issue or in the branch before you clear — never only in the thread.
+
 ## Roles and ownership
 
 | Owner | Domain |
@@ -46,6 +57,11 @@ Applies to chat and to everything drafted on Dan's behalf.
 | **Naveh — CTO** | Database, cache, data pipelines, monorepo integrity, cloud infrastructure and deployment, CI gating, infrastructure security (secrets, network exposure, access) |
 | **Shaun — CEO** | Business-logic API endpoints, third-party integrations |
 | **May — Mobile & Frontend Lead** | Mobile screens, UI components and styling, Driving SDK (IMU/GPS/BLE), battery consumption, client-side interactions |
+
+Inside `mobile/src/lib/` the line is drawn per file: each one opens with an `@owner` header naming
+who decides what it does. **Before editing a file owned by someone else, say what you want to change
+and get their agreement first.** The rule and the header format are in `mobile/CLAUDE.md`; the
+current owner of every file is listed in `mobile/STRUCTURE.md`.
 
 ---
 
@@ -107,7 +123,7 @@ The server's OpenAPI schema is the contract of record. `mobile/src/types/index.t
 
 A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (`index.ts`), `types.ts`.
 
-**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`.
 
 Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving any file under `mobile/src/`.
 

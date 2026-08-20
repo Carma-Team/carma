@@ -214,6 +214,47 @@ describe('SensorManager', () => {
     expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
   });
 
+  it('still registers the accelerometer when location startup throws', async () => {
+    manager.stop();
+    // Throws after permission is granted and setLocationHandler has already run —
+    // matching where the reported failures actually land — so the fix under test
+    // (accelerometer registration no longer shares a try with this) is what's exercised,
+    // not an artifact of the location handler never getting wired up.
+    const locationModule = jest.requireMock('expo-location');
+    locationModule.startLocationUpdatesAsync.mockRejectedValueOnce(new Error('boom'));
+    onEvent.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    sendFix({ t: 0, speed: 20 });
+    feedStrongForce();
+    sendFix({ t: 2000, speed: 14 });
+
+    // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
+    // code this event still fires (imuConfirms fails open when accelAvailable is
+    // false), just with peakG stuck at 0 because feedStrongForce() never reached a
+    // real subscription. peakG > 0 is what only the fix makes possible.
+    const [event] = events();
+    expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
+    expect(event.peakG).toBeGreaterThan(0);
+  });
+
+  it('fails closed — not open — when accelerometer registration itself throws', async () => {
+    manager.stop();
+    const sensorsModule = jest.requireMock('expo-sensors');
+    sensorsModule.Accelerometer.isAvailableAsync.mockRejectedValueOnce(new Error('boom'));
+    onEvent.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    // Same GPS-only spike the hardware-absent test above lets through — a
+    // registration failure must not be treated as "no hardware".
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 14 });
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
   // ── Lateral: turns ─────────────────────────────────────────────────────────
 
   it('fires SHARP_TURN from heading rate × speed', () => {

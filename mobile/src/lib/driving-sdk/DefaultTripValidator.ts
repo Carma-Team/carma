@@ -1,6 +1,9 @@
 /**
- * @fileoverview Trivial default TripValidator — no dwell-time or fraud rules
- * @module lib/driving-sdk/DefaultTripValidator
+ * @file DefaultTripValidator.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief The no-op `TripValidator` the SDK falls back to when the host supplies none.
+ * Confirms a trip immediately and never evaluates suspicion, so the library works
+ * standalone with zero configuration.
  *
  * @description
  * Used by DrivingSDK whenever SDKConfig.tripValidator is not supplied, so the SDK

@@ -44,10 +44,7 @@ export default function RegisterScreen() {
    * Submits a new user registration request.
    * Runs local validation before sending.
    *
-   * [server] authApi.register — no mock interceptor for registration.
-   * Always sends POST /api/auth/register:
-   *   - USE_REAL_SERVER=false → local server (carma-local-server, db.json)
-   *   - USE_REAL_SERVER=true  → real server
+   * [server] authApi.register — always sends POST /api/auth/register to the real server.
    *
    * On success: calls loginUser (AppContext) which handles token storage and trip sync,
    * then shows a welcome toast. Navigation to tabs happens automatically via the root Layout.

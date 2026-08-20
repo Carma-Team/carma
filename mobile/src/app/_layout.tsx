@@ -13,6 +13,11 @@ import UnsupportedDeviceScreen from '@/screens/auth/UnsupportedDeviceScreen';
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
 
+// Dev-only manual test accounts (mock-business@carma.dev / mock-driver@carma.dev,
+// password "mock") — see src/testing/mocks. Never runs outside __DEV__, so it
+// has no effect on a real build and real logins are never touched.
+if (__DEV__) require('@/testing/mocks').registerMockNetwork();
+
 function RootLayoutNav() {
   const { user, isLoading, deviceBlocked, lang } = useApp();
   const router = useRouter();

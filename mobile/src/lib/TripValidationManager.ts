@@ -1,3 +1,11 @@
+/**
+ * @file TripValidationManager.ts
+ * @owner May (Mobile & Frontend UI Lead) — the trip lifecycle wiring.
+ *        The rules it enforces are Dan's: Rule 3 delegates entirely to `FraudDetector.ts`.
+ * @brief CARMA's implementation of the SDK's generic `TripValidator` interface.
+ * A 1 Hz state machine that decides when a trip starts (Rule 1), when it ends (Rule 2),
+ * and runs the fraud check before confirming it and again while it runs (Rule 3).
+ */
 import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
 import { isRegionAllowed } from '@/lib/regionCheck';

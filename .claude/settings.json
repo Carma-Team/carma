@@ -1,5 +1,20 @@
 {
   "permissions": {
+    "deny": [
+      "Read(./mobile/android/**)",
+      "Read(./mobile/ios/**)",
+      "Read(./mobile/.expo/**)",
+      "Read(./**/node_modules/**)",
+      "Read(./**/.venv/**)",
+      "Read(./**/__pycache__/**)",
+      "Read(./**/.pytest_cache/**)",
+      "Read(./**/.mypy_cache/**)",
+      "Read(./**/.ruff_cache/**)",
+      "Read(./package-lock.json)",
+      "Read(./mobile/package-lock.json)",
+      "Read(./screenshots/**)",
+      "Read(./.git/objects/**)"
+    ],
     "allow": [
       "Bash(node -e \"const p=require\\('./node_modules/@types/react-native/package.json'\\); console.log\\('react-native types version:', p.version\\); const r=require\\('./node_modules/@types/react/package.json'\\); console.log\\('@types/react installed:', r.version\\);\")",
       "Bash(node -e \"const r=require\\('./node_modules/@types/react/package.json'\\); console.log\\('@types/react installed:', r.version\\);\")",
