@@ -173,6 +173,11 @@ export class SensorManager {
     // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
     // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
     accelAvailable: boolean; gyroAvailable: boolean;
+    // Whether accelerometer *registration* itself threw — distinct from
+    // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
+    // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
+    // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
+    accelInitFailed: boolean;
     // Whether "Always"/background location permission was granted — false means
     // automatic (background) tracking cannot run, distinct from it just not
     // having happened yet.
@@ -186,6 +191,7 @@ export class SensorManager {
       distanceKm: number; currentSpeed: number; timeDeltaS: number;
       accelX: number; gyroZ: number;
       accelAvailable: boolean; gyroAvailable: boolean;
+      accelInitFailed: boolean;
       backgroundLocationAvailable: boolean;
       lat?: number; lng?: number;
     }) => void,
@@ -374,6 +380,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
@@ -408,6 +415,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
   }

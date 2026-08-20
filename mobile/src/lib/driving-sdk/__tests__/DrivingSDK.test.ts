@@ -97,6 +97,7 @@ type SensorUpdate = {
   gyroZ: number;
   accelAvailable: boolean;
   gyroAvailable: boolean;
+  accelInitFailed: boolean;
   backgroundLocationAvailable: boolean;
   lat?: number;
   lng?: number;
@@ -195,6 +196,7 @@ describe('DrivingSDK', () => {
       gyroZ: 0,
       accelAvailable: true,
       gyroAvailable: true,
+      accelInitFailed: false,
       backgroundLocationAvailable: true,
       ...update,
     });
@@ -559,6 +561,14 @@ describe('DrivingSDK', () => {
     mockPhoneInteraction?.({ touchEpochs: 7, screenInteractionSeconds: 31 });
 
     expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 31 });
+  });
+
+  it('snapshots accelerometer health onto the trip, not just the validator (CAR-189)', async () => {
+    await startTripReady();
+
+    sendSensorUpdate({ accelAvailable: false, accelInitFailed: true });
+
+    expect(tripData()).toMatchObject({ accelAvailable: false, accelInitFailed: true });
   });
 
   // ── Delegation to the injected TripValidator ───────────────────────────────
