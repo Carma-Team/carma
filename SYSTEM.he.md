@@ -38,9 +38,9 @@
 
 **Deployment:** מבוסס קונטיינר — Dockerfile רב-שלבי, מתאים ל-Azure Container Apps. Postgres ב-Azure Database for PostgreSQL Flexible Server (תומך ב-PostGIS). Application Insights ל-monitoring.
 
-**CI/CD:** שני workflows ב-`.github/workflows/`:
-- `ci-server.yml` — ב-PR רץ רק lint (מהיר ובטוח). mypy/pytest/smoke ב-`workflow_dispatch` או label `run-full-ci` עד שהפייפליין מוכח.
-- `ci-mobile.yml` — `npm ci` + tsc תמיד; tests בגייט.
+**CI/CD:** שלושה workflows ב-`.github/workflows/`:
+- `ci-server.yml` — ruff תמיד; כל חבילת הטסטים מול Postgres רצה בכל PR. `smoke` ב-`workflow_dispatch` בלבד.
+- `ci-mobile.yml` — tsc, ESLint, Jest ובדיקת schema-drift — כולם על כל push וכל PR.
 - `deploy.yml` — מותנה ב-secret של Azure, ודילג בכל הרצה עד היום. המנוי הוא חשבון Azure for Students ואין בו service principal, ולכן ה-deploy ידני — ראו §11.
 
 **נקודה חשובה:** הפרונט מערבב snake_case וcamelCase (כמו `start_time`, `avg_score`, `events_array`). Pydantic schemas משתמשים ב-`alias_generator=to_camel` שיוצא camelCase על החוט, ו-trip-save מקבל את שני הסגנונות דרך `AliasChoices`. הפרונט עובד ללא שינויים.
@@ -541,14 +541,15 @@ python -m app.seed                     # reseed
 
 ### CI Workflow (`.github/workflows/ci-server.yml`)
 
-רץ על כל PR ו-push ל-main. בנייה מדורגת:
+רץ על כל PR ועל push ל-main ול-develop. אילו jobs נדלקים תלוי באיזה מהם:
 
 1. **lint** — תמיד רץ (ruff). מהיר ובטוח.
-2. **typecheck-test** — mypy + alembic + pytest. רץ ב-push ל-main, ב-workflow_dispatch ידני, או כשמוסיפים את ה-label `run-full-ci` ל-PR.
-3. **smoke** — מרים שרת חי + מריץ `scripts/smoke.sh`. בגייט כמו typecheck-test.
-4. **docker-build** — בונה את ה-image מבלי לדחוף.
+2. **typecheck-test-nodb** — mypy + pytest בלי מסד. רק ב-push ל-develop; הטסטים שדורשים Postgres מדלגים על עצמם.
+3. **typecheck-test** — mypy + alembic + pytest מול Postgres חי. בכל PR, ב-push ל-main, וב-workflow_dispatch. נכשל בקול אם משהו דילג בגלל היעדר מסד.
+4. **smoke** — מרים שרת חי + מריץ `scripts/smoke.sh`. ב-`workflow_dispatch` בלבד.
+5. **docker-build** — בונה את ה-image מבלי לדחוף. בכל מה שמכוון ל-main, או ב-workflow_dispatch.
 
-מטרת השלביות: לקיים פייפליין שלא יחסום merges אם משהו שביר ביום הראשון, ולשדרג ל-required-status-check אחרי שבוע ירוק.
+הגייטים לא נועדו להקל על merges. מה שזול רץ תמיד; מה שיקר (smoke, docker-build) רץ איפה שהוא משתלם. לייבל כגייט כבר לא בשימוש — הוא לא יכול לפעול (CAR-48, CAR-121).
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 
