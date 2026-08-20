@@ -22,6 +22,7 @@ interface TripSummaryModalProps {
     distanceKm: number;
     durationSeconds?: number;
     points: number;
+    effectiveRiskMultiplier?: number;
     pointsCapped?: boolean;
     eventCounts?: Record<string, number>;
     touchEpochs?: number;
@@ -33,7 +34,7 @@ interface TripSummaryModalProps {
 }
 
 export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: TripSummaryModalProps) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   if (!trip) return null;
 
@@ -70,18 +71,23 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                   <View style={styles.statsGrid}>
                     <View style={styles.statBox}>
                       <Ionicons name={ICONS.duration} size={18} color={COLORS.textMuted} style={{ marginBottom: 4 }} />
-                      <Text style={styles.statValueSmall}>{formatDuration(trip.durationSeconds ?? 0)}</Text>
+                      <Text style={styles.statValueSmall}>{formatDuration(trip.durationSeconds ?? 0, lang)}</Text>
                       <Text style={styles.statLabelSmall}>{t('trip.duration')}</Text>
                     </View>
                     <View style={[styles.statBox, styles.statBoxMiddle]}>
                       <Ionicons name={ICONS.distance} size={18} color={COLORS.textMuted} style={{ marginBottom: 4 }} />
-                      <Text style={styles.statValueSmall}>{formatDistance(trip.distanceKm ?? 0)}</Text>
-                      <Text style={styles.statLabelSmall}>{t('trip.km')}</Text>
+                      <Text style={styles.statValueSmall}>{formatDistance(trip.distanceKm ?? 0, lang)}</Text>
+                      <Text style={styles.statLabelSmall}>{t('trip.distance')}</Text>
                     </View>
-                    <View style={styles.statBox}>
+                    <View style={[styles.statBox, styles.statBoxMiddle]}>
                       <Ionicons name={ICONS.points} size={18} color={COLORS.brand} style={{ marginBottom: 4 }} />
                       <Text style={[styles.statValueSmall, { color: COLORS.brand }]}>+{trip.points || 0}</Text>
                       <Text style={styles.statLabelSmall}>{t('trip.points')}</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                      <Ionicons name={ICONS.flash} size={18} color={COLORS.textMuted} style={{ marginBottom: 4 }} />
+                      <Text style={styles.statValueSmall}>x{(trip.effectiveRiskMultiplier ?? 1).toFixed(2)}</Text>
+                      <Text style={styles.statLabelSmall}>{t('trip.riskMultiplier')}</Text>
                     </View>
                   </View>
 
