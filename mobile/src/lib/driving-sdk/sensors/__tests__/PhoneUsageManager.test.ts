@@ -270,6 +270,19 @@ describe('PhoneUsageManager', () => {
       expect(features.rotationSampleCount).toBe(0);
       expect(features.rotationVariance).toBe(0);
     });
+
+    it('discards pre-gap samples on the first push after the gap, not just on read', () => {
+      // Nine samples, then a gap wide enough to go stale, then one fresh push. A window
+      // trimmed only by length (not by age) would still hold the nine pre-gap samples
+      // plus the new one and read as non-stale, since lastGyroMs just moved.
+      for (let i = 0; i < 9; i++) manager.pushGyroSample(5, 0, 0);
+      jest.advanceTimersByTime(1001);
+      manager.pushGyroSample(0.05, 0, 0);
+
+      const features = manager.getMotionFeatures();
+      expect(features.rotationSampleCount).toBe(1);
+      expect(features.rotationRateMean).toBeCloseTo(0.05, 6);
+    });
   });
 
   // ─── Rotation veto (CAR-174) ────────────────────────────────────────────────
@@ -301,8 +314,8 @@ describe('PhoneUsageManager', () => {
 
     it('falls back to acceleration alone when no gyro sample was ever pushed', () => {
       // Covered by the existing hand-held-accounting tests (no pushGyroSample calls
-      // there), which must keep passing unchanged: rotationSampleCount === 0 skips
-      // the veto entirely.
+      // there), which must keep passing unchanged: an empty rotation window computes
+      // a variance of 0, which always clears the veto threshold on its own.
       feedAccel(HANDHELD_SAMPLES);
       jest.advanceTimersByTime(1000);
 

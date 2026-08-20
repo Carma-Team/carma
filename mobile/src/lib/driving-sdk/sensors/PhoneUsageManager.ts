@@ -54,7 +54,7 @@ const HANDHELD_VARIANCE_THRESHOLD = 0.025;
 // ROTATION_VARIANCE_MAX_THRESHOLD ((rad/s)²):
 //   A hand stabilises orientation; a phone loose on the seat tumbles. Below this,
 //   rotation confirms accelVariance's hand-held read; at/above it, the accel spike
-//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-31),
+//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-183),
 //   same calibration caveat as the threshold above.
 const ROTATION_VARIANCE_MAX_THRESHOLD = 0.5;
 
@@ -198,15 +198,21 @@ export class PhoneUsageManager {
    */
   public pushGyroSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
-    this.lastGyroMs = Date.now();
+    const now = Date.now();
+    // A gap wider than the analysis window means every held sample predates it — drop
+    // them here rather than in the reader, or the first push after the gap resets
+    // lastGyroMs and makes a window of entirely pre-gap samples read as fresh again.
+    if (this.lastGyroMs !== 0 && now - this.lastGyroMs > GYRO_STALE_MS) this.rotationWindow = [];
+    this.lastGyroMs = now;
     this.rotationWindow.push(Math.sqrt(x * x + y * y + z * z));
     if (this.rotationWindow.length > VARIANCE_WINDOW_SIZE) this.rotationWindow.shift();
   }
 
   /** Current window's raw motion features. See {@link MotionFeatures}. */
   public getMotionFeatures(): MotionFeatures {
-    // A stopped gyro feed leaves rotationWindow holding its last live samples forever —
-    // treat samples older than the window itself as if none had been pushed.
+    // A gyro feed that has gone quiet since the last push (not just gapped mid-stream)
+    // still holds those samples until the next pushGyroSample() call clears them —
+    // treat them as if none had been pushed rather than wait for a push that may not come.
     const stale = this.rotationWindow.length > 0 && Date.now() - this.lastGyroMs > GYRO_STALE_MS;
     const window = stale ? [] : this.rotationWindow;
     const n = window.length;
@@ -246,13 +252,15 @@ export class PhoneUsageManager {
     // Tick every second for as long as this manager runs, foreground or background.
     // Hand-held requires high acceleration variance AND low rotation variance (CAR-174) —
     // a phone loose on a seat also bounces, but only a hand keeps orientation stable.
-    // No gyro pushed yet → fall back to acceleration alone.
+    // No gyro pushed yet → rotationVariance computes to 0 (see computeVariance, n<2),
+    // which always clears the threshold below, so this falls back to acceleration alone
+    // without a separate branch for it.
     this.handheldTimer = setInterval(() => {
       if (!this.isActive) return;
       const motion = this.getMotionFeatures();
       const isHandheld =
         motion.accelVariance > HANDHELD_VARIANCE_THRESHOLD &&
-        (motion.rotationSampleCount === 0 || motion.rotationVariance < ROTATION_VARIANCE_MAX_THRESHOLD);
+        motion.rotationVariance < ROTATION_VARIANCE_MAX_THRESHOLD;
 
       if (isHandheld) {
         this.screenInteractionSeconds++;
