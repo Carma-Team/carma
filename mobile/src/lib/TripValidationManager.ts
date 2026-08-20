@@ -30,6 +30,12 @@ export class TripValidationManager implements TripValidator {
   // every sample, since reverse-geocoding on every tick would be wasteful and the
   // answer can't change mid-trip in a way CARMA needs to react to twice.
   private regionChecked        = false;
+  // Bumped on every start() — checkRegion() captures it before its await and compares
+  // after, so a stale result from a stopped-then-restarted session (same instance,
+  // reused across trips) can't reject a later, unrelated trip. A `this.ticker` null
+  // check alone isn't enough: a quick stop()+start() (e.g. BT drop/reconnect) leaves
+  // the ticker truthy again by the time the old promise resolves.
+  private sessionToken         = 0;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
   public onTripConfirmed?: () => void;
@@ -47,6 +53,7 @@ export class TripValidationManager implements TripValidator {
   public start(): void {
     if (this.ticker) return;
     this.reset();
+    this.sessionToken++;
     this.ticker = setInterval(() => this.tick(), TICK_INTERVAL_MS);
     console.log('[Validation] Started — waiting for movement');
   }
@@ -80,8 +87,9 @@ export class TripValidationManager implements TripValidator {
   // has already run — the ticker check below is what makes that a no-op instead of
   // reviving a session that's no longer running.
   private async checkRegion(lat: number, lng: number): Promise<void> {
+    const token = this.sessionToken;
     const allowed = await isRegionAllowed(lat, lng);
-    if (allowed || !this.ticker) return;
+    if (allowed || !this.ticker || token !== this.sessionToken) return;
     console.log('[Validation] Region check failed — trip rejected');
     this.reset();
     this.setState(ValidationState.IDLE);

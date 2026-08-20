@@ -1,11 +1,10 @@
 /**
- * @fileoverview Israel-only region check — regionCheck
- * @module lib/regionCheck
- *
- * @description
- * CARMA is Israel-only (team decision). Given a fix already obtained by the SDK,
- * reverse-geocodes it and reports whether it's inside Israel. No permission
- * request of its own — the caller already holds one by the time it has a fix.
+ * @file regionCheck.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief Israel-only region check. CARMA is Israel-only (team decision).
+ * Given a fix already obtained by the SDK, reverse-geocodes it and reports whether
+ * it's inside Israel. No permission request of its own — the caller already holds
+ * one by the time it has a fix.
  */
 import * as Location from 'expo-location';
 

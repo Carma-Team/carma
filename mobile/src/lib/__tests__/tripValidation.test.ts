@@ -420,4 +420,26 @@ describe('Rule 4 — region check', () => {
 
     expect(regionRejected).not.toHaveBeenCalled();
   });
+
+  test('a stale check from a stopped session does not reject a restarted one', async () => {
+    let resolveCheck: (allowed: boolean) => void;
+    (isRegionAllowed as jest.Mock).mockImplementationOnce(
+      () => new Promise<boolean>(resolve => { resolveCheck = resolve; }),
+    );
+
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 }); // old session's fix, check in flight
+
+    m.stop();
+    m.start(); // restarted before the old check resolves — ticker is truthy again
+
+    resolveCheck!(false); // old session's stale, unrelated answer arrives late
+    await flushMicrotasks();
+
+    expect(regionRejected).not.toHaveBeenCalled();
+    m.stop();
+  });
 });

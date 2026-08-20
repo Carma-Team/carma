@@ -1,12 +1,11 @@
 /**
- * @fileoverview Minimum device requirements — DeviceCapabilities
- * @module lib/driving-sdk/DeviceCapabilities
- *
- * @description
- * Does this device have the sensors the SDK subscribes to (see
- * PLATFORM-CAPABILITIES.md), and does it meet the OS floor the pinned Expo SDK
- * itself imposes? Generic hardware/OS facts only — what a host app does with a
- * `false` result is its own decision, not this module's.
+ * @file DeviceCapabilities.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Minimum device requirements: sensor availability and the OS version floor.
+ * Does this device have the sensors the SDK subscribes to (see PLATFORM-CAPABILITIES.md),
+ * and does it meet the OS floor the pinned Expo SDK itself imposes? Generic hardware/OS
+ * facts only — what a host app does with a `false` result is its own decision, not
+ * this module's.
  */
 import { Platform } from 'react-native';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
