@@ -1,3 +1,10 @@
+/**
+ * @file types.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Every type and interface the library exposes to its host app.
+ * Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract
+ * through which an app injects its own trip-start, trip-end and suspicion rules.
+ */
 
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 
@@ -26,6 +33,9 @@ export interface ValidationSample {
   // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
   accelAvailable?: boolean;
   gyroAvailable?: boolean;
+  // false means background/"Always" location permission was denied, so automatic
+  // (background) trip tracking cannot run — not that tracking is simply idle.
+  backgroundLocationAvailable?: boolean;
 }
 
 export enum DrivingEventType {

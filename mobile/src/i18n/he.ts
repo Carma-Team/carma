@@ -4,7 +4,7 @@ const he = {
   app:   { name: 'CARMA', tagline: 'נהג בצורה בטוחה. הרווח פרסים.' },
   nav: {
     dashboard: 'בית', trip: 'נסיעה', roadmap: 'מסלול',
-    marketplace: 'חנות', leaderboard: 'דירוג', profile: 'פרופיל',
+    marketplace: 'חנות', leaderboard: 'דירוג',
   },
   auth: {
     login: 'כניסה', register: 'הרשמה', logout: 'יציאה', logoutConfirm: 'האם אתה בטוח שברצונך להתנתק מהמערכת?',
@@ -59,7 +59,6 @@ const he = {
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',
-    addDistance: '+10 ק"מ',
     addDistanceSmall: '+100 מטר',
     btConnected: 'מחובר — נסיעה החלה',
     defaultDeviceName: 'הרכב',
@@ -126,7 +125,7 @@ const he = {
     removeFriendConfirm: 'האם ברצונך להסיר את',
   },
   notifications: {
-    // {level} / {name} are substituted in NotificationsTab — `t` has no interpolation.
+    // {level} / {name} are substituted in NotificationsScreen — `t` has no interpolation.
     levelUp: 'כל הכבוד! עלית לרמה {level}',
     friendAccepted: '{name} אישר/ה את בקשת החברות שלך',
     friendAcceptedAnon: 'בקשת החברות שלך אושרה',
@@ -142,8 +141,9 @@ const he = {
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
+    updatesTitle: 'עדכונים', friendsTitle: 'חברים',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
-    level: 'רמה', joined: 'הצטרף', phone: 'טלפון', city: 'עיר', age: 'גיל',
+    level: 'רמה', joined: 'תאריך הצטרפות', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',
     noNotifications: 'אין הודעות חדשות',
     notificationsSubtitle: 'כאן יופיעו עדכונים על מבצעים, ציונים והודעות מערכת.',
@@ -178,7 +178,7 @@ const he = {
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     chart: {
       title: 'מגמת ציונים',
-      empty: 'אין נסיעות עדיין',
+      empty: 'כאן תוצג מגמת הציונים שלך לאורך זמן, לאחר שיצטברו נסיעות',
       improvement: '📈 שיפור של +{pct}% מאז תחילת הנסיעות',
       months: ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'],
       phaseStart: 'תחילה', phaseMiddle: 'אמצע', phaseRecent: 'לאחרונה',

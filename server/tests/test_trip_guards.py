@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.schemas.trip import SaveTripIn
+from app.services import telemetry, trips
 from app.services.trips import (
     _check_timestamp_drift,
     _validate_plausibility,
@@ -286,3 +287,58 @@ class TestWitnessDistance:
 
     def test_zero_claim_with_no_trace(self) -> None:
         assert _witness_distance(0.0, 0.0) == 0.0
+
+
+class TestDistractionExposure:
+    """The distraction denominator, and what it does with a trace that stopped early.
+
+    CMT score only the stretch where speed data exists and err in favour of the
+    driver being undistracted everywhere else (US11932257B2). Until the numerator
+    is per-second (CAR-175), crediting the unwitnessed remainder as driving is the
+    same bias in the same direction.
+    """
+
+    def test_a_fully_traced_drive_is_charged_over_the_whole_trip(self) -> None:
+        gps = telemetry.analyze(_cruise_trace(2700, 60.0), 2700)
+        assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(45.0, abs=0.01)
+
+    def test_a_traced_crawl_is_not_charged_as_driving(self) -> None:
+        """Half the trip stuck in traffic. Built from 4 km/h waypoints because that is
+        what the SDK actually emits: it gates capture at 3 km/h, so a genuinely
+        stationary car sends nothing and never reaches this layer at all."""
+        trace = _cruise_trace(1350, 60.0) + [_wp_at(1350 + i * 3, 4.0) for i in range(450)]
+        gps = telemetry.analyze(trace, 2700)
+        assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(22.55, abs=0.05)
+
+    def test_a_truncated_trace_does_not_shrink_the_denominator(self) -> None:
+        """The regression this class exists for: a 45-minute drive whose trace dies
+        after 5 minutes must still be charged over ~45 minutes, not over 5."""
+        gps = telemetry.analyze(_cruise_trace(300, 60.0), 2700)
+        assert gps.driving_seconds_above_threshold / 60.0 == pytest.approx(4.95, abs=0.01)
+        assert trips._distraction_exposure_min(gps, 2700) == pytest.approx(45.0, abs=0.05)
+
+    def test_no_usable_trace_still_falls_back_to_wall_clock(self) -> None:
+        assert trips._distraction_exposure_min(telemetry.EMPTY_ANALYSIS, 2700) == 45.0
+
+    def test_a_measured_crawl_is_still_a_measured_zero(self) -> None:
+        """A fully-traced trip spent below 15 km/h yields no driving seconds. That is
+        a real measurement, and the 5-minute floor in scoring takes it from here."""
+        gps = telemetry.analyze(_cruise_trace(2400, 10.0), 2400)
+        assert gps.driving_seconds_above_threshold == 0.0
+        assert trips._distraction_exposure_min(gps, 2400) == pytest.approx(0.05, abs=0.01)
+
+    def test_a_gap_inside_the_span_is_not_credited_twice(self) -> None:
+        """Gaps are already counted as driving; only the untraced head and tail are
+        added. The denominator can never exceed the trip's own duration."""
+        trace = [_wp_at(0, 80.0), _wp_at(3, 80.0), _wp_at(60, 80.0), _wp_at(63, 80.0)]
+        gps = telemetry.analyze(trace, 63)
+        assert trips._distraction_exposure_min(gps, 63) == pytest.approx(63.0 / 60.0)
+
+
+def _wp_at(ts_s: float, speed: float) -> dict:
+    return {"ts": ts_s * 1000.0, "lat": 32.0 + ts_s * 1e-4, "lng": 34.8, "speedKmh": speed}
+
+
+def _cruise_trace(seconds: int, speed: float, dt: float = 3.0) -> list[dict]:
+    n = int(seconds / dt)
+    return [_wp_at(i * dt, speed) for i in range(n)]

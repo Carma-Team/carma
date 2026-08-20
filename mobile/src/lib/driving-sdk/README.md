@@ -1,8 +1,21 @@
+Current behaviour.
+
 # Driving SDK
+
+**Last updated: 2026-08-15**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
 This directory is maintained as a self-contained unit and will be extracted into a standalone npm package. **It must not contain any logic specific to any application** (scoring rules, fraud thresholds, gamification, business decisions about what constitutes a valid trip, etc.). Think of it as a third-party dependency: the application layer sits above it and decides what to do with the raw events it emits.
+
+**Deeper material lives in [`docs/`](./docs/):**
+
+| Document | What it covers |
+|---|---|
+| [`docs/usage-patterns.md`](./docs/usage-patterns.md) | Copyable integration recipes — construction, listeners, lifecycle, cleanup, a full worked example |
+| [`docs/event-detection.md`](./docs/event-detection.md) | How motion-event and hand-held detection are actually computed, with diagrams |
+| [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md) | The trip state machine, pluggable validation, and per-tick data flow, with a diagram |
+| [`docs/not-in-scope.md`](./docs/not-in-scope.md) | Native platform capabilities this SDK deliberately doesn't wrap, and why |
 
 ---
 
@@ -48,7 +61,7 @@ npx expo install react-native-maps
 | `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (`AppState` + accelerometer variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
+| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer + gyroscope variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---
@@ -124,6 +137,9 @@ const token = sdk.on(
 sdk.off(token);
 ```
 
+More patterns, including a full worked integration example, are in
+[`docs/usage-patterns.md`](./docs/usage-patterns.md).
+
 ---
 
 ## Sensor Event API — `on()` / `off()`
@@ -154,26 +170,17 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `PHONE_USAGE` | AppState | App moved to background (Home button / app switch) while trip is active — counts as one phone-touch event |
+| `SWERVE` | — | **Defined but inert.** Its detection code is fully commented out; this type never fires. Re-enabling it is a deliberate future step, not a bug. |
+| `PHONE_USAGE` | Accelerometer + gyroscope variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second. See [`docs/event-detection.md`](./docs/event-detection.md) for the full detection logic. |
 
-`HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [Sensor internals](#sensor-internals).
+`HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [`docs/event-detection.md`](./docs/event-detection.md).
 
-### Multiple listeners
-
-Any number of listeners may be registered for the same event type with different conditions or handlers. Each fires independently.
+One short example — the full multi-listener pattern is in [`docs/usage-patterns.md`](./docs/usage-patterns.md):
 
 ```typescript
-// Listener A: low-severity warning (any speed)
-const tokenA = sdk.on(DrivingEventType.HARD_BRAKE, {}, (e) => showWarning(e));
-
-// Listener B: high-severity scoring event (only at driving speed)
-const tokenB = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15, minSeverity: 0.3 }, (e) => {
+const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (e) => {
   scoringCounter.hardBrakes++;
 });
-
-// Cleanup
-sdk.off(tokenA);
-sdk.off(tokenB);
 ```
 
 ### `onEventDetected` (legacy)
@@ -195,8 +202,25 @@ interface DrivingEvent {
   severity:  number;            // 0.0 (threshold) → 1.0 (maximum)
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
+  // Motion events only — absent on PHONE_USAGE:
+  peakG?:      number;          // peak gravity-removed horizontal force, in g (unsigned)
+  durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
+
+`severity` is normalised against the configured threshold, so it changes meaning if
+`motionThresholds` is overridden. `peakG` and `durationMs` are the raw physical
+measurements behind it.
+
+`peakG` is an **orientation-invariant, gravity-relative horizontal magnitude** — gravity is
+removed and the magnitude of the component perpendicular to it is taken, so the same brake
+reads the same on a vent mount, in a cup holder or in a pocket. Longitudinal and lateral are
+not recoverable from it: only the running scalar peak is kept, so direction is discarded
+before the event is emitted. With no accelerometer present `peakG` is emitted as `0`, not
+omitted.
+
+`durationMs` is the longest continuous stretch the horizontal force stayed at or above
+the IMU cross-confirm threshold within the evaluation window.
 
 ---
 
@@ -221,7 +245,7 @@ new DrivingSDK(config?: SDKConfig)
 | `sensorUpdateInterval` | `number` (ms) | `1000` | How often `onUpdate` fires (wall-clock) |
 | `scoringEnabled` | `boolean` | `true` | Reserved — passed through to application callbacks |
 | `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
-| `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [Pluggable trip validation](#pluggable-trip-validation). |
+| `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md). |
 
 #### Methods
 
@@ -266,7 +290,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, ~5-second intervals
+  waypoints:              RouteWaypoint[];  // GPS track, one point every ~5s of wall-clock time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
@@ -280,149 +304,54 @@ interface TripData {
 
 ## Sensor internals
 
-### Motion-event detection (brake / accel / turn) — `SensorManager`
+The full mechanism — GPS+IMU fusion for motion events, hand-held detection
+including the rotation-veto logic, waypoint downsampling, cooldowns, and the
+warm-up guard — is in [`docs/event-detection.md`](./docs/event-detection.md),
+with flow diagrams for the two hardest-to-follow decisions.
 
-Detects `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` via **GPS+IMU fusion**,
-independent of how the phone is oriented in the vehicle (vent mount, cup holder,
-pocket — all work the same):
-
-- **Trigger + direction (GPS, orientation-free):**
-  - Longitudinal accel = `Δspeed / Δt` → brake (deceleration) / accel.
-  - Lateral accel = `speed × heading-rate` → sharp turn.
-  - Evaluated over a rolling ≥1.5 s window so a burst of high-frequency GPS ticks doesn't read as a phantom spike.
-  - Turn detection is skipped below ~10 km/h, where GPS heading is unreliable.
-- **Severity + cross-confirm (accelerometer, orientation-free):**
-  - Gravity is removed (EMA low-pass filter, α = 0.9), and the *horizontal* magnitude of what remains is computed — this magnitude doesn't depend on the phone's yaw, so it's meaningful regardless of mounting angle.
-  - A GPS-detected event only fires if the accelerometer also registered a matching horizontal force (rejects pure GPS glitches); the IMU peak also refines the reported severity.
-- Thresholds default to `DEFAULT_MOTION_THRESHOLDS` (2.7 / 3.0 / 3.5 m/s² — aligned with common UBI/telematics "harsh event" bands) — override via `SDKConfig.motionThresholds`.
-- Severity mapping: `threshold → 0.0`, `threshold + 5.0 m/s² → 1.0`, clamped to `[0, 1]`.
-
-### GPS — `SensorManager`
-
-- Update interval: **2 s** / **5 m** (whichever comes first, `Accuracy.High` — GPS chip only, no network/cell fallback)
-- Distance: Haversine formula between consecutive samples
-- Speed: from `loc.coords.speed` (m/s → km/h), floored at 0
-- Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary)
-- Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- Duplicate-tick guard: a fix arriving less than 500ms after the previous one is dropped before it reaches distance/motion math — some devices emit near-duplicate GPS fixes in bursts (#17), which would otherwise imply physically impossible accelerations.
-- Background tracking: a TaskManager task keeps GPS updates flowing while the app is backgrounded or the phone is locked.
-
-#### Waypoint cadence — `Accuracy.BestForNavigation` tried and reverted — #17
-
-Waypoint cadence was found to degrade badly on some devices (~6s median gaps instead of the requested 2s, per live cloud data), which caps how much a trip can score above the driver's rolling average. Raising accuracy from `High` to `BestForNavigation` looked like the direct lever to improve this, but on Android it isn't one: expo-location's `mapAccuracyToPriority` maps both `High` and `BestForNavigation` to the same `PRIORITY_HIGH_ACCURACY`, and the caller-supplied `timeInterval`/`distanceInterval` override the accuracy-derived request params regardless — so the resulting `LocationRequest` is identical either way. On iOS, `BestForNavigation` *is* a distinct, higher-power tier, so raising it there would cost real battery for zero cadence benefit on Android.
-
-Staying on `Accuracy.High`. **#17 remains open** — the duplicate-tick guard below is fully implemented, but the underlying cadence/gap problem on throttling Android OEMs (Xiaomi, Huawei, Samsung, etc.) is not solved by any accuracy setting alone; it needs the user to manually exempt the app from battery optimization, or a different mitigation.
-
-### Gyroscope — `SensorManager`
-
-Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g. transport-mode fraud detection). It does not itself trigger any `DrivingEventType`.
-
-#### Waypoint cadence — Android background throttling — #17
-
-Live cloud data found waypoint cadence degrading badly on some devices (~6s median gaps instead of the requested 2s), which caps how much a trip can score above the driver's rolling average. Root cause: some Android OEMs (Xiaomi, Huawei, Samsung, etc.) throttle background location under Doze / battery-saver / OEM power management, regardless of the requested accuracy tier — `SensorManager`'s accuracy/interval settings alone can't override this (see #17 for the investigation, including why raising `Accuracy` to `BestForNavigation` turned out to be a no-op on Android).
-
-The only real lever is the user manually exempting the app from battery optimization in device settings — see `PowerManagement` below. **#17 remains open**; this is a mitigation (an opt-in nudge), not a fix.
-
-### Power management — `PowerManagement`
-
-`isBackgroundThrottlingRiskPlatform()` and `openAppSystemSettings()` are the only two exports: a platform check and a thin `Linking.openSettings()` wrapper. This module has no UI and no opinion on when/whether to ask the user — it exists so any consuming app can build its own nudge for the Android OEM-throttling risk above (#17) without duplicating the platform check. CARMA's own nudge — copy, "ask once" persistence, and *when* to show it — lives outside the SDK in `mobile/src/lib/BatteryOptimizationPrompt.ts`.
-
-### Per-event cooldown
-
-After an event of a given type fires, the same type is suppressed for **500 ms**. Each type has an independent cooldown window — a `SHARP_TURN` does not suppress a concurrent `HARD_BRAKE`.
-
-### Warm-up guard
-
-The first **3 seconds** after `startTrip()` all sensor events are dropped. This eliminates spurious spikes caused by the physical act of pressing the start button.
+One caveat is load-bearing enough to keep here rather than one click away:
+**the hand-held-detection constants are IMU calibration values, not tuned
+parameters.** They were chosen from expected separation margins and have
+never been validated against real drive data. Treat every metric this SDK
+emits about phone handling as indicative, not a measurement, until
+calibrated — see [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md) for
+why it can only ever be an inference in the first place.
 
 ---
 
 ## Pluggable trip validation
 
-Deciding when GPS/BT activity actually counts as a "trip" (vs. noise, a parked car
-with the engine running, or a red light) is an app-specific product decision — the
-SDK ships a trivial `DefaultTripValidator` that confirms a trip the moment `start()`
-is called and never flags anything as suspicious, so `new DrivingSDK()` works with
-zero configuration.
-
-To apply your own rules (a minimum-duration/speed gate before confirming a trip, an
-idle-timeout to auto-end one, transport-mode fraud detection, …), implement the
-`TripValidator` interface and pass an instance via `SDKConfig.tripValidator`:
+Deciding when GPS/BT activity actually counts as a "trip" (vs. noise, a
+parked car with the engine running, or a red light) is an app-specific
+product decision — the SDK ships a trivial `DefaultTripValidator` that
+confirms a trip the moment `start()` is called and never flags anything as
+suspicious, so `new DrivingSDK()` works with zero configuration.
 
 ```typescript
-import type { TripValidator, ValidationSample, SuspiciousActivityEvaluation } from '@/lib/driving-sdk/types';
+import type { TripValidator } from '@/lib/driving-sdk/types';
 
 class MyTripValidator implements TripValidator {
-  onTripConfirmed?: () => void;
-  onTripEnded?: () => void;
-  onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
-
-  start(): void { /* begin watching samples */ }
-  stop(): void { /* stop watching */ }
-  updateSample(sample: ValidationSample): void { /* e.g. accumulate time above a speed threshold */ }
+  // ...
 }
 
 const sdk = new DrivingSDK({ tripValidator: new MyTripValidator() });
 ```
 
-`updateSample()` is called at sensor rate with the latest GPS speed and (when
-available) accelerometer/gyroscope readings. Call `onTripConfirmed()` once your
-rules decide a trip has genuinely started, and `onTripEnded()` once it's genuinely
-over — `DrivingSDK` calls `startTrip()` / `stopTrip()` in response. `onFraudSuspected`
-is optional and only needed if your validator also does suspicious-activity detection.
+Full interface, timing details, and the trip state-machine diagram are in
+[`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md).
 
 ---
 
-## Bluetooth Events
+## What this SDK deliberately doesn't do
 
-`BluetoothManager` exposes two system-level connection events, both firing **only** for the device ID registered via `setTargetDevice()`.
+A few native platform capabilities this SDK doesn't wrap — not because the
+platform forbids them, but because CARMA hasn't needed them. Full list with
+the native API each points at: [`docs/not-in-scope.md`](./docs/not-in-scope.md).
 
-```typescript
-const btManager = new BluetoothManager(
-  () => console.log('Connected'),
-  () => console.log('Disconnected'),
-);
-
-btManager.setTargetDevice('AA:BB:CC:DD:EE:FF');
-btManager.startMonitoring();
-// ...
-btManager.stopMonitoring();
-```
-
----
-
-## Complete example — application integration
-
-```typescript
-import { DrivingSDK, DrivingEventType } from '@/lib/driving-sdk';
-
-// ── 1. Create SDK instance ────────────────────────────────────────
-const sdk = new DrivingSDK({ autoStartOnBluetooth: false });
-
-// ── 2. Trip lifecycle ─────────────────────────────────────────────
-sdk.onTripStart = (id) => { /* update UI */ };
-sdk.onTripEnd   = (data) => { /* persist trip, show summary */ };
-sdk.onUpdate    = (data) => { /* update live trip screen */ };
-
-// ── 3. Register application-specific scoring events ───────────────
-// These thresholds are defined BY THE APPLICATION — the SDK knows nothing
-// about how many km/h or what severity constitutes a "scored" event.
-const listeners = [
-  sdk.on(DrivingEventType.HARD_BRAKE,       { minSpeedKmh: 15 }, () => { hardBrakes++; }),
-  sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5  }, () => { aggressiveAccels++; }),
-  sdk.on(DrivingEventType.SHARP_TURN,       { minSpeedKmh: 10 }, () => { sharpTurns++; }),
-  // No condition on PHONE_USAGE — using your phone at any speed is unsafe
-  sdk.on(DrivingEventType.PHONE_USAGE,      {                 }, () => { phoneTouches++; }),
-];
-
-// ── 4. Start and stop ─────────────────────────────────────────────
-await sdk.startTrip();
-// ... user drives ...
-const tripData = await sdk.stopTrip();
-
-// ── 5. Cleanup ────────────────────────────────────────────────────
-listeners.forEach(token => sdk.off(token));
-```
+- Raw, unprocessed accelerometer/gyroscope streaming — only derived events are exposed.
+- Screen-on / device-locked state — available on Android only, so building on it would behave differently per platform by construction (see `PLATFORM-CAPABILITIES.md`).
+- Foreground-app identification — not reliably available on either platform.
+- BLE (Bluetooth Low Energy) device scanning — this SDK talks to car head units over Classic Bluetooth only.
 
 ---
 

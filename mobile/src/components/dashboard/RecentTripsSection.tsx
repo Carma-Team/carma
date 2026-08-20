@@ -17,7 +17,6 @@ export function RecentTripsSection({ trips }: RecentTripsSectionProps) {
       <Text style={COMMON_STYLES.sectionTitle}>{t('dashboard.recentTrips')}</Text>
       <TripList
         trips={trips}
-        maxItems={3}
         emptyText={t('dashboard.noTrips')}
       />
     </View>

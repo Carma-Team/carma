@@ -1,6 +1,9 @@
 /**
- * @fileoverview Generic driving trip SDK — DrivingSDK
- * @module lib/driving-sdk
+ * @file index.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief The SDK's public entry point and orchestrator, `DrivingSDK`.
+ * Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream,
+ * and emits driving events to whatever host app is consuming the library.
  *
  * @description
  * Singleton class managing the full trip lifecycle:
@@ -8,7 +11,7 @@
  * - 1-second wall-clock timer that updates TripData
  * - Sensor event listeners (brake/accel/turn) via SensorManager
  * - Phone usage listener via PhoneUsageManager
- * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onFraudDetected
  *
  * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
  * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
@@ -22,6 +25,8 @@ import {
   SensorEventCondition, SensorEventHandler, ListenerToken,
   TripValidator, SuspiciousActivityEvaluation,
 } from '@/lib/driving-sdk/types';
+
+const WAYPOINT_INTERVAL_MS = 5000;
 
 export class DrivingSDK {
   private config: SDKConfig;
@@ -55,8 +60,8 @@ export class DrivingSDK {
   private currentSpeedKmh = 0;
   // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
   private lastKnownLocation: { lat: number; lng: number } | null = null;
-  // Elapsed seconds since the last waypoint was appended — used for 5-second time-based downsampling
-  private secondsSinceLastWaypoint = 0;
+  // Wall-clock timestamp of the last appended waypoint — used for time-based downsampling
+  private lastWaypointTs: number | null = null;
 
   // ─── Trip lifecycle callbacks ────────────────────────────────────────────────
   public onTripStart?: (tripId: string) => void;
@@ -208,7 +213,7 @@ export class DrivingSDK {
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -262,7 +267,7 @@ export class DrivingSDK {
     this.currentTripData = null;
     this.tripStartTime = 0;
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     return finalData;
   }
 
@@ -346,7 +351,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -367,6 +372,7 @@ export class DrivingSDK {
       gyroYaw: update.gyroZ,
       accelAvailable: update.accelAvailable,
       gyroAvailable: update.gyroAvailable,
+      backgroundLocationAvailable: update.backgroundLocationAvailable,
     });
 
     if (!this.isTripActive || !this.currentTripData) return;
@@ -382,17 +388,18 @@ export class DrivingSDK {
       const maxDistKm = (update.currentSpeed / 3600) * update.timeDeltaS * 1.5;
       this.currentTripData.distanceKm += Math.min(update.distanceKm, maxDistKm);
 
-      // Waypoint collection: append one point every 5 elapsed GPS seconds while moving.
-      // This caps a 30-minute trip at ~360 waypoints regardless of speed.
-      this.secondsSinceLastWaypoint += 2; // GPS fires every ~2s
-      if (this.secondsSinceLastWaypoint >= 5 && this.lastKnownLocation) {
+      // Waypoint collection: append one point every WAYPOINT_INTERVAL_MS of wall-clock time
+      // while moving, not GPS tick count — real tick cadence drifts from the nominal 2s
+      // (OS throttling, background suspension), same class of bug as D-SDK-5.
+      const now = Date.now();
+      if (this.lastKnownLocation && (this.lastWaypointTs === null || now - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
           lng: this.lastKnownLocation.lng,
-          ts: Date.now(),
+          ts: now,
           speedKmh: update.currentSpeed,
         });
-        this.secondsSinceLastWaypoint = 0;
+        this.lastWaypointTs = now;
       }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);

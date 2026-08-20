@@ -4,7 +4,7 @@
  * This logic lives in `src/lib/` rather than inside the component because the
  * layer rules in `mobile/STRUCTURE.md` require it — decisions belong outside the
  * component regardless of what the test harness can render. What remains in
- * `NotificationsTab` is effects and JSX, with no decisions of its own.
+ * `NotificationsScreen` is effects and JSX, with no decisions of its own.
  */
 import {
   KNOWN_TYPES,
