@@ -19,7 +19,7 @@ const MIN_AVG_SPEED_KMH        = 60; // must be fast enough to rule out city dri
 
 // Signals 2 and 3 compare against vehicle-frame quantities the device cannot produce
 // today, so neither threshold is referenced here. Both stay in §3.3, the authority for
-// them, until CAR-156 delivers the frame.
+// them, until the vehicle frame of §3.2 exists.
 
 // Weights (must sum to 1.0). Score and confidence are both sums over this table, so a
 // signal cannot be counted towards one and forgotten in the other.
@@ -144,7 +144,7 @@ export class FraudDetector {
       // UNKNOWN because their inputs are device axes, not because a sample is missing.
       // A phone upright in a vent clip turns a car's cornering force off X and its yaw
       // off Z at the same time, so the pair is one mounting error, not two votes
-      // (CAR-167). Restored by CAR-156, which resolves the vehicle frame (§3.2).
+      // (CAR-167). Restored once §3.2's vehicle frame exists.
       noLateralForce: null,
       noHeadingChange: null,
     };
