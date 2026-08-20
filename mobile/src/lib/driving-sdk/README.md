@@ -202,7 +202,7 @@ interface DrivingEvent {
   // PHONE_USAGE only — motion events omit it (CAR-156, scoring.md §3.4: the IMU
   // magnitude below isn't a vehicle-frame axis, so there is no severity to report
   // until a phone→vehicle rotation stage exists).
-  severity?: number;            // 0.0 (threshold) → 1.0 (maximum)
+  severity?: number;            // PHONE_USAGE only — currently a hardcoded 0.5, see below
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
   // Motion events only — absent on PHONE_USAGE:
@@ -212,8 +212,9 @@ interface DrivingEvent {
 }
 ```
 
-`severity` is normalised against the configured threshold on `PHONE_USAGE` events, so it
-changes meaning if `motionThresholds` is overridden.
+`severity` on `PHONE_USAGE` events is currently a hardcoded `0.5` — `motionThresholds`
+has no effect on it, since that config only tunes the motion-event thresholds
+(HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN), not PHONE_USAGE.
 
 `peakG` is reserved, not populated. The value it would carry — an orientation-invariant,
 gravity-relative horizontal magnitude — cannot be mapped onto `scoring.md`'s severity curve,
