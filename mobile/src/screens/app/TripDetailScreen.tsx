@@ -103,10 +103,11 @@ export default function TripDetailScreen() {
         />
 
         {/* Stats Grid */}
-        <StatsGrid columns={3} items={[
+        <StatsGrid columns={4} items={[
           { icon: ICONS.duration, label: t('trip.duration'), value: formatDuration(trip.durationSeconds ?? 0, lang) },
           { icon: ICONS.distance, label: t('trip.distance'), value: formatDistance(trip.distanceKm ?? 0, lang) },
           { icon: ICONS.points,   label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
+          { icon: ICONS.flash,    label: t('trip.riskMultiplier'), value: `x${(trip.effectiveRiskMultiplier ?? 1).toFixed(2)}` },
         ]} />
 
         {/* Events breakdown */}

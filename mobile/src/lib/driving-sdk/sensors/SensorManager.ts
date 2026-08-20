@@ -126,6 +126,12 @@ export class SensorManager {
   private isRunning = false;
   private accelAvailable = false;
   private gyroAvailable = false;
+  private backgroundLocationAvailable = false;
+  // True only when the accelerometer registration itself threw — distinct from
+  // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
+  // open for the latter (GPS-only detection is the intended fallback) and fail
+  // closed for this one (a broken subscription must not read as confirmed by design).
+  private accelInitFailed = false;
   private thresholds: MotionThresholds;
 
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
@@ -167,6 +173,10 @@ export class SensorManager {
     // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
     // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
     accelAvailable: boolean; gyroAvailable: boolean;
+    // Whether "Always"/background location permission was granted — false means
+    // automatic (background) tracking cannot run, distinct from it just not
+    // having happened yet.
+    backgroundLocationAvailable: boolean;
     lat?: number; lng?: number;
   }) => void;
 
@@ -176,6 +186,7 @@ export class SensorManager {
       distanceKm: number; currentSpeed: number; timeDeltaS: number;
       accelX: number; gyroZ: number;
       accelAvailable: boolean; gyroAvailable: boolean;
+      backgroundLocationAvailable: boolean;
       lat?: number; lng?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
@@ -197,6 +208,7 @@ export class SensorManager {
     this.latestGyroZ  = 0;
     this.accelAvailable = false;
     this.gyroAvailable  = false;
+    this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
@@ -204,6 +216,7 @@ export class SensorManager {
     this.aboveConfirmSinceMs = null;
     this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
+    this.accelInitFailed = false;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
     // this.prevLocTimestamp = null;
     // this.swerveStartTime  = null;
@@ -216,8 +229,15 @@ export class SensorManager {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         // Best-effort background permission so distance keeps counting when the
-        // phone is locked / app is backgrounded. Foreground still works if denied.
-        try { await Location.requestBackgroundPermissionsAsync(); } catch { /* ignore */ }
+        // phone is locked / app is backgrounded. Foreground still works if denied —
+        // but the outcome is recorded either way (CAR-16), instead of the previous
+        // swallowed catch that left no trace of a denial.
+        try {
+          const bg = await Location.requestBackgroundPermissionsAsync();
+          this.backgroundLocationAvailable = bg.status === 'granted';
+        } catch {
+          this.backgroundLocationAvailable = false;
+        }
 
         // Feed every location (foreground AND background, via the TaskManager task)
         // through the same accumulation path. High accuracy = GPS only, avoiding
@@ -257,13 +277,26 @@ export class SensorManager {
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
+    } catch (err) {
+      console.error('[SensorManager] Error starting location:', err);
+    }
 
+    // Deliberately its own try: a location failure above must not skip IMU
+    // registration, and a gyroscope failure below must not misattribute itself
+    // to the accelerometer via a shared catch — each sensor fails independently.
+    try {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
+    } catch (err) {
+      console.error('[SensorManager] Error starting accelerometer:', err);
+      this.accelAvailable = false;
+      this.accelInitFailed = true;
+    }
 
+    try {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
@@ -273,7 +306,7 @@ export class SensorManager {
         });
       }
     } catch (err) {
-      console.error('[SensorManager] Error starting sensors:', err);
+      console.error('[SensorManager] Error starting gyroscope:', err);
     }
   }
 
@@ -341,6 +374,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
     });
@@ -374,6 +408,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable,
       gyroAvailable:  this.gyroAvailable,
+      backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
   }
 
@@ -408,7 +443,10 @@ export class SensorManager {
     const imuPeak = this.peakHorizAccelMs2;
     const imuPeakDurationMs = this.peakDurationMs;
     // Lenient sanity check: reject GPS-only spikes the phone never physically felt.
-    const imuConfirms = !this.accelAvailable || imuPeak >= IMU_CONFIRM_MS2;
+    // Fails open only for "no accelerometer hardware" — a broken registration
+    // (accelInitFailed) must not read the same way, or a GPS glitch during a
+    // subscription failure fires unconfirmed with peakG:0/durationMs:0.
+    const imuConfirms = (!this.accelAvailable && !this.accelInitFailed) || imuPeak >= IMU_CONFIRM_MS2;
 
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)

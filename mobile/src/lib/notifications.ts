@@ -6,7 +6,7 @@
  *
  * @description
  * Pure TypeScript, no React and no API calls, per the layer rules in
- * `mobile/STRUCTURE.md`. `NotificationsTab` owns the effects; everything that
+ * `mobile/STRUCTURE.md`. `NotificationsScreen` owns the effects; everything that
  * can be reasoned about — what a row says, what tapping it should do, and what
  * the screen shows after a request fails — lives here so it can be tested
  * without a rendering harness.
