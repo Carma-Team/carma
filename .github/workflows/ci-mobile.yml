@@ -1,7 +1,14 @@
 name: CI · mobile
 
-# Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
-# are gated behind workflow_dispatch / the "run-full-ci" label until proven.
+# Every job here runs on every push and every pull request. `npm test` used to
+# be gated behind workflow_dispatch and a "run-full-ci" label "until the
+# pipeline is proven". What that bought was a PR into main — the deployable
+# branch — merging green with Jest never run at all (CAR-121).
+#
+# Do not gate a job on that label again. `on: pull_request` carries no `types:`,
+# so it never fires on `labeled`: applying the label does nothing until the next
+# push, whether or not the label exists. ci-server.yml deleted the same gate for
+# the same reason (CAR-48).
 #
 # tsc and ESLint run everywhere, including develop. The develop skip that used
 # to guard the 941-error toolchain break (CAR-8) is gone — CAR-8 is fixed, and
@@ -66,9 +73,8 @@ jobs:
         run: npm run lint
 
   test:
-    # Cheap (~13s) — runs on every push and on PRs into develop. PRs into main
-    # stay label-gated until the pipeline is proven (see header).
-    if: ${{ github.event_name != 'pull_request' || github.base_ref == 'develop' || contains(github.event.pull_request.labels.*.name, 'run-full-ci') }}
+    # ~13s, no service container. Nothing here is worth rationing, so there is
+    # no `if:` — every push and every pull request, whatever the base branch.
     needs: install-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
