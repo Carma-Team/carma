@@ -227,6 +227,12 @@ export class DrivingSDK {
       phoneSeconds: 0,           // deprecated v1.7
       touchEpochs: 0,
       screenInteractionSeconds: 0,
+      // Latched over the trip: `accelAvailable` on each tick is "live right now"
+      // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
+      // false mid-trip. These default false and latch true once the accelerometer is
+      // ever confirmed live this trip (CAR-189).
+      accelAvailable: false,
+      accelInitFailed: false,
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -356,7 +362,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; accelInitFailed: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -381,6 +387,13 @@ export class DrivingSDK {
     });
 
     if (!this.isTripActive || !this.currentTripData) return;
+
+    // Trip-level IMU health, carried into the save payload so the server can tell a
+    // quiet drive from a dead sensor (CAR-189) — not fraud input, just plumbed through.
+    // Latch, never reset: a healthy accelerometer that goes stale in the last seconds of
+    // a trip must not arrive as `false`, which is the signature of missing hardware.
+    this.currentTripData.accelAvailable ||= update.accelAvailable;
+    this.currentTripData.accelInitFailed = update.accelInitFailed;
 
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise
     // accumulates phantom distance via Haversine (D-SDK-3).
