@@ -73,6 +73,30 @@ def available_units(stock: int | None, claimed: int) -> int | None:
     return max(stock - claimed, 0)
 
 
+def live_voucher_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElement[bool]]:
+    """A voucher a driver can still bring to the till: unused and inside its TTL.
+
+    The same two conditions `business.consume_voucher` gates its UPDATE on —
+    factored out so a reward's live count (CAR-111) can never define "live"
+    differently than the code that actually redeems one.
+    """
+    return (Redemption.status == RedemptionStatus.PENDING, Redemption.expires_at > now)
+
+
+async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
+    """Outstanding vouchers for one reward a driver could still redeem.
+
+    What a business is told before it archives the reward (CAR-111) — archiving
+    does not cancel these, so this is the number that would keep working anyway.
+    """
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Redemption)
+        .where(Redemption.reward_id == reward_id, *live_voucher_where(datetime.now(UTC)))
+    )
+    return count or 0
+
+
 async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
     """Flip PENDING vouchers whose TTL has run out to EXPIRED.
 
@@ -98,7 +122,7 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
 
 
 async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    where: list[ColumnElement[bool]] = [Reward.is_active.is_(True)]
+    where: list[ColumnElement[bool]] = [Reward.is_active.is_(True), Reward.archived_at.is_(None)]
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
 
@@ -136,7 +160,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     reward = await db.scalar(
         select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business)).with_for_update()
     )
-    if reward is None or not reward.is_active:
+    if reward is None or not reward.is_active or reward.archived_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not available")
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
