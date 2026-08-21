@@ -30,4 +30,13 @@ export type TranslationMap = {
     title: string;
     message: string;
   };
+  auth: {
+    signInTitle: string;
+    emailLabel: string;
+    passwordLabel: string;
+    signInButton: string;
+    signingIn: string;
+    invalidCredentials: string;
+    signOutButton: string;
+  };
 };

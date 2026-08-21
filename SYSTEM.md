@@ -312,12 +312,73 @@ Mobile App                                   Server                 Twilio (prod
    │ ◄───────────────────────────────────────── │                        │
 ```
 
+### C. Browser session (business web app, CAR-217)
+
+The web app signs in through the same `/api/auth/login` as the mobile app —
+nothing new there. What's new is what happens to the token afterward: the web
+app can't put it in `localStorage` (CAR-217's constraint), and a reload wipes
+whatever it kept in memory. A separate httpOnly cookie is what survives that.
+
+```
+Browser (web app)                            Server
+   │                                            │
+   │  POST /api/auth/login                      │
+   │  { email, password }                       │
+   │ ─────────────────────────────────────────► │
+   │                                            │ same as flow A, plus:
+   │                                            │ INSERT refresh_tokens (hashed)
+   │  200 { token, user }                       │
+   │  Set-Cookie: carma_refresh=…; HttpOnly;    │
+   │    Path=/api/auth; SameSite=Lax            │
+   │ ◄───────────────────────────────────────── │
+   │  token kept in memory only — never         │
+   │  localStorage                              │
+   │                                            │
+   │  ── tab reloaded, memory is gone ──        │
+   │                                            │
+   │  POST /api/auth/refresh                    │
+   │  Cookie: carma_refresh=…  (sent by browser)│
+   │  X-Requested-With: XMLHttpRequest          │
+   │ ─────────────────────────────────────────► │
+   │                                            │ look up by SHA-256(cookie)
+   │                                            │ revoke it, mint + store a new one
+   │  200 { token, user }                       │
+   │  Set-Cookie: carma_refresh=<new>…          │
+   │ ◄───────────────────────────────────────── │
+   │                                            │
+   │  POST /api/auth/logout                     │
+   │  Cookie: carma_refresh=…                   │
+   │ ─────────────────────────────────────────► │
+   │                                            │ mark the row revoked_at
+   │  200, Set-Cookie: carma_refresh=; Max-Age=0│
+   │ ◄───────────────────────────────────────── │
+```
+
+Every refresh **rotates** the cookie — the presented row is revoked and a new
+one takes its place, so a refresh token is spendable exactly once. A revoked
+row presented again (a copy taken before rotation, replayed) is treated as
+theft: every other live session on the account is revoked too, not just the
+one reused. `POST /api/auth/refresh` and `POST /api/auth/logout` also require
+an `X-Requested-With: XMLHttpRequest` header — the CSRF guard for a cookie the
+browser will attach to a request regardless of who triggered it; see
+`core/deps.py::require_browser_header`.
+
+Mobile is unaffected: it never reads `Set-Cookie` and never calls `/refresh`
+or `/logout`.
+
 ### JWT details
 
 - **HMAC SHA256** signed with `JWT_SECRET` (≥16 chars, enforced by Pydantic Settings).
-- Default lifetime: `JWT_EXPIRES_MINUTES=10080` (= 7 days).
+- Default lifetime: `JWT_EXPIRES_MINUTES=10080` (= 7 days) for mobile and for the
+  token `/api/auth/login` returns. The web app's *refreshed* tokens are shorter —
+  `WEB_ACCESS_TOKEN_EXPIRES_MINUTES=15` — because that token lives in browser
+  memory, and a short lifetime is most of what makes "memory, not localStorage"
+  worth doing.
 - Payload: `{ sub, email, phone, role, iat, exp }`.
-- No refresh token yet — when the token expires the user re-logs in. Easy to add later.
+- The refresh cookie is a separate, opaque, server-tracked token (`refresh_tokens`
+  table, CAR-217) — not a second JWT. `REFRESH_TOKEN_EXPIRES_DAYS=30`, sliding:
+  every successful refresh resets the clock, so an active session never expires
+  on its own; an abandoned one does.
 
 ### Protections
 
@@ -349,6 +410,8 @@ Mobile App                                   Server                 Twilio (prod
 | POST | `/api/auth/otp/register` | `{ phone, name, language?, age?, city? }` | `200 { message, expiresInSeconds }` |
 | POST | `/api/auth/otp/request` | `{ phone }` | `200 { message, expiresInSeconds }` |
 | POST | `/api/auth/otp/verify` | `{ phone, code }` | `200 { token, user }` |
+| POST | `/api/auth/refresh` | — (`carma_refresh` cookie) | `200 { token, user }` — web app only, CAR-217 |
+| POST | `/api/auth/logout` | — (`carma_refresh` cookie) | `200 { message }` — web app only, CAR-217 |
 
 ### Users
 
@@ -858,7 +921,7 @@ Deliberately deferred:
 - **Full CARMA Score algorithm** (Appendix C) — ✅ implemented server-side in `app/services/scoring.py` (v2.1). Server is the sole scoring oracle; client sends raw telemetry only. The v1 engine it replaced was deleted in #53; only its night-risk multiplier survives, in `app/services/risk.py`.
 - **Notification + Achievement + Friendship models**.
 - **License image upload** (needs Azure Blob Storage). The `license_img_url` field is in the schema.
-- **Refresh tokens** — current JWT is 7 days, single token.
+- ~~**Refresh tokens**~~ ✅ Done for the web app (CAR-217) — see §7C. Mobile still logs in with a single 7-day JWT and re-logs in on expiry; it has no cookie to refresh from and CAR-217 did not change that.
 
 ---
 
@@ -883,7 +946,7 @@ Deliberately deferred:
 ### Later
 
 11. **PostGIS GEOGRAPHY** column on `businesses` + GIST index for fast radius searches.
-12. **Refresh tokens** with rotation.
+12. ~~**Refresh tokens** with rotation.~~ ✅ Done for the web app (CAR-217) — rotates on every `/api/auth/refresh`, reuse of a revoked token revokes the whole session set.
 13. **Per-user rate limiting** (slowapi with a Redis storage).
 14. **Multi-language SMS templates**.
 15. **Admin endpoints** for tuning scoring parameters (spec Appendix C-VI).

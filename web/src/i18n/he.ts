@@ -16,6 +16,15 @@ const he: TranslationMap = {
   },
   language: { label: 'שפה', he: 'עברית', en: 'English' },
   notFound: { title: 'הדף לא נמצא', message: 'הדף שחיפשת לא קיים.' },
+  auth: {
+    signInTitle: 'התחברות',
+    emailLabel: 'אימייל',
+    passwordLabel: 'סיסמה',
+    signInButton: 'התחברות',
+    signingIn: 'מתחבר…',
+    invalidCredentials: 'אימייל או סיסמה שגויים.',
+    signOutButton: 'התנתקות',
+  },
 };
 
 export default he;

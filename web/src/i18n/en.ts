@@ -16,6 +16,15 @@ const en: TranslationMap = {
   },
   language: { label: 'Language', he: 'עברית', en: 'English' },
   notFound: { title: 'Page not found', message: "The page you're looking for doesn't exist." },
+  auth: {
+    signInTitle: 'Sign in',
+    emailLabel: 'Email',
+    passwordLabel: 'Password',
+    signInButton: 'Sign in',
+    signingIn: 'Signing in…',
+    invalidCredentials: 'Invalid email or password.',
+    signOutButton: 'Sign out',
+  },
 };
 
 export default en;
