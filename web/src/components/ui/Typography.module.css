@@ -1,0 +1,39 @@
+.h1,
+.h2,
+.h3 {
+  margin: 0;
+  font-weight: var(--font-weight-heading);
+  color: var(--color-text);
+}
+
+.h1 {
+  font-size: var(--font-size-h1);
+}
+
+.h2 {
+  font-size: var(--font-size-h2);
+}
+
+.h3 {
+  font-size: var(--font-size-h3);
+}
+
+.body {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  color: var(--color-text);
+}
+
+.caption {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.label {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-muted);
+}
