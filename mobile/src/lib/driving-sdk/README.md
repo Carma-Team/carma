@@ -130,7 +130,7 @@ sdk.onUpdate    = (data)   => console.log('Speed:', data.maxSpeed, 'km/h');
 const token = sdk.on(
   DrivingEventType.HARD_BRAKE,
   { minSpeedKmh: 15 },              // only fires above 15 km/h
-  (event) => console.log('Hard brake — severity', event.severity),
+  (event) => console.log('Hard brake — duration', event.durationMs, 'ms'),
 );
 
 // Later: unsubscribe
@@ -161,7 +161,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `minSpeedKmh` | `number` | `0` (no gate) | GPS speed at detection time must be ≥ this value |
-| `minSeverity` | `number` | `0` (no gate) | Event severity [0–1] must be ≥ this value |
+| `minSeverity` | `number` | `0` (no gate) | Event severity [0–1] must be ≥ this value. **`PHONE_USAGE` only** — motion events carry no severity (CAR-156), so this condition is ignored rather than blocking them |
 
 ### `DrivingEventType`
 
@@ -199,28 +199,33 @@ This fires for every event that passes the SDK's internal cooldown guard, **rega
 interface DrivingEvent {
   type:      DrivingEventType;
   timestamp: Date;
-  severity:  number;            // 0.0 (threshold) → 1.0 (maximum)
+  // PHONE_USAGE only — motion events omit it (CAR-156, scoring.md §3.4: the IMU
+  // magnitude below isn't a vehicle-frame axis, so there is no severity to report
+  // until a phone→vehicle rotation stage exists).
+  severity?: number;            // PHONE_USAGE only — currently a hardcoded 0.5, see below
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
   // Motion events only — absent on PHONE_USAGE:
-  peakG?:      number;          // peak gravity-removed horizontal force, in g (unsigned)
+  peakG?:      number;          // reserved for a single vehicle-frame axis once a phone→vehicle
+                                 // rotation stage exists; not populated until then
   durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
 
-`severity` is normalised against the configured threshold, so it changes meaning if
-`motionThresholds` is overridden. `peakG` and `durationMs` are the raw physical
-measurements behind it.
+`severity` on `PHONE_USAGE` events is currently a hardcoded `0.5` — `motionThresholds`
+has no effect on it, since that config only tunes the motion-event thresholds
+(HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN), not PHONE_USAGE.
 
-`peakG` is an **orientation-invariant, gravity-relative horizontal magnitude** — gravity is
-removed and the magnitude of the component perpendicular to it is taken, so the same brake
-reads the same on a vent mount, in a cup holder or in a pocket. Longitudinal and lateral are
-not recoverable from it: only the running scalar peak is kept, so direction is discarded
-before the event is emitted. With no accelerometer present `peakG` is emitted as `0`, not
-omitted.
+`peakG` is reserved, not populated. The value it would carry — an orientation-invariant,
+gravity-relative horizontal magnitude — cannot be mapped onto `scoring.md`'s severity curve,
+which is anchored on a single vehicle-frame axis (longitudinal for braking/accel, lateral for
+turns): folding both into one unsigned scalar makes a brake and a turn indistinguishable at
+the point of measurement. It stays reserved until a phone→vehicle rotation stage exists to
+resolve it onto the right axis.
 
-`durationMs` is the longest continuous stretch the horizontal force stayed at or above
-the IMU cross-confirm threshold within the evaluation window.
+`durationMs` is the length of the continuous stretch, at or above the IMU cross-confirm
+threshold, that contains the event's peak horizontal force — not simply the longest such
+stretch in the evaluation window, which could belong to an unrelated bump elsewhere in it.
 
 ---
 

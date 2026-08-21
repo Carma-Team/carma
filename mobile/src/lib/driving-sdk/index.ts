@@ -18,7 +18,7 @@
  */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
-import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -80,14 +80,14 @@ export class DrivingSDK {
    * The handler fires only when ALL specified conditions are satisfied.
    *
    * @param type    - The event type to listen for.
-   * @param condition - Conditions that must hold at detection time (speed, severity, …).
+   * @param condition - Conditions that must hold at detection time (speed; severity, PHONE_USAGE only, see CAR-156).
    * @param handler - Callback invoked with a copy of the event when conditions are met.
    * @returns A `ListenerToken` — pass to `off()` to unsubscribe.
    *
    * @example
    * // Fire only for hard brakes detected above 15 km/h
    * const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (event) => {
-   *   console.log('Hard brake at', event.speedKmh, 'km/h — severity', event.severity);
+   *   console.log('Hard brake at', event.speedKmh, 'km/h');
    * });
    */
   public on(
@@ -327,14 +327,19 @@ export class DrivingSDK {
     // Store all SDK-qualified events in the trip (used for route map markers and raw display).
     // Whether an event counts toward a score is decided by each registered listener's conditions.
     this.currentTripData.events.push(event);
-    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h severity=${event.severity?.toFixed(2)}`);
+    // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
+    const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
+    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
 
     // Dispatch to conditional listeners — each listener fires only when its conditions are met.
     const snapshot = { ...event };
     for (const { type, condition, handler } of this.sensorListeners.values()) {
       if (type !== event.type) continue;
       if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      if (condition.minSeverity !== undefined && (event.severity ?? 0) < condition.minSeverity) continue;
+      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
+      // motion events can satisfy, so it must not silently block them either.
+      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
+          && (event.severity ?? 0) < condition.minSeverity) continue;
       try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
     }
 
@@ -344,10 +349,10 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleInteractionData(data: { touchEpochs: number; screenInteractionSeconds: number }) {
+  private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs = data.touchEpochs;
-    this.currentTripData.screenInteractionSeconds = data.screenInteractionSeconds;
+    this.currentTripData.touchEpochs += data.touchEpochs;
+    this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 

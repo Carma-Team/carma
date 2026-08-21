@@ -1,0 +1,30 @@
+.dialog {
+  position: relative;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  max-width: min(480px, calc(100vw - var(--space-lg) * 2));
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.dialog::backdrop {
+  background-color: rgba(15, 18, 22, 0.5);
+}
+
+.body {
+  margin-top: var(--space-sm);
+}
+
+.closeButton {
+  position: absolute;
+  top: var(--space-sm);
+  inset-inline-end: var(--space-sm);
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}

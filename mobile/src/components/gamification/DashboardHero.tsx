@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card';
 import { Progress } from '@/components/ui/Progress';
 import { LevelBadge } from './LevelBadge';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants/theme';
+import { levelTheme } from '@/constants/icons';
 import { getUserLevelData } from '@/lib/constants';
 import { scoreToColor } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -42,7 +43,7 @@ export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {
           <View style={styles.progressContainer}>
             <Progress
               value={levelData.progress}
-              color={levelData.config.color}
+              color={levelTheme(levelData.currentLevel).color}
               height={6}
               showValue={false}
             />

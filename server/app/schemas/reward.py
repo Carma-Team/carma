@@ -21,6 +21,9 @@ class RewardOut(CamelModel):
     cost_points: int
     image_icon: str
     is_active: bool
+    # None while the reward is still in the catalog; set once a business archives
+    # it (CAR-111). Independent of is_active — see the model for why.
+    archived_at: datetime | None
     # stock is the total the business allocated; available is what is left of it
     # right now. Both use None for "unlimited". `available` is passed in rather
     # than read off the model because it is derived from the redemptions ledger,
@@ -45,6 +48,7 @@ class RewardOut(CamelModel):
                 "cost_points": reward.cost_points,
                 "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
+                "archived_at": reward.archived_at,
                 "stock": reward.stock,
                 "available": available,
                 "expires_at": reward.expires_at,
@@ -124,6 +128,12 @@ class BusinessRewardPatchIn(CamelModel):
 
 class BusinessRewardListOut(CamelModel):
     rewards: list[RewardOut]
+
+
+class LiveVoucherCountOut(CamelModel):
+    """How many outstanding vouchers a reward has right now — check before archiving it."""
+
+    live_vouchers: int
 
 
 class BusinessRewardResponse(CamelModel):

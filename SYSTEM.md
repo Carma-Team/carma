@@ -38,9 +38,9 @@ Both paths produce the same JWT — a client holding a token can call every API 
 
 **Deployment:** Container-based — multi-stage Dockerfile, suitable for Azure Container Apps. Postgres on Azure Database for PostgreSQL Flexible Server (PostGIS supported). Application Insights for monitoring (via `azure-monitor-opentelemetry`).
 
-**CI/CD:** Two workflows under `.github/workflows/`:
-- `ci-server.yml` — ruff always; mypy/pytest/smoke gated on label `run-full-ci` or `workflow_dispatch`.
-- `ci-mobile.yml` — tsc always; npm test gated.
+**CI/CD:** Three workflows under `.github/workflows/`:
+- `ci-server.yml` — ruff always; the full Postgres-backed suite on every PR. `smoke` is `workflow_dispatch` only.
+- `ci-mobile.yml` — tsc, ESLint, Jest and the schema-drift check, all on every push and PR.
 - `deploy.yml` — builds and rolls out to Azure Container Apps, authenticating via GitHub OIDC against a managed identity. No stored password. See §11.
 
 **Key note:** the mobile frontend uses snake_case for some fields (`start_time`, `avg_score`, `events_array`) and camelCase for others. Pydantic schemas use `alias_generator=to_camel` to emit camelCase on the wire, and trip-save accepts both styles via `AliasChoices`. Her frontend works without changes.
@@ -355,7 +355,7 @@ Mobile App                                   Server                 Twilio (prod
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/users/me` | User profile |
-| PATCH | `/api/users/me` | Update name/language/age/city |
+| PATCH | `/api/users/me` | Update name/language/age/city/isPrivate/driveModeEnabled. Only the keys present are written |
 | PUT | `/api/users/me/location` | Update last location `{ lat, lng }` |
 | DELETE | `/api/users/me` | Delete account (GDPR) → 204 |
 | GET | `/api/user/stats` | Aggregate stats |
@@ -561,12 +561,13 @@ python -m app.seed                     # reseed
 
 ### CI Workflow (`.github/workflows/ci-server.yml`)
 
-Runs on every PR and push to main (tiered):
+Runs on every PR and on pushes to main and develop. Which jobs fire depends on which:
 
 1. **lint** — always runs: `ruff check`, `ruff format --check`. Fast gate on every push.
-2. **typecheck-test** — mypy + alembic upgrade + pytest. Runs on push to main, `workflow_dispatch`, or label `run-full-ci`.
-3. **smoke** — starts a live server and runs `scripts/smoke.sh`. Same gate as typecheck-test.
-4. **docker-build** — verifies the Dockerfile builds. No push (that's in deploy).
+2. **typecheck-test-nodb** — mypy + pytest with no database. Pushes to develop only; the DB-backed tests skip themselves.
+3. **typecheck-test** — mypy + alembic upgrade + pytest against a live Postgres. Every PR, push to main, or `workflow_dispatch`. Fails loudly if anything skipped for want of a database.
+4. **smoke** — starts a live server and runs `scripts/smoke.sh`. `workflow_dispatch` only.
+5. **docker-build** — verifies the Dockerfile builds. No push (that's in deploy). Anything targeting main, or `workflow_dispatch`.
 
 ### Deploy Workflow (`.github/workflows/deploy.yml`)
 

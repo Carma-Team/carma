@@ -15,6 +15,17 @@ name: CI · server
 # on a develop push. A PR into develop is a different matter and gets the full
 # run; that is the review gate, and develop takes merges without review.
 
+# `pull_request` deliberately carries no `paths:` filter. A workflow skipped by
+# a path filter never reports at all, and a required check that never reports
+# pins the PR on "Expected - waiting for status to be reported" forever.
+# GitHub's own advice is not to require a workflow that can be skipped. Pushes
+# keep their filter, because nothing gates a push. The cost is ~2 idle minutes
+# on an unrelated PR, and Actions is free on a public repo (CAR-122).
+#
+# Jobs carry an explicit `name:` because the required-check context is the bare
+# job name with no workflow prefix, and `lint` and `test` each existed in two
+# of these three workflows (CAR-122).
+
 on:
   push:
     branches: [main, develop]
@@ -23,9 +34,6 @@ on:
       - '.github/workflows/ci-server.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'server/**'
-      - '.github/workflows/ci-server.yml'
   workflow_dispatch:
 
 # One run per branch/PR. Superseded runs on develop and feature branches are
@@ -43,6 +51,7 @@ jobs:
   # and every pull request. Style, plus the one correctness check that costs
   # nothing to run.
   lint:
+    name: server lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -91,6 +100,7 @@ jobs:
   # signal for a develop push, never a substitute for `typecheck-test` — which is
   # why pull requests run that instead of this one.
   typecheck-test-nodb:
+    name: server tests (no db)
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -119,6 +129,7 @@ jobs:
   # skipped them is reviewing on trust.
   # Also on pushes to main, and on manual dispatch.
   typecheck-test:
+    name: server tests
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -191,6 +202,7 @@ jobs:
   # widening smoke is a separate call — note it also does not run on a push to
   # main today, which is arguably a gap worth its own issue.
   smoke:
+    name: server smoke
     if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: typecheck-test
     runs-on: ubuntu-latest
@@ -241,6 +253,7 @@ jobs:
   docker-build:
     # Heavy — keep it off develop entirely (issue #25), both pushes and PRs.
     # Runs on anything targeting main, or manual dispatch.
+    name: server docker build
     if: ${{ github.base_ref == 'main' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
     needs: lint
     runs-on: ubuntu-latest
