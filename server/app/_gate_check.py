@@ -1,3 +1,2 @@
-import os
-def   broken( x ):
-        return   x
+def gate_check(x: int) -> int:
+    return x
