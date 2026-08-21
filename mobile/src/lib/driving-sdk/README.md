@@ -272,7 +272,14 @@ new DrivingSDK(config?: SDKConfig)
 | `onTripEnd` | `(data: TripData) => void` | Fired with final trip summary |
 | `onUpdate` | `(data: TripData) => void` | Periodic update (~1 Hz) with current speed, distance, phone data |
 | `onEventDetected` | `(event: DrivingEvent) => void` | Fired for every SDK-qualified event (no conditions). Use `on()` for conditional logic. |
+| `onInteractionData` | `(data: InteractionData) => void` | One phone-handling sample per second, stamped with the speed observed for that second |
 | `onFraudDetected` | `(event: FraudDetectedEvent) => void` | Fired when the validation layer suspects non-car transport |
+
+`onInteractionData` reports the speed, it never interprets it: a second of handling at
+walking pace and one at motorway speed arrive the same way, and deciding which of them
+counts is the host's. `TripData.screenInteractionSeconds` is the ungated sum of that same
+stream, so a host that applies its own speed rule must count from this callback rather
+than read the total.
 
 #### Debug helpers
 

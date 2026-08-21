@@ -70,6 +70,11 @@ export class DrivingSDK {
    *  Useful for raw display (e.g. live event counter). For conditional business logic use `on()`. */
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
+  /** Per-second interaction sample, stamped with the speed observed for that second.
+   *  Passed through untouched — the library applies no speed gate, because what a speed
+   *  means for a second of handling is the host's decision, not the library's.
+   *  `TripData.screenInteractionSeconds` is the ungated sum of the same stream. */
+  public onInteractionData?: (data: InteractionData) => void;
   // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
 
@@ -359,6 +364,7 @@ export class DrivingSDK {
     if (!this.isTripActive || !this.currentTripData) return;
     this.currentTripData.touchEpochs += data.touchEpochs;
     this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
+    if (this.onInteractionData) this.onInteractionData({ ...data });
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
@@ -464,3 +470,6 @@ export class DrivingSDK {
 
 
 export * from './types';
+// Emitted by onInteractionData — part of the public surface, so it is re-exported here
+// rather than leaving hosts to reach into sensors/.
+export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
