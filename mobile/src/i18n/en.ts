@@ -13,8 +13,8 @@ const en: TranslationMap = {
     noAccount: "Don't have an account?", hasAccount: 'Already have an account?',
     loginBtn: 'Sign In', registerBtn: 'Create Account', guestLoginBtn: 'Guest Login (Dev)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'John Doe', cityPlaceholder: 'Select city',
-    noCities: 'No cities available',
+    namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
+    citySelectPlaceholder: 'Select city',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
     errors: {
       emailRequired: 'Please enter your email', passwordRequired: 'Please enter your password',

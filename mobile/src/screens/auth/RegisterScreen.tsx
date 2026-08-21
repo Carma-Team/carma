@@ -40,7 +40,10 @@ export default function RegisterScreen() {
   useEffect(() => {
     leaderboardApi.getLocations()
       .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
-      .catch(() => {/* non-critical — city stays optional either way */})
+      // Expected, not exceptional: /api/leaderboard/locations requires a bearer
+      // token and registration has none yet, so this 401s on every fresh install.
+      // An empty list is the signal to fall back to a free-text city field below.
+      .catch(() => setCities([]))
   }, [])
 
   /** Updates a single registration form field without resetting others. */
@@ -128,12 +131,14 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            {field.key === 'city' ? (
+            {/* No list to pick from — keep the free-text field rather than a picker
+                nobody can fill. Drop this branch once the city list is reachable
+                before login (CAR-218). */}
+            {field.key === 'city' && cities.length > 0 ? (
               <LocationPicker
                 value={form.city}
                 options={cities}
-                placeholder={field.placeholder}
-                emptyText={t('auth.noCities')}
+                placeholder={t('auth.citySelectPlaceholder')}
                 onChange={v => update('city', v)}
                 style={styles.cityTrigger}
               />

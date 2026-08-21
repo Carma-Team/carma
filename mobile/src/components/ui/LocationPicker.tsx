@@ -12,11 +12,10 @@ interface LocationPickerProps {
   options: string[]
   placeholder: string
   onChange: (v: string) => void
-  emptyText?: string
   style?: StyleProp<ViewStyle>
 }
 
-export function LocationPicker({ value, options, placeholder, onChange, emptyText, style }: LocationPickerProps) {
+export function LocationPicker({ value, options, placeholder, onChange, style }: LocationPickerProps) {
   const [open, setOpen] = useState(false)
   const insets = useSafeAreaInsets()
 
@@ -46,7 +45,6 @@ export function LocationPicker({ value, options, placeholder, onChange, emptyTex
               data={options}
               keyExtractor={o => o}
               showsVerticalScrollIndicator={false}
-              ListEmptyComponent={emptyText ? <Text style={styles.emptyText}>{emptyText}</Text> : null}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.option, item === value && styles.optionActive]}
@@ -109,5 +107,4 @@ const styles = StyleSheet.create({
   optionActive: { backgroundColor: COLORS.dark },
   optionText: { ...TYPOGRAPHY.body, color: COLORS.text },
   optionTextActive: { color: COLORS.brand, fontWeight: '700' },
-  emptyText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, textAlign: 'center', paddingVertical: 20 },
 })
