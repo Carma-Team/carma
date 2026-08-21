@@ -32,13 +32,13 @@ let rewards: Reward[] = [
   {
     id: 'mock-reward-1', businessId: BUSINESS_ID, business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'קפה חינם', titleEn: 'Free Coffee', descriptionHe: 'כוס קפה על הבית', descriptionEn: 'A coffee on us',
-    category: 'food', costPoints: 100, imageIcon: 'cafe-outline', isActive: true,
+    category: 'food', costPoints: 100, imageIcon: 'cafe-outline', isActive: true, archivedAt: null,
     stock: 50, available: 50, expiresAt: null,
   },
   {
     id: 'mock-reward-2', businessId: BUSINESS_ID, business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'הנחת דלק 10%', titleEn: '10% Fuel Discount', descriptionHe: 'הנחה בתדלוק הבא', descriptionEn: 'Discount on your next fill-up',
-    category: 'fuel', costPoints: 300, imageIcon: 'car-outline', isActive: true,
+    category: 'fuel', costPoints: 300, imageIcon: 'car-outline', isActive: true, archivedAt: null,
     stock: null, available: null, expiresAt: null,
   },
 ];
@@ -71,6 +71,7 @@ function handleRequest(method: string, path: string, body: unknown): { status: n
       titleEn: payload.titleEn ?? null,
       descriptionEn: payload.descriptionEn ?? null,
       expiresAt: payload.expiresAt ?? null,
+      archivedAt: null,
       available: payload.stock,
     };
     rewards = [reward, ...rewards];

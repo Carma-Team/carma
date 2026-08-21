@@ -18,7 +18,7 @@
  */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
-import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -354,10 +354,10 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleInteractionData(data: { touchEpochs: number; screenInteractionSeconds: number }) {
+  private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs = data.touchEpochs;
-    this.currentTripData.screenInteractionSeconds = data.screenInteractionSeconds;
+    this.currentTripData.touchEpochs += data.touchEpochs;
+    this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 

@@ -44,6 +44,33 @@ export function formatDuration(seconds: number, lang: Language = 'HE'): string {
   return lang === 'HE' ? `${hours} ${t.hoursShort} ${mins} ${t.minutesShort}` : `${hours}${t.hoursShort} ${mins}${t.minutesShort}`
 }
 
+/**
+ * Trip duration as h:mm, for the stat boxes on the trip screens.
+ *
+ * Separate from `formatDuration`, which stays worded ("3 דק'") for the live timer
+ * on the active-trip screen and rounds nothing away. Here a finished trip under a
+ * minute reads 0:01 rather than 0:00, since a saved trip did take some time.
+ */
+export function formatTripDuration(seconds: number): string {
+  const safe = !seconds || isNaN(seconds) ? 0 : seconds
+  const totalMins = Math.max(1, Math.round(safe / 60))
+  const hours = Math.floor(totalMins / 60)
+  const mins = totalMins % 60
+  return `${hours}:${String(mins).padStart(2, '0')}`
+}
+
+/**
+ * Trip distance as plain kilometres to two decimals — no unit.
+ *
+ * The stat box already carries a "distance" label under the value, so repeating
+ * ק"מ there is noise. `formatDistance` keeps the unit for the places that show a
+ * distance without a label of its own (trip cards, dashboard totals).
+ */
+export function formatTripDistance(km: number): string {
+  const safe = !km || isNaN(km) ? 0 : km
+  return safe.toFixed(2)
+}
+
 export function formatScore(score: number): string {
   return Math.round(score).toString()
 }
