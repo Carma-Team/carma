@@ -52,6 +52,20 @@ class TestKinematicDetection:
         assert analysis.hard_brakes == 1
         assert any(e.type == "HARD_BRAKE" for e in analysis.events)
 
+    def test_two_second_cadence_catches_a_brake_a_coarser_trace_averages_away(self) -> None:
+        # One physical event, three samplers: 3.5 m/s² held for 2 s drops 60 km/h
+        # to 34.8. A 2 s trace brackets it exactly and reads 3.5 m/s²; a 5 s or 6 s
+        # trace averages the same drop against seconds of steady speed and reads
+        # 1.4 and 1.2 m/s². This is why the cadence follows the threshold (CAR-179).
+        def with_brake(dt: float) -> list[dict]:
+            trace = _cruise(60, 60.0, dt=dt)
+            t0 = len(trace) * dt
+            return trace + [_wp(t0, 60.0), _wp(t0 + dt, 34.8), _wp(t0 + 2 * dt, 34.8)]
+
+        assert telemetry.analyze(with_brake(2.0), 80).hard_brakes == 1
+        assert telemetry.analyze(with_brake(5.0), 80).hard_brakes == 0
+        assert telemetry.analyze(with_brake(6.0), 80).hard_brakes == 0
+
     def test_gentle_braking_not_detected(self) -> None:
         # 60 → 40 km/h over 3 s ≈ −1.9 m/s² — normal driving.
         trace = _cruise(30, 60.0)
@@ -123,6 +137,15 @@ class TestConfidence:
         trace = [_wp(i * 6.0, 50.0) for i in range(40)] + [_wp(400.0 + i * 30.0, 50.0) for i in range(10)]
         analysis = telemetry.analyze(trace, 700)
         assert analysis.confidence < 0.65
+
+    def test_spec_cadence_is_not_penalised_where_a_five_second_trace_is(self) -> None:
+        # 2 s sits under the 2.5 s ceiling, so the rate factor saturates and only
+        # coverage moves the number. A 5 s trace loses 30 points of confidence on
+        # density alone — the spread that thinning to 5 s used to hide.
+        dense = telemetry.analyze(_cruise(600, 50.0, dt=2.0), 600)
+        thinned = telemetry.analyze(_cruise(600, 50.0, dt=5.0), 600)
+        assert dense.confidence > 0.99
+        assert thinned.confidence < 0.72
 
     def test_no_waypoints_is_zero_confidence(self) -> None:
         assert telemetry.analyze(None, 600).confidence == 0.0

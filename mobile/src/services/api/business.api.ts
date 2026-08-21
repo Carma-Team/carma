@@ -12,7 +12,8 @@
  * @server
  * - GET/POST/PATCH/DELETE /api/business/rewards — implemented on FastAPI
  *   (server/app/routers/business.py). Scoped to the caller's own business;
- *   DELETE returns 409 once any voucher has been issued for the reward.
+ *   DELETE archives the reward (CAR-111) rather than removing it — it always
+ *   succeeds, even once a voucher has been issued.
  */
 import { request } from './client';
 

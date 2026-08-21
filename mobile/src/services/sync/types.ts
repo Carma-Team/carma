@@ -51,7 +51,7 @@ export interface ValidTripPayload {
   events?: Array<{
     type: string;            // DrivingEventType — server bridges PHONE_USAGE → PHONE_USE
     timestamp: string;       // ISO 8601
-    severity: number;        // 0..1
+    severity?: number;       // 0..1. PHONE_USAGE only — motion events don't send it
     speedKmh?: number;
     location?: { latitude: number; longitude: number };
     peakG?: number;

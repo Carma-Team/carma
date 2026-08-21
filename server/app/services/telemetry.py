@@ -65,7 +65,11 @@ _SPEED_BANDS = (  # (km/h over limit+buffer, band weight) — highest first
 )
 
 # ── Confidence & speed-data coverage ────────────────────────────────────────────
-_FULL_CONFIDENCE_DT_S = 4.0  # median sampling this fast proves the trace
+# The detection ceiling, not the target cadence. Detection averages decel over
+# the sampling interval, so the largest median gap at which a 2 s brake at
+# 3.75 m/s² still averages to _BRAKE_DECEL_MS2 is 2 × 3.75 / 3.0. The spec's 2 s
+# cadence sits under it, so a device that complies is never penalised for jitter.
+_FULL_CONFIDENCE_DT_S = 2.5
 _MIN_SPEED_SAMPLES = 20
 _SPEED_COVERAGE_MIN = 0.5
 _SPEED_MEDIAN_DT_MAX_S = 10.0

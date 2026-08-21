@@ -20,11 +20,11 @@ mount, cup holder, pocket — all work the same):
   - Lateral accel = `speed × heading-rate` → sharp turn.
   - Evaluated over a rolling ≥1.5 s window so a burst of high-frequency GPS ticks doesn't read as a phantom spike.
   - Turn detection is skipped below ~10 km/h, where GPS heading is unreliable.
-- **Severity + cross-confirm (accelerometer, orientation-free):**
+- **Cross-confirm (accelerometer, orientation-free):**
   - Gravity is removed (EMA low-pass filter, α = 0.9), and the *horizontal* magnitude of what remains is computed — this magnitude doesn't depend on the phone's yaw, so it's meaningful regardless of mounting angle.
-  - A GPS-detected event only fires if the accelerometer also registered a matching horizontal force (rejects pure GPS glitches); the IMU peak also refines the reported severity.
+  - A GPS-detected event only fires if the accelerometer also registered a matching horizontal force (rejects pure GPS glitches). This magnitude isn't a vehicle-frame axis, so it's used only as a gate — it is not reported as severity (CAR-156).
 - Thresholds default to `DEFAULT_MOTION_THRESHOLDS` (2.7 / 3.0 / 3.5 m/s² — aligned with common UBI/telematics "harsh event" bands) — override via `SDKConfig.motionThresholds`.
-- Severity mapping: `threshold → 0.0`, `threshold + 5.0 m/s² → 1.0`, clamped to `[0, 1]`.
+- No severity is emitted on motion events until a phone→vehicle rotation stage resolves the IMU magnitude onto the axis `scoring.md` §3.4 needs (longitudinal for braking/accel, lateral for turns).
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
     C -- no --> A
     C -- yes --> D[Accelerometer cross-confirm:<br/>gravity-removed horizontal force]
     D -- no matching force --> E[Rejected — GPS glitch]
-    D -- confirmed --> F[Severity mapped 0→1]
+    D -- confirmed --> F[No severity assigned]
     F --> G{Per-type<br/>cooldown active?}
     G -- yes --> E
     G -- no --> H[DrivingEvent dispatched]
@@ -144,7 +144,7 @@ flowchart TD
 > **These constants are IMU calibration values, not tuned parameters.** They
 > were chosen from expected separation margins and **have never been
 > validated against real drive data** — the rotation threshold most of all,
-> since no drive-test data backs it yet (tracked as CAR-31). The glass-tap
+> since no drive-test data backs it yet (tracked as CAR-183). The glass-tap
 > proxy also cannot distinguish a finger tap from a sharp road bump. Treat
 > all of these as indicative until calibrated.
 

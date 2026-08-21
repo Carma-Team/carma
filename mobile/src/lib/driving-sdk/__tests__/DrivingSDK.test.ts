@@ -32,7 +32,7 @@ let mockSensorEmit: ((event: DrivingEvent) => void) | null = null;
 let mockSensorUpdate: ((update: SensorUpdate) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number }) => void)
+  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockBtConnect: (() => void) | null = null;
 let mockBtDisconnect: (() => void) | null = null;
@@ -412,15 +412,26 @@ describe('DrivingSDK', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  // severity only exists on PHONE_USAGE since CAR-156 — minSeverity is exercised
+  // against that type now, not a motion event.
   it('holds a listener back below its minimum severity', async () => {
+    const handler = jest.fn();
+    sdk.on(DrivingEventType.PHONE_USAGE, { minSeverity: 0.8 }, handler);
+    await startTripReady();
+
+    mockPhoneEmit?.({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.3 });
+    expect(handler).not.toHaveBeenCalled();
+
+    mockPhoneEmit?.({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.9 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not gate a motion event on minSeverity — motion events carry no severity (CAR-156)', async () => {
     const handler = jest.fn();
     sdk.on(DrivingEventType.HARD_BRAKE, { minSeverity: 0.8 }, handler);
     await startTripReady();
 
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { severity: 0.3, atMs: 0 });
-    expect(handler).not.toHaveBeenCalled();
-
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { severity: 0.9, atMs: 600 });
+    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -542,12 +553,13 @@ describe('DrivingSDK', () => {
 
   // ── Phone interaction metrics ──────────────────────────────────────────────
 
-  it('copies phone interaction metrics onto the trip', async () => {
+  it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
   });
 
   // ── Delegation to the injected TripValidator ───────────────────────────────

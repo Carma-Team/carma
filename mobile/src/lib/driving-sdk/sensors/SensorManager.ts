@@ -13,12 +13,13 @@
  * - **Trigger + direction (orientation-free):** GPS.
  *   - Longitudinal accel = Δspeed / Δt  → brake (deceleration) / accel.
  *   - Lateral accel      = speed × heading-rate → sharp turn.
- * - **Severity + cross-confirm (orientation-free):** accelerometer.
+ * - **Cross-confirm (orientation-free):** accelerometer.
  *   - We remove gravity (EMA) and take the magnitude of the *horizontal* component.
  *     That magnitude is invariant to rotation about the vertical axis, so it does
  *     not depend on the phone's yaw — no per-axis assumption.
- *   - The IMU peak refines the GPS-averaged severity and rejects GPS glitches
- *     (an event fires only if the IMU also saw a real horizontal force).
+ *   - An event fires only if the IMU also saw a real horizontal force, rejecting
+ *     pure GPS glitches. This magnitude is not a vehicle-frame axis, so it is not
+ *     reported as event severity (scoring.md §3.4) — only used as a gate.
  *
  * Why not per-axis IMU? An earlier version read brake from accel-Y and turns from
  * accel-X (spec §א Table 1: 0.459g / 0.408g / 0.357g, later recalibrated to
@@ -57,9 +58,6 @@ export const DEFAULT_MOTION_THRESHOLDS: MotionThresholds = {
   accelThresholdMs2: 3.0, // acceleration ≳ 0.31 g
   turnThresholdMs2:  3.5, // lateral accel ≳ 0.36 g
 };
-
-// Maps (value − threshold) → severity 0..1 over this span.
-const SEVERITY_RANGE_MS2 = 5.0;
 
 // Evaluate GPS-derived dynamics over a window of at least this long, so a burst of
 // high-frequency location updates (distanceInterval) doesn't turn Doppler-speed
@@ -109,6 +107,12 @@ const SPEED_TICK_INTERVAL_MS = 2000;
 
 const MS2_PER_G = 9.81;
 
+// docs/fraud-detection.md §3.1: a sensor is available only while a subscription is
+// actively delivering samples, not merely because isAvailableAsync() once said yes.
+// A dead listener (OS killed it, hardware faulted mid-trip) must read as unavailable,
+// not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
+const SENSOR_STALE_MS = 5000;
+
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
 // /** EVT_SWERVE — GPS Heading change rate
 //  *  Spec: > 15 °/s sustained for ≥ 3 s
@@ -128,6 +132,10 @@ export class SensorManager {
   private isRunning = false;
   private accelAvailable = false;
   private gyroAvailable = false;
+  // Wall-clock timestamp of the last delivered sample per sensor — SENSOR_STALE_MS
+  // turns "was available at start()" into "is available right now" (§3.1).
+  private lastAccelSampleAtMs = 0;
+  private lastGyroSampleAtMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
@@ -148,11 +156,14 @@ export class SensorManager {
   private motionPrevSpeedMs = 0;
   private motionPrevHeadingDeg: number | null = null;
   // Peak orientation-invariant horizontal acceleration (m/s²) seen since the last
-  // motion evaluation — the IMU's contribution to severity and cross-confirmation.
+  // motion evaluation — the IMU's contribution to cross-confirmation (CAR-156: no
+  // longer reported as severity, the magnitude isn't a vehicle-frame axis).
   private peakHorizAccelMs2 = 0;
-  // Longest continuous streak (ms) that horizMs2 stayed at/above IMU_CONFIRM_MS2
-  // since the last motion evaluation — reported as DrivingEvent.durationMs.
   private aboveConfirmSinceMs: number | null = null;
+  // Start of the streak that produced peakHorizAccelMs2, not just whichever
+  // streak happens to run longest — a rough road can out-last the actual brake.
+  private peakStreakStartMs: number | null = null;
+  // Duration (ms) of that streak — reported as DrivingEvent.durationMs.
   private peakDurationMs = 0;
 
   // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
@@ -207,12 +218,15 @@ export class SensorManager {
     this.latestGyroZ  = 0;
     this.accelAvailable = false;
     this.gyroAvailable  = false;
+    this.lastAccelSampleAtMs = 0;
+    this.lastGyroSampleAtMs  = 0;
     this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
+    this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
     this.accelInitFailed = false;
     // this.prevHeading      = null;   // EVT_SWERVE disabled
@@ -286,6 +300,9 @@ export class SensorManager {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
+        // Grace period: a sensor subscribed a moment ago isn't stale yet even
+        // though no sample has landed. The first real sample overwrites this.
+        this.lastAccelSampleAtMs = Date.now();
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
     } catch (err) {
@@ -298,8 +315,10 @@ export class SensorManager {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
+        this.lastGyroSampleAtMs = Date.now(); // grace period, see accel above
         this.gyroSub = Gyroscope.addListener(data => {
           this.latestGyroZ = data.z;
+          this.lastGyroSampleAtMs = Date.now();
           this.onGyroSample?.(data);
         });
       }
@@ -370,8 +389,8 @@ export class SensorManager {
       timeDeltaS,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
-      accelAvailable: this.accelAvailable,
-      gyroAvailable:  this.gyroAvailable,
+      accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
+      gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
@@ -390,6 +409,12 @@ export class SensorManager {
     return (atMs - this.lastValidSpeedAtMs) < STALE_SPEED_MS ? this.lastValidSpeedMs : 0;
   }
 
+  // §3.1: available at start() plus a sample within the last SENSOR_STALE_MS —
+  // not just "was present when start() ran".
+  private isSensorFresh(lastSampleAtMs: number): boolean {
+    return (Date.now() - lastSampleAtMs) < SENSOR_STALE_MS;
+  }
+
   /**
    * Speed-only update, emitted when the GPS stream has gone quiet long enough for the
    * held speed to expire. Not routed through handleLocation on purpose: there is no
@@ -404,8 +429,8 @@ export class SensorManager {
       timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
-      accelAvailable: this.accelAvailable,
-      gyroAvailable:  this.gyroAvailable,
+      accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
+      gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
   }
@@ -430,6 +455,7 @@ export class SensorManager {
       this.motionPrevHeadingDeg = headingDeg >= 0 ? headingDeg : null;
       this.peakHorizAccelMs2 = 0;
       this.aboveConfirmSinceMs = null;
+      this.peakStreakStartMs = null;
       this.peakDurationMs = 0;
       return;
     }
@@ -448,11 +474,9 @@ export class SensorManager {
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
     if (aLong <= -this.thresholds.brakeThresholdMs2 && imuConfirms) {
-      const mag = Math.max(-aLong, imuPeak); // IMU peak refines GPS-averaged severity
-      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), severity: this.severity(mag, this.thresholds.brakeThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), durationMs: imuPeakDurationMs });
     } else if (aLong >= this.thresholds.accelThresholdMs2 && imuConfirms) {
-      const mag = Math.max(aLong, imuPeak);
-      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), severity: this.severity(mag, this.thresholds.accelThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), durationMs: imuPeakDurationMs });
     }
 
     // ── Lateral: sharp turn — orientation-free via GPS heading rate × speed ──
@@ -462,8 +486,7 @@ export class SensorManager {
       const yawRate = (Math.abs(dHead) * Math.PI / 180) / dt;    // rad/s
       const aLat = speedMs * yawRate;                            // m/s²
       if (aLat >= this.thresholds.turnThresholdMs2 && imuConfirms) {
-        const mag = Math.max(aLat, imuPeak);
-        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), severity: this.severity(mag, this.thresholds.turnThresholdMs2), peakG: imuPeak / MS2_PER_G, durationMs: imuPeakDurationMs });
+        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), durationMs: imuPeakDurationMs });
       }
     }
 
@@ -473,11 +496,8 @@ export class SensorManager {
     if (headingDeg >= 0) this.motionPrevHeadingDeg = headingDeg;
     this.peakHorizAccelMs2 = 0;
     this.aboveConfirmSinceMs = null;
+    this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
-  }
-
-  private severity(magMs2: number, thresholdMs2: number): number {
-    return Math.min(1, Math.max(0, (magMs2 - thresholdMs2) / SEVERITY_RANGE_MS2));
   }
 
   // EVT_SWERVE detection — disabled (not yet in UI/scoring; re-enable when ready)
@@ -512,7 +532,7 @@ export class SensorManager {
   //   this.prevLocTimestamp = now;
   // }
 
-  // ─── Accelerometer handler — severity + cross-confirm + fraud telemetry ──────
+  // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──
 
   private handleAccel(data: { x: number; y: number; z: number }) {
     // Step 1: EMA low-pass filter to isolate slow-changing static gravity.
@@ -526,6 +546,7 @@ export class SensorManager {
     const dynZ = data.z - this.gravity.z;
 
     this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
+    this.lastAccelSampleAtMs = Date.now();
 
     // Step 3: orientation-invariant horizontal magnitude.
     // Project out the component along gravity (vertical); what remains is horizontal,
@@ -536,17 +557,24 @@ export class SensorManager {
     const dynMagSq = dynX ** 2 + dynY ** 2 + dynZ ** 2;
     const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * MS2_PER_G; // g → m/s²
 
-    if (horizMs2 > this.peakHorizAccelMs2) this.peakHorizAccelMs2 = horizMs2;
-
-    // Track how long the signal has stayed continuously at/above the cross-confirm
-    // threshold — reported as DrivingEvent.durationMs if an event fires this window.
+    // Track the continuous streak at/above the cross-confirm threshold first, so a
+    // peak recorded on this sample can capture the streak it actually belongs to.
+    const nowMs = Date.now();
     if (horizMs2 >= IMU_CONFIRM_MS2) {
-      const nowMs = Date.now();
       if (this.aboveConfirmSinceMs === null) this.aboveConfirmSinceMs = nowMs;
-      const streakMs = nowMs - this.aboveConfirmSinceMs;
-      if (streakMs > this.peakDurationMs) this.peakDurationMs = streakMs;
     } else {
       this.aboveConfirmSinceMs = null;
+    }
+
+    if (horizMs2 > this.peakHorizAccelMs2) {
+      this.peakHorizAccelMs2 = horizMs2;
+      this.peakStreakStartMs = this.aboveConfirmSinceMs;
+    }
+
+    // durationMs grows only while still inside the streak that holds the peak —
+    // a rough-road streak elsewhere in the window must not out-report the brake.
+    if (this.peakStreakStartMs !== null && this.aboveConfirmSinceMs === this.peakStreakStartMs) {
+      this.peakDurationMs = nowMs - this.peakStreakStartMs;
     }
   }
 
