@@ -137,22 +137,27 @@ Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving 
 - **`develop`** — daily integration. Keep it green; it is the buffer protecting `main`.
 - **`feature/*`** — anything over ~30 minutes or touching more than 2 files. Merges into `develop` freely, no PR required.
 
-**The author merges, not the reviewer.** Only the author knows what else is in flight — which branch lands first, what needs a sync, which sibling PR is waiting. Neither branch is protected, which is exactly why the convention is written down.
+**The author merges, not the reviewer.** Only the author knows what else is in flight — which branch lands first, what needs a sync, which sibling PR is waiting. `develop` is not protected, which is exactly why the convention is written down. `main` is: a PR, one approving review, and ten green checks, with no bypass for anyone, admins included.
 
 - **Approve means "this is yours to land."** Not ready to merge is Request Changes, not Approve.
-- **Never merge over a red check without naming the failure in the PR first.** Doing it silently teaches everyone that red is negotiable.
+- **Never merge over a red check without naming the failure in the PR first.** Doing it silently teaches everyone that red is negotiable. On `main` this is no longer a matter of discipline: the merge is blocked.
 
 ## CI
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci-server.yml` | push / PR on `main`, `develop` | Ruff, Mypy, pytest. A push to `develop` runs pytest **without a database**; only PRs and `main` get migrations plus the Postgres job. |
-| `ci-mobile.yml` | push / PR on `main`, `develop`, incl. `server/app/**` | `tsc --noEmit` and ESLint always; Jest on pushes and PRs into `develop`; `schema-drift` regenerates the API types and fails if they differ from what is committed. |
+| `ci-server.yml` | pushes to `main`/`develop` are path-filtered; **every** PR into either runs it | Ruff, Mypy, pytest. A push to `develop` runs pytest **without a database**; PRs and `main` get migrations plus the Postgres job. |
+| `ci-mobile.yml` | same | `tsc --noEmit`, ESLint, Jest, and `schema-drift`, which regenerates the API types and fails if they differ from what is committed. |
+| `ci-web.yml` | same | `tsc`, ESLint, Vitest, and a production `vite build`. |
 | `deploy.yml` | push to `main`, or manual | Docker image → ACR → Azure Container App over OIDC. Silently skipped when `AZURE_CLIENT_ID` is unset, so CI stays green. |
 
 - **Never switch a check off to quiet it — fix the cause.** `tsc --noEmit` was skipped on `develop` to work around a broken toolchain (CAR-8); the workaround outlived the bug, and the app went 100+ commits with no type check while CI stayed green.
 - **Run `pytest` locally against the real database** before merging anything server-side; a direct push to `develop` will not.
 - **A PR whose branch predates a trigger change shows zero checks.** Sync `develop` into it — nothing else fixes it.
+- **Ten checks are required on `main`:** `server lint`, `server tests`, `server docker build`, `mobile typecheck`, `mobile tests`, `mobile schema drift`, `web typecheck`, `web lint`, `web tests`, `web build`. A job skipped by its own `if:` reports success and does not block; that is why `server smoke` and `server tests (no db)` are not on the list.
+- **Do not put a `paths:` filter back on a `pull_request` trigger.** A workflow that a path filter skips never reports, and a required check that never reports pins the PR on "Expected - waiting for status to be reported" with no way forward. The whole run is about two minutes in parallel and Actions is free on a public repo, so an unrelated PR paying for it is the cheaper side of the trade (CAR-122).
+- **Job `name:` values are the required-check contexts.** They are the bare job name with no workflow prefix, so they must stay unique across all three workflows. Renaming one without updating the `main-branch` ruleset silently drops that gate.
+- **Merged branches delete themselves.** `delete_branch_on_merge` is on (CAR-215); GitHub keeps a Restore branch button on every merged PR if you need one back.
 
 ## Issues — Linear only
 
