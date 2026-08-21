@@ -56,3 +56,23 @@ class TestTrustedProxyCountGuard:
         """Nothing sits in front of a local server, so the header stays untrusted."""
         s = Settings(**_BASE, env=env)
         assert s.trusted_proxy_count == 0
+
+
+class TestRefreshCookieSecureGuard:
+    """`Secure` on the web session cookie (CAR-217) — never optional in production,
+    and forced on even earlier if `SameSite=None` is ever chosen, because a
+    browser refuses that pairing outright without it."""
+
+    def test_production_is_always_secure(self) -> None:
+        s = Settings(**_BASE, env="production", trip_signing_secret=_VALID_SECRET, trusted_proxy_count=1)
+        assert s.refresh_cookie_secure is True
+
+    def test_development_with_the_default_samesite_is_not_secure(self) -> None:
+        """`http://localhost` has no TLS — a `Secure` cookie here would just never be sent."""
+        s = Settings(**_BASE, env="development")
+        assert s.refresh_cookie_samesite == "lax"
+        assert s.refresh_cookie_secure is False
+
+    def test_samesite_none_forces_secure_even_outside_production(self) -> None:
+        s = Settings(**_BASE, env="development", refresh_cookie_samesite="none")
+        assert s.refresh_cookie_secure is True

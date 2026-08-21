@@ -26,13 +26,32 @@ src/
 ├── components/ui/   ← shared UI foundation (Button, Input, Card, Dialog,
 │                       Typography, LoadingState, ErrorState, EmptyState) —
 │                       neutral and unbranded on purpose, see src/styles/tokens.css
-├── hooks/            ← useTranslation, useLanguage
+├── hooks/            ← useTranslation, useLanguage, useAuth
 ├── i18n/             ← en.ts / he.ts string maps, LanguageContext (RTL/LTR)
-├── pages/            ← route-level views
-├── routes/           ← route table (react-router-dom)
+├── lib/
+│   ├── auth/         ← session (in-memory access token store), authApi
+│   │                    (login/refresh/logout), AuthProvider, refresh
+│   │                    (shared single-flight silent refresh) — CAR-217
+│   └── api/          ← client.ts, the authenticated fetch wrapper future
+│                        business API calls go through (retries once on a
+│                        401 via a silent refresh)
+├── pages/            ← route-level views, incl. SignInPage
+├── routes/           ← route table (react-router-dom), ProtectedRoute
 ├── styles/           ← design tokens (spacing/typography/color) + global reset
 └── test/             ← Vitest setup
 ```
+
+## Authentication & session (CAR-217)
+
+The access token lives in memory only (`lib/auth/session.ts`) — never
+`localStorage`. A reload wipes it; what survives is an httpOnly
+`carma_refresh` cookie the server sets on login, which `AuthProvider` trades
+for a fresh access token on every mount (`POST /api/auth/refresh`). Routes
+nested under `<ProtectedRoute />` (see `routes/router.tsx`) redirect to
+`/sign-in` once that resolves as unauthenticated. `npm run dev` needs
+`VITE_API_URL` — copy `.env.example` to `.env` — and the server's
+`CORS_ORIGINS` needs this app's own origin, or the sign-in request never
+leaves the browser (see `server/.env.example`).
 
 ## i18n & direction
 

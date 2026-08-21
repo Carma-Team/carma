@@ -68,3 +68,35 @@ async def current_business(request: Request, user: CurrentUser, db: DbSession) -
 
 
 CurrentBusiness = Annotated[Business, Depends(current_business)]
+
+
+def is_browser_request(request: Request) -> bool:
+    """Whether this call carries the header only CARMA's own web app sends.
+
+    `lib/auth/authApi.ts` sets `X-Requested-With: XMLHttpRequest` on every
+    call it makes; mobile's `client.ts` never has and CAR-217 does not touch
+    it. Two different callers read this boolean two different ways — see
+    `require_browser_header` (hard gate) and
+    `services/auth.py::login_with_password` (soft signal, picks a token TTL).
+    """
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+async def require_browser_header(request: Request) -> None:
+    """Refuse a cookie-authenticated call that a cross-site page could have sent.
+
+    `/api/auth/refresh` and `/api/auth/logout` read the session from a cookie,
+    which a browser attaches to a request regardless of who triggered it — the
+    classic CSRF shape. `SameSite=Lax` already stops that today, but it stops
+    doing so the moment `REFRESH_COOKIE_SAMESITE` is set to `none` for a
+    cross-site deploy. This header is what still stops it then: a custom
+    header forces a CORS preflight, and only an allow-listed origin can pass
+    one — an attacker's page cannot make the browser send this request with it.
+    Standard "verify a custom header" CSRF defence (OWASP), not a token,
+    because there is no per-session secret to hand the page in the first place.
+    """
+    if not is_browser_request(request):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing required header")
+
+
+RequireBrowserHeader = Annotated[None, Depends(require_browser_header)]
