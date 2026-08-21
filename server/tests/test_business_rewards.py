@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import create_access_token
 from app.main import app
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn
@@ -38,6 +39,7 @@ from app.services import users as users_service
         ("POST", "/api/business/rewards"),
         ("PATCH", "/api/business/rewards/any-id"),
         ("DELETE", "/api/business/rewards/any-id"),
+        ("GET", "/api/business/rewards/any-id/live-vouchers"),
     ],
 )
 async def test_business_rewards_require_auth(method: str, path: str) -> None:
@@ -428,6 +430,67 @@ async def test_live_voucher_count_excludes_used_and_expired(db_session: AsyncSes
     finally:
         await db_session.delete(driver)
         await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+# ─── Live voucher count — HTTP layer (CAR-111) ───────────────────────────────
+
+
+async def _business_with_headers(db: AsyncSession) -> tuple[Business, dict[str, str]]:
+    """A business plus the Authorization header its owner would send."""
+    business = await _make_business(db)
+    owner = await db.get(User, business.owner_user_id)
+    assert owner is not None
+    token = create_access_token(user_id=owner.id, email=owner.email, phone=None, role=UserRole.BUSINESS)
+    return business, {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_live_vouchers_http_returns_the_count_for_the_owning_business(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business, headers = await _business_with_headers(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        db_session.add(_voucher(created.id, driver.id))
+        await db_session.commit()
+
+        r = await db_api_client.get(f"/api/business/rewards/{created.id}/live-vouchers", headers=headers)
+        assert r.status_code == 200
+        assert r.json()["liveVouchers"] == 1
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_live_vouchers_http_is_not_found_for_another_businesss_reward(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    owner_biz = await _make_business(db_session)
+    other_biz, other_headers = await _business_with_headers(db_session)
+    try:
+        created = await business_service.create_reward(db_session, owner_biz, _reward_payload())
+
+        r = await db_api_client.get(f"/api/business/rewards/{created.id}/live-vouchers", headers=other_headers)
+        assert r.status_code == 404
+    finally:
+        await _cleanup(db_session, owner_biz, other_biz)
+
+
+@pytest.mark.asyncio
+async def test_live_vouchers_http_is_not_found_for_an_unknown_reward(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business, headers = await _business_with_headers(db_session)
+    try:
+        r = await db_api_client.get(f"/api/business/rewards/{uuid.uuid4().hex}/live-vouchers", headers=headers)
+        assert r.status_code == 404
+    finally:
         await _cleanup(db_session, business)
 
 
