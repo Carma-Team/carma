@@ -386,6 +386,111 @@ async def test_is_active_and_archived_at_are_independent(db_session: AsyncSessio
         await _cleanup(db_session, business)
 
 
+# ─── Campaign expiry (CAR-131) ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_expired_reward_is_excluded_from_the_driver_marketplace(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(
+            db_session, business, _reward_payload(expiresAt=datetime.now(UTC) - timedelta(days=1))
+        )
+
+        listing = await rewards_service.list_rewards(db_session, driver.id, None)
+        assert created.id not in {r.id for r in listing["rewards"]}
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_redeem_is_refused_for_an_expired_reward(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver", points=1_000)
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(
+            db_session, business, _reward_payload(costPoints=10, expiresAt=datetime.now(UTC) - timedelta(days=1))
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await rewards_service.redeem(db_session, driver, created.id)
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == rewards_service.REWARD_CAMPAIGN_ENDED
+
+        # The refusal rolls back, which expires every instance already in the
+        # session — an explicit refresh, not a bare attribute read, is what
+        # safely pulls them back (see `_cleanup`'s docstring in test_reward_stock.py).
+        await db_session.refresh(driver)
+        await db_session.refresh(business)
+        assert driver.points == 1_000, "a refused redeem must not debit the driver"
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_expired_reward_still_in_the_business_list(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(
+            db_session, business, _reward_payload(expiresAt=datetime.now(UTC) - timedelta(days=1))
+        )
+
+        listed = await business_service.list_rewards(db_session, business)
+        assert created.id in {r.id for r in listed["rewards"]}
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_null_expires_at_is_listed_and_redeemable(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver", points=1_000)
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(
+            db_session, business, _reward_payload(costPoints=10, expiresAt=None)
+        )
+
+        listing = await rewards_service.list_rewards(db_session, driver.id, None)
+        assert created.id in {r.id for r in listing["rewards"]}
+
+        voucher = await rewards_service.redeem(db_session, driver, created.id)
+        assert voucher.status == "pending"
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_a_reward_whose_campaign_has_not_yet_ended_is_still_redeemable(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver", points=1_000)
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(
+            db_session, business, _reward_payload(costPoints=10, expiresAt=datetime.now(UTC) + timedelta(days=1))
+        )
+
+        voucher = await rewards_service.redeem(db_session, driver, created.id)
+        assert voucher.status == "pending"
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
 # ─── Live voucher count (CAR-111) ────────────────────────────────────────────
 
 

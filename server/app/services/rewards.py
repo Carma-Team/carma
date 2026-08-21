@@ -26,6 +26,7 @@ from app.schemas.reward import RewardOut, VoucherOut
 VOUCHER_TTL_DAYS = 7
 
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
+REWARD_CAMPAIGN_ENDED = "REWARD_CAMPAIGN_ENDED"
 
 # Three draws is plenty: at 31^10 the first one already almost never collides,
 # and a fourth would only ever be papering over a broken generator.
@@ -122,7 +123,11 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
 
 
 async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    where: list[ColumnElement[bool]] = [Reward.is_active.is_(True), Reward.archived_at.is_(None)]
+    where: list[ColumnElement[bool]] = [
+        Reward.is_active.is_(True),
+        Reward.archived_at.is_(None),
+        or_(Reward.expires_at.is_(None), Reward.expires_at > datetime.now(UTC)),
+    ]
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
 
@@ -162,6 +167,14 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     )
     if reward is None or not reward.is_active or reward.archived_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not available")
+    # `<=`, matching the boundary `list_rewards` excludes on — the expiry instant
+    # itself is already over, not the last valid moment.
+    if reward.expires_at is not None and reward.expires_at <= datetime.now(UTC):
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": REWARD_CAMPAIGN_ENDED, "message": "This reward's campaign has ended"},
+        )
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
