@@ -28,7 +28,10 @@ function RootLayoutNav() {
     if (isLoading) return;
 
     const rootSegment = segments[0];
-    const inAuthGroup = rootSegment === 'login' || rootSegment === 'register';
+    // Every route a signed-out driver is allowed to be on. Leaving one out sends
+    // them back to /login the moment the screen opens.
+    const inAuthGroup =
+      rootSegment === 'login' || rootSegment === 'register' || rootSegment === 'forgot-password';
     const inTabsGroup = rootSegment === '(tabs)';
     const inBusinessGroup = rootSegment === '(business)';
 
@@ -48,7 +51,7 @@ function RootLayoutNav() {
         }
       }
     }
-  }, [user, isLoading, segments]);
+  }, [user, isLoading, segments, router]);
 
   if (isLoading) {
     return (
@@ -71,6 +74,7 @@ function RootLayoutNav() {
           <Stack.Screen name="login" />
         )}
         <Stack.Screen name="register" />
+        <Stack.Screen name="forgot-password" />
       </Stack>
     </View>
   );

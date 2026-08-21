@@ -11,6 +11,7 @@
  * - `formatDate` / `formatTime` / `formatRelativeTime` — date formatting (Hebrew/English)
  * - `scoreToGrade` / `scoreToColor` / `scoreToIcon` / `levelToIcon` — score/level to display mapping
  * - `truncate` / `clamp` / `sleep` — general utilities
+ * - `toE164` — phone number to the canonical form the server's auth routes require
  *
  * @remarks No server calls — local functions only.
  */
@@ -171,6 +172,19 @@ export function isAdmin(user: { role?: string } | null | undefined): boolean {
 /** Same case-normalization as isAdmin() — the real server sends role as "BUSINESS" (uppercase). */
 export function isBusiness(user: { role?: string } | null | undefined): boolean {
   return user?.role?.toUpperCase() === 'BUSINESS'
+}
+
+/**
+ * A phone number in E.164, or null if it is not one the server would accept.
+ *
+ * Digits and `+` only, and a leading `0` becomes `+972`. The pattern is the same
+ * one `E164_RE` enforces in server/app/schemas/auth.py — the two must agree exactly
+ * or the auth routes answer with a 422 before they ever look at the number.
+ */
+export function toE164(phone: string): string | null {
+  const cleaned = phone.replace(/[^\d+]/g, '')
+  const intl = cleaned.startsWith('0') ? `+972${cleaned.slice(1)}` : cleaned
+  return /^\+[1-9]\d{6,14}$/.test(intl) ? intl : null
 }
 
 export function sleep(ms: number): Promise<void> {

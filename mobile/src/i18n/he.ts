@@ -15,11 +15,35 @@ const he = {
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
     namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
+    requiredHint: 'שדות המסומנים ב-* הם שדות חובה',
+    forgot: {
+      link: 'שכחתי סיסמה',
+      title: 'איפוס סיסמה',
+      phoneStep: 'הזנת מספר הטלפון הרשום בחשבון, ושליחת קוד אימות ב-SMS',
+      sendCode: 'שליחת קוד',
+      // Deliberately does not say a code was sent: the server answers the same for a
+      // number that is not registered, and promising an SMS that never arrives is worse
+      // than saying less.
+      codeSent: 'אם המספר רשום, קוד בדרך אליו. תוקף הקוד {minutes} דקות',
+      code: 'קוד אימות',
+      newPassword: 'סיסמה חדשה',
+      submit: 'עדכון הסיסמה',
+      resend: 'לא הגיע קוד? שליחה חוזרת',
+      successToast: 'הסיסמה עודכנה — אפשר להיכנס עם החדשה',
+    },
     errors: {
       emailRequired: 'אנא הזן אימייל', passwordRequired: 'אנא הזן סיסמה',
       nameRequired: 'אנא הזן שם מלא', invalidEmail: 'אימייל לא תקין',
       passwordTooShort: 'הסיסמה קצרה מדי (מינימום 8 תווים)',
       emailExists: 'האימייל כבר קיים במערכת', invalidCredentials: 'אימייל או סיסמה שגויים',
+      nameTooShort: 'השם קצר מדי (לפחות 2 תווים)',
+      invalidPhone: 'מספר הטלפון לא תקין',
+      badResetCode: 'הקוד שגוי או שפג תוקפו — אפשר לבקש קוד חדש',
+      tooManyAttempts: 'יותר מדי בקשות. אפשר לנסות שוב בעוד {seconds} שניות',
+      tooManyAttemptsNoWait: 'יותר מדי בקשות. אפשר לנסות שוב בעוד מספר דקות',
+      invalidDetails: 'חלק מהפרטים אינם תקינים',
+      invalidAge: 'גיל חייב להיות בין 16 ל-120',
+      invalidLicenseYear: 'שנת רישיון חייבת להיות בין 1950 ל-2100',
     },
   },
   dashboard: {

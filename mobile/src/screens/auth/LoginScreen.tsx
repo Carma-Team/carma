@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
+import { authErrorMessage } from '@/lib/authErrors';
 import { isBusiness } from '@/lib/utils';
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
@@ -32,10 +33,8 @@ export default function LoginScreen() {
    *   - business     → /(business)
    */
   async function handleLogin() {
-    if (!email || !password) {
-        setError(t('auth.errors.emailRequired'));
-        return;
-    }
+    if (!email)    { setError(t('auth.errors.emailRequired'));    return }
+    if (!password) { setError(t('auth.errors.passwordRequired')); return }
     setLoading(true);
     setError('');
 
@@ -45,10 +44,11 @@ export default function LoginScreen() {
 
       if (isBusiness(data.user)) router.replace('/(business)');
       else router.replace('/(tabs)');
-    } catch {
-      // The server's error detail is always English — show the localized
-      // message instead so Hebrew users don't see raw English error text (CAR-59).
-      setError(t('auth.errors.invalidCredentials'));
+    } catch (e) {
+      // Only a 401 is a wrong email or password. Catching without a binding meant a
+      // rate limit and an unreachable server were shown as bad credentials too, and
+      // the driver retyped a password that was right all along.
+      setError(authErrorMessage(e, t, { 401: 'auth.errors.invalidCredentials' }));
     } finally {
       setLoading(false);
     }
@@ -99,7 +99,11 @@ export default function LoginScreen() {
           {t('auth.loginBtn')}
         </Button>
 
-        <TouchableOpacity onPress={() => router.push('/register')} style={styles.link}>
+        <TouchableOpacity onPress={() => router.push('/forgot-password')} style={styles.link}>
+          <Text style={styles.linkBold}>{t('auth.forgot.link')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.push('/register')} style={styles.linkTight}>
           <Text style={styles.linkText}>
             {t('auth.noAccount')} <Text style={styles.linkBold}>{t('auth.register')}</Text>
           </Text>
@@ -120,6 +124,7 @@ const styles = StyleSheet.create({
   label:     { ...TYPOGRAPHY.label, marginBottom: 6 },
   btn:       { marginTop: 8 },
   link:      { marginTop: 24, alignItems: 'center' },
+  linkTight: { marginTop: 12, alignItems: 'center' },
   linkText:  { ...TYPOGRAPHY.caption, fontSize: 14 },
   linkBold:  { color: COLORS.brandLight, fontWeight: '700' },
 });

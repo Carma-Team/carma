@@ -10,6 +10,7 @@ import { Button }   from '@/components/ui/Button'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
+import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
 
@@ -24,6 +25,14 @@ interface FormState {
 }
 
 const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
+
+// Every bound below is `RegisterIn` in server/app/schemas/auth.py. They are checked
+// here so the driver is told which field is wrong: the server answers all of them
+// with one 422 that names nothing they can act on.
+const MIN_NAME = 2
+const MIN_PASSWORD = 8
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^[\d\s+()-]{6,20}$/
 
 export default function RegisterScreen() {
   const router = useRouter()
@@ -49,11 +58,7 @@ export default function RegisterScreen() {
    * then shows a welcome toast. Navigation to tabs happens automatically via the root Layout.
    */
   async function handleRegister() {
-    if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
-    if (!form.email) { setError(t('auth.errors.emailRequired')); return }
-    // Must match RegisterIn in server/app/schemas/auth.py — the server answers a
-    // shorter one with a 422 the user cannot act on.
-    if (form.password.length < 8) { setError(t('auth.errors.passwordTooShort')); return }
+    if (!canSubmit) return
 
     setLoading(true); setError('')
     try {
@@ -71,14 +76,41 @@ export default function RegisterScreen() {
       const firstName = data.user?.name?.split(' ')[0] ?? t('auth.defaultUserName')
       addToast({ type: 'success', message: t('auth.welcomeToast').replace('{name}', firstName) })
       // No need for router.replace — the root Layout detects the logged-in user and redirects to tabs
-    } catch {
-      // The server's error detail is always English — show the localized
-      // message instead so Hebrew users don't see raw English error text (CAR-59).
-      setError(t('auth.errors.emailExists'))
+    } catch (e) {
+      // Only a 409 means the address is taken. Every other failure used to be shown
+      // as one too, which is how a 422, a 429 and a dead network all read as "that
+      // email is registered" (CAR-149).
+      setError(authErrorMessage(e, t, { 409: 'auth.errors.emailExists' }))
     } finally {
       setLoading(false)
     }
   }
+
+  /**
+   * The message under each field, or '' when there is nothing to say.
+   *
+   * A field that is still empty says nothing — an error that appears before the
+   * driver has typed anything reads as a rejection rather than as guidance. The
+   * required ones are held by the disabled button instead.
+   */
+  const fieldErrors: Record<keyof FormState, string> = {
+    name:        form.name && form.name.trim().length < MIN_NAME     ? t('auth.errors.nameTooShort')     : '',
+    email:       form.email && !EMAIL_RE.test(form.email.trim())     ? t('auth.errors.invalidEmail')     : '',
+    password:    form.password && form.password.length < MIN_PASSWORD ? t('auth.errors.passwordTooShort') : '',
+    phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
+    age:         form.age && (Number(form.age) < 16 || Number(form.age) > 120)
+      ? t('auth.errors.invalidAge') : '',
+    licenseYear: form.licenseYear && (Number(form.licenseYear) < 1950 || Number(form.licenseYear) > 2100)
+      ? t('auth.errors.invalidLicenseYear') : '',
+    city:        '',
+  }
+
+  const requiredFilled =
+    form.name.trim().length >= MIN_NAME &&
+    EMAIL_RE.test(form.email.trim()) &&
+    form.password.length >= MIN_PASSWORD
+
+  const canSubmit = requiredFilled && Object.values(fieldErrors).every(m => !m)
 
   const fields: { key: keyof FormState; label: string; placeholder: string; keyboard?: any; secure?: boolean; required?: boolean }[] = [
     { key: 'name',        label: t('auth.name'),        placeholder: t('auth.namePlaceholder'),  required: true },
@@ -103,6 +135,7 @@ export default function RegisterScreen() {
         </View>
 
         <Text style={styles.heading}>{t('auth.register')}</Text>
+        <Text style={styles.requiredHint}>{t('auth.requiredHint')}</Text>
 
         {error ? (
           <View style={COMMON_STYLES.errorBox}>
@@ -127,10 +160,13 @@ export default function RegisterScreen() {
               autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
               textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
             />
+            {fieldErrors[field.key] ? (
+              <Text style={styles.fieldError}>{fieldErrors[field.key]}</Text>
+            ) : null}
           </View>
         ))}
 
-        <Button fullWidth size="lg" onPress={handleRegister} loading={loading} style={styles.btn}>
+        <Button fullWidth size="lg" onPress={handleRegister} loading={loading} disabled={!canSubmit} style={styles.btn}>
           {t('auth.registerBtn')}
         </Button>
 
@@ -154,6 +190,8 @@ const styles = StyleSheet.create({
   field:    { marginBottom: 14 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
+  requiredHint: { ...TYPOGRAPHY.caption, fontSize: 13, marginBottom: 16, textAlign: 'center' },
+  fieldError: { ...TYPOGRAPHY.caption, fontSize: 13, color: COLORS.danger, marginTop: 4 },
   btn:      { marginTop: 8 },
   link:     { marginTop: 20, alignItems: 'center' },
   linkText: { ...TYPOGRAPHY.caption, fontSize: 14 },
