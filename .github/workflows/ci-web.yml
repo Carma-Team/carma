@@ -22,6 +22,17 @@ name: CI · web
 # needs to run this workflow, or it could change what web/ resolves to without
 # ever being checked.
 
+# `pull_request` deliberately carries no `paths:` filter. A workflow skipped by
+# a path filter never reports at all, and a required check that never reports
+# pins the PR on "Expected - waiting for status to be reported" forever.
+# GitHub's own advice is not to require a workflow that can be skipped. Pushes
+# keep their filter, because nothing gates a push. The cost is ~2 idle minutes
+# on an unrelated PR, and Actions is free on a public repo (CAR-122).
+#
+# Jobs carry an explicit `name:` because the required-check context is the bare
+# job name with no workflow prefix, and `lint` and `test` each existed in two
+# of these three workflows (CAR-122).
+
 on:
   push:
     branches: [main, develop]
@@ -33,12 +44,6 @@ on:
       - '.github/workflows/ci-web.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - '.github/workflows/ci-web.yml'
   workflow_dispatch:
 
 # One run per branch/PR. Superseded runs on develop and feature branches are
@@ -51,6 +56,7 @@ jobs:
   # web is an npm workspace sharing the root package-lock.json (like mobile),
   # so `npm ci` runs at the repo root — not inside ./web — same as ci-mobile.yml.
   typecheck:
+    name: web typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -66,6 +72,7 @@ jobs:
         run: npm run typecheck
 
   lint:
+    name: web lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -81,6 +88,7 @@ jobs:
         run: npm run lint
 
   test:
+    name: web tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -96,6 +104,7 @@ jobs:
         run: npm test
 
   build:
+    name: web build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
