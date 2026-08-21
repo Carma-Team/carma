@@ -159,7 +159,7 @@ export interface TripData {
   phoneSeconds: number;
   touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
   screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
-  accelAvailable: boolean;   // snapshot at trip start — false means no accelerometer hardware
+  accelAvailable: boolean;   // ever confirmed live this trip — false means no accelerometer hardware
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
 

@@ -300,7 +300,7 @@ interface TripData {
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
   screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
-  accelAvailable:         boolean;          // snapshot at trip start — false means no accelerometer hardware
+  accelAvailable:         boolean;          // ever confirmed live this trip — false means no accelerometer hardware
   accelInitFailed:        boolean;          // true only if accelerometer registration itself threw
 }
 ```

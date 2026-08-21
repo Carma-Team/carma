@@ -227,9 +227,10 @@ export class DrivingSDK {
       phoneSeconds: 0,           // deprecated v1.7
       touchEpochs: 0,
       screenInteractionSeconds: 0,
-      // Snapshot at first sensor tick — accelerometer availability is decided once at
-      // SensorManager.start() and never changes mid-trip, so these default false until
-      // the first handleSensorUpdate() call overwrites them (CAR-189).
+      // Latched over the trip: `accelAvailable` on each tick is "live right now"
+      // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
+      // false mid-trip. These default false and latch true once the accelerometer is
+      // ever confirmed live this trip (CAR-189).
       accelAvailable: false,
       accelInitFailed: false,
     };
@@ -389,7 +390,9 @@ export class DrivingSDK {
 
     // Trip-level IMU health, carried into the save payload so the server can tell a
     // quiet drive from a dead sensor (CAR-189) — not fraud input, just plumbed through.
-    this.currentTripData.accelAvailable = update.accelAvailable;
+    // Latch, never reset: a healthy accelerometer that goes stale in the last seconds of
+    // a trip must not arrive as `false`, which is the signature of missing hardware.
+    this.currentTripData.accelAvailable ||= update.accelAvailable;
     this.currentTripData.accelInitFailed = update.accelInitFailed;
 
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise

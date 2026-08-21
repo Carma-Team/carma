@@ -564,12 +564,24 @@ describe('DrivingSDK', () => {
     expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
   });
 
-  it('snapshots accelerometer health onto the trip, not just the validator (CAR-189)', async () => {
+  it('carries accelerometer health onto the trip, not just the validator (CAR-189)', async () => {
     await startTripReady();
 
     sendSensorUpdate({ accelAvailable: false, accelInitFailed: true });
 
     expect(tripData()).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  it('keeps accelAvailable true once seen live, even if the sensor goes stale later (CAR-189)', async () => {
+    await startTripReady();
+
+    // SensorManager gates accelAvailable on sample freshness (CAR-161), so a healthy
+    // accelerometer reports false after SENSOR_STALE_MS of silence. Ending the trip in
+    // that window must not look like a phone with no accelerometer.
+    sendSensorUpdate({ accelAvailable: true });
+    sendSensorUpdate({ accelAvailable: false });
+
+    expect(tripData()).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
   // ── Delegation to the injected TripValidator ───────────────────────────────
