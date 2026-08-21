@@ -224,7 +224,16 @@ LEADERBOARD_USERS: list[dict[str, Any]] = [
 ]
 
 # Dan follows these three (shows in his Friends leaderboard)
-DAN_FRIEND_EMAILS = ["yoav@carma.app", "noa@carma.app", "tamar@carma.app"]
+DAN_FRIEND_EMAILS = [
+    "yoav@carma.app",
+    "noa@carma.app",
+    "tamar@carma.app",
+    "ron@carma.app",
+    "shira@carma.app",
+    "eli@carma.app",
+    "michal@carma.app",
+    "uri@carma.app",
+]
 
 # ---------------------------------------------------------------------------
 # Yoni — investor-demo protagonist (Tel Aviv, ranked near bottom → motivation)
@@ -525,7 +534,7 @@ async def run() -> None:
                 )
             )
 
-        # --- Dan follows top 3 (Friends leaderboard) ---
+        # --- Dan follows the demo drivers (Friends leaderboard) ---
         for friend_email in DAN_FRIEND_EMAILS:
             friend = await db.scalar(select(User).where(User.email == friend_email))
             if friend is not None:
