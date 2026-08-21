@@ -26,21 +26,47 @@ export class AuthApiError extends Error {
 
 type AuthResponse = { token: string; user: AuthUser };
 
+// A hung request here is worse than a failed one: `lib/auth/refresh.ts`'s
+// single-flight guard means every other caller waiting on a refresh is
+// waiting on *this* promise, and a bootstrap that never settles leaves
+// ProtectedRoute on its loading spinner forever. This bounds it — the abort
+// rejects the fetch, which `refresh.ts` reads as a transient failure (see
+// there for why that must not be treated as "the session is dead").
+const REQUEST_TIMEOUT_MS = 10_000;
+
 async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    // The refresh cookie is httpOnly — this is what makes the browser attach
-    // it at all. Every one of these three calls needs it, login included: a
-    // login response is what sets the cookie in the first place.
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      // Server-checked on /refresh and /logout — see `core.deps.require_browser_header`.
-      // Sent here too, uniformly, rather than only on the two that need it.
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      // The refresh cookie is httpOnly — this is what makes the browser attach
+      // it at all. Every one of these three calls needs it, login included: a
+      // login response is what sets the cookie in the first place.
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        // Server-checked on /refresh and /logout — see `core.deps.require_browser_header`.
+        // Sent here too, uniformly, rather than only on the two that need it.
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    // status 0: not a real HTTP response — a network failure or our own
+    // abort, never the server. `refresh.ts` treats anything but a genuine
+    // 401 as transient, so this deliberately does not need to distinguish
+    // "timed out" from "the network dropped" any further than that.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new AuthApiError(0, 'Request timed out');
+    }
+    throw new AuthApiError(0, 'Network error');
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

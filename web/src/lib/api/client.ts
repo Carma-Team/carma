@@ -39,10 +39,18 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 
   let res = await doFetch();
 
-  // Exactly one retry, and only after a refresh that actually succeeded — a
-  // session that cannot be refreshed must surface as a failure here, not loop.
-  if (res.status === 401 && (await attemptRefresh())) {
-    res = await doFetch();
+  // Exactly one retry, and only after a refresh that actually succeeded — not
+  // just settled. `attemptRefresh()` returns a string in every case (`'ok'`,
+  // `'rejected'`, `'transient'`), so a truthy check here would retry after a
+  // rejection or a timeout too; only `'ok'` means there is a new token worth
+  // retrying with. A refresh that cannot happen right now must surface as this
+  // one call failing, not loop, and — per `refresh.ts` — must not end the
+  // session over what might be nothing more than a bad moment on the wire.
+  if (res.status === 401) {
+    const outcome = await attemptRefresh();
+    if (outcome === 'ok') {
+      res = await doFetch();
+    }
   }
 
   if (!res.ok) {

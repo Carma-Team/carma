@@ -48,4 +48,8 @@ class RefreshToken(Base):
         Index("ix_refresh_tokens_user_id", "user_id"),
         # For the lazy sweep — see `services.auth._sweep_expired_refresh_tokens`.
         Index("ix_refresh_tokens_expires_at", "expires_at"),
+        # `replaced_by_id`'s FK is ON DELETE SET NULL — without an index here,
+        # every row the sweep deletes forces Postgres to scan this whole table
+        # for rows pointing at it, to null them out.
+        Index("ix_refresh_tokens_replaced_by_id", "replaced_by_id"),
     )

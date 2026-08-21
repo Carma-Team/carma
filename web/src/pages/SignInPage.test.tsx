@@ -25,15 +25,17 @@ function renderSignIn() {
 describe('SignInPage', () => {
   const login = vi.fn();
   const logout = vi.fn();
+  const retry = vi.fn();
 
   beforeEach(() => {
     login.mockReset();
     logout.mockReset();
+    retry.mockReset();
   });
 
   it('submits email + password and lands on the home route on success', async () => {
     login.mockResolvedValue(undefined);
-    vi.mocked(useAuth).mockReturnValue({ status: 'unauthenticated', user: null, login, logout });
+    vi.mocked(useAuth).mockReturnValue({ status: 'unauthenticated', user: null, login, logout, retry });
 
     renderSignIn();
     fireEvent.change(screen.getByLabelText('אימייל'), { target: { value: 'biz@carma.app' } });
@@ -46,7 +48,7 @@ describe('SignInPage', () => {
 
   it('shows a translated error and stays on the form when login is rejected', async () => {
     login.mockRejectedValue(new Error('bad creds'));
-    vi.mocked(useAuth).mockReturnValue({ status: 'unauthenticated', user: null, login, logout });
+    vi.mocked(useAuth).mockReturnValue({ status: 'unauthenticated', user: null, login, logout, retry });
 
     renderSignIn();
     fireEvent.change(screen.getByLabelText('אימייל'), { target: { value: 'biz@carma.app' } });
@@ -58,7 +60,7 @@ describe('SignInPage', () => {
   });
 
   it('redirects home immediately when a session is already restored', () => {
-    vi.mocked(useAuth).mockReturnValue({ status: 'authenticated', user: null, login, logout });
+    vi.mocked(useAuth).mockReturnValue({ status: 'authenticated', user: null, login, logout, retry });
 
     renderSignIn();
 
@@ -66,7 +68,7 @@ describe('SignInPage', () => {
   });
 
   it('shows a loading state instead of the form while bootstrap is pending', () => {
-    vi.mocked(useAuth).mockReturnValue({ status: 'loading', user: null, login, logout });
+    vi.mocked(useAuth).mockReturnValue({ status: 'loading', user: null, login, logout, retry });
 
     renderSignIn();
 

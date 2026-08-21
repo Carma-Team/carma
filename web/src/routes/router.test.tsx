@@ -3,13 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
-import { authApi } from '@/lib/auth/authApi';
+import { authApi, AuthApiError } from '@/lib/auth/authApi';
 import { setSession } from '@/lib/auth/session';
 import { routes } from './router';
 
-vi.mock('@/lib/auth/authApi', () => ({
-  authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn() },
-}));
+vi.mock('@/lib/auth/authApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth/authApi')>();
+  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn() } };
+});
 
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -40,7 +41,7 @@ describe('routes', () => {
   });
 
   it('sends / to sign-in when there is no session to restore', async () => {
-    vi.mocked(authApi.refresh).mockRejectedValue(new Error('no cookie'));
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
 
     renderAt('/');
 
@@ -50,7 +51,7 @@ describe('routes', () => {
   });
 
   it('renders the not-found page at an unknown path (default language: Hebrew)', () => {
-    vi.mocked(authApi.refresh).mockRejectedValue(new Error('no cookie'));
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
 
     renderAt('/does-not-exist');
 

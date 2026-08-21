@@ -46,9 +46,14 @@ def upgrade() -> None:
     op.create_index("ix_refresh_tokens_token_hash", "refresh_tokens", ["token_hash"], unique=True)
     op.create_index("ix_refresh_tokens_user_id", "refresh_tokens", ["user_id"])
     op.create_index("ix_refresh_tokens_expires_at", "refresh_tokens", ["expires_at"])
+    # ON DELETE SET NULL on replaced_by_id means every row the lazy sweep
+    # deletes makes Postgres look for rows pointing at it — a sequential scan
+    # of the whole table without this.
+    op.create_index("ix_refresh_tokens_replaced_by_id", "refresh_tokens", ["replaced_by_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_refresh_tokens_replaced_by_id", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_expires_at", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_user_id", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_token_hash", table_name="refresh_tokens")

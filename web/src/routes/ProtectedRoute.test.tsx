@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,8 +8,8 @@ import type { AuthContextValue } from '@/lib/auth/types';
 
 vi.mock('@/hooks/useAuth');
 
-function mockAuth(status: AuthContextValue['status']) {
-  vi.mocked(useAuth).mockReturnValue({ status, user: null, login: vi.fn(), logout: vi.fn() });
+function mockAuth(status: AuthContextValue['status'], retry: () => void = vi.fn()) {
+  vi.mocked(useAuth).mockReturnValue({ status, user: null, login: vi.fn(), logout: vi.fn(), retry });
 }
 
 function renderProtected() {
@@ -46,5 +46,18 @@ describe('ProtectedRoute', () => {
     expect(screen.queryByText('secret')).not.toBeInTheDocument();
     expect(screen.queryByText('sign-in page')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('offers a retry instead of redirecting when bootstrap failed transiently — not a sign-in-again', () => {
+    const retry = vi.fn();
+    mockAuth('error', retry);
+    renderProtected();
+
+    expect(screen.queryByText('secret')).not.toBeInTheDocument();
+    expect(screen.queryByText('sign-in page')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

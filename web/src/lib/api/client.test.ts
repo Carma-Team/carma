@@ -51,7 +51,7 @@ describe('request', () => {
       .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
     vi.mocked(attemptRefresh).mockImplementation(async () => {
       setSession({ accessToken: 'tok-2', user: USER });
-      return true;
+      return 'ok';
     });
 
     const result = await request<{ ok: boolean }>('/api/business/rewards');
@@ -62,9 +62,20 @@ describe('request', () => {
     expect((retryInit?.headers as Record<string, string>).Authorization).toBe('Bearer tok-2');
   });
 
-  it('fails without a second retry when the refresh itself cannot restore a session', async () => {
+  it('fails without a second retry when the refresh is genuinely rejected', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
-    vi.mocked(attemptRefresh).mockResolvedValue(false);
+    vi.mocked(attemptRefresh).mockResolvedValue('rejected');
+
+    await expect(request('/api/business/rewards')).rejects.toBeInstanceOf(ApiError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails without a second retry when the refresh only fails transiently — not a truthy-string bug', async () => {
+    // `attemptRefresh` resolves to a string in every case; a plain truthy
+    // check on the outcome would retry after 'transient' too, since any
+    // non-empty string is truthy in JS. This pins the explicit `=== 'ok'`.
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
+    vi.mocked(attemptRefresh).mockResolvedValue('transient');
 
     await expect(request('/api/business/rewards')).rejects.toBeInstanceOf(ApiError);
     expect(fetch).toHaveBeenCalledTimes(1);
