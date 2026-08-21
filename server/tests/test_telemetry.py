@@ -52,6 +52,20 @@ class TestKinematicDetection:
         assert analysis.hard_brakes == 1
         assert any(e.type == "HARD_BRAKE" for e in analysis.events)
 
+    def test_two_second_cadence_catches_a_brake_a_coarser_trace_averages_away(self) -> None:
+        # One physical event, three samplers: 3.5 m/s² held for 2 s drops 60 km/h
+        # to 34.8. A 2 s trace brackets it exactly and reads 3.5 m/s²; a 5 s or 6 s
+        # trace averages the same drop against seconds of steady speed and reads
+        # 1.4 and 1.2 m/s². This is why the cadence follows the threshold (CAR-179).
+        def with_brake(dt: float) -> list[dict]:
+            trace = _cruise(60, 60.0, dt=dt)
+            t0 = len(trace) * dt
+            return trace + [_wp(t0, 60.0), _wp(t0 + dt, 34.8), _wp(t0 + 2 * dt, 34.8)]
+
+        assert telemetry.analyze(with_brake(2.0), 80).hard_brakes == 1
+        assert telemetry.analyze(with_brake(5.0), 80).hard_brakes == 0
+        assert telemetry.analyze(with_brake(6.0), 80).hard_brakes == 0
+
     def test_gentle_braking_not_detected(self) -> None:
         # 60 → 40 km/h over 3 s ≈ −1.9 m/s² — normal driving.
         trace = _cruise(30, 60.0)
@@ -124,6 +138,15 @@ class TestConfidence:
         analysis = telemetry.analyze(trace, 700)
         assert analysis.confidence < 0.65
 
+    def test_spec_cadence_is_not_penalised_where_a_five_second_trace_is(self) -> None:
+        # 2 s sits under the 2.5 s ceiling, so the rate factor saturates and only
+        # coverage moves the number. A 5 s trace loses 30 points of confidence on
+        # density alone — the spread that thinning to 5 s used to hide.
+        dense = telemetry.analyze(_cruise(600, 50.0, dt=2.0), 600)
+        thinned = telemetry.analyze(_cruise(600, 50.0, dt=5.0), 600)
+        assert dense.confidence > 0.99
+        assert thinned.confidence < 0.72
+
     def test_no_waypoints_is_zero_confidence(self) -> None:
         assert telemetry.analyze(None, 600).confidence == 0.0
 
@@ -172,3 +195,68 @@ class TestTraceDistance:
         trace = [_wp(0, 100.0), _wp(5, 50.0), _wp(10, 0.0)]
         a = telemetry.analyze(trace, 10)
         assert a.distance_km == round(50.0 * 10 / 3600 * 1000) / 1000
+
+
+class TestDrivingSecondsAboveThreshold:
+    """The distraction denominator (CAR-54) — seconds spent above 15 km/h.
+
+    The gate is CMT's 9.3 mph screen-interaction threshold, rounded. It is a
+    separate constant from the kinematic floor, which happens to share its value.
+    """
+
+    def test_a_crawl_witnesses_no_driving_seconds(self) -> None:
+        assert telemetry.analyze(_cruise(600, 10.0), 600).driving_seconds_above_threshold == 0.0
+
+    def test_a_cruise_witnesses_the_whole_span(self) -> None:
+        # _cruise emits n = seconds/dt points, so the trace spans (n-1)*dt = 597 s.
+        assert telemetry.analyze(_cruise(600, 50.0), 600).driving_seconds_above_threshold == 597.0
+
+    def test_a_segment_is_credited_by_its_mean_speed(self) -> None:
+        # 15.0 km/h is driving. Each segment is judged on the mean of its two ends,
+        # so 14.9 -> 15.0 falls short and 40 -> 5 still counts.
+        trace = [_wp(0, 0.0), _wp(3, 14.9), _wp(6, 15.0), _wp(9, 40.0), _wp(12, 5.0)]
+        assert telemetry.analyze(trace, 12).driving_seconds_above_threshold == 6.0
+
+    def test_a_gap_is_not_decided_by_its_closing_sample(self) -> None:
+        """The same minute of driving, once ending at a red light and once starting
+        from one. The closing sample used to make it 3 s or 60 s."""
+        into_a_stop = [_wp(0, 80.0), _wp(3, 80.0), _wp(63, 0.0)]
+        out_of_a_stop = [_wp(0, 0.0), _wp(3, 0.0), _wp(63, 80.0)]
+        assert telemetry.analyze(into_a_stop, 63).driving_seconds_above_threshold == 63.0
+        assert telemetry.analyze(out_of_a_stop, 63).driving_seconds_above_threshold == 60.0
+
+    def test_gaps_are_credited_not_dropped(self) -> None:
+        """Same reason as trace distance: excluding a >15 s hole would shrink the
+        denominator and inflate the rate on exactly the sparse-GPS devices (CAR-7)."""
+        trace = [_wp(0, 80.0), _wp(3, 80.0), _wp(60, 80.0), _wp(63, 80.0)]
+        assert telemetry.analyze(trace, 63).driving_seconds_above_threshold == 63.0
+
+    def test_unusable_trace_reports_zero_via_empty_analysis(self) -> None:
+        """An unusable trace has to witness nothing at all: the distraction denominator
+        in trips.py credits whatever the trace missed, and that is what makes it fall
+        back to the trip's wall-clock duration here."""
+        assert telemetry.analyze(None, 60) is telemetry.EMPTY_ANALYSIS
+        assert telemetry.analyze([_wp(0, 50.0)], 60) is telemetry.EMPTY_ANALYSIS
+        assert telemetry.EMPTY_ANALYSIS.driving_seconds_above_threshold == 0.0
+
+
+class TestWitnessedSpan:
+    """How much of the trip the trace actually saw (CAR-54).
+
+    The distraction numerator is whole-trip, so the denominator has to know what
+    the trace missed — otherwise a trace that dies early charges every handling
+    second against the few minutes it managed to record.
+    """
+
+    def test_span_is_first_to_last_sample(self) -> None:
+        # _cruise emits n = seconds/dt points, so the trace spans (n-1)*dt = 597 s.
+        assert telemetry.analyze(_cruise(600, 50.0), 600).witnessed_span_seconds == 597.0
+
+    def test_an_unusable_trace_witnesses_nothing(self) -> None:
+        assert telemetry.EMPTY_ANALYSIS.witnessed_span_seconds == 0.0
+
+    def test_a_truncated_trace_reports_only_what_it_covered(self) -> None:
+        """Five minutes of trace on a 45-minute trip: the span, not the duration."""
+        a = telemetry.analyze(_cruise(300, 60.0), 2700)
+        assert a.witnessed_span_seconds == 297.0
+        assert a.driving_seconds_above_threshold == 297.0

@@ -1,3 +1,10 @@
+/**
+ * @file types.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief Every type and interface the library exposes to its host app.
+ * Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract
+ * through which an app injects its own trip-start, trip-end and suspicion rules.
+ */
 
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 
@@ -22,6 +29,13 @@ export interface ValidationSample {
   timestamp: number;          // Date.now()
   accel?: { x: number; y: number; z: number };  // Phase 2 (fraud detection)
   gyroYaw?: number;                              // Phase 2
+  // accel/gyroYaw are 0 when their sensor was never registered — these say whether
+  // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
+  accelAvailable?: boolean;
+  gyroAvailable?: boolean;
+  // false means background/"Always" location permission was denied, so automatic
+  // (background) trip tracking cannot run — not that tracking is simply idle.
+  backgroundLocationAvailable?: boolean;
 }
 
 export enum DrivingEventType {
@@ -35,14 +49,14 @@ export enum DrivingEventType {
 export interface DrivingEvent {
   type: DrivingEventType;
   timestamp: Date;
-  severity: number; // 0.0 to 1.0
+  severity?: number; // 0.0 to 1.0. PHONE_USAGE only — motion events omit it (scoring.md §3.4: no vehicle-frame axis, no severity)
   speedKmh?: number; // vehicle speed at the moment the event fired — stamped by DrivingSDK
   location?: {
     latitude: number;
     longitude: number;
   };
   // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
-  peakG?: number;      // gravity-removed peak horizontal g-force, the value already compared against the detection threshold
+  peakG?: number;      // reserved for a single vehicle-frame axis once a phone→vehicle rotation stage exists; not populated until then
   durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 
@@ -53,7 +67,9 @@ export interface DrivingEvent {
 export interface SensorEventCondition {
   /** GPS speed (km/h) must be at or above this value at the moment of detection. */
   minSpeedKmh?: number;
-  /** Event severity [0–1] must be at or above this value. */
+  /** Event severity [0–1] must be at or above this value. PHONE_USAGE only —
+   *  motion events don't carry severity (CAR-156), so this condition is ignored
+   *  rather than blocking them. */
   minSeverity?: number;
 }
 

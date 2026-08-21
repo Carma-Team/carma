@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/Progress';
 import { LevelBadge } from './LevelBadge';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { getUserLevelData } from '@/lib/constants';
-import { scoreToColor } from '@/lib/scoring';
+import { scoreToColor } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Language } from '@/types';
 
@@ -73,8 +73,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)'
   },
   badgeWrapper: {
-    marginLeft: 10,
-    marginRight: 15,
+    // Empirically flipped under this screen's RTL `direction` — marginLeft is the
+    // gap toward the hero's right edge, marginRight toward the score on its left.
+    marginLeft: 2,
+    marginRight: 18,
     transform: [{ scale: 1.0 }]
   },
   heroRight: { flex: 1, justifyContent: 'center' },

@@ -1,6 +1,9 @@
 /**
- * @fileoverview Generic driving trip SDK — DrivingSDK
- * @module lib/driving-sdk
+ * @file index.ts
+ * @owner May Hajbi — driving-sdk maintainer
+ * @brief The SDK's public entry point and orchestrator, `DrivingSDK`.
+ * Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream,
+ * and emits driving events to whatever host app is consuming the library.
  *
  * @description
  * Singleton class managing the full trip lifecycle:
@@ -8,20 +11,22 @@
  * - 1-second wall-clock timer that updates TripData
  * - Sensor event listeners (brake/accel/turn) via SensorManager
  * - Phone usage listener via PhoneUsageManager
- * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onAutoStart, onFraudDetected
+ * - Callbacks: onTripStart, onTripEnd, onUpdate, onEventDetected, onFraudDetected
  *
  * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
  * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
  */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
-import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
   SensorEventCondition, SensorEventHandler, ListenerToken,
   TripValidator, SuspiciousActivityEvaluation,
 } from '@/lib/driving-sdk/types';
+
+const WAYPOINT_INTERVAL_MS = 5000;
 
 export class DrivingSDK {
   private config: SDKConfig;
@@ -55,8 +60,8 @@ export class DrivingSDK {
   private currentSpeedKmh = 0;
   // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
   private lastKnownLocation: { lat: number; lng: number } | null = null;
-  // Elapsed seconds since the last waypoint was appended — used for 5-second time-based downsampling
-  private secondsSinceLastWaypoint = 0;
+  // Wall-clock timestamp of the last appended waypoint — used for time-based downsampling
+  private lastWaypointTs: number | null = null;
 
   // ─── Trip lifecycle callbacks ────────────────────────────────────────────────
   public onTripStart?: (tripId: string) => void;
@@ -75,14 +80,14 @@ export class DrivingSDK {
    * The handler fires only when ALL specified conditions are satisfied.
    *
    * @param type    - The event type to listen for.
-   * @param condition - Conditions that must hold at detection time (speed, severity, …).
+   * @param condition - Conditions that must hold at detection time (speed; severity, PHONE_USAGE only, see CAR-156).
    * @param handler - Callback invoked with a copy of the event when conditions are met.
    * @returns A `ListenerToken` — pass to `off()` to unsubscribe.
    *
    * @example
    * // Fire only for hard brakes detected above 15 km/h
    * const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (event) => {
-   *   console.log('Hard brake at', event.speedKmh, 'km/h — severity', event.severity);
+   *   console.log('Hard brake at', event.speedKmh, 'km/h');
    * });
    */
   public on(
@@ -208,7 +213,7 @@ export class DrivingSDK {
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     const tripId = `trip_${Date.now()}`;
 
     this.currentTripData = {
@@ -262,7 +267,7 @@ export class DrivingSDK {
     this.currentTripData = null;
     this.tripStartTime = 0;
     this.lastKnownLocation = null;
-    this.secondsSinceLastWaypoint = 0;
+    this.lastWaypointTs = null;
     return finalData;
   }
 
@@ -322,14 +327,19 @@ export class DrivingSDK {
     // Store all SDK-qualified events in the trip (used for route map markers and raw display).
     // Whether an event counts toward a score is decided by each registered listener's conditions.
     this.currentTripData.events.push(event);
-    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h severity=${event.severity?.toFixed(2)}`);
+    // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
+    const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
+    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
 
     // Dispatch to conditional listeners — each listener fires only when its conditions are met.
     const snapshot = { ...event };
     for (const { type, condition, handler } of this.sensorListeners.values()) {
       if (type !== event.type) continue;
       if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      if (condition.minSeverity !== undefined && (event.severity ?? 0) < condition.minSeverity) continue;
+      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
+      // motion events can satisfy, so it must not silently block them either.
+      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
+          && (event.severity ?? 0) < condition.minSeverity) continue;
       try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
     }
 
@@ -339,14 +349,14 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleInteractionData(data: { touchEpochs: number; screenInteractionSeconds: number }) {
+  private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs = data.touchEpochs;
-    this.currentTripData.screenInteractionSeconds = data.screenInteractionSeconds;
+    this.currentTripData.touchEpochs += data.touchEpochs;
+    this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -365,6 +375,9 @@ export class DrivingSDK {
       timestamp: Date.now(),
       accel: { x: update.accelX, y: 0, z: 0 },
       gyroYaw: update.gyroZ,
+      accelAvailable: update.accelAvailable,
+      gyroAvailable: update.gyroAvailable,
+      backgroundLocationAvailable: update.backgroundLocationAvailable,
     });
 
     if (!this.isTripActive || !this.currentTripData) return;
@@ -380,17 +393,18 @@ export class DrivingSDK {
       const maxDistKm = (update.currentSpeed / 3600) * update.timeDeltaS * 1.5;
       this.currentTripData.distanceKm += Math.min(update.distanceKm, maxDistKm);
 
-      // Waypoint collection: append one point every 5 elapsed GPS seconds while moving.
-      // This caps a 30-minute trip at ~360 waypoints regardless of speed.
-      this.secondsSinceLastWaypoint += 2; // GPS fires every ~2s
-      if (this.secondsSinceLastWaypoint >= 5 && this.lastKnownLocation) {
+      // Waypoint collection: append one point every WAYPOINT_INTERVAL_MS of wall-clock time
+      // while moving, not GPS tick count — real tick cadence drifts from the nominal 2s
+      // (OS throttling, background suspension), same class of bug as D-SDK-5.
+      const now = Date.now();
+      if (this.lastKnownLocation && (this.lastWaypointTs === null || now - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
           lng: this.lastKnownLocation.lng,
-          ts: Date.now(),
+          ts: now,
           speedKmh: update.currentSpeed,
         });
-        this.secondsSinceLastWaypoint = 0;
+        this.lastWaypointTs = now;
       }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);
