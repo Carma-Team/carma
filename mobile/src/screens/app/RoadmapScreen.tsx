@@ -5,8 +5,8 @@ import { useApp }     from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { LEVELS, getLevelByPoints } from '@/lib/constants'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
-import { RoadmapLevelItem } from '@/components/gamification/RoadmapLevelItem'
-import { ScoreChart } from '@/components/social/ScoreChart'
+import { LevelWheel } from '@/components/gamification/LevelWheel'
+import { WeekScoreStrip } from '@/components/social/WeekScoreStrip'
 import { tripsApi } from '@/services/api/trips.api'
 import type { Trip } from '@/types'
 
@@ -45,22 +45,17 @@ export default function RoadmapScreen() {
       </View>
 
       <ScrollView style={styles.root} contentContainerStyle={COMMON_STYLES.scrollContent}>
-        {/* Score trend, replaces the old level-progress hero */}
-        <ScoreChart trips={trips} lang={lang} />
+        {/* This week's daily scores */}
+        <WeekScoreStrip trips={trips} lang={lang} />
 
-        {/* All levels */}
+        {/* Level wheel — drag through all levels, info card follows whichever is centered */}
         <View style={styles.levels}>
-          {LEVELS.map((lvl, idx) => (
-            <RoadmapLevelItem
-              key={lvl.level}
-              lvl={lvl}
-              idx={idx}
-              totalLevels={LEVELS.length}
-              currentLevel={currentLevel}
-              currentPoints={currentPoints}
-              lang={lang}
-            />
-          ))}
+          <LevelWheel
+            levels={LEVELS}
+            currentLevel={currentLevel}
+            currentPoints={currentPoints}
+            lang={lang}
+          />
         </View>
       </ScrollView>
     </View>
