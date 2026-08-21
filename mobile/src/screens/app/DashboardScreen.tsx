@@ -35,6 +35,19 @@ export default function DashboardScreen() {
       .catch(err => console.error('Stats error:', err));
   }, []);
 
+  // Re-fetch after a trip completes so a streak earned just now doesn't wait for app restart.
+  // Guarded on lastTripSummary itself (not showSummary) — closing the modal resets it to null,
+  // and without the guard that reset would fire this same request again.
+  useEffect(() => {
+    if (!lastTripSummary) return;
+    userApi.stats()
+      .then(d => {
+        setCurrentStreak(d.stats.currentStreak);
+        setBestStreak(d.stats.bestStreak);
+      })
+      .catch(err => console.error('Stats error:', err));
+  }, [lastTripSummary]);
+
   // Controls whether the post-trip summary modal is visible
   const [showSummary, setShowSummary] = useState(false);
 
@@ -127,6 +140,8 @@ export default function DashboardScreen() {
         trip={lastTripSummary}
         onClose={handleCloseSummary}
         onViewDetails={handleViewDetails}
+        currentStreak={currentStreak}
+        bestStreak={bestStreak}
       />
     </View>
   );
