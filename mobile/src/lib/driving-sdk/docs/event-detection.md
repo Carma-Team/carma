@@ -144,7 +144,7 @@ flowchart TD
 > **These constants are IMU calibration values, not tuned parameters.** They
 > were chosen from expected separation margins and **have never been
 > validated against real drive data** — the rotation threshold most of all,
-> since no drive-test data backs it yet (tracked as CAR-31). The glass-tap
+> since no drive-test data backs it yet (tracked as CAR-183). The glass-tap
 > proxy also cannot distinguish a finger tap from a sharp road bump. Treat
 > all of these as indicative until calibrated.
 
