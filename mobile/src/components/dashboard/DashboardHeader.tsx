@@ -8,8 +8,8 @@ import { ICONS } from '@/constants/icons';
 
 interface DashboardHeaderProps {
   userName: string;
-  currentStreak: number;
-  bestStreak: number;
+  currentStreak: number | null;
+  bestStreak: number | null;
 }
 
 export function DashboardHeader({ userName, currentStreak, bestStreak }: DashboardHeaderProps) {
@@ -26,10 +26,10 @@ export function DashboardHeader({ userName, currentStreak, bestStreak }: Dashboa
       <View style={styles.actions}>
         <View
           style={styles.streakBadge}
-          accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak}. ${t('stats.bestStreak')}: ${bestStreak}`}
+          accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak ?? '--'}. ${t('stats.bestStreak')}: ${bestStreak ?? '--'}`}
         >
           <Ionicons name={ICONS.streak} size={16} color={COLORS.text} />
-          <Text style={styles.streakValue}>{currentStreak}</Text>
+          <Text style={styles.streakValue}>{currentStreak ?? '--'}</Text>
         </View>
         <TouchableOpacity
           style={styles.settingsBtn}

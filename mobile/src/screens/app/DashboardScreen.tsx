@@ -22,8 +22,8 @@ export default function DashboardScreen() {
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
-  const [currentStreak, setCurrentStreak] = useState(0);
-  const [bestStreak, setBestStreak] = useState(0);
+  const [currentStreak, setCurrentStreak] = useState<number | null>(null);
+  const [bestStreak, setBestStreak] = useState<number | null>(null);
 
   // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
   useEffect(() => {

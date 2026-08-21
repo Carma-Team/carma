@@ -27,7 +27,6 @@ export const ICONS = {
   avgScore:       'speedometer'               as IoniconName,
   safeTrips:      'shield-checkmark'          as IoniconName,
   streak:         'flame'                     as IoniconName,
-  bestStreak:     'ribbon'                    as IoniconName,
 
   // ─── Driving events ─────────────────────────────────────────────────────────
   hardBrake:      'alert-circle'              as IoniconName,

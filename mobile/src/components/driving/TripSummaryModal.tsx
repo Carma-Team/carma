@@ -30,8 +30,8 @@ interface TripSummaryModalProps {
     tripEvents?: DrivingEvent[];
   } | null;
   onViewDetails?: (id: string) => void;
-  currentStreak?: number;
-  bestStreak?: number;
+  currentStreak?: number | null;
+  bestStreak?: number | null;
 }
 
 export function TripSummaryModal({ visible, onClose, trip, onViewDetails, currentStreak, bestStreak }: TripSummaryModalProps) {
@@ -93,11 +93,11 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails, curren
                     </View>
                   )}
 
-                  {currentStreak != null && bestStreak != null && (
+                  {currentStreak !== undefined && bestStreak !== undefined && (
                     <View style={styles.streakNotice}>
                       <Ionicons name={ICONS.streak} size={16} color={COLORS.textMuted} />
                       <Text style={styles.streakNoticeText}>
-                        {t('stats.currentStreak')}: {currentStreak} · {t('stats.bestStreak')}: {bestStreak}
+                        {t('stats.currentStreak')}: {currentStreak ?? '--'} · {t('stats.bestStreak')}: {bestStreak ?? '--'}
                       </Text>
                     </View>
                   )}
