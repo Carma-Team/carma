@@ -9,6 +9,7 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 export function Input({ label, error, id, className, ...props }: InputProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
+  const errorId = `${inputId}-error`;
 
   return (
     <div className={styles.field}>
@@ -21,9 +22,14 @@ export function Input({ label, error, id, className, ...props }: InputProps) {
         id={inputId}
         className={[styles.input, error && styles.inputError, className].filter(Boolean).join(' ')}
         aria-invalid={Boolean(error)}
+        aria-describedby={error ? errorId : undefined}
         {...props}
       />
-      {error && <span className={styles.error}>{error}</span>}
+      {error && (
+        <span id={errorId} className={styles.error}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }

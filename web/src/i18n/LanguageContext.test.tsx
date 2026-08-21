@@ -59,4 +59,39 @@ describe('LanguageProvider', () => {
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.documentElement.lang).toBe('he');
   });
+
+  it('falls back to the default language when localStorage holds an invalid value', () => {
+    window.localStorage.setItem('carma_lang', 'xx');
+
+    render(
+      <LanguageProvider>
+        <LanguageProbe />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByTestId('lang')).toHaveTextContent('HE');
+    expect(document.documentElement.dir).toBe('rtl');
+    expect(document.documentElement.lang).toBe('he');
+  });
+
+  it('persists the choice across a remount (simulates a page reload)', () => {
+    const { unmount } = render(
+      <LanguageProvider>
+        <LanguageProbe />
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByText('english'));
+    unmount();
+
+    render(
+      <LanguageProvider>
+        <LanguageProbe />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByTestId('lang')).toHaveTextContent('EN');
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(document.documentElement.lang).toBe('en');
+  });
 });

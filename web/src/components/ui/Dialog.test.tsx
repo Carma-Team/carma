@@ -65,4 +65,18 @@ describe('Dialog', () => {
     expect(close).toHaveBeenCalledTimes(1);
     expect(showModal).toHaveBeenCalledTimes(1);
   });
+
+  it('calls onClose when the native cancel event fires (Escape key)', () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Confirm" closeLabel="Close" onClose={onClose}>
+        Body content
+      </Dialog>,
+    );
+
+    const dialogEl = document.querySelector('dialog')!;
+    dialogEl.dispatchEvent(new Event('cancel', { cancelable: true }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
