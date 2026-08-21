@@ -30,9 +30,11 @@ interface TripSummaryModalProps {
     tripEvents?: DrivingEvent[];
   } | null;
   onViewDetails?: (id: string) => void;
+  currentStreak?: number | null;
+  bestStreak?: number | null;
 }
 
-export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: TripSummaryModalProps) {
+export function TripSummaryModal({ visible, onClose, trip, onViewDetails, currentStreak, bestStreak }: TripSummaryModalProps) {
   const { t } = useTranslation();
 
   if (!trip) return null;
@@ -88,6 +90,15 @@ export function TripSummaryModal({ visible, onClose, trip, onViewDetails }: Trip
                     <View style={styles.cappedNotice}>
                       <Ionicons name="information-circle-outline" size={16} color={COLORS.textMuted} />
                       <Text style={styles.cappedNoticeText}>{t('trip.pointsCapped')}</Text>
+                    </View>
+                  )}
+
+                  {currentStreak !== undefined && bestStreak !== undefined && (
+                    <View style={styles.streakNotice}>
+                      <Ionicons name={ICONS.streak} size={16} color={COLORS.textMuted} />
+                      <Text style={styles.streakNoticeText}>
+                        {t('stats.currentStreak')}: {currentStreak ?? '--'} · {t('stats.bestStreak')}: {bestStreak ?? '--'}
+                      </Text>
                     </View>
                   )}
 
@@ -150,5 +161,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8, paddingHorizontal: 12,
   },
   cappedNoticeText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, fontSize: 12, flex: 1 },
+  streakNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'stretch', marginBottom: SPACING.md,
+    backgroundColor: COLORS.card, borderRadius: 14,
+    paddingVertical: 8, paddingHorizontal: 12,
+  },
+  streakNoticeText: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, fontSize: 12, flex: 1 },
   mapWrapper:  { width: '100%' },
 });
