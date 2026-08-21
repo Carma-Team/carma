@@ -26,7 +26,7 @@ describe('Dialog', () => {
 
   it('calls showModal when opened', () => {
     render(
-      <Dialog open title="Confirm" onClose={() => {}}>
+      <Dialog open title="Confirm" closeLabel="Close" onClose={() => {}}>
         Body content
       </Dialog>,
     );
@@ -39,7 +39,7 @@ describe('Dialog', () => {
   it('calls onClose when the close button is clicked', () => {
     const onClose = vi.fn();
     render(
-      <Dialog open title="Confirm" onClose={onClose}>
+      <Dialog open title="Confirm" closeLabel="Close" onClose={onClose}>
         Body content
       </Dialog>,
     );
@@ -51,13 +51,13 @@ describe('Dialog', () => {
 
   it('calls close() rather than showModal() again when open flips to false', () => {
     const { rerender } = render(
-      <Dialog open title="Confirm" onClose={() => {}}>
+      <Dialog open title="Confirm" closeLabel="Close" onClose={() => {}}>
         Body content
       </Dialog>,
     );
 
     rerender(
-      <Dialog open={false} title="Confirm" onClose={() => {}}>
+      <Dialog open={false} title="Confirm" closeLabel="Close" onClose={() => {}}>
         Body content
       </Dialog>,
     );

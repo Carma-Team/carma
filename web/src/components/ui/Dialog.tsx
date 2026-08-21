@@ -6,14 +6,17 @@ type DialogProps = {
   open: boolean;
   onClose: () => void;
   title?: string;
-  closeLabel?: string;
+  // No English default — this is read to screen readers, so callers must
+  // supply a translated label rather than silently leaking English into a
+  // Hebrew page.
+  closeLabel: string;
   children: ReactNode;
 };
 
 // Built on the native <dialog> element rather than a portal + focus-trap
 // library — the browser already provides modal semantics, Escape-to-close
 // and ::backdrop for free.
-export function Dialog({ open, onClose, title, closeLabel = 'Close', children }: DialogProps) {
+export function Dialog({ open, onClose, title, closeLabel, children }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
