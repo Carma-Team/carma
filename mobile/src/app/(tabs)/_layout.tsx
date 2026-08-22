@@ -12,7 +12,6 @@ const TAB_ITEMS = [
     { name: 'roadmap',     icon: ICONS.roadmap,     labelKey: 'nav.roadmap'     },
     { name: 'marketplace', icon: ICONS.marketplace, labelKey: 'nav.marketplace' },
     { name: 'leaderboard', icon: ICONS.leaderboard, labelKey: 'nav.leaderboard' },
-    { name: 'profile',     icon: ICONS.profile,     labelKey: 'nav.profile'     },
 ] as const;
 
 export default function TabsLayout() {

@@ -1,7 +1,13 @@
 name: CI · mobile
 
-# Day 1: only `npm ci` + tsc run on every PR. `npm test` and EAS build sanity
-# are gated behind workflow_dispatch / the "run-full-ci" label until proven.
+# Every job here runs on every push and every pull request. `npm test` used to
+# be gated behind workflow_dispatch and a PR label "until the pipeline is
+# proven". What that bought was a PR into main — the deployable branch —
+# merging green with Jest never run at all (CAR-121).
+#
+# Never gate a job on a PR label. `on: pull_request` carries no `types:`, so it
+# never fires on `labeled`: applying the label does nothing until the next push.
+# ci-server.yml deleted the same gate for the same reason (CAR-48).
 #
 # tsc and ESLint run everywhere, including develop. The develop skip that used
 # to guard the 941-error toolchain break (CAR-8) is gone — CAR-8 is fixed, and
@@ -16,10 +22,22 @@ name: CI · mobile
 # sees what is committed. It compiles happily against a stale generated.ts and
 # says nothing until somebody regenerates. This is the step that notices.
 
-# server/ is in the path filter on purpose. A schema change is a mobile event: it
+# server/ is in the push path filter on purpose. A schema change is a mobile event: it
 # is what makes generated.ts stale, and running mobile tsc against it is what
 # surfaces the consequences. requirements.txt counts too — fastapi and pydantic
 # versions change the generated output, which is how this file went stale once.
+
+# `pull_request` deliberately carries no `paths:` filter. A workflow skipped by
+# a path filter never reports at all, and a required check that never reports
+# pins the PR on "Expected - waiting for status to be reported" forever.
+# GitHub's own advice is not to require a workflow that can be skipped. Pushes
+# keep their filter, because nothing gates a push. The cost is ~2 idle minutes
+# on an unrelated PR, and Actions is free on a public repo (CAR-122).
+#
+# Jobs carry an explicit `name:` because the required-check context is the bare
+# job name with no workflow prefix, and `lint` and `test` each existed in two
+# of these three workflows (CAR-122).
+
 on:
   push:
     branches: [main, develop]
@@ -30,11 +48,6 @@ on:
       - '.github/workflows/ci-mobile.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'mobile/**'
-      - 'server/app/**'
-      - 'server/requirements.txt'
-      - '.github/workflows/ci-mobile.yml'
   workflow_dispatch:
 
 # One run per branch/PR. Superseded runs on develop and feature branches are
@@ -45,6 +58,7 @@ concurrency:
 
 jobs:
   install-typecheck:
+    name: mobile typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -66,9 +80,9 @@ jobs:
         run: npm run lint
 
   test:
-    # Cheap (~13s) — runs on every push and on PRs into develop. PRs into main
-    # stay label-gated until the pipeline is proven (see header).
-    if: ${{ github.event_name != 'pull_request' || github.base_ref == 'develop' || contains(github.event.pull_request.labels.*.name, 'run-full-ci') }}
+    # ~13s, no service container. Nothing here is worth rationing, so there is
+    # no `if:` — every push and every pull request, whatever the base branch.
+    name: mobile tests
     needs: install-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -89,6 +103,7 @@ jobs:
     # produces — i.e. someone changed a schema and skipped `npm run gen:api`.
     # Pinned deps matter: fastapi/pydantic decide how free-form objects are
     # rendered, so this installs requirements.txt rather than the latest.
+    name: mobile schema drift
     needs: install-typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10

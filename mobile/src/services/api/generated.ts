@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange the browser refresh cookie for a new access token */
+        post: operations["refresh_api_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End the browser session */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/otp/register": {
         parameters: {
             query?: never;
@@ -100,6 +134,40 @@ export interface paths {
         put?: never;
         /** Exchange an OTP for a JWT */
         post: operations["otp_verify_api_auth_otp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password/reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a password-reset code to a registered phone */
+        post: operations["password_reset_request_api_auth_password_reset_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password/reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a new password with a reset code, and unlock the account */
+        post: operations["password_reset_confirm_api_auth_password_reset_confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -348,12 +416,29 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete an owned reward. 409 once any voucher has been issued for it. */
-        delete: operations["delete_reward_api_business_rewards__reward_id__delete"];
+        /** Archive an owned reward — removed from the catalog, history and live vouchers untouched */
+        delete: operations["archive_reward_api_business_rewards__reward_id__delete"];
         options?: never;
         head?: never;
         /** Update fields of an owned reward */
         patch: operations["update_reward_api_business_rewards__reward_id__patch"];
+        trace?: never;
+    };
+    "/api/business/rewards/{reward_id}/live-vouchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live (unused, unexpired) voucher count for an owned reward — check before archiving */
+        get: operations["live_voucher_count_api_business_rewards__reward_id__live_vouchers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/business/vouchers/{code}": {
@@ -968,6 +1053,8 @@ export interface components {
             rank: number;
             /** Score */
             score: number;
+            /** Distancekm */
+            distanceKm: number;
             user: components["schemas"]["LeaderboardUserSummary"];
             /**
              * Followstatus
@@ -1030,6 +1117,14 @@ export interface components {
             levels: components["schemas"]["LevelOut"][];
         };
         /**
+         * LiveVoucherCountOut
+         * @description How many outstanding vouchers a reward has right now — check before archiving it.
+         */
+        LiveVoucherCountOut: {
+            /** Livevouchers */
+            liveVouchers: number;
+        };
+        /**
          * LocationsOut
          * @description Filter options for the leaderboard's city picker.
          *
@@ -1070,6 +1165,11 @@ export interface components {
         MatchContactsOut: {
             /** Matches */
             matches: components["schemas"]["ContactMatchOut"][];
+        };
+        /** MessageOut */
+        MessageOut: {
+            /** Message */
+            message: string;
         };
         /**
          * NotificationOut
@@ -1126,6 +1226,15 @@ export interface components {
             phone: string;
             /** Code */
             code: string;
+        };
+        /** PasswordResetIn */
+        PasswordResetIn: {
+            /** Phone */
+            phone: string;
+            /** Code */
+            code: string;
+            /** Newpassword */
+            newPassword: string;
         };
         /** RecentScore */
         RecentScore: {
@@ -1196,6 +1305,8 @@ export interface components {
             imageIcon: string;
             /** Isactive */
             isActive: boolean;
+            /** Archivedat */
+            archivedAt: string | null;
             /** Stock */
             stock: number | null;
             /** Available */
@@ -1412,6 +1523,8 @@ export interface components {
             city?: string | null;
             /** Isprivate */
             isPrivate?: boolean | null;
+            /** Drivemodeenabled */
+            driveModeEnabled?: boolean | null;
         };
         /** UserOut */
         UserOut: {
@@ -1517,6 +1630,8 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+            /** Pointscost */
+            pointsCost: number;
             reward: components["schemas"]["RewardOut"];
         };
         /** VoucherResponse */
@@ -1618,6 +1733,46 @@ export interface operations {
             };
         };
     };
+    refresh_api_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+        };
+    };
     otp_register_api_auth_otp_register_post: {
         parameters: {
             query?: never;
@@ -1704,6 +1859,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    password_reset_request_api_auth_password_reset_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OtpSent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    password_reset_confirm_api_auth_password_reset_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
@@ -2179,7 +2400,7 @@ export interface operations {
             };
         };
     };
-    delete_reward_api_business_rewards__reward_id__delete: {
+    archive_reward_api_business_rewards__reward_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -2230,6 +2451,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessRewardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    live_voucher_count_api_business_rewards__reward_id__live_vouchers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveVoucherCountOut"];
                 };
             };
             /** @description Validation Error */

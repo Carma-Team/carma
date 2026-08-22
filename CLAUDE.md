@@ -38,6 +38,17 @@ Applies to chat and to everything drafted on Dan's behalf.
 - **No decorative jargon.** Use a technical term only when it is the subject, and define it in half a sentence.
 - **Hebrew or English per sentence — never both inside one sentence.** Mixing directions makes it unreadable.
 
+## Keep the context small
+
+Every tool call re-sends the whole conversation. Cached, so it is cheap per call — never free, and each call in a long thread costs more than the one before it. The cheapest work takes the fewest calls, not the fewest characters.
+
+- **Batch the gates into one command**, not four round trips. Server — `ruff check . && ruff format --check . && mypy app && pytest -q`. Mobile — `npx tsc --noEmit && npm run lint && npm test -- --no-coverage`.
+- **Never pipe a gate through `tail` inside a `&&` chain.** The pipe returns `tail`'s exit code, so a failing suite reads as a pass. Trim noisy output in a call of its own.
+- **Never read a whole diff.** `gh pr diff <N> --name-only` first, then `gh pr diff <N> -- <path>` for the files that matter. A full diff runs 50 KB and then sits in context for the rest of the session.
+- **Send broad searches to a subagent.** "Where is X handled?" goes to `Explore`, which answers without leaving six files behind in the main context.
+- **Do not re-read a file already in context**, and drop the `cd` prefix — the working directory persists between calls.
+- **One session per ticket.** `/clear` when the work lands, `/compact` only mid-task. Anything worth keeping belongs on the Linear issue or in the branch before you clear — never only in the thread.
+
 ## Roles and ownership
 
 | Owner | Domain |
@@ -46,6 +57,11 @@ Applies to chat and to everything drafted on Dan's behalf.
 | **Naveh — CTO** | Database, cache, data pipelines, monorepo integrity, cloud infrastructure and deployment, CI gating, infrastructure security (secrets, network exposure, access) |
 | **Shaun — CEO** | Business-logic API endpoints, third-party integrations |
 | **May — Mobile & Frontend Lead** | Mobile screens, UI components and styling, Driving SDK (IMU/GPS/BLE), battery consumption, client-side interactions |
+
+Inside `mobile/src/lib/` the line is drawn per file: each one opens with an `@owner` header naming
+who decides what it does. **Before editing a file owned by someone else, say what you want to change
+and get their agreement first.** The rule and the header format are in `mobile/CLAUDE.md`; the
+current owner of every file is listed in `mobile/STRUCTURE.md`.
 
 ---
 
@@ -107,7 +123,7 @@ The server's OpenAPI schema is the contract of record. `mobile/src/types/index.t
 
 A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (`index.ts`), `types.ts`.
 
-**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`, `scoring.ts`.
+**Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`.
 
 Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving any file under `mobile/src/`.
 
@@ -121,22 +137,27 @@ Full layer rules live in `mobile/STRUCTURE.md`. Read it before adding or moving 
 - **`develop`** — daily integration. Keep it green; it is the buffer protecting `main`.
 - **`feature/*`** — anything over ~30 minutes or touching more than 2 files. Merges into `develop` freely, no PR required.
 
-**The author merges, not the reviewer.** Only the author knows what else is in flight — which branch lands first, what needs a sync, which sibling PR is waiting. Neither branch is protected, which is exactly why the convention is written down.
+**The author merges, not the reviewer.** Only the author knows what else is in flight — which branch lands first, what needs a sync, which sibling PR is waiting. `develop` is not protected, which is exactly why the convention is written down. `main` is: a PR, one approving review, and ten green checks, with no bypass for anyone, admins included.
 
 - **Approve means "this is yours to land."** Not ready to merge is Request Changes, not Approve.
-- **Never merge over a red check without naming the failure in the PR first.** Doing it silently teaches everyone that red is negotiable.
+- **Never merge over a red check without naming the failure in the PR first.** Doing it silently teaches everyone that red is negotiable. On `main` this is no longer a matter of discipline: the merge is blocked.
 
 ## CI
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci-server.yml` | push / PR on `main`, `develop` | Ruff, Mypy, pytest. A push to `develop` runs pytest **without a database**; only PRs and `main` get migrations plus the Postgres job. |
-| `ci-mobile.yml` | push / PR on `main`, `develop`, incl. `server/app/**` | `tsc --noEmit` and ESLint always; Jest on pushes and PRs into `develop`; `schema-drift` regenerates the API types and fails if they differ from what is committed. |
+| `ci-server.yml` | pushes to `main`/`develop` are path-filtered; **every** PR into either runs it | Ruff, Mypy, pytest. A push to `develop` runs pytest **without a database**; PRs and `main` get migrations plus the Postgres job. |
+| `ci-mobile.yml` | same | `tsc --noEmit`, ESLint, Jest, and `schema-drift`, which regenerates the API types and fails if they differ from what is committed. |
+| `ci-web.yml` | same | `tsc`, ESLint, Vitest, and a production `vite build`. |
 | `deploy.yml` | push to `main`, or manual | Docker image → ACR → Azure Container App over OIDC. Silently skipped when `AZURE_CLIENT_ID` is unset, so CI stays green. |
 
 - **Never switch a check off to quiet it — fix the cause.** `tsc --noEmit` was skipped on `develop` to work around a broken toolchain (CAR-8); the workaround outlived the bug, and the app went 100+ commits with no type check while CI stayed green.
 - **Run `pytest` locally against the real database** before merging anything server-side; a direct push to `develop` will not.
 - **A PR whose branch predates a trigger change shows zero checks.** Sync `develop` into it — nothing else fixes it.
+- **Ten checks are required on `main`:** `server lint`, `server tests`, `server docker build`, `mobile typecheck`, `mobile tests`, `mobile schema drift`, `web typecheck`, `web lint`, `web tests`, `web build`. A job skipped by its own `if:` reports success and does not block; that is why `server smoke` and `server tests (no db)` are not on the list.
+- **Do not put a `paths:` filter back on a `pull_request` trigger.** A workflow that a path filter skips never reports, and a required check that never reports pins the PR on "Expected - waiting for status to be reported" with no way forward. The whole run is about two minutes in parallel and Actions is free on a public repo, so an unrelated PR paying for it is the cheaper side of the trade (CAR-122).
+- **Job `name:` values are the required-check contexts.** They are the bare job name with no workflow prefix, so they must stay unique across all three workflows. Renaming one without updating the `main-branch` ruleset silently drops that gate.
+- **Merged branches delete themselves.** `delete_branch_on_merge` is on (CAR-215); GitHub keeps a Restore branch button on every merged PR if you need one back.
 
 ## Issues — Linear only
 

@@ -145,6 +145,12 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
     feeds the score, which stays sourced from the signed digest. So parsing is
     strictly defensive: unknown types and junk coordinates are dropped rather than
     guessed, and the full raw payload is retained in `sensor_data` for forensics.
+
+    Client severity arrives on the SDK's own 0-1 axis and is normalised here onto
+    the 1.0-3.0 axis the server's own detectors already produce, so the stored
+    column means one thing whoever detected the event. The raw client number
+    stays recoverable in `sensor_data`. Naming the scoring helper here, even in
+    prose, trips CAR-155's source-text guard in `test_scoring.py`.
     """
     if not isinstance(raw, dict):
         return None
@@ -153,9 +159,14 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
         return None
 
     try:
-        severity = min(max(float(raw.get("severity", 1.0)), 0.0), 100.0)
+        client_severity = min(max(float(raw.get("severity", 0.0)), 0.0), 1.0)
     except (TypeError, ValueError):
-        severity = 1.0
+        client_severity = 0.0
+    # Every comparison against NaN is False, so it survives the clamp untouched
+    # and would reach a NOT NULL column. Junk is junk: it falls to the floor.
+    if math.isnan(client_severity):
+        client_severity = 0.0
+    severity = 1.0 + 2.0 * client_severity
 
     loc = raw.get("location")
     location = loc if isinstance(loc, dict) else {}
@@ -343,6 +354,41 @@ def _witness_distance(claimed_km: float, gps_km: float) -> float:
     return cap
 
 
+def _distraction_exposure_min(gps: telemetry.TelemetryAnalysis, duration_seconds: int) -> float:
+    """Driving minutes to charge distraction against, crediting whatever the trace
+    could not see (CAR-54).
+
+    The numerator is whole-trip — the digest reports one handling-seconds total —
+    so a denominator drawn only from the trace charges every second of handling
+    against however little the GPS happened to witness. A trace that dies five
+    minutes into a 45-minute drive would cost ~26 composite points for a flat
+    battery. Before this the denominator was wall-clock and trace-independent, so
+    that exposure is ours to avoid, not one we inherited.
+
+    CMT resolve the same mismatch by scoring only the stretch where speed data
+    exists and "err[ing] in favor of a driver being undistracted" everywhere else
+    (US11932257B2). Scoring only that stretch needs a per-second, speed-stamped
+    numerator, which is CAR-175; until it lands, the unwitnessed remainder is
+    credited as driving, which is the same bias in the same direction.
+
+    The two ends stay exactly as designed: a trace covering the whole trip is used
+    as measured, and no usable trace at all falls back to wall-clock duration.
+    Gaps *inside* the span are already counted by `driving_seconds_above_threshold`,
+    so only the untraced head and tail are added here — never both.
+
+    Those two ends are untraced in practice, not just in theory: the SDK gates
+    waypoint capture at 3 km/h (`driving-sdk/index.ts`), so a car idling before it
+    pulls away, or parked while the trip runs down its close-out timer, emits
+    nothing and falls outside the span rather than inside it. Up to about three
+    minutes a trip is still credited as driving. That is no worse than the
+    wall-clock denominator this replaces, and CAR-184 closes it from the other
+    side — once the numerator is gated at 15 km/h too, an arrival tail carries no
+    handling seconds for the denominator to dilute.
+    """
+    unwitnessed_s = max(0.0, duration_seconds - gps.witnessed_span_seconds)
+    return (gps.driving_seconds_above_threshold + unwitnessed_s) / 60.0
+
+
 async def _compute_score(
     db: AsyncSession,
     user: User,
@@ -371,9 +417,10 @@ async def _compute_score(
     land when the trace is too sparse to prove clean driving (v2.1).
     Returns (trip_score, driver_score, points, points_capped).
     """
-    # Proxy for the distraction weight until the SDK emits per-epoch speed:
-    # each touch epoch is weight 1, plus screen-on minutes (scoring.md "Phone distraction").
-    w_distraction = touch_epochs + screen_interaction_seconds / 60.0
+    # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
+    # distraction"). `touch_epochs` stays a diagnostic on the payload and the
+    # row: it counts pickups, and summing it with seconds charged one behaviour twice.
+    w_distraction = float(screen_interaction_seconds)
     rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
     trip_v2 = scoring.compute_trip_score(
@@ -384,6 +431,7 @@ async def _compute_score(
         w_speed=gps.speeding_weight,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
+        driving_min_above_threshold=_distraction_exposure_min(gps, duration_seconds),
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )

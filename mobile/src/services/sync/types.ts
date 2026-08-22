@@ -14,10 +14,14 @@ export interface TelemetryDigest {
   sharpTurns:               number;
   swerves?:                 number;  // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
-  screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds
+  screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds at >=15 km/h
   startTime:                string;  // ISO 8601 UTC — the server derives riskMultiplier from this
   endTime:                  string;  // ISO 8601 UTC
   timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
+  // Per-trip accelerometer snapshot — lets the server tell a quiet drive from a dead/absent
+  // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
+  accelAvailable?:          boolean;
+  accelInitFailed?:         boolean;
 }
 
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────
@@ -38,8 +42,12 @@ export interface ValidTripPayload {
   sharpTurns: number;
   swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — replaces phoneSeconds
-  screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds
+  screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds; counted at >=15 km/h
   penalties: number;
+  // Per-trip accelerometer snapshot — lets the server tell a quiet drive from a dead/absent
+  // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
+  accelAvailable?:  boolean;
+  accelInitFailed?: boolean;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;
@@ -51,7 +59,7 @@ export interface ValidTripPayload {
   events?: Array<{
     type: string;            // DrivingEventType — server bridges PHONE_USAGE → PHONE_USE
     timestamp: string;       // ISO 8601
-    severity: number;        // 0..1
+    severity?: number;       // 0..1. PHONE_USAGE only — motion events don't send it
     speedKmh?: number;
     location?: { latitude: number; longitude: number };
     peakG?: number;

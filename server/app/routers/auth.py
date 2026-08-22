@@ -3,17 +3,19 @@
 # would try to resolve string annotations like "RegisterIn" against SlowAPI's
 # namespace and fail at import. Real annotation objects need no resolving.
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession, RequireBrowserHeader, is_browser_request
 from app.core.limiter import client_ip, limiter
 from app.schemas.auth import (
     AuthOut,
     LoginIn,
+    MessageOut,
     OtpRegisterIn,
     OtpRequestIn,
     OtpSent,
     OtpVerifyIn,
+    PasswordResetIn,
     RegisterIn,
 )
 from app.schemas.user import UserOut
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # either sends a billed SMS or runs bcrypt. These are the routes where a caller
 # repeating themselves is already a bad sign, so they get their own ceiling.
 # Keyed on the caller's address; the per-phone cap that survives IP rotation
-# lives in `services.auth._assert_otp_quota`.
+# lives in `services.auth._over_otp_quota`.
 SENSITIVE_LIMIT = "5/minute"
 # Login and register get a looser ceiling than the OTP routes. An address is a
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
@@ -37,8 +39,8 @@ SENSITIVE_LIMIT = "5/minute"
 # The OTP routes keep the tight limit: each one spends money on an SMS.
 CREDENTIAL_LIMIT = "20/minute"
 # Every handler below takes `request` because SlowAPI reads the limit key off it
-# and the decorator raises at import time without it. `login` and `otp_verify`
-# also read the caller's address from it — via `client_ip`, never
+# and the decorator raises at import time without it. The handlers that check a
+# credential also read the caller's address from it — via `client_ip`, never
 # `request.client.host`, which behind a proxy is the ingress and would put every
 # driver in one backoff bucket.
 
@@ -60,13 +62,41 @@ async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
 
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
 @limiter.limit(CREDENTIAL_LIMIT)
-async def login(request: Request, dto: LoginIn, db: DbSession) -> AuthOut:
-    return await auth_service.login_with_password(db, dto, client_ip(request))
+async def login(request: Request, response: Response, dto: LoginIn, db: DbSession) -> AuthOut:
+    return await auth_service.login_with_password(
+        db, dto, client_ip(request), response, is_browser=is_browser_request(request)
+    )
 
 
 @router.get("/me", response_model=UserOut, response_model_by_alias=True, summary="Get the authenticated user profile")
 async def me(user: CurrentUser, db: DbSession) -> UserOut:
     return await users_service.profile_out(db, user)
+
+
+# ─── Browser session — refresh cookie (CAR-217) ──────────────────────────────
+# Both read the session from the httpOnly cookie, not a bearer token — a
+# request with no `Authorization` header at all (an expired or reloaded tab)
+# is exactly the case these exist for. `RequireBrowserHeader` is the CSRF
+# guard: see `core.deps.require_browser_header` for why a cookie-only endpoint
+# needs one and `/login` does not. Left off the default rate limit's tighter
+# neighbours on purpose — the cookie's ~384 bits make guessing it infeasible,
+# so the 30/minute default ceiling (CAR-126) is the right-sized cap, not a
+# credential-guessing one.
+
+
+@router.post(
+    "/refresh",
+    response_model=AuthOut,
+    response_model_by_alias=True,
+    summary="Exchange the browser refresh cookie for a new access token",
+)
+async def refresh(request: Request, response: Response, db: DbSession, _: RequireBrowserHeader) -> AuthOut:
+    return await auth_service.refresh_session(db, request, response)
+
+
+@router.post("/logout", response_model=MessageOut, response_model_by_alias=True, summary="End the browser session")
+async def logout(request: Request, response: Response, db: DbSession, _: RequireBrowserHeader) -> MessageOut:
+    return await auth_service.logout_session(db, request, response)
 
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
@@ -98,3 +128,28 @@ async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> Otp
 @limiter.limit(SENSITIVE_LIMIT)
 async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
     return await auth_service.verify_otp(db, dto, client_ip(request))
+
+
+# ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
+
+
+@router.post(
+    "/password/reset/request",
+    response_model=OtpSent,
+    response_model_by_alias=True,
+    summary="Send a password-reset code to a registered phone",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def password_reset_request(request: Request, dto: OtpRequestIn, db: DbSession) -> OtpSent:
+    return await auth_service.request_password_reset(db, dto.phone)
+
+
+@router.post(
+    "/password/reset/confirm",
+    response_model=MessageOut,
+    response_model_by_alias=True,
+    summary="Set a new password with a reset code, and unlock the account",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def password_reset_confirm(request: Request, dto: PasswordResetIn, db: DbSession) -> MessageOut:
+    return await auth_service.reset_password(db, dto, client_ip(request))

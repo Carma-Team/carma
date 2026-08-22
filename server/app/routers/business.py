@@ -12,6 +12,7 @@ from app.schemas.reward import (
     BusinessRewardListOut,
     BusinessRewardPatchIn,
     BusinessRewardResponse,
+    LiveVoucherCountOut,
     VoucherResponse,
 )
 from app.services import business as business_service
@@ -54,14 +55,25 @@ async def update_reward(
     return BusinessRewardResponse(reward=reward)
 
 
+@router.get(
+    "/rewards/{reward_id}/live-vouchers",
+    response_model=LiveVoucherCountOut,
+    response_model_by_alias=True,
+    summary="Live (unused, unexpired) voucher count for an owned reward — check before archiving",
+)
+async def live_voucher_count(reward_id: str, business: CurrentBusiness, db: DbSession) -> LiveVoucherCountOut:
+    count = await business_service.live_voucher_count(db, business, reward_id)
+    return LiveVoucherCountOut(live_vouchers=count)
+
+
 @router.delete(
     "/rewards/{reward_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
-    summary="Delete an owned reward. 409 once any voucher has been issued for it.",
+    summary="Archive an owned reward — removed from the catalog, history and live vouchers untouched",
 )
-async def delete_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
-    await business_service.delete_reward(db, business, reward_id)
+async def archive_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
+    await business_service.archive_reward(db, business, reward_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

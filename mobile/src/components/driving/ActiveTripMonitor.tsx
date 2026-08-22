@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
+import { COLORS, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { formatDuration, formatDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -38,6 +38,18 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
 
   return (
     <View style={styles.container}>
+      {/* Main Action - End Trip. Top of the screen: it is the only thing a driver
+          needs to reach here, and reaching it must not depend on scrolling. */}
+      <Button
+        variant="danger"
+        fullWidth
+        size="xl"
+        onPress={onEnd}
+        style={styles.inlineEndBtn}
+      >
+        {t('trip.endBtn')}
+      </Button>
+
       {/* Timer & Distance */}
       <View style={styles.statsContainer}>
         <View style={styles.statBox}>
@@ -50,49 +62,35 @@ export function ActiveTripMonitor({ tripState, onEnd, showDebug, onDebugAddDista
         </View>
       </View>
 
-      {/* Real-time Events Grid */}
-      <Text style={styles.sectionTitle}>{t('trip.eventsDetected')}</Text>
-      <View style={styles.grid}>
-        {events.map(event => (
-          <Card key={event.label} style={styles.eventCard}>
-            <Ionicons
-              name={event.icon}
-              size={24}
-              color={event.value > 0 ? event.color : COLORS.textMuted}
-              style={{ marginBottom: 8 }}
-            />
-            <Text style={[styles.eventValue, { color: event.value > 0 ? event.color : COLORS.text }]}>
-              {event.value}
-            </Text>
-            <Text style={styles.eventLabel}>{event.label}</Text>
-          </Card>
-        ))}
-      </View>
-
-      {/* Main Action - End Trip */}
-      <Button
-        variant="danger"
-        fullWidth
-        size="xl"
-        onPress={onEnd}
-        style={styles.inlineEndBtn}
-      >
-        {t('trip.endBtn')}
-      </Button>
+      {/* Live event counts — a debugging aid, not something a driver is shown.
+          Gated on the same flag as the debug tools below. */}
+      {showDebug && (
+        <>
+          <Text style={styles.sectionTitle}>{t('trip.eventsDetected')}</Text>
+          <View style={styles.grid}>
+            {events.map(event => (
+              <Card key={event.label} style={styles.eventCard}>
+                <Ionicons
+                  name={event.icon}
+                  size={24}
+                  color={event.value > 0 ? event.color : COLORS.textMuted}
+                  style={{ marginBottom: 8 }}
+                />
+                <Text style={[styles.eventValue, { color: event.value > 0 ? event.color : COLORS.text }]}>
+                  {event.value}
+                </Text>
+                <Text style={styles.eventLabel}>{event.label}</Text>
+              </Card>
+            ))}
+          </View>
+        </>
+      )}
 
       {/* Admin Debug Tools */}
       {showDebug && onDebugAddDistance && (
         <View style={styles.debugContainer}>
           <Text style={styles.debugTitle}>{t('driving.debugTitle')}</Text>
           <View style={styles.debugRow}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onPress={() => onDebugAddDistance(10)}
-              style={styles.debugBtn}
-            >
-              {t('driving.addDistance')}
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -128,7 +126,7 @@ const styles = StyleSheet.create({
   eventCard:    { width: '48%', alignItems: 'center', paddingVertical: 20 },
   eventValue:   { fontSize: 28, fontWeight: '900', marginBottom: 4 },
   eventLabel:   { ...TYPOGRAPHY.caption, fontSize: 12 },
-  inlineEndBtn: { borderRadius: 20, height: 65, marginBottom: 15 },
+  inlineEndBtn: { borderRadius: 20, height: 65, marginBottom: 25 },
   debugContainer: {
     marginBottom: 20,
     padding: 15,

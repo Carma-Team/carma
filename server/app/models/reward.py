@@ -34,6 +34,11 @@ class Reward(Base):
     cost_points: Mapped[int] = mapped_column(Integer, nullable=False)
     image_icon: Mapped[str] = mapped_column(String(40), default="gift-outline", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Independent of is_active: a pause vs. a permanent removal from the catalog.
+    # NULL means still in the catalog; a timestamp means archived out of it. Kept
+    # separate so a business can reactivate without losing the archive, and an
+    # archived reward's own history (vouchers, redemptions) is never touched.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Total units the business allocated to this reward — never decremented.
     # NULL means unlimited, 0 means sold out. What is left is derived from the
     # redemptions ledger (services/rewards.py), so a lapsed voucher releases its
