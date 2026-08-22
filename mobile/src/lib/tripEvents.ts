@@ -1,7 +1,8 @@
 /**
  * @file tripEvents.ts
  * @owner May (Mobile & Frontend UI Lead)
- * @brief Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape.
+ * @brief Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape,
+ * and renders one into the label + detail line a map marker shows when tapped.
  * Lives here rather than in the map component because the mismatch is in the data,
  * not in the rendering.
  *
@@ -12,6 +13,17 @@
  */
 import { DrivingEventType, type DrivingEvent } from '@/lib/driving-sdk/types';
 import type { TripEvent } from '@/types';
+import { formatTime } from '@/lib/utils';
+
+// The counter labels the trip screens already use, reused as marker titles so an
+// event is named identically wherever it appears.
+const EVENT_LABEL_KEY: Record<DrivingEventType, string> = {
+  [DrivingEventType.HARD_BRAKE]:       'trip.hardBrakes',
+  [DrivingEventType.AGGRESSIVE_ACCEL]: 'trip.aggressiveAccels',
+  [DrivingEventType.SHARP_TURN]:       'trip.sharpTurns',
+  [DrivingEventType.SWERVE]:           'trip.swerve',
+  [DrivingEventType.PHONE_USAGE]:      'trip.phoneUsage',
+};
 
 /**
  * Two mismatches to bridge, both silent if missed: the server lower-cases `type`
@@ -38,4 +50,26 @@ export function toDrivingEvents(events: TripEvent[] | undefined): DrivingEvent[]
         : undefined,
     }];
   });
+}
+
+/**
+ * Text of the callout a map marker opens on tap.
+ *
+ * Speed is optional on purpose: `DrivingSDK` stamps `speedKmh` on a live event, while
+ * the server timeline has no equivalent field, so the same event shows the time alone
+ * in TripDetailScreen and time + speed in the post-trip modal.
+ *
+ * The second line is the affordance for the callout press, which opens the coordinate
+ * in the device's maps app — the native callout cannot make one word tappable on its
+ * own, so the whole bubble is the target and the line says what pressing it does.
+ */
+export function eventMarkerText(event: DrivingEvent, t: (key: string) => string) {
+  const speed = event.speedKmh !== undefined
+    ? ` · ${Math.round(event.speedKmh)} ${t('trip.kmh')}`
+    : '';
+
+  return {
+    title: t(EVENT_LABEL_KEY[event.type]),
+    description: `${formatTime(event.timestamp.toISOString())}${speed}\n${t('trip.openLocationInMaps')}`,
+  };
 }

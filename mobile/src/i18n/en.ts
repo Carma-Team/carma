@@ -81,6 +81,10 @@ const en: TranslationMap = {
     mapUnavailable: 'Route not available',
     openInMaps: 'Open in Maps',
     eventsLabel: 'Safety events',
+    phoneUsage: 'Phone Use',
+    routeStart: 'Trip start', routeEnd: 'Trip end',
+    kmh: 'km/h',
+    openLocationInMaps: 'Open location in Maps',
   },
   driving: {
     debugTitle: 'Admin tools (demo mode)',
