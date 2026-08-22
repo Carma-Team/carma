@@ -37,7 +37,6 @@ const REWARD = {
 
 const VOUCHER: Voucher = {
   id: 'v1',
-  userId: 'u1',
   rewardId: 'r1',
   code: 'ABC123XYZ0',
   qrData: 'ABC123XYZ0',
