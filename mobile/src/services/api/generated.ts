@@ -1745,6 +1745,10 @@ export interface components {
              * @deprecated
              */
             riskMultiplier?: number | null;
+            /** Accelavailable */
+            accelAvailable?: boolean | null;
+            /** Accelinitfailed */
+            accelInitFailed?: boolean | null;
             /** Telemetrydigest */
             telemetryDigest?: {
                 [key: string]: unknown;
@@ -1818,6 +1822,10 @@ export interface components {
             endLocation: string | null;
             /** Aiinsight */
             aiInsight: string | null;
+            /** Accelavailable */
+            accelAvailable: boolean | null;
+            /** Accelinitfailed */
+            accelInitFailed: boolean | null;
             /** Status */
             status: string;
             /** Idempotencykey */
@@ -1888,6 +1896,10 @@ export interface components {
             endLocation: string | null;
             /** Aiinsight */
             aiInsight: string | null;
+            /** Accelavailable */
+            accelAvailable: boolean | null;
+            /** Accelinitfailed */
+            accelInitFailed: boolean | null;
             /** Status */
             status: string;
             /** Idempotencykey */

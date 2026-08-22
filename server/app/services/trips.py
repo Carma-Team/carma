@@ -720,6 +720,8 @@ async def save(
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
+        accel_available=dto.accel_available,
+        accel_init_failed=dto.accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
         payload_signature=dto.payload_signature,
         route_waypoints=dto.route_waypoints,
