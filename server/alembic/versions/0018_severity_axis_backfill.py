@@ -32,8 +32,12 @@ depends_on: str | None = None
 
 
 # Only a JSON number is trusted. JSON has no NaN or Infinity, so `jsonb_typeof`
-# is the whole guard: a string, a null, or a missing key all land on the floor,
-# which is what `_parse_event` does with junk it cannot parse.
+# is the whole guard, and it is deliberately stricter than `_parse_event`: the
+# `float()` there also accepts a JSON string ("0.5" stores 2.0) and a JSON
+# boolean (true stores 3.0), both of which this floors to 1.0 instead. Neither
+# shape can come off a CARMA client, where severity is typed `number` on both
+# sides of the wire, so a deterministic backfill is worth more than bug-for-bug
+# parity with the parser.
 _RAW_SEVERITY = """
     CASE WHEN jsonb_typeof(sensor_data->'severity') = 'number'
          THEN (sensor_data->>'severity')::float8
@@ -56,9 +60,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # The old path stored the raw number under a [0, 100] clamp, and the raw
-    # number is still in sensor_data, so this reverses exactly. Rows that never
-    # carried a severity went in at 1.0 under the old default and come back to
-    # 1.0, not 0.0 — `raw.get("severity", 1.0)` was the old default.
+    # number is still in sensor_data, so a JSON number reverses exactly. Rows
+    # that never carried a severity went in at 1.0 under the old default and
+    # come back to 1.0, not 0.0 - `raw.get("severity", 1.0)` was that default.
+    # A string or boolean severity is the one thing this cannot restore, for
+    # the same reason upgrade() floors it: both land on 1.0.
     op.execute(
         f"""
         UPDATE events
