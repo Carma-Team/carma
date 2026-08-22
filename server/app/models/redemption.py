@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -21,6 +21,9 @@ class Redemption(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     reward_id: Mapped[str] = mapped_column(String(32), ForeignKey("rewards.id"), nullable=False)
+    # Snapshot of Reward.cost_points at issue time. A later price change on the
+    # reward must not reprice a voucher already handed to a driver (CAR-70).
+    points_cost: Mapped[int] = mapped_column(Integer, nullable=False)
     qr_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     qr_data: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[RedemptionStatus] = mapped_column(

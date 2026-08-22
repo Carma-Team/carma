@@ -34,7 +34,11 @@ export interface RawRecordingSession {
   filePath: string;
 }
 
-const RECORDINGS_DIR = new Directory(Paths.document, 'raw-recordings');
+// Resolved per call, not once at module scope: `Paths.document` is backed by the
+// native module, so reading it at import time throws wherever expo-file-system has
+// no native side — a test runner, SSR, or any host that imports the SDK before the
+// native layer is ready. Nothing here is hot enough for the object to be worth caching.
+const recordingsDir = () => new Directory(Paths.document, 'raw-recordings');
 
 export class RawSampleRecorder {
   private session: RawRecordingSession | null = null;
@@ -49,15 +53,16 @@ export class RawSampleRecorder {
   public start(scenario: string, platform: string): RawRecordingSession {
     const sessionId = `session_${Date.now()}`;
     this.lines = [];
+    const dir = recordingsDir();
     // idempotent: true — safe to call on every start(), whether or not an earlier
     // session already created this directory.
-    RECORDINGS_DIR.create({ idempotent: true });
+    dir.create({ idempotent: true });
     this.session = {
       sessionId,
       scenario,
       platform,
       startedAt: Date.now(),
-      filePath: `${RECORDINGS_DIR.uri}/${sessionId}.ndjson`,
+      filePath: `${dir.uri}/${sessionId}.ndjson`,
     };
     return this.session;
   }
