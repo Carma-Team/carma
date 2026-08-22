@@ -44,6 +44,7 @@ export type Voucher = {
   expiresAt: string;
   redeemedAt: string | null;
   createdAt: string;
+  pointsCost: number;
   reward: Reward;
 };
 
