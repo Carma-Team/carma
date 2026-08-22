@@ -142,8 +142,41 @@ export interface SDKConfig {
 export interface RouteWaypoint {
   lat: number;
   lng: number;
-  ts: number;        // Date.now() ms
+  ts: number;        // epoch ms of the GPS fix the point came from
   speedKmh: number;
+}
+
+/**
+ * One tick from the sensor layer: a GPS fix, or a speed-only tick emitted when the
+ * location stream has gone quiet. Declared once here because `SensorManager` produces
+ * it and `DrivingSDK` consumes it — a field added on one side has to reach the other.
+ */
+export interface SensorUpdate {
+  distanceKm: number;
+  currentSpeed: number;
+  timeDeltaS: number;
+  accelX: number;
+  gyroZ: number;
+  // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
+  // docs/fraud-detection.md Â§3.1: unavailable is not the same as zero.
+  accelAvailable: boolean;
+  gyroAvailable: boolean;
+  // Whether accelerometer *registration* itself threw â distinct from
+  // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
+  // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
+  // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
+  accelInitFailed: boolean;
+  // Whether "Always"/background location permission was granted â false means
+  // automatic (background) tracking cannot run, distinct from it just not
+  // having happened yet.
+  backgroundLocationAvailable: boolean;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+  // Timestamp of the GPS fix itself, absent on speed-only ticks. Anything measuring
+  // elapsed time between fixes must use this and not its own arrival time: Android can
+  // deliver a batch of deferred fixes in one turn, all arriving at the same instant (CAR-178).
+  fixTs?: number;
 }
 
 export interface TripData {
@@ -152,7 +185,7 @@ export interface TripData {
   distanceKm: number;
   durationSeconds: number;
   events: DrivingEvent[];
-  waypoints: RouteWaypoint[];      // GPS track — downsampled at ~5s intervals while moving
+  waypoints: RouteWaypoint[];      // GPS track — downsampled to 2s intervals of GPS-fix time while moving
   averageSpeed: number;
   maxSpeed: number;
   /** @deprecated v1.7 — replaced by touchEpochs + screenInteractionSeconds */
