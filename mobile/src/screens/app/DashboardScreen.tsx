@@ -137,11 +137,9 @@ export default function DashboardScreen() {
       {/* Post-trip summary modal */}
       <TripSummaryModal
         visible={showSummary}
-        trip={lastTripSummary}
+        summary={lastTripSummary}
         onClose={handleCloseSummary}
         onViewDetails={handleViewDetails}
-        currentStreak={currentStreak}
-        bestStreak={bestStreak}
       />
     </View>
   );

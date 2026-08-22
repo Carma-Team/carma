@@ -73,6 +73,8 @@ const en: TranslationMap = {
     gotIt: 'Got it, thanks',
     tripCompleted: 'Trip Completed!',
     finalScore: 'Final Score',
+    detailUnavailable: 'Trip details could not be loaded right now.',
+    notSent: 'We could not fetch your trip summary — no connection. The trip is saved on this device and will be sent automatically.',
     km: 'km',
     points: 'points',
     pointsCapped: "You've reached your points limit for this period — more points will count once it resets.",

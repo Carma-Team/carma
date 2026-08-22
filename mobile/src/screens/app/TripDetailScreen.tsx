@@ -1,19 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { formatTripDistance, formatTripDuration } from '@/lib/utils';
-import { COLORS, COMMON_STYLES, SPACING } from '@/constants/theme';
-import { ICONS } from '@/constants/icons';
-import { TripScoreGauge } from '@/components/driving/TripScoreGauge';
-import { StatsGrid } from '@/components/ui/StatsGrid';
+import { COLORS, COMMON_STYLES } from '@/constants/theme';
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
-import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
+import { TripSummaryView } from '@/components/driving/TripSummaryView';
 import { tripsApi } from '@/services/api/trips.api';
 import { toDrivingEvents } from '@/lib/tripEvents';
-import type { DrivingEvent } from '@/lib/driving-sdk/types';
+import { fromServerTrip } from '@/lib/tripSummary';
+import type { TripDetail } from '@/types';
 
 export default function TripDetailScreen() {
   const { tripId } = useLocalSearchParams<{ tripId: string }>();
@@ -22,66 +19,85 @@ export default function TripDetailScreen() {
   const { recentTrips } = useApp();
   const { t } = useTranslation();
 
-  const [trip, setTrip] = useState<any>(null);
+  // The cached row paints immediately; the fetch is what carries the event timeline
+  // and, for anything but a just-completed trip, the route as well.
+  const [detail, setDetail] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [routeWaypoints, setRouteWaypoints] = useState<any[]>([]);
-  const [tripEvents, setTripEvents] = useState<DrivingEvent[]>([]);
+  const [failed, setFailed] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
+  const cached = useMemo(
+    () => recentTrips.find(x => x.id === tripId) ?? null,
+    [recentTrips, tripId],
+  );
+
+  // Keyed on the id alone. `recentTrips` gets a new identity whenever a trip syncs
+  // or the list reloads, and refetching on that would blank the route and flash the
+  // spinner over a screen that is already showing the trip.
   useEffect(() => {
-    if (!loading && trip) {
-      // Nudge the scroll indicator so the events section below the fold
-      // doesn't read as the end of the screen on first render.
+    if (!tripId) {
+      setLoading(false);
+      return;
+    }
+    // The header steps between trips in place, so a slow response can land after the
+    // screen has already moved on to another one.
+    let current = true;
+    setDetail(null);
+    setFailed(false);
+    setLoading(true);
+    // A trip out of the cache window — older than the ten kept, or after the history
+    // was cleared — is still on the server. It used to render as a bare error here.
+    tripsApi.getById(tripId)
+      .then(res => { if (current) setDetail(res.trip); })
+      // A trip still waiting in the sync queue is not on the server at all, so a
+      // failure here only means "no detail" — it is an error solely when the cache
+      // has nothing to show either.
+      .catch(() => { if (current) setFailed(true); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [tripId]);
+
+  const trip = detail ?? cached;
+
+  const summary = useMemo(() => {
+    if (!trip) return null;
+    return fromServerTrip(
+      trip,
+      // Whichever actually has a route: the server omits waypoints for a trip it
+      // stored without them, and that must not erase the track still in the cache
+      // from the drive that just ended.
+      detail?.routeWaypoints?.length ? detail.routeWaypoints : cached?.routeWaypoints ?? [],
+      toDrivingEvents(detail?.events),
+    );
+  }, [trip, detail, cached]);
+
+  useEffect(() => {
+    if (summary?.id) {
+      // Nudge the scroll indicator so the map below the fold doesn't read as the end
+      // of the screen on first render.
       scrollRef.current?.flashScrollIndicators();
     }
-  }, [loading, trip]);
+  }, [summary?.id]);
 
-  useEffect(() => {
-    const foundTrip = recentTrips.find(t => t.id === tripId);
-    if (foundTrip) {
-      setTrip(foundTrip);
-      // Paint the map immediately when the cached trip already carries waypoints
-      // (just-completed trip), so the route doesn't wait on the network.
-      if (foundTrip.routeWaypoints?.length) {
-        setRouteWaypoints(foundTrip.routeWaypoints);
-      }
-      // Fetch regardless: the event timeline is returned only by the single-trip
-      // endpoint, so cached waypoints are not a reason to skip the request.
-      if (tripId) {
-        tripsApi.getById(tripId)
-          .then(res => {
-            if (res.trip.routeWaypoints?.length) setRouteWaypoints(res.trip.routeWaypoints);
-            setTripEvents(toDrivingEvents(res.trip.events));
-          })
-          .catch(() => {});
-      }
-    }
-    setLoading(false);
-  }, [tripId, recentTrips]);
-
-  if (loading) {
+  if (!trip || !summary) {
     return (
       <View style={[styles.root, styles.center]}>
-        <ActivityIndicator color={COLORS.brand} size="large" />
+        {loading ? (
+          <ActivityIndicator color={COLORS.brand} size="large" />
+        ) : (
+          <>
+            <Text style={{ color: COLORS.textMuted }}>{t('common.error')}</Text>
+            <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
+              <Text style={{ color: COLORS.brand }}>{t('common.back')}</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }
-
-  if (!trip) {
-    return (
-      <View style={[styles.root, styles.center]}>
-        <Text style={{ color: COLORS.textMuted }}>{t('common.error')}</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-          <Text style={{ color: COLORS.brand }}>{t('common.back')}</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const score = trip.avgScore ?? trip.score ?? 0;
 
   // recentTrips is newest-first, so the later trip is the lower index.
-  const idx = recentTrips.findIndex(t => t.id === tripId);
+  const idx = recentTrips.findIndex(x => x.id === tripId);
   // replace, not push: stepping through trips must not stack up a back history.
   const goTo = (target: number) =>
     router.replace({ pathname: '/(home)/trip-detail', params: { tripId: recentTrips[target].id } });
@@ -98,30 +114,11 @@ export default function TripDetailScreen() {
           onOlder={() => goTo(idx + 1)}
         />
 
-        {/* Score gauge */}
-        {/* Deliberately not a Card: the gauge sits straight on the screen background.
-            Its own wrapper style is where a background or border would go if the
-            screen ever needs one here. */}
-        <View style={styles.gaugeBlock}>
-          <TripScoreGauge score={score} />
-        </View>
+        <TripSummaryView summary={summary} loadingRoute={loading} />
 
-        {/* Stats Grid */}
-        {/* `compact` rather than shrinking COMMON_STYLES.statCard, which the home
-            screen shares: it already gives four equal-width, shorter boxes with one
-            font size and one colour across all of them. */}
-        <StatsGrid columns={4} variant="compact" items={[
-          { icon: ICONS.duration, label: t('trip.duration'), value: formatTripDuration(trip.durationSeconds ?? 0) },
-          { icon: ICONS.distance, label: t('trip.distance'), value: formatTripDistance(trip.distanceKm ?? 0) },
-          { icon: ICONS.points,   label: t('common.points'), value: `+${Math.round(trip.points || 0)}` },
-          { icon: ICONS.flash,    label: t('trip.riskMultiplier'), value: `x${(trip.effectiveRiskMultiplier ?? 1).toFixed(2)}` },
-        ]} />
-
-        {/* Route map */}
-        <TripMapPlaceholder
-          waypoints={routeWaypoints}
-          events={tripEvents}
-        />
+        {failed && (
+          <Text style={styles.partial}>{t('trip.detailUnavailable')}</Text>
+        )}
 
       </ScrollView>
     </View>
@@ -129,11 +126,8 @@ export default function TripDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: COLORS.dark },
-  center:    { justifyContent: 'center', alignItems: 'center' },
-  // Wrapper around the gauge, and the only thing deciding where it sits.
-  // `paddingTop` is what pulls the gauge up toward the header — raise it to push
-  // the gauge down the screen. `marginBottom` is the gap to the stats row below.
-  // A background or border for the gauge area would go here too (see the JSX).
-  gaugeBlock: { alignItems: 'center', paddingTop: 0, paddingBottom: 4, marginBottom: SPACING.sm },
+  root:    { flex: 1, backgroundColor: COLORS.dark },
+  center:  { justifyContent: 'center', alignItems: 'center' },
+  // Says the timeline is missing rather than letting an empty map imply a clean trip.
+  partial: { color: COLORS.textMuted, textAlign: 'center', marginTop: 16, fontSize: 12 },
 });

@@ -63,6 +63,8 @@ export const ICONS = {
   noRewards:      'gift'                      as IoniconName,
   noNotifs:       'notifications'             as IoniconName,
   noLocation:     'location'                  as IoniconName,
+  // Trip waiting to reach the server — not an error, so no warning triangle.
+  notSent:        'cloud-offline'             as IoniconName,
 } as const;
 
 /** Returns the outline variant of an icon name (for inactive/unfocused state). */
