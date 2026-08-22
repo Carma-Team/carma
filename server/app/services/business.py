@@ -124,6 +124,13 @@ async def archive_reward(db: AsyncSession, business: Business, reward_id: str) -
 
 # ── Vouchers ─────────────────────────────────────────────────────────────────
 
+# Same convention as `services.rewards`'s REWARD_* codes: a client branches on
+# `detail["code"]`, never on `detail["message"]` — the two 409s below share a
+# status code and used to share a bare-string detail too, which left "already
+# used" and "expired" distinguishable only by sniffing English text (CAR-67).
+VOUCHER_ALREADY_USED = "VOUCHER_ALREADY_USED"
+VOUCHER_EXPIRED = "VOUCHER_EXPIRED"
+
 
 async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Redemption:
     """Load a voucher issued against one of this business's rewards, or 404.
@@ -185,10 +192,11 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
         # Re-read rather than trusting the status loaded a moment ago: whoever won
         # the race is the reason this lost, and the client deserves the real one.
         current = await db.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Voucher already used" if current == RedemptionStatus.USED else "Voucher expired",
-        )
+        if current == RedemptionStatus.USED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, {"code": VOUCHER_ALREADY_USED, "message": "Voucher already used"}
+            )
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
 
     await db.commit()
     await db.refresh(voucher, attribute_names=["status", "used_at"])

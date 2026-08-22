@@ -15,8 +15,8 @@ const USER: AuthUser = {
   businessCategory: null,
 };
 
-function jsonResponse(body: unknown, status: number) {
-  return new Response(JSON.stringify(body), { status });
+function jsonResponse(body: unknown, status: number, headers?: HeadersInit) {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 describe('request', () => {
@@ -85,5 +85,51 @@ describe('request', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'nope' }, 403));
 
     await expect(request('/api/business/rewards')).rejects.toMatchObject({ status: 403, message: 'nope' });
+  });
+
+  it('carries a structured detail.code through to the thrown ApiError', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: { code: 'VOUCHER_EXPIRED', message: 'Voucher expired' } }, 409),
+    );
+
+    await expect(request('/api/business/vouchers/ABC/redeem')).rejects.toMatchObject({
+      status: 409,
+      code: 'VOUCHER_EXPIRED',
+      message: 'Voucher expired',
+    });
+  });
+
+  it('leaves code undefined for a plain string detail — no discriminator to invent', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'nope' }, 403));
+
+    await expect(request('/api/business/rewards')).rejects.toMatchObject({ code: undefined });
+  });
+
+  it('reads retryAfterSeconds off the Retry-After header on a 429', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: 'Too many attempts.' }, 429, { 'Retry-After': '42' }),
+    );
+
+    await expect(request('/api/business/vouchers/ABC')).rejects.toMatchObject({ status: 429, retryAfterSeconds: 42 });
+  });
+
+  it('leaves retryAfterSeconds undefined when the header is absent', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'nope' }, 403));
+
+    await expect(request('/api/business/rewards')).rejects.toMatchObject({ retryAfterSeconds: undefined });
+  });
+
+  it('leaves retryAfterSeconds undefined when the header is present but not a number', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'nope' }, 429, { 'Retry-After': 'soon' }));
+
+    await expect(request('/api/business/rewards')).rejects.toMatchObject({ status: 429, retryAfterSeconds: undefined });
+  });
+
+  it('surfaces a fetch that never reached the server as an ApiError with status 0', async () => {
+    // Same status-0 convention as `lib/auth/authApi.ts` — no real HTTP
+    // response, so there is nothing else to report a status from.
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(request('/api/business/rewards')).rejects.toMatchObject({ status: 0, message: 'Network error' });
   });
 });
