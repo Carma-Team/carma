@@ -42,8 +42,13 @@ function RootLayoutNav() {
           router.replace('/(business)');
         }
       } else {
-        // driver and admin roles both use the same tabs layout
-        if (!inTabsGroup && !inAuthGroup) {
+        // driver and admin roles both use the same tabs layout.
+        // No auth-group exception here: register signs the driver in and leaves the
+        // redirect to this effect, so skipping it strands them on the form (CAR-237).
+        // If phone verification is ever added to registration (CAR-231), the OTP step
+        // belongs between the two — signed in, but not yet let into the tabs — and this
+        // condition has to grow a "verified" check rather than being reverted.
+        if (!inTabsGroup) {
           router.replace('/(tabs)');
         }
       }
