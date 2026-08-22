@@ -215,6 +215,8 @@ severity = g_factor × duration_factor
 
 Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
 
+**One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
+
 **Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
 
 > **Required input format — `peak_g` must be a single axis in the vehicle's frame of reference.**
