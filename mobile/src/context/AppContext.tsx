@@ -31,6 +31,7 @@ import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
@@ -222,8 +223,8 @@ interface AppContextValue {
   recentTrips: Trip[]
   simulateBTConnect: () => void
   simulateBTDisconnect: () => void
-  lastTripSummary: any | null
-  setLastTripSummary: (v: any | null) => void
+  lastTripSummary: TripSummary | null
+  setLastTripSummary: (v: TripSummary | null) => void
   startTrip: () => Promise<void>
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
@@ -246,7 +247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
-  const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
+  const [lastTripSummary, setLastTripSummary] = useState<TripSummary | null>(null)
   const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
   const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
 
@@ -285,7 +286,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     maybePromptBatteryOptimizationExemption(lang === 'HE' ? he : en).catch(() => {});
 
     if (finalState.distanceKm < 0.1) {
-      setLastTripSummary({ isTooShort: true });
+      setLastTripSummary(TOO_SHORT_SUMMARY);
       setTripState(INITIAL_TRIP_STATE);
       return finalState;
     }
@@ -368,14 +369,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Use server-returned score/points as the single source of truth.
-    // Falls back to 0 when offline (SyncManager.onTripSynced will refresh once connectivity returns).
+    // These zeros are the stored row's, not the summary's: the row must satisfy the
+    // schema, while the summary says `pending` instead of showing a score nobody gave
+    // (see fromLocalTrip). SyncManager.onTripSynced replaces the row once the save lands.
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
-    // Same fallback as the base above: offline there is no server-tapered value,
-    // and SyncManager.onTripSynced replaces the row once the save lands.
     const serverEffectiveRisk  = savedTrip?.effectiveRiskMultiplier ?? serverRiskMultiplier;
-    const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
     // disagree with trip history on the next refresh (#29).
@@ -408,6 +408,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           endLocation: null,
           aiInsight: null,
           pointsCapped: false,
+          pendingSync: true,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -446,18 +447,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
-    setLastTripSummary({
-      ...finalState,
-      id: newTrip.id,
-      score: serverScore,
-      points: earnedPoints,
-      pointsCapped: serverPointsCapped,
-      riskMultiplier: serverRiskMultiplier,
-      effectiveRiskMultiplier: serverEffectiveRisk,
-      penalties: 0,
-      routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
-      tripEvents: lastTripDataRef.current?.events ?? [],
-    });
+    setLastTripSummary(fromLocalTrip(newTrip.id, savedTrip, finalState, lastTripDataRef.current));
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
