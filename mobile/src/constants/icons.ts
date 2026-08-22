@@ -26,6 +26,7 @@ export const ICONS = {
   duration:       'time'                      as IoniconName,
   avgScore:       'speedometer'               as IoniconName,
   safeTrips:      'shield-checkmark'          as IoniconName,
+  streak:         'flame'                     as IoniconName,
 
   // ─── Driving events ─────────────────────────────────────────────────────────
   hardBrake:      'alert-circle'              as IoniconName,

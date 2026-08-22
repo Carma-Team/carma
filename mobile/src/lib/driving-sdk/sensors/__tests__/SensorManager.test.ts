@@ -233,6 +233,9 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    // No hardware — accelInitFailed stays false, distinct from a registration failure (CAR-189).
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: false });
   });
 
   it('still registers the accelerometer when location startup throws', async () => {
@@ -275,6 +278,9 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     expect(onEvent).not.toHaveBeenCalled();
+    // Hardware present, registration threw — the outward flag must say so, not "no hardware" (CAR-189).
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
   });
 
   // ── Lateral: turns ─────────────────────────────────────────────────────────

@@ -19,6 +19,27 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=16)
     jwt_expires_minutes: int = 60 * 24 * 7
 
+    # The web app's access token, minted by `/api/auth/refresh` — deliberately
+    # shorter than `jwt_expires_minutes`. It lives in browser memory only
+    # (never localStorage), and that only buys anything if a token that leaks
+    # stops being useful quickly; a 7-day token sitting in a tab's memory would
+    # make the split from the refresh cookie mostly theatre. Mobile is
+    # unaffected — it keeps minting tokens at `jwt_expires_minutes` via
+    # `/api/auth/login`.
+    web_access_token_expires_minutes: int = Field(default=15, gt=0)
+    # How long a browser session survives with no activity at all. Long on
+    # purpose — CAR-217 is a pilot and asked for a session that does not make
+    # a business owner sign in again mid-week. Each successful refresh rotates
+    # the cookie and resets this window, so an active user is never signed out
+    # by it; only real inactivity is.
+    refresh_token_expires_days: int = Field(default=30, gt=0)
+    # "lax" is correct today — the web app and the API are same-site in every
+    # environment this runs in so far. If a future deploy puts them on
+    # different registrable domains, the browser will silently stop sending
+    # the cookie on fetch/XHR unless this becomes "none" (which also requires
+    # `refresh_cookie_secure`, see below — HTTPS only, no exception for dev).
+    refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+
     otp_length: int = 6
     otp_ttl_seconds: int = 300
     # Failures on either door — wrong password or wrong code — before the account
@@ -105,6 +126,22 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_token_lifetimes(self) -> Settings:
+        """A web access token that outlives its own refresh token defeats the split
+        between them — the whole reason to keep it short (`web_access_token_expires_minutes`)
+        is that it goes stale well before the session backing it does. `gt=0` on both
+        fields already keeps either one from being zero or negative; this catches the
+        pair being the wrong way round, which neither field's own bound can see.
+        """
+        if self.web_access_token_expires_minutes >= self.refresh_token_expires_days * 24 * 60:
+            raise ValueError(
+                "WEB_ACCESS_TOKEN_EXPIRES_MINUTES must be shorter than "
+                "REFRESH_TOKEN_EXPIRES_DAYS — an access token that outlives its own "
+                "refresh token defeats the point of keeping it short-lived"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_twilio(self) -> Settings:
         if self.sms_provider == "twilio":
             missing = [
@@ -134,6 +171,17 @@ class Settings(BaseSettings):
         browser tooling. Naming an explicit origin list turns it back on.
         """
         return self.cors_origin_list != ["*"]
+
+    @property
+    def refresh_cookie_secure(self) -> bool:
+        """`Secure` in production always; earlier too if SameSite=None is chosen.
+
+        Browsers reject a `SameSite=None` cookie outright unless it also
+        carries `Secure` — so this cannot be left for `env == "production"`
+        alone without a deploy that sets `refresh_cookie_samesite=none` on a
+        non-production box quietly losing every session.
+        """
+        return self.env == "production" or self.refresh_cookie_samesite == "none"
 
 
 @lru_cache

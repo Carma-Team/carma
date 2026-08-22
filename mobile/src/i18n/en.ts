@@ -14,6 +14,7 @@ const en: TranslationMap = {
     loginBtn: 'Sign In', registerBtn: 'Create Account', guestLoginBtn: 'Guest Login (Dev)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
     namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
+    citySelectPlaceholder: 'Select city',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
     requiredHint: 'Fields marked with * are required',
     forgot: {
@@ -195,6 +196,7 @@ const en: TranslationMap = {
     scoreHistory: 'Score History', totalDistance: 'Total Distance',
     totalTrips: 'Total Trips', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
+    currentStreak: 'Current Streak', bestStreak: 'Best Streak',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
       // Indexed by Date.getDay() — Sunday first, matching the strip's week start.

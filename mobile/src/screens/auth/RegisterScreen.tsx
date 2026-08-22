@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, KeyboardAvoidingView, Platform
@@ -7,9 +7,11 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { Button }   from '@/components/ui/Button'
+import { LocationPicker } from '@/components/ui/LocationPicker'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
+import { leaderboardApi } from '@/services/api/leaderboard.api'
 import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
@@ -42,6 +44,16 @@ export default function RegisterScreen() {
   const [form,    setForm]    = useState<FormState>(INITIAL)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const [cities,  setCities]  = useState<string[]>([])
+
+  useEffect(() => {
+    leaderboardApi.getLocations()
+      .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
+      // Expected, not exceptional: /api/leaderboard/locations requires a bearer
+      // token and registration has none yet, so this 401s on every fresh install.
+      // An empty list is the signal to fall back to a free-text city field below.
+      .catch(() => setCities([]))
+  }, [])
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
@@ -67,6 +79,9 @@ export default function RegisterScreen() {
         email:       form.email.trim().toLowerCase(),
         password:    form.password,
         phone:       form.phone   || undefined,
+        // City is optional — '' means the placeholder is still showing, i.e. no
+        // pick was made, not "picked nothing." Send undefined so the server sees
+        // an unanswered field, not an empty string.
         city:        form.city    || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
@@ -149,17 +164,30 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            <TextInput
-              style={COMMON_STYLES.input}
-              value={form[field.key]}
-              onChangeText={v => update(field.key, v)}
-              placeholder={field.placeholder}
-              placeholderTextColor={COLORS.textMuted}
-              secureTextEntry={field.secure}
-              keyboardType={field.keyboard ?? 'default'}
-              autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
-              textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
-            />
+            {/* No list to pick from — keep the free-text field rather than a picker
+                nobody can fill. Drop this branch once the city list is reachable
+                before login (CAR-218). */}
+            {field.key === 'city' && cities.length > 0 ? (
+              <LocationPicker
+                value={form.city}
+                options={cities}
+                placeholder={t('auth.citySelectPlaceholder')}
+                onChange={v => update('city', v)}
+                style={styles.cityTrigger}
+              />
+            ) : (
+              <TextInput
+                style={COMMON_STYLES.input}
+                value={form[field.key]}
+                onChangeText={v => update(field.key, v)}
+                placeholder={field.placeholder}
+                placeholderTextColor={COLORS.textMuted}
+                secureTextEntry={field.secure}
+                keyboardType={field.keyboard ?? 'default'}
+                autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
+                textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
+              />
+            )}
             {fieldErrors[field.key] ? (
               <Text style={styles.fieldError}>{fieldErrors[field.key]}</Text>
             ) : null}
@@ -188,6 +216,7 @@ const styles = StyleSheet.create({
   logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
   heading:  { ...TYPOGRAPHY.h2, marginBottom: 20, textAlign: 'center' },
   field:    { marginBottom: 14 },
+  cityTrigger: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
   requiredHint: { ...TYPOGRAPHY.caption, fontSize: 13, marginBottom: 16, textAlign: 'center' },

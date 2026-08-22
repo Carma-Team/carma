@@ -19,7 +19,7 @@ export interface TripState {
   distanceKm: number;
   currentSpeedKmH: number;
   touchEpochs: number;              // v1.7 — glass-tap proxy count from IMU
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds at ≥15 km/h
   eventCounts: {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
