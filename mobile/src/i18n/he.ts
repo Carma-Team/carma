@@ -14,6 +14,7 @@ const he = {
     loginBtn: 'היכנס', registerBtn: 'צור חשבון', guestLoginBtn: 'כניסה כאורח (לפיתוח)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
     namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
+    citySelectPlaceholder: 'בחירת עיר',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
     errors: {
       emailRequired: 'אנא הזן אימייל', passwordRequired: 'אנא הזן סיסמה',
