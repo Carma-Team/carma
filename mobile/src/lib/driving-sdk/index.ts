@@ -300,6 +300,10 @@ export class DrivingSDK {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
     this.isValidating = false;
 
+    // Read before the abort clears it below — undefined here means the pre-trip gate
+    // caught the session, and stays undefined all the way to the server.
+    const distanceKm = this.currentTripData?.distanceKm;
+
     // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
@@ -310,11 +314,13 @@ export class DrivingSDK {
 
     // Delegate server sync + UI to AppContext via onFraudDetected
     const event: FraudDetectedEvent = {
-      confidence: evaluation.score,
-      mode: evaluation.mode,
+      fraudScore: evaluation.score,
+      detectedMode: evaluation.mode,
       telemetry: evaluation.telemetry,
+      signals: evaluation.signals,
       durationMs: Date.now() - this.validationStartTime,
       maxSpeedKmh: this.validationMaxSpeed,
+      distanceKm,
     };
     this.onFraudDetected?.(event);
   }

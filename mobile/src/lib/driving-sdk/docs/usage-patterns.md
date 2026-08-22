@@ -143,7 +143,7 @@ reporting, not for deciding whether to keep the trip:
 ```typescript
 sdk.onFraudDetected = (event) => {
   discardInProgressTripState();
-  reportSuspectedFraud(event); // event.mode, event.confidence, event.telemetry
+  reportSuspectedFraud(event); // event.detectedMode, event.fraudScore, event.signals, event.telemetry
 };
 ```
 
