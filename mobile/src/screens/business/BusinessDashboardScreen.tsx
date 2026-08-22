@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY } from '@/constants/icons';
-import { LanguagePicker } from '@/components/ui/LanguagePicker';
+import { SettingsSheet } from '@/components/business/SettingsSheet';
 import { businessApi, type BusinessReward } from '@/services/api/business.api';
 import { formatStockLabel } from '@/lib/rewardStock';
 
@@ -25,7 +25,7 @@ export default function BusinessDashboardScreen() {
 
   const [rewards, setRewards] = useState<BusinessReward[]>([]);
   const [loading, setLoading] = useState(true);
-  const direction = lang === 'HE' ? 'rtl' : 'ltr';
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -60,7 +60,19 @@ export default function BusinessDashboardScreen() {
   const activeCount = rewards.filter(r => r.isActive).length;
 
   return (
-    <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, direction }]}>
+    <View style={[COMMON_STYLES.screen, { paddingTop: insets.top }]}>
+
+      {/* Fixed corner, independent of the title's width — a long business name
+          or the English label can never grow into it (that's what overlapped
+          before: two inline header-right controls competing with the title
+          for the same row). */}
+      <TouchableOpacity
+        onPress={() => setSettingsOpen(true)}
+        style={[styles.settingsBtn, { top: insets.top + SPACING.sm }]}
+        hitSlop={8}
+      >
+        <Ionicons name={ICONS.settings} size={22} color={COLORS.brandLight} />
+      </TouchableOpacity>
 
       {/* Header */}
       <View style={styles.header}>
@@ -74,21 +86,22 @@ export default function BusinessDashboardScreen() {
                 </View>
               );
             })()}
-            <Text style={TYPOGRAPHY.h2}>{user?.name ?? t('business.title')}</Text>
+            <Text style={[TYPOGRAPHY.h2, { flexShrink: 1 }]} numberOfLines={1}>{user?.name ?? t('business.title')}</Text>
           </View>
           <Text style={[TYPOGRAPHY.caption, { marginTop: 2 }]}>{t('business.subtitle')}</Text>
         </View>
-
-        <View style={styles.headerRight}>
-          <LanguagePicker lang={lang} onSelect={setLang} buttonLabel={t('profile.language')} />
-
-          {/* Logout */}
-          <TouchableOpacity onPress={() => setUser(null)} style={styles.logoutBtn}>
-            <Ionicons name={ICONS.logout} size={20} color={COLORS.danger} />
-            <Text style={styles.logoutText}>{t('auth.logout')}</Text>
-          </TouchableOpacity>
-        </View>
       </View>
+
+      <SettingsSheet
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title={t('profile.settings')}
+        lang={lang}
+        onSelectLang={setLang}
+        languageLabel={t('profile.language')}
+        onLogout={() => { setSettingsOpen(false); setUser(null); }}
+        logoutLabel={t('auth.logout')}
+      />
 
       <ScrollView contentContainerStyle={styles.content}>
 
@@ -190,16 +203,29 @@ export default function BusinessDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  header:     { ...COMMON_STYLES.screenHeader, justifyContent: 'space-between' },
-  headerLeft: { gap: 2 },
+  header:     { ...COMMON_STYLES.screenHeader },
+  // flex: 1 gives numberOfLines={1} below something to actually truncate against —
+  // screenHeader has no justifyContent now that this is its only child, so without
+  // it headerLeft sizes to content instead of the row. paddingEnd reserves room for
+  // the fixed-corner settings button so a long name/subtitle doesn't run under it.
+  headerLeft: { flex: 1, gap: 2, paddingEnd: 56 },
   headerCatIcon: {
     width: 30, height: 30, borderRadius: 15,
     alignItems: 'center' as const, justifyContent: 'center' as const,
     borderWidth: 1, marginEnd: 8,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  logoutBtn:   { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 6 },
-  logoutText:  { ...TYPOGRAPHY.label, color: COLORS.danger },
+  settingsBtn: {
+    position: 'absolute',
+    // end (not right): a logical property, so it flips with paddingEnd above in
+    // RTL — right is physical and stayed pinned to the device edge, leaving the
+    // reserved gap and the button on opposite sides of a Hebrew layout.
+    end: SPACING.md,
+    zIndex: 10,
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.card,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
   content:     { ...COMMON_STYLES.scrollContent },
   statsCard:   { marginBottom: SPACING.lg },
   statItem:    { flex: 1, alignItems: 'center', paddingVertical: SPACING.sm },
