@@ -407,6 +407,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           startLocation: null,
           endLocation: null,
           aiInsight: null,
+          accelAvailable: null,
+          accelInitFailed: null,
           pointsCapped: false,
         };
 

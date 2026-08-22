@@ -35,6 +35,16 @@ class SaveTripIn(CamelModel):
         validation_alias=AliasChoices("riskMultiplier", "risk_multiplier"),
         deprecated=True,
     )
+    # IMU health from the SDK (CAR-189). None means the client did not say, which
+    # is not the same as False - see the column comments on Trip.
+    accel_available: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("accelAvailable", "accel_available"),
+    )
+    accel_init_failed: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("accelInitFailed", "accel_init_failed"),
+    )
     telemetry_digest: dict[str, Any] | None = Field(
         default=None,
         validation_alias=AliasChoices("telemetryDigest", "telemetry_digest"),
@@ -88,6 +98,10 @@ class TripOut(CamelModel):
     start_location: str | None
     end_location: str | None
     ai_insight: str | None
+    # Read back so a trip's IMU health is inspectable, and so CAR-190 can weight
+    # confidence by it. None on every trip saved before CAR-228.
+    accel_available: bool | None
+    accel_init_failed: bool | None
     status: str
     idempotency_key: str | None = None
     # True when the daily anti-grind caps (scoring.md "Points") reduced the award —
@@ -123,6 +137,8 @@ class TripOut(CamelModel):
                 "start_location": trip.start_location,
                 "end_location": trip.end_location,
                 "ai_insight": trip.ai_insight,
+                "accel_available": trip.accel_available,
+                "accel_init_failed": trip.accel_init_failed,
                 "status": trip.status.value.lower(),
                 "idempotency_key": trip.idempotency_key,
                 "points_capped": points_capped,

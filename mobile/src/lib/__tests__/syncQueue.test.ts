@@ -61,6 +61,8 @@ function makeServerTrip(localTripId: string): Trip {
     startLocation: null,
     endLocation: null,
     aiInsight: null,
+    accelAvailable: null,
+    accelInitFailed: null,
     pointsCapped: false,
   };
 }

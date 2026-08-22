@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +49,19 @@ class Trip(Base):
     sharp_turns: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     touch_epochs: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     screen_interaction_seconds: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+
+    # Per-trip accelerometer health, as reported by the SDK (CAR-189/CAR-228).
+    # `accel_available` latches true if the sensor was ever confirmed live during
+    # the trip; `accel_init_failed` says registration itself threw. Together they
+    # separate a healthy drive, a device with no accelerometer, and a driver whose
+    # sensor never started.
+    #
+    # Nullable, and it has to stay nullable: a trip saved before this landed, or by
+    # a client too old to send the fields, is *unknown*. Defaulting to false would
+    # assert "the accelerometer was never live" about trips nobody ever measured,
+    # and CAR-190 is going to weight trip confidence on exactly this.
+    accel_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    accel_init_failed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     ai_insight: Mapped[str | None] = mapped_column(String(500))
     start_location: Mapped[str | None] = mapped_column(String(200))
