@@ -60,20 +60,14 @@ screen*.png
 demo_shots/
 
 # ─── Local check output ──────────────────────────────────────────────────────
-# Standing output files for tsc/eslint/jest/git runs redirected from the terminal,
-# and for draft PR body/comment text. One fixed path per purpose on purpose, so the
-# command can be re-run from shell history and nothing accumulates per-PR.
-tsc-out.txt
-lint-out.txt
-jest-out.txt
-commit-msg-out.txt
-git-status-out.txt
-pr-body.txt
-pr-comment.txt
-
-# ─── Drafted PR/comment content ──────────────────────────────────────────────
-# One fixed path, always overwritten — never committed, never per-PR.
-pr-body.txt
+# Redirected output from tsc/eslint/jest/git runs, and scratch PR-body drafts.
+# One directory so a new fixed-name file here never needs its own .gitignore line.
+mobile/.local/
+# Belt-and-suspenders: same files by naming convention, in case one ever lands
+# outside mobile/.local/ by mistake.
+commit-*.txt
+*-out.txt
+pr-*.txt
 
 # ─── Scratch PR bodies ────────────────────────────────────────────────────────
 # --body-file drafts for gh pr create, never meant to be committed.

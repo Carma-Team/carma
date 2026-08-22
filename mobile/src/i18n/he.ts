@@ -80,8 +80,9 @@ const he = {
     points: 'נקודות',
     pointsCapped: 'הגעת למכסת הנקודות לתקופה זו — נקודות נוספות ייספרו לאחר שהמכסה תתאפס.',
     viewFullDetails: 'לצפייה בפרטים המלאים',
-    closeAndHome: 'סגור וחזור לדף הבית',
+    closeAndHome: 'סגירה וחזרה לדף הבית',
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
+    openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
   },
   driving: {

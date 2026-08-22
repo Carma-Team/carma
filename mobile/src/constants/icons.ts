@@ -50,6 +50,7 @@ export const ICONS = {
   inactive:       'close-circle'              as IoniconName,
   car:            'car-sport'                 as IoniconName,
   flash:          'flash'                     as IoniconName,
+  openInMaps:     'navigate-outline'          as IoniconName,
 
   // ─── Profile section tabs ───────────────────────────────────────────────────
   achievements:   'trophy'                    as IoniconName,
