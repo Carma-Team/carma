@@ -219,6 +219,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     redemption = Redemption(
         user_id=user.id,
         reward_id=reward.id,
+        points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=RedemptionStatus.PENDING,

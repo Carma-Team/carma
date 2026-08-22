@@ -58,6 +58,7 @@ def _fake_redemption(*, qr_code: str, qr_data: str | None, status: str = "PENDIN
         expires_at=datetime(2026, 6, 15, tzinfo=UTC),
         used_at=None,
         created_at=datetime(2026, 6, 15, tzinfo=UTC),
+        points_cost=50,
         reward=reward,
     )
 

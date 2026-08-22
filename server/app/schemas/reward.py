@@ -67,6 +67,9 @@ class VoucherOut(CamelModel):
     expires_at: datetime
     redeemed_at: datetime | None
     created_at: datetime
+    # Snapshot taken at issue time (CAR-70) — independent of reward.cost_points,
+    # which is the reward's current, possibly since-changed, price.
+    points_cost: int
     reward: RewardOut
 
     @classmethod
@@ -83,6 +86,7 @@ class VoucherOut(CamelModel):
                 "expires_at": r.expires_at,
                 "redeemed_at": r.used_at,
                 "created_at": r.created_at,
+                "points_cost": r.points_cost,
                 "reward": RewardOut.from_orm_reward(r.reward, available),
             }
         )

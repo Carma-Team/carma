@@ -1630,6 +1630,8 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+            /** Pointscost */
+            pointsCost: number;
             reward: components["schemas"]["RewardOut"];
         };
         /** VoucherResponse */

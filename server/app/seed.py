@@ -520,6 +520,7 @@ async def run() -> None:
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
+                    points_cost=paz_reward.cost_points,
                     # Real voucher format, not a descriptive slug: lookups fold
                     # the input to upper case with separators stripped, so the
                     # old `seed-dan-voucher-paz-01` could not be looked up at
