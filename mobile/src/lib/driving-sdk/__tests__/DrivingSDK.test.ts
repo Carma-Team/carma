@@ -594,6 +594,20 @@ describe('DrivingSDK', () => {
     expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
   });
 
+  it('passes each per-second sample to the host with its speed, ungated (CAR-184)', async () => {
+    const received: { screenInteractionSeconds: number; speedKmh: number }[] = [];
+    sdk.onInteractionData = (data) => received.push(data);
+    await startTripReady();
+
+    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 3 });
+    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 40 });
+
+    expect(received).toMatchObject([
+      { screenInteractionSeconds: 1, speedKmh: 3 },
+      { screenInteractionSeconds: 1, speedKmh: 40 },
+    ]);
+  });
+
   it('carries accelerometer health onto the trip, not just the validator (CAR-189)', async () => {
     await startTripReady();
 
