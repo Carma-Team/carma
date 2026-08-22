@@ -32,6 +32,7 @@ from app.schemas.auth import (
     PasswordResetIn,
     RegisterIn,
 )
+from app.services import cities
 from app.services import users as users_service
 from app.services.sms import sms_sender
 
@@ -164,7 +165,7 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
         email=email,
         password_hash=hash_password(dto.password),
         phone=dto.phone,
-        city=dto.city,
+        city_code=await cities.resolve_code(db, code=dto.city_code, label=dto.city),
         age=dto.age,
         license_year=dto.license_year,
         last_logged_at=_now(),
@@ -516,7 +517,7 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
         existing.name = dto.name
         existing.language = dto.language or Language.HE
         existing.age = dto.age
-        existing.city = dto.city
+        existing.city_code = await cities.resolve_code(db, code=dto.city_code, label=dto.city)
     else:
         db.add(
             User(
@@ -524,7 +525,7 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
                 name=dto.name,
                 language=dto.language or Language.HE,
                 age=dto.age,
-                city=dto.city,
+                city_code=await cities.resolve_code(db, code=dto.city_code, label=dto.city),
             )
         )
     await db.commit()

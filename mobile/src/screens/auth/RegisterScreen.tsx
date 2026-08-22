@@ -12,6 +12,7 @@ import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
+import { cityLabel } from '@/types'
 import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
@@ -62,7 +63,7 @@ export default function RegisterScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { loginUser, addToast } = useApp()
-  const { t } = useTranslation()
+  const { t, lang }               = useTranslation()
   const [form,      setForm]      = useState<FormState>(INITIAL)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState('')
@@ -71,10 +72,12 @@ export default function RegisterScreen() {
 
   useEffect(() => {
     leaderboardApi.getLocations()
-      .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
+      .then(data => setCities(data.cities.map(c => cityLabel(c, lang))))
       // Expected, not exceptional: /api/leaderboard/locations requires a bearer
       // token and registration has none yet, so this 401s on every fresh install.
       // An empty list is the signal to fall back to a free-text city field below.
+      // CAR-224 moves this to the public /api/cities list; the label the form
+      // submits keeps working either way, the server resolves it to a code.
       .catch(() => setCities([]))
   }, [])
 

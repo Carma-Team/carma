@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { levelToIcon } from '@/lib/utils'
 import { friendsApi } from '@/services/api/friends.api'
 import { useTranslation } from '@/hooks/useTranslation'
+import { cityLabel } from '@/types'
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme'
 import type { FriendRequest } from '@/types'
 
@@ -98,7 +99,7 @@ export default function FriendRequestsScreen() {
                     {t('profile.sentFriendRequest')}
                   </Text>
                   {req.fromUserCity ? (
-                    <Text style={styles.city}>{req.fromUserCity}</Text>
+                    <Text style={styles.city}>{cityLabel(req.fromUserCity, lang)}</Text>
                   ) : null}
                 </View>
                 <View style={styles.actions}>

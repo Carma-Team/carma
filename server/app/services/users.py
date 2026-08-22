@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
-from app.models import Trip, TripStatus, User, UserRole
+from app.models import City, Trip, TripStatus, User, UserRole
+from app.schemas.city import CityOut
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import (
     ContactMatchOut,
@@ -19,7 +20,7 @@ from app.schemas.user import (
     UserOut,
 )
 from app.services import business as business_service
-from app.services import friends, rewards, trips
+from app.services import cities, friends, rewards, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
@@ -73,7 +74,16 @@ async def _apply_business_context(db: AsyncSession, user: User, out: UserOut) ->
 
 
 async def update_profile(db: AsyncSession, user: User, dto: UpdateProfileIn) -> User:
-    for field, value in dto.model_dump(exclude_unset=True).items():
+    fields = dto.model_dump(exclude_unset=True)
+    # City is the one field that is not a column any more (CAR-218). It arrives
+    # as a CBS code, or as the deprecated label an older build still sends, and
+    # either way it resolves to a code before it touches the row. Sending both
+    # keys explicitly null still clears it, which is a real edit.
+    if "city_code" in fields or "city" in fields:
+        user.city_code = await cities.resolve_code(db, code=fields.get("city_code"), label=fields.get("city"))
+    fields.pop("city_code", None)
+    fields.pop("city", None)
+    for field, value in fields.items():
         setattr(user, field, value)
     await db.commit()
     await db.refresh(user)
@@ -176,7 +186,9 @@ async def match_contacts(db: AsyncSession, current: User, hashes: list[str]) -> 
 
     rows = (
         await db.execute(
-            select(User.id, User.name, User.city, User.phone).where(
+            select(User.id, User.name, User.phone, City.code, City.name_he, City.name_en)
+            .outerjoin(City, User.city_code == City.code)
+            .where(
                 User.phone.is_not(None),
                 User.role == UserRole.DRIVER,
                 User.id != current.id,
@@ -193,7 +205,7 @@ async def match_contacts(db: AsyncSession, current: User, hashes: list[str]) -> 
                 phone_hash=digest,
                 id=row.id,
                 name=row.name,
-                city=row.city,
+                city=CityOut(code=row.code, name_he=row.name_he, name_en=row.name_en) if row.code else None,
                 friend_status=statuses.get(row.id, "none"),
             )
             for digest, row in hits
