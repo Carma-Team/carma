@@ -162,6 +162,10 @@ def _parse_event(raw: Any, trip_start: datetime) -> Event | None:
         client_severity = min(max(float(raw.get("severity", 0.0)), 0.0), 1.0)
     except (TypeError, ValueError):
         client_severity = 0.0
+    # Every comparison against NaN is False, so it survives the clamp untouched
+    # and would reach a NOT NULL column. Junk is junk: it falls to the floor.
+    if math.isnan(client_severity):
+        client_severity = 0.0
     severity = 1.0 + 2.0 * client_severity
 
     loc = raw.get("location")

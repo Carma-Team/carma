@@ -215,7 +215,7 @@ severity = g_factor × duration_factor
 
 Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
 
-**One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale. The phone's SDK reports severity on its own 0-1 scale — it is a generic sensor library and knows nothing about CARMA's weights — so the server normalises it at ingestion: `1.0 + 2.0 * client_severity`. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero. The raw client number is kept alongside for forensics.
+**One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
 
 **Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
 

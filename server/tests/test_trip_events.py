@@ -15,6 +15,7 @@ Key invariants under test:
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -113,6 +114,23 @@ def test_parse_event_huge_severity_clamped_to_the_ceiling() -> None:
     # the same ceiling as an honest one claiming 1.0.
     ev = _parse_event({"type": "HARD_BRAKE", "severity": 1e9}, TRIP_START)
     assert ev is not None and ev.severity == 3.0
+
+
+def test_parse_event_nan_severity_falls_to_the_floor() -> None:
+    # NaN compares False against everything, so it slips through the clamp and
+    # would be written to a NOT NULL column.
+    for payload in ("nan", float("nan")):
+        ev = _parse_event({"type": "HARD_BRAKE", "severity": payload}, TRIP_START)
+        assert ev is not None
+        assert not math.isnan(ev.severity)
+        assert ev.severity == 1.0
+
+
+def test_parse_event_infinite_severity_clamped_to_the_ceiling() -> None:
+    ev = _parse_event({"type": "HARD_BRAKE", "severity": float("inf")}, TRIP_START)
+    assert ev is not None and ev.severity == 3.0
+    ev = _parse_event({"type": "HARD_BRAKE", "severity": float("-inf")}, TRIP_START)
+    assert ev is not None and ev.severity == 1.0
 
 
 # ─── _parse_event — coordinates ────────────────────────────────────────────────
