@@ -76,3 +76,11 @@ mobile/.local/
 .claude/settings.local.json
 CLAUDE.local.md
 /claude-local/
+
+# Scratch files a session may drop in the repo root by mistake instead of the
+# scratchpad — draft PR bodies, saved command output. Belongs local, never committed.
+git-diff-*.txt
+
+# scratch files for redirected command output and drafted PR/commit text —
+# fixed filenames, always overwritten, never one per PR
+.local/

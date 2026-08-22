@@ -24,6 +24,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
+from app.core.security import create_access_token
 from app.main import app
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
 from app.services import business as business_service
@@ -104,6 +105,7 @@ async def _issue(
     voucher = Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=RedemptionStatus.PENDING,
@@ -214,7 +216,36 @@ async def test_consume_marks_it_used_once_and_refuses_the_second_time(db_session
         with pytest.raises(HTTPException) as exc:
             await business_service.consume_voucher(db_session, business, voucher.qr_code)
         assert exc.value.status_code == 409
-        assert "already used" in str(exc.value.detail)
+        assert (
+            exc.value.detail["code"] == business_service.VOUCHER_ALREADY_USED
+        ), "the client needs a code, not a message to parse"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_already_used_conflict_reaches_the_wire_as_a_machine_readable_code(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """What `lib/api/vouchers.ts` actually receives over HTTP, not just what the service raises.
+
+    FastAPI serializes an `HTTPException.detail` verbatim into the response
+    body's `detail` field — this pins that the dict survives the round trip
+    rather than collapsing back to a bare string somewhere in between (CAR-67).
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        first = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert first.status_code == 200
+
+        second = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert second.status_code == 409
+        assert second.json()["detail"] == {"code": "VOUCHER_ALREADY_USED", "message": "Voucher already used"}
     finally:
         await _cleanup(db_session, business, drivers=(driver,))
 
@@ -249,11 +280,34 @@ async def test_expired_voucher_cannot_be_consumed(db_session: AsyncSession) -> N
         with pytest.raises(HTTPException) as exc:
             await business_service.consume_voucher(db_session, business, voucher.qr_code)
         assert exc.value.status_code == 409
-        assert "expired" in str(exc.value.detail)
+        assert exc.value.detail["code"] == business_service.VOUCHER_EXPIRED
 
         await db_session.refresh(voucher)
         assert voucher.status == RedemptionStatus.EXPIRED
         assert voucher.used_at is None, "a refused redemption must not stamp used_at"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expired_conflict_reaches_the_wire_as_a_machine_readable_code(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The expired sibling of `test_already_used_conflict_reaches_the_wire_as_a_machine_readable_code`.
+
+    Both 409s share a status code; only the wire-level `detail.code` is what
+    lets `lib/api/vouchers.ts` tell them apart, so both need this same proof.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(seconds=-1))
+
+        redeem = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert redeem.status_code == 409
+        assert redeem.json()["detail"] == {"code": "VOUCHER_EXPIRED", "message": "Voucher expired"}
     finally:
         await _cleanup(db_session, business, drivers=(driver,))
 

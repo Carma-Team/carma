@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { Card } from './Card';
-import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
+import { COLORS, COMMON_STYLES, SPACING } from '@/constants/theme';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -49,11 +49,12 @@ export function StatsGrid({ items, columns = 2, variant = 'default' }: StatsGrid
             color={COLORS.brandLight}
             style={{ marginBottom: isCompact ? 2 : 6 }}
           />
+          {/* No auto-shrink: it sized each box's value by how long that value happened
+              to be, so four stats side by side came out in four different sizes. A
+              value too long to fit now truncates, which is visible and fixable. */}
           <Text
             style={[COMMON_STYLES.statValue, isCompact && styles.compactValue]}
             numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
           >
             {item.value}
           </Text>

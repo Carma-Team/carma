@@ -167,6 +167,10 @@ function buildTelemetryDigest(
   state: TripState,
   startTime: string,
   endTime: string,
+  // Read from TripData (via lastTripDataRef at the call site), not TripState — accel
+  // health is SDK trip data, not part of the reducer-shaped trip state (CAR-189).
+  accelAvailable: boolean,
+  accelInitFailed: boolean,
 ): TelemetryDigest {
   return {
     distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
@@ -180,6 +184,8 @@ function buildTelemetryDigest(
     startTime,
     endTime,
     timestamp:                Date.now(),
+    accelAvailable,
+    accelInitFailed,
   };
 }
 
@@ -220,6 +226,9 @@ interface AppContextValue {
   setLastTripSummary: (v: any | null) => void
   startTrip: () => Promise<void>
   debugAddDistance: (km: number) => void
+  startRawRecording: (scenario: string, platform: string) => Promise<void>
+  stopRawRecording: () => Promise<void>
+  exportRawRecording: () => Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }>
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
@@ -290,7 +299,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let telemetryDigest:  TelemetryDigest | undefined;
     let payloadSignature: string | undefined;
     try {
-      telemetryDigest  = buildTelemetryDigest(finalState, tripStartTime, endTime);
+      telemetryDigest  = buildTelemetryDigest(
+        finalState, tripStartTime, endTime,
+        lastTripDataRef.current?.accelAvailable ?? false,
+        lastTripDataRef.current?.accelInitFailed ?? false,
+      );
       payloadSignature = signTelemetryDigest(telemetryDigest);
     } catch (sigErr) {
       console.error('[AppContext] Digest signing failed — payload sent unsigned', sigErr);
@@ -311,6 +324,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
       penalties: 0,         // server computes — placeholder only
+      accelAvailable: lastTripDataRef.current?.accelAvailable,
+      accelInitFailed: lastTripDataRef.current?.accelInitFailed,
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,
@@ -438,6 +453,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       points: earnedPoints,
       pointsCapped: serverPointsCapped,
       riskMultiplier: serverRiskMultiplier,
+      effectiveRiskMultiplier: serverEffectiveRisk,
       penalties: 0,
       routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
       tripEvents: lastTripDataRef.current?.events ?? [],
@@ -607,6 +623,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sdk.debugAddDistance(km);
   }, [sdk]);
 
+  const startRawRecording = useCallback(
+    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform),
+    [sdk]
+  );
+  const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
+  const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
+
   const clearTripHistory = useCallback(async () => {
     try {
       const now = new Date().toISOString();
@@ -635,6 +658,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       simulateBTConnect, simulateBTDisconnect,
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
+      startRawRecording, stopRawRecording, exportRawRecording,
       clearTripHistory,
       sdk,
       btDevice, setBtDevice,

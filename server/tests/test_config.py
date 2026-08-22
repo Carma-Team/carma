@@ -56,3 +56,70 @@ class TestTrustedProxyCountGuard:
         """Nothing sits in front of a local server, so the header stays untrusted."""
         s = Settings(**_BASE, env=env)
         assert s.trusted_proxy_count == 0
+
+
+class TestRefreshCookieSecureGuard:
+    """`Secure` on the web session cookie (CAR-217) — never optional in production,
+    and forced on even earlier if `SameSite=None` is ever chosen, because a
+    browser refuses that pairing outright without it."""
+
+    def test_production_is_always_secure(self) -> None:
+        s = Settings(**_BASE, env="production", trip_signing_secret=_VALID_SECRET, trusted_proxy_count=1)
+        assert s.refresh_cookie_secure is True
+
+    def test_development_with_the_default_samesite_is_not_secure(self) -> None:
+        """`http://localhost` has no TLS — a `Secure` cookie here would just never be sent."""
+        s = Settings(**_BASE, env="development")
+        assert s.refresh_cookie_samesite == "lax"
+        assert s.refresh_cookie_secure is False
+
+    def test_samesite_none_forces_secure_even_outside_production(self) -> None:
+        s = Settings(**_BASE, env="development", refresh_cookie_samesite="none")
+        assert s.refresh_cookie_secure is True
+
+
+class TestTokenLifetimeGuard:
+    """A misconfigured lifetime should fail loudly at startup, not mint broken
+    tokens quietly — the same posture `trip_signing_secret` and
+    `trusted_proxy_count` already take on this exact class of mistake."""
+
+    def test_zero_web_access_token_minutes_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="web_access_token_expires_minutes"):
+            Settings(**_BASE, web_access_token_expires_minutes=0)
+
+    def test_negative_web_access_token_minutes_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="web_access_token_expires_minutes"):
+            Settings(**_BASE, web_access_token_expires_minutes=-1)
+
+    def test_zero_refresh_token_days_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="refresh_token_expires_days"):
+            Settings(**_BASE, refresh_token_expires_days=0)
+
+    def test_negative_refresh_token_days_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="refresh_token_expires_days"):
+            Settings(**_BASE, refresh_token_expires_days=-1)
+
+    def test_an_access_token_that_would_outlive_its_refresh_token_is_rejected(self) -> None:
+        """Not just each bound on its own — the pair the wrong way round defeats
+        the whole point of the split (see `_validate_token_lifetimes`). Two full
+        days for the access token against one day of refresh-token life —
+        both individually positive, but the wrong way round."""
+        with pytest.raises(ValidationError, match="WEB_ACCESS_TOKEN_EXPIRES_MINUTES"):
+            Settings(**_BASE, web_access_token_expires_minutes=2 * 24 * 60, refresh_token_expires_days=1)
+
+    def test_an_access_token_exactly_as_long_as_its_refresh_token_is_rejected(self) -> None:
+        """Equal is still "does not outlive" in name only — a token that expires
+        the same instant its session does buys the split nothing."""
+        with pytest.raises(ValidationError, match="WEB_ACCESS_TOKEN_EXPIRES_MINUTES"):
+            Settings(**_BASE, web_access_token_expires_minutes=24 * 60, refresh_token_expires_days=1)
+
+    def test_the_defaults_are_valid(self) -> None:
+        """Pins the shipped defaults against ever silently regressing into an
+        invalid pair."""
+        s = Settings(**_BASE)
+        assert s.web_access_token_expires_minutes == 15
+        assert s.refresh_token_expires_days == 30
+
+    def test_a_short_access_token_against_a_long_refresh_token_is_accepted(self) -> None:
+        s = Settings(**_BASE, web_access_token_expires_minutes=15, refresh_token_expires_days=30)
+        assert s.web_access_token_expires_minutes == 15

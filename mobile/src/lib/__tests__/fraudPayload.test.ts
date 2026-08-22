@@ -1,11 +1,14 @@
 /**
  * What the device tells the server when it flags a session.
  *
- * tripValidation.test.ts proves the gates fire correctly. This proves the verdict
- * survives the journey to the server intact — the gates by name, the telemetry
+ * fraudDetector.test.ts proves which gates the classifier may set. This proves the
+ * verdict survives the journey to the server intact — the gates by name, the telemetry
  * under one name per value, and no field renamed on the way out (CAR-32).
+ *
+ * The fixture is built rather than driven through the detector on purpose. A TRAIN
+ * verdict is unreachable from device axes today (CAR-167), and the wire format has to
+ * keep working for the day CAR-156 makes it reachable again.
  */
-import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
 import { TransportMode } from '@/lib/driving-sdk/types';
 import { fraudApi, type FraudEventPayload } from '@/services/api/fraud.api';
 import { request } from '@/services/api/client';
@@ -36,38 +39,6 @@ async function postedBody(payload: FraudEventPayload): Promise<any> {
 
 beforeEach(() => requestMock.mockClear());
 
-// ─── FraudDetector ───────────────────────────────────────────────────────────
-
-describe('FraudDetector signals', () => {
-  // Train profile: constant 80 km/h, no lateral jolt, no heading change.
-  test('names each gate after the observation that set it', () => {
-    const detector = new FraudDetector();
-    for (let i = 0; i < 30; i++) detector.addSample(80 + (i % 2 ? 0.1 : -0.1), 0.01, 0.001);
-
-    const { signals, score, mode } = detector.evaluate();
-
-    expect(signals).toEqual({
-      constantHighSpeed: true,
-      noLateralForce: true,
-      noHeadingChange: true,
-    });
-    expect(score).toBeGreaterThanOrEqual(FRAUD_SCORE_THRESHOLD);
-    expect(mode).toBe(TransportMode.TRAIN);
-  });
-
-  // Urban driving: slow, with real cornering forces and steering.
-  test('reports every gate closed for car-like motion', () => {
-    const detector = new FraudDetector();
-    for (let i = 0; i < 30; i++) detector.addSample(20 + (i % 5) * 8, 0.4, i % 2 ? 0.5 : -0.5);
-
-    expect(detector.evaluate().signals).toEqual({
-      constantHighSpeed: false,
-      noLateralForce: false,
-      noHeadingChange: false,
-    });
-  });
-});
-
 // ─── Wire payload ────────────────────────────────────────────────────────────
 
 describe('syncInvalidTrip payload', () => {
@@ -97,6 +68,28 @@ describe('syncInvalidTrip payload', () => {
       'SIGNAL_CONSTANT_HIGH_SPEED',
       'SIGNAL_NO_LATERAL_FORCE',
     ]);
+  });
+
+  // A gate that could not be evaluated raises no flag, the same as one that did not fire.
+  // The distinction is not lost — `signals` carries the null through to the row, where
+  // "we did not measure this" and "this was false" stay different answers.
+  test('raises no flag for a gate that could not be evaluated', async () => {
+    const body = await postedBody(
+      trainEvent({
+        signals: { constantHighSpeed: true, noLateralForce: null, noHeadingChange: null },
+      })
+    );
+
+    expect(body.anomalyFlags).toEqual([
+      'TRANSPORT_MODE_TRAIN',
+      'HIGH_FRAUD_SCORE',
+      'SIGNAL_CONSTANT_HIGH_SPEED',
+    ]);
+    expect(body.detection.signals).toEqual({
+      constantHighSpeed: true,
+      noLateralForce: null,
+      noHeadingChange: null,
+    });
   });
 
   test('flags a near-certain verdict for triage', async () => {

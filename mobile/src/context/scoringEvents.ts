@@ -11,8 +11,23 @@
  * Owner: Dan (CPO — CARMA Score algorithm and scoring thresholds)
  */
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
-import { DrivingSDK, DrivingEventType } from '@/lib/driving-sdk'
+import { DrivingSDK, DrivingEventType, type InteractionData } from '@/lib/driving-sdk'
 import type { TripState } from './tripState'
+
+// Phone handling below this speed is not distraction CARMA scores — the driver is
+// stopped or crawling. Same threshold as the HARD_BRAKE / AGGRESSIVE_ACCEL gates below,
+// and same `>=` semantics as the SDK's `minSpeedKmh` condition.
+const INTERACTION_MIN_SPEED_KMH = 15;
+
+/**
+ * Accumulates hand-held seconds, counting a second only when its stamped speed clears
+ * the gate. The SDK deliberately emits every second regardless of speed (CAR-175), so
+ * this is the only place the speed rule is applied.
+ */
+export function nextInteractionSeconds(prev: number, sample: InteractionData): number {
+  if (sample.speedKmh < INTERACTION_MIN_SPEED_KMH) return prev;
+  return prev + sample.screenInteractionSeconds;
+}
 
 export function useScoringEvents(
   sdk: DrivingSDK,
@@ -49,6 +64,19 @@ export function useScoringEvents(
       // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
       // event count. See #43.
     ];
-    return () => tokens.forEach(token => sdk.off(token));
+
+    // Per-second phone-handling samples are not sensor events, so they arrive on their
+    // own callback rather than through on()/off().
+    sdk.onInteractionData = (data) => {
+      setTripState(prev => ({
+        ...prev,
+        screenInteractionSeconds: nextInteractionSeconds(prev.screenInteractionSeconds, data),
+      }));
+    };
+
+    return () => {
+      tokens.forEach(token => sdk.off(token));
+      sdk.onInteractionData = undefined;
+    };
   }, [sdk, setTripState]);
 }

@@ -49,6 +49,12 @@ _TURN_MAX_DT_S = 8.0
 _KINEMATIC_MIN_SPEED_KMH = 15.0  # low-speed floor for brake/accel detection (CAR-103)
 _EVENT_MERGE_WINDOW_S = 5.0  # one physical maneuver, not N samples of it
 
+# ── Distraction exposure (scoring.md "Phone distraction") ──────────────────────
+# CMT gate screen-interaction detection at 9.3 mph; this is that number rounded.
+# Deliberately not _KINEMATIC_MIN_SPEED_KMH — same value today, different reasons
+# (a detection gate vs. a brake/accel noise floor), so they must drift freely.
+_DRIVING_MIN_SPEED_KMH = 15.0
+
 # ── Speeding (scoring.md "Speeding") — conservative absolute limit, no maps ─────
 _ASSUMED_LIMIT_KMH = 120.0  # national maximum — conservative on every road
 _SPEED_BUFFER_KMH = 10.0  # spec's GPS-noise / flow-of-traffic buffer
@@ -59,7 +65,11 @@ _SPEED_BANDS = (  # (km/h over limit+buffer, band weight) — highest first
 )
 
 # ── Confidence & speed-data coverage ────────────────────────────────────────────
-_FULL_CONFIDENCE_DT_S = 4.0  # median sampling this fast proves the trace
+# The detection ceiling, not the target cadence. Detection averages decel over
+# the sampling interval, so the largest median gap at which a 2 s brake at
+# 3.75 m/s² still averages to _BRAKE_DECEL_MS2 is 2 × 3.75 / 3.0. The spec's 2 s
+# cadence sits under it, so a device that complies is never penalised for jitter.
+_FULL_CONFIDENCE_DT_S = 2.5
 _MIN_SPEED_SAMPLES = 20
 _SPEED_COVERAGE_MIN = 0.5
 _SPEED_MEDIAN_DT_MAX_S = 10.0
@@ -86,6 +96,8 @@ class TelemetryAnalysis:
     has_speed_data: bool
     confidence: float  # [0, 1] — how much the trace can prove
     distance_km: float  # trace-derived distance — an independent witness (issue #56)
+    driving_seconds_above_threshold: float  # exposure denominator for distraction
+    witnessed_span_seconds: float  # first-to-last sample — how much of the trip the trace saw
     events: list[GpsEvent]
 
 
@@ -97,6 +109,8 @@ EMPTY_ANALYSIS = TelemetryAnalysis(
     has_speed_data=False,
     confidence=0.0,
     distance_km=0.0,
+    driving_seconds_above_threshold=0.0,
+    witnessed_span_seconds=0.0,
     events=[],
 )
 
@@ -188,6 +202,7 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
     dts: list[float] = []
     covered_s = 0.0
     distance_km = 0.0
+    driving_s = 0.0
 
     for i in range(1, len(pts)):
         prev, cur = pts[i - 1], pts[i]
@@ -200,6 +215,14 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         # median with >15 s holes, and this value is only ever used as an upper
         # bound on the client's claim — under-witnessing would penalise honest users.
         distance_km += ((prev.speed_kmh + cur.speed_kmh) / 2.0 / 3600.0) * dt
+
+        # Distraction exposure, credited by the segment mean for the same reason
+        # distance is trapezoid-integrated above. Letting the closing sample decide
+        # a whole segment made a one-minute hole worth 60 s or 0 s on identical
+        # driving, depending only on whether the driver happened to be stopped when
+        # the fix came back — on exactly the sparse-GPS devices from CAR-7.
+        if (prev.speed_kmh + cur.speed_kmh) / 2.0 >= _DRIVING_MIN_SPEED_KMH:
+            driving_s += dt
 
         if dt > _MAX_KINEMATIC_GAP_S:
             continue
@@ -309,5 +332,7 @@ def analyze(raw_waypoints: list[dict[str, Any]] | None, duration_seconds: int) -
         has_speed_data=has_speed_data,
         confidence=confidence,
         distance_km=round(distance_km * 1000) / 1000,
+        driving_seconds_above_threshold=round(driving_s * 1000) / 1000,
+        witnessed_span_seconds=round((pts[-1].ts - pts[0].ts) * 1000) / 1000,
         events=events,
     )

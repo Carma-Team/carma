@@ -46,3 +46,7 @@ app-example
 # generated native folders
 /ios
 /android
+
+# scratch files for redirected command output and drafted PR/commit text —
+# fixed filenames, always overwritten, never one per PR
+.local/
