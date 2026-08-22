@@ -200,6 +200,7 @@ def _voucher(
     return Redemption(
         user_id=user_id,
         reward_id=reward_id,
+        points_cost=10,
         qr_code=uuid.uuid4().hex[:12].upper(),
         status=status,
         expires_at=datetime.now(UTC) + expires_in,

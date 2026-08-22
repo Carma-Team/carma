@@ -64,6 +64,7 @@ function handleRequest(method: string, path: string, _body: unknown): { status: 
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       redeemedAt: null,
       createdAt: new Date().toISOString(),
+      pointsCost: reward.costPoints,
       reward,
     };
     vouchers = [voucher, ...vouchers];
