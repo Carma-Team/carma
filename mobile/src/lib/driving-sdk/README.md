@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-15**
+**Last updated: 2026-08-20**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -47,9 +47,13 @@ Bluetooth features require a **development build** (`expo-dev-client`). They are
 
 The route map feature (`MapView`) also requires a development build — `react-native-maps` links a native module that is absent from Expo Go. The SDK degrades gracefully: map components show a fallback card when the native module is unavailable.
 
+Calibration recording (`startRawRecording`/`exportRawRecording`) writes to disk and
+shares via the OS share sheet — needs `expo-file-system` and `expo-sharing`.
+
 ```bash
 npx expo install react-native-bluetooth-classic
 npx expo install react-native-maps
+npx expo install expo-file-system expo-sharing
 ```
 
 ---
@@ -62,6 +66,7 @@ npx expo install react-native-maps
 | `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
 | `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer + gyroscope variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
+| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS stream to an NDJSON file for a staged calibration session (scenario/platform-tagged); exports via `expo-sharing` |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---
@@ -282,6 +287,19 @@ new DrivingSDK(config?: SDKConfig)
 | `simulateBluetoothDisconnection()` | Fires the BT disconnect callback without a physical device |
 | `debugAddDistance(km)` | Injects distance into the active trip (dev only) |
 
+#### Calibration recording
+
+Records real sensor data for a staged session (phone handheld / on-seat / in-pocket /
+mounted) — not a simulation, and independent of `startTrip`/`stopTrip`. Feeds CAR-31's
+labelled-drive-data collection and the hand-held-vs-loose calibration CAR-46/CAR-183
+need.
+
+| Method | Description |
+|---|---|
+| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/GPS stream, tagged with caller-supplied labels |
+| `stopRawRecording()` | Stops and flushes the session to an NDJSON file under app storage |
+| `exportRawRecording()` | Shares the last completed recording via the OS share sheet; `{ error: 'none-recorded' \| 'sharing-unavailable' }` on failure |
+
 ---
 
 ## `TripData` shape
@@ -355,7 +373,6 @@ A few native platform capabilities this SDK doesn't wrap — not because the
 platform forbids them, but because CARMA hasn't needed them. Full list with
 the native API each points at: [`docs/not-in-scope.md`](./docs/not-in-scope.md).
 
-- Raw, unprocessed accelerometer/gyroscope streaming — only derived events are exposed.
 - Screen-on / device-locked state — available on Android only, so building on it would behave differently per platform by construction (see `PLATFORM-CAPABILITIES.md`).
 - Foreground-app identification — not reliably available on either platform.
 - BLE (Bluetooth Low Energy) device scanning — this SDK talks to car head units over Classic Bluetooth only.

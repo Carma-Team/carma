@@ -19,6 +19,7 @@
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -33,6 +34,10 @@ export class DrivingSDK {
   private btManager: BluetoothManager;
   private sensorManager: SensorManager;
   private phoneManager: PhoneUsageManager;
+  // Staged-calibration recording (CAR-31) — independent of trip lifecycle, never
+  // wired into startTrip/stopTrip. Feeds the labelled-drive-data collection Dan's
+  // k-refit needs (scoring.md §3.5), not any real trip.
+  private rawRecorder = new RawSampleRecorder();
   private validationManager: TripValidator;
 
   private isTripActive: boolean = false;
@@ -122,9 +127,13 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
-      // Share SensorManager's gyroscope rather than letting PhoneUsageManager open a
-      // second subscription to the same sensor.
-      ({ x, y, z }) => this.phoneManager.pushGyroSample(x, y, z),
+      // Share SensorManager's gyroscope rather than letting PhoneUsageManager (and,
+      // during a staged session, rawRecorder) open a second subscription to the same sensor.
+      ({ x, y, z }) => {
+        this.phoneManager.pushGyroSample(x, y, z);
+        this.rawRecorder.pushGyroSample(x, y, z);
+      },
+      ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
     );
 
     this.phoneManager = new PhoneUsageManager(
@@ -168,7 +177,8 @@ export class DrivingSDK {
 
     if (this.isValidating) {
       this.validationManager.stop();
-      this.sensorManager.stop();
+      // Same raw-recording guard as stopTrip() — a staged session may still be running.
+      if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
       this.isValidating = false;
     }
     if (this.isTripActive) {
@@ -264,7 +274,9 @@ export class DrivingSDK {
     // session inherits this one's state instead of resetting.
     this.validationManager.stop();
     this.isValidating = false;
-    this.sensorManager.stop();
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopRawRecording().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     const finalData = { ...this.currentTripData };
@@ -287,7 +299,8 @@ export class DrivingSDK {
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     this.currentTripData = null;
-    this.sensorManager.stop();
+    // Same raw-recording guard as stopTrip() — a staged session may still be running.
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
@@ -362,7 +375,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; accelInitFailed: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; accelInitFailed: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number; accuracy?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -373,6 +386,8 @@ export class DrivingSDK {
     // Keep last known location for event stamping
     if (update.lat !== undefined && update.lng !== undefined) {
       this.lastKnownLocation = { lat: update.lat, lng: update.lng };
+      // Every GPS fix, unthinned — waypoints below downsample for TripData, this doesn't.
+      this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
     }
 
     // Always feed sensor data to TripValidationManager (works in both phases)
@@ -459,6 +474,31 @@ export class DrivingSDK {
       this.currentTripData.distanceKm += km;
       if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
     }
+  }
+
+  // ─── Calibration recording (CAR-31) ──────────────────────────────────────────
+  // Records the raw accel/gyro/GPS stream for a staged session — phone handheld,
+  // on-seat, in-pocket, mounted — independent of any real trip. Not a trip: works
+  // whether or not startTrip() was ever called, and never touches currentTripData.
+
+  /** Starts a staged recording session, tagged with a caller-supplied scenario/platform label. */
+  public async startRawRecording(scenario: string, platform: string): Promise<void> {
+    await this.sensorManager.start(); // idempotent — no-op if a real trip already has it running
+    this.rawRecorder.start(scenario, platform);
+  }
+
+  /** Ends the staged session and flushes it to disk. Leaves sensors running if a real trip is active or validating. */
+  public async stopRawRecording(): Promise<void> {
+    await this.rawRecorder.stop();
+    // A BT-triggered trip may be mid-validation (isValidating, before isTripActive
+    // flips) when a calibration session starts — stopping sensors here would silently
+    // kill that trip's confirmation. Same two-flag check as handleBluetoothConnect.
+    if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+  }
+
+  /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
+  public async exportRawRecording(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
+    return this.rawRecorder.exportAsync();
   }
 }
 

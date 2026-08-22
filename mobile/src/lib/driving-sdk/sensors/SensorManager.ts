@@ -30,9 +30,9 @@
  * m/s², a cleaner signal than raw phone accelerometer) and are not directly
  * comparable to those g-values.
  *
- * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz gyroscope stream
- *   is also offered to an optional `onGyroSample` consumer, so nothing else has to
- *   subscribe to a sensor this class already keeps powered.
+ * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz accelerometer and
+ *   gyroscope streams are also offered to optional `onAccelSample`/`onGyroSample`
+ *   consumers, so nothing else has to subscribe to a sensor this class already keeps powered.
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
@@ -177,6 +177,10 @@ export class SensorManager {
   // the onUpdate bundle below only carries gyroZ at GPS rate (~2 s), far too coarse
   // for anything sampling motion.
   private onGyroSample?: (sample: { x: number; y: number; z: number }) => void;
+  // Raw 10 Hz accelerometer tap, symmetric to onGyroSample — same reasoning: this
+  // class already owns the subscription, so a second consumer (RawSampleRecorder)
+  // taps it instead of opening its own.
+  private onAccelSample?: (sample: { x: number; y: number; z: number }) => void;
   private onUpdate: (data: {
     distanceKm: number; currentSpeed: number; timeDeltaS: number;
     accelX: number; gyroZ: number;
@@ -192,7 +196,7 @@ export class SensorManager {
     // automatic (background) tracking cannot run, distinct from it just not
     // having happened yet.
     backgroundLocationAvailable: boolean;
-    lat?: number; lng?: number;
+    lat?: number; lng?: number; accuracy?: number;
   }) => void;
 
   constructor(
@@ -203,15 +207,17 @@ export class SensorManager {
       accelAvailable: boolean; gyroAvailable: boolean;
       accelInitFailed: boolean;
       backgroundLocationAvailable: boolean;
-      lat?: number; lng?: number;
+      lat?: number; lng?: number; accuracy?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
     onGyroSample?: (sample: { x: number; y: number; z: number }) => void,
+    onAccelSample?: (sample: { x: number; y: number; z: number }) => void,
   ) {
     this.onEvent = onEvent;
     this.onUpdate = onUpdate;
     this.thresholds = { ...DEFAULT_MOTION_THRESHOLDS, ...thresholds };
     this.onGyroSample = onGyroSample;
+    this.onAccelSample = onAccelSample;
   }
 
   public async start() {
@@ -401,6 +407,7 @@ export class SensorManager {
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
+      accuracy:     loc.coords.accuracy ?? undefined,
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
     this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
@@ -554,6 +561,7 @@ export class SensorManager {
     const dynZ = data.z - this.gravity.z;
 
     this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
+    this.onAccelSample?.(data); // raw, pre-gravity-removal — see onAccelSample doc
     this.lastAccelSampleAtMs = Date.now();
 
     // Step 3: orientation-invariant horizontal magnitude.

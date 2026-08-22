@@ -101,8 +101,18 @@ not the sensor layer.
 Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry
 on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g.
 transport-mode fraud detection). It does not itself trigger any
-`DrivingEventType`. The same 10 Hz gyroscope stream is also shared with
-`PhoneUsageManager` (see below) rather than opening a second subscription.
+`DrivingEventType`.
+
+## Raw accel/gyro taps — `onAccelSample` / `onGyroSample`
+
+Both the accelerometer and gyroscope subscriptions `SensorManager` already
+holds open are also offered, raw, to a second and third consumer, rather
+than each one opening its own subscription to the same sensor:
+`PhoneUsageManager` (hand-held detection, gyro only — see below) and
+`RawSampleRecorder` (both, only while a staged calibration session is
+active — see the README's "Calibration recording" section and CAR-31).
+Neither tap affects motion-event detection above; both fire unconditionally
+at 10 Hz regardless of whether anything is currently listening.
 
 ---
 

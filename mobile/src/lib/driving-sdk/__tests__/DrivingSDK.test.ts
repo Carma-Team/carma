@@ -23,6 +23,7 @@ import {
   SuspiciousActivityEvaluation,
   TransportMode,
 } from '@/lib/driving-sdk/types';
+import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 // Names are `mock`-prefixed so they survive jest's factory hoisting under both
@@ -30,6 +31,11 @@ import {
 
 let mockSensorEmit: ((event: DrivingEvent) => void) | null = null;
 let mockSensorUpdate: ((update: SensorUpdate) => void) | null = null;
+// Passthroughs SensorManager exposes so a second consumer can tap an already-open
+// subscription (onGyroSample/onAccelSample) — captured here to test that DrivingSDK
+// wires RawSampleRecorder into them, same as it wires PhoneUsageManager's gyro tap.
+let mockGyroPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
+let mockAccelPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
   | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
@@ -44,15 +50,38 @@ const mockPhoneStop = jest.fn();
 const mockBtSetTarget = jest.fn();
 const mockBtStartMonitoring = jest.fn();
 const mockBtStopMonitoring = jest.fn();
+const mockRawStart = jest.fn();
+const mockRawStop = jest.fn(async () => undefined);
+const mockRawPushAccel = jest.fn();
+const mockRawPushGyro = jest.fn();
+const mockRawPushLocation = jest.fn();
+const mockRawExport = jest.fn(async () => null);
 
 jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
   SensorManager: class {
-    constructor(onEvent: any, onUpdate: any) {
+    constructor(onEvent: any, onUpdate: any, _thresholds: any, onGyroSample: any, onAccelSample: any) {
       mockSensorEmit = onEvent;
       mockSensorUpdate = onUpdate;
+      mockGyroPassthrough = onGyroSample;
+      mockAccelPassthrough = onAccelSample;
     }
     async start() { return mockSensorStart(); }
     stop() { return mockSensorStop(); }
+  },
+}));
+
+jest.mock('@/lib/driving-sdk/sensors/RawSampleRecorder', () => ({
+  RawSampleRecorder: class {
+    // Mirrors the real class's session flag — DrivingSDK's guard against tearing
+    // down shared sensors mid-recording needs this to actually reflect start/stop.
+    private recording = false;
+    start(...args: any[]) { this.recording = true; return mockRawStart(...args); }
+    async stop() { this.recording = false; return mockRawStop(); }
+    isRecording() { return this.recording; }
+    pushAccelSample(...args: any[]) { return mockRawPushAccel(...args); }
+    pushGyroSample(...args: any[]) { return mockRawPushGyro(...args); }
+    pushLocationSample(...args: any[]) { return mockRawPushLocation(...args); }
+    exportAsync() { return mockRawExport(); }
   },
 }));
 
@@ -85,8 +114,6 @@ jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
   },
 }));
 
-import { DrivingSDK } from '@/lib/driving-sdk';
-
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 type SensorUpdate = {
@@ -101,6 +128,7 @@ type SensorUpdate = {
   backgroundLocationAvailable: boolean;
   lat?: number;
   lng?: number;
+  accuracy?: number;
 };
 
 /** The 3-second window after startTrip() where events are deliberately dropped. */
@@ -214,6 +242,8 @@ describe('DrivingSDK', () => {
 
     mockSensorEmit = null;
     mockSensorUpdate = null;
+    mockGyroPassthrough = null;
+    mockAccelPassthrough = null;
     mockPhoneEmit = null;
     mockPhoneInteraction = null;
     mockBtConnect = null;
@@ -765,5 +795,110 @@ describe('DrivingSDK', () => {
     sdk.debugAddDistance(5);
 
     expect(tripData()?.distanceKm).toBe(5);
+  });
+
+  // ── Calibration recording (CAR-31) ────────────────────────────────────────
+  // No real trip involved anywhere in this block — that's the point.
+
+  it('starts sensors and the recorder, tagged with the caller-supplied labels', async () => {
+    await sdk.startRawRecording('handheld', 'ios');
+
+    expect(mockSensorStart).toHaveBeenCalledTimes(1);
+    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios');
+  });
+
+  it('taps the same accel/gyro subscriptions SensorManager already keeps powered', async () => {
+    await sdk.startRawRecording('on-seat', 'android');
+
+    mockAccelPassthrough?.({ x: 1, y: 2, z: 3 });
+    mockGyroPassthrough?.({ x: 4, y: 5, z: 6 });
+
+    expect(mockRawPushAccel).toHaveBeenCalledWith(1, 2, 3);
+    expect(mockRawPushGyro).toHaveBeenCalledWith(4, 5, 6);
+  });
+
+  it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {
+    await sdk.startRawRecording('mounted', 'ios');
+    sendSensorUpdate({ lat: 32.05, lng: 34.77, currentSpeed: 42, accuracy: 5 });
+
+    expect(mockRawPushLocation).toHaveBeenCalledWith(32.05, 34.77, 42, 5);
+  });
+
+  it('stops the recorder and, with no trip active, stops sensors too', async () => {
+    await sdk.startRawRecording('handheld', 'ios');
+    await sdk.stopRawRecording();
+
+    expect(mockRawStop).toHaveBeenCalledTimes(1);
+    expect(mockSensorStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves sensors running on stopRawRecording if a real trip is active', async () => {
+    await startTripReady();
+    mockSensorStop.mockClear();
+
+    await sdk.startRawRecording('handheld', 'ios');
+    await sdk.stopRawRecording();
+
+    expect(mockRawStop).toHaveBeenCalledTimes(1);
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('leaves sensors running on stopRawRecording if a BT trip is still validating (not yet active)', async () => {
+    // Mirrors handleBluetoothConnect: isValidating can be true before isTripActive
+    // flips. StubValidator never auto-confirms, so this pins that state — the default
+    // validator confirms synchronously and would collapse straight to isTripActive.
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    mockBtConnect?.();
+    await flush();
+    mockSensorStop.mockClear();
+
+    await instance.startRawRecording('handheld', 'ios');
+    await instance.stopRawRecording();
+
+    expect(mockRawStop).toHaveBeenCalledTimes(1);
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('exports through the recorder', async () => {
+    await sdk.exportRawRecording();
+    expect(mockRawExport).toHaveBeenCalledTimes(1);
+  });
+
+  // Mirror image of the "leaves sensors running on stopRawRecording" tests above:
+  // a raw-recording session outliving a trip that ends around it, not the other way.
+  it('leaves sensors running on stopTrip if a raw-recording session is still active', async () => {
+    await startTripReady();
+    await sdk.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    await sdk.stopTrip();
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('leaves sensors running on BT disconnect mid-validation if a raw-recording session is still active', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    mockBtConnect?.();
+    await flush();
+    await instance.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    mockBtDisconnect?.();
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  it('leaves sensors running on a fraud abort if a raw-recording session is still active', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    await startTripReady(instance);
+    await instance.startRawRecording('handheld', 'ios');
+    mockSensorStop.mockClear();
+
+    validator.onFraudSuspected?.(FRAUD);
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
   });
 });
