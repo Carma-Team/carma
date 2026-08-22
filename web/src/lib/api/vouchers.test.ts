@@ -106,6 +106,16 @@ describe('vouchers', () => {
     await expect(consumeVoucher('ABC123XYZ0')).resolves.toEqual({ outcome: 'unexpected_error' });
   });
 
+  it('maps a 409 with an explicit but unrecognized code to unexpected_error, not a guess', async () => {
+    // A concrete third code, not just a missing one — pins that only the two
+    // known VOUCHER_* codes are ever trusted, not "any code at all".
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: { code: 'SOME_FUTURE_CONFLICT', message: 'Voucher busy' } }, 409),
+    );
+
+    await expect(consumeVoucher('ABC123XYZ0')).resolves.toEqual({ outcome: 'unexpected_error' });
+  });
+
   it('maps 429 to rate_limited and carries Retry-After through, typed', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'Too many attempts.' }, 429, { 'Retry-After': '42' }));
 
@@ -207,5 +217,25 @@ describe('vouchers', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     const retryInit = vi.mocked(fetch).mock.calls[1][1];
     expect((retryInit?.headers as Record<string, string>).Authorization).toBe('Bearer tok-2');
+  });
+
+  it('resolves to unexpected_error, without looping, when the shared refresh is rejected', async () => {
+    // The session is genuinely dead — `attemptRefresh` already cleared it.
+    // vouchers.ts is not the place that decides what happens to a dead
+    // session (that's the app's auth shell); it just must not retry forever
+    // or throw a raw exception over it.
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
+    vi.mocked(attemptRefresh).mockResolvedValue('rejected');
+
+    await expect(peekVoucher('ABC123XYZ0')).resolves.toEqual({ outcome: 'unexpected_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves to unexpected_error, without looping, when the shared refresh only fails transiently', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
+    vi.mocked(attemptRefresh).mockResolvedValue('transient');
+
+    await expect(consumeVoucher('ABC123XYZ0')).resolves.toEqual({ outcome: 'unexpected_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
