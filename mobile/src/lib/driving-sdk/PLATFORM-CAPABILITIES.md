@@ -1,3 +1,5 @@
+Current behaviour.
+
 # Platform capabilities — what a mobile app can actually observe
 
 **What this file is:** a record of what iOS and Android permit an ordinary,
@@ -9,7 +11,7 @@ expiry date. Platform policy moves, and a claim like "iOS does not expose this"
 is only useful if a reader can see when it was last checked and against what.
 The README describes the library; this file describes the ground it stands on.
 
-**Last verified: 2026-08-06.** Verified against `expo` ~54.0.34,
+**Last verified: 2026-08-15.** Verified against `expo` ~54.0.34,
 `expo-sensors` ~15.0.8, `expo-location` ~19.0.8.
 
 ---
@@ -121,6 +123,10 @@ are attempted:
    itself — rotational behaviour, correlation with vehicle movement, or the
    fine continuous tremor a hand produces and a seat does not. This is a
    signal-processing problem, and the platform offers no shortcut around it.
+   The SDK's hand-held detector now acts on the first of these: a high
+   acceleration-variance reading is vetoed when rotation variance is also
+   high, since a loose phone tumbles while a held one keeps its orientation
+   stable — see `README.md`'s hand-held detection section.
 
 ---
 

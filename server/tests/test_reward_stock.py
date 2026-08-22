@@ -125,6 +125,7 @@ def _voucher(reward: Reward, driver: User, *, status: RedemptionStatus, expires_
     return Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=status,

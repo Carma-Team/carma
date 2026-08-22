@@ -211,20 +211,29 @@ REWARDS = [
 
 LEADERBOARD_USERS: list[dict[str, Any]] = [
     # Tel Aviv
-    {"email": "yoav@carma.app",   "name": "יואב לוי",    "city": "תל אביב", "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
-    {"email": "noa@carma.app",    "name": "נועה שמיר",   "city": "תל אביב", "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
-    {"email": "tamar@carma.app",  "name": "תמר רוזן",    "city": "תל אביב", "age": 30, "license_year": 2012, "total_points": 5200,  "level": 4, "total_distance": 250.1},
-    {"email": "eli@carma.app",    "name": "אלי גולן",    "city": "תל אביב", "age": 35, "license_year": 2008, "total_points": 2900,  "level": 3, "total_distance": 139.5},
-    {"email": "michal@carma.app", "name": "מיכל דוד",    "city": "תל אביב", "age": 22, "license_year": 2022, "total_points": 1600,  "level": 3, "total_distance": 77.0},
-    {"email": "uri@carma.app",    "name": "אורי כהן",    "city": "תל אביב", "age": 24, "license_year": 2020, "total_points": 820,   "level": 2, "total_distance": 39.4},
+    {"email": "yoav@carma.app",   "name": "Yoav Levi",    "city": "Tel Aviv",  "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
+    {"email": "noa@carma.app",    "name": "Noa Shamir",   "city": "Tel Aviv",  "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
+    {"email": "tamar@carma.app",  "name": "Tamar Rozen",  "city": "Tel Aviv",  "age": 30, "license_year": 2012, "total_points": 5200,  "level": 4, "total_distance": 250.1},
+    {"email": "eli@carma.app",    "name": "Eli Golan",    "city": "Tel Aviv",  "age": 35, "license_year": 2008, "total_points": 2900,  "level": 3, "total_distance": 139.5},
+    {"email": "michal@carma.app", "name": "Michal David", "city": "Tel Aviv",  "age": 22, "license_year": 2022, "total_points": 1600,  "level": 3, "total_distance": 77.0},
+    {"email": "uri@carma.app",    "name": "Uri Cohen",    "city": "Tel Aviv",  "age": 24, "license_year": 2020, "total_points": 820,   "level": 2, "total_distance": 39.4},
     # Ramat Gan
-    {"email": "ron@carma.app",    "name": "רון ביטון",   "city": "רמת גן",  "age": 31, "license_year": 2013, "total_points": 6100,  "level": 5, "total_distance": 293.5},
-    {"email": "shira@carma.app",  "name": "שירה אמיר",   "city": "רמת גן",  "age": 27, "license_year": 2017, "total_points": 3200,  "level": 3, "total_distance": 154.0},
-    {"email": "omer@carma.app",   "name": "עומר פרץ",    "city": "רמת גן",  "age": 23, "license_year": 2021, "total_points": 1100,  "level": 2, "total_distance": 53.2},
+    {"email": "ron@carma.app",    "name": "Ron Biton",    "city": "Ramat Gan", "age": 31, "license_year": 2013, "total_points": 6100,  "level": 5, "total_distance": 293.5},
+    {"email": "shira@carma.app",  "name": "Shira Amir",   "city": "Ramat Gan", "age": 27, "license_year": 2017, "total_points": 3200,  "level": 3, "total_distance": 154.0},
+    {"email": "omer@carma.app",   "name": "Omer Peretz",  "city": "Ramat Gan", "age": 23, "license_year": 2021, "total_points": 1100,  "level": 2, "total_distance": 53.2},
 ]
 
 # Dan follows these three (shows in his Friends leaderboard)
-DAN_FRIEND_EMAILS = ["yoav@carma.app", "noa@carma.app", "tamar@carma.app"]
+DAN_FRIEND_EMAILS = [
+    "yoav@carma.app",
+    "noa@carma.app",
+    "tamar@carma.app",
+    "ron@carma.app",
+    "shira@carma.app",
+    "eli@carma.app",
+    "michal@carma.app",
+    "uri@carma.app",
+]
 
 # ---------------------------------------------------------------------------
 # Yoni — investor-demo protagonist (Tel Aviv, ranked near bottom → motivation)
@@ -435,6 +444,7 @@ async def run() -> None:
                 )
             else:
                 existing_lu.name = lu["name"]
+                existing_lu.city = lu["city"]
                 existing_lu.points = lu["total_points"]
                 existing_lu.total_points = lu["total_points"]
                 existing_lu.total_distance = lu["total_distance"]
@@ -510,6 +520,7 @@ async def run() -> None:
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
+                    points_cost=paz_reward.cost_points,
                     # Real voucher format, not a descriptive slug: lookups fold
                     # the input to upper case with separators stripped, so the
                     # old `seed-dan-voucher-paz-01` could not be looked up at
@@ -524,7 +535,7 @@ async def run() -> None:
                 )
             )
 
-        # --- Dan follows top 3 (Friends leaderboard) ---
+        # --- Dan follows the demo drivers (Friends leaderboard) ---
         for friend_email in DAN_FRIEND_EMAILS:
             friend = await db.scalar(select(User).where(User.email == friend_email))
             if friend is not None:
@@ -628,7 +639,7 @@ async def run() -> None:
     print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
     print("  Test login  : daniel@carma.app / password123")
     print("  Business    : aroma@carma.app / Aroma1234  (owns Aroma — /api/business/rewards)")
-    print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded in תל אביב")
+    print(f"  Leaderboard : {len(LEADERBOARD_USERS)} demo users seeded")
     print(f"  Rewards     : {len(REWARDS)} active rewards (80-5500 pts)")
 
 

@@ -18,7 +18,8 @@
  */
 import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
-import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -33,6 +34,10 @@ export class DrivingSDK {
   private btManager: BluetoothManager;
   private sensorManager: SensorManager;
   private phoneManager: PhoneUsageManager;
+  // Staged-calibration recording (CAR-31) — independent of trip lifecycle, never
+  // wired into startTrip/stopTrip. Feeds the labelled-drive-data collection Dan's
+  // k-refit needs (scoring.md §3.5), not any real trip.
+  private rawRecorder = new RawSampleRecorder();
   private validationManager: TripValidator;
 
   private isTripActive: boolean = false;
@@ -70,6 +75,11 @@ export class DrivingSDK {
    *  Useful for raw display (e.g. live event counter). For conditional business logic use `on()`. */
   public onEventDetected?: (event: DrivingEvent) => void;
   public onUpdate?: (data: TripData) => void;
+  /** Per-second interaction sample, stamped with the speed observed for that second.
+   *  Passed through untouched — the library applies no speed gate, because what a speed
+   *  means for a second of handling is the host's decision, not the library's.
+   *  `TripData.screenInteractionSeconds` is the ungated sum of the same stream. */
+  public onInteractionData?: (data: InteractionData) => void;
   // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
 
@@ -80,14 +90,14 @@ export class DrivingSDK {
    * The handler fires only when ALL specified conditions are satisfied.
    *
    * @param type    - The event type to listen for.
-   * @param condition - Conditions that must hold at detection time (speed, severity, …).
+   * @param condition - Conditions that must hold at detection time (speed; severity, PHONE_USAGE only, see CAR-156).
    * @param handler - Callback invoked with a copy of the event when conditions are met.
    * @returns A `ListenerToken` — pass to `off()` to unsubscribe.
    *
    * @example
    * // Fire only for hard brakes detected above 15 km/h
    * const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (event) => {
-   *   console.log('Hard brake at', event.speedKmh, 'km/h — severity', event.severity);
+   *   console.log('Hard brake at', event.speedKmh, 'km/h');
    * });
    */
   public on(
@@ -122,9 +132,13 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
-      // Share SensorManager's gyroscope rather than letting PhoneUsageManager open a
-      // second subscription to the same sensor.
-      ({ x, y, z }) => this.phoneManager.pushGyroSample(x, y, z),
+      // Share SensorManager's gyroscope rather than letting PhoneUsageManager (and,
+      // during a staged session, rawRecorder) open a second subscription to the same sensor.
+      ({ x, y, z }) => {
+        this.phoneManager.pushGyroSample(x, y, z);
+        this.rawRecorder.pushGyroSample(x, y, z);
+      },
+      ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
     );
 
     this.phoneManager = new PhoneUsageManager(
@@ -168,7 +182,8 @@ export class DrivingSDK {
 
     if (this.isValidating) {
       this.validationManager.stop();
-      this.sensorManager.stop();
+      // Same raw-recording guard as stopTrip() — a staged session may still be running.
+      if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
       this.isValidating = false;
     }
     if (this.isTripActive) {
@@ -227,6 +242,12 @@ export class DrivingSDK {
       phoneSeconds: 0,           // deprecated v1.7
       touchEpochs: 0,
       screenInteractionSeconds: 0,
+      // Latched over the trip: `accelAvailable` on each tick is "live right now"
+      // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
+      // false mid-trip. These default false and latch true once the accelerometer is
+      // ever confirmed live this trip (CAR-189).
+      accelAvailable: false,
+      accelInitFailed: false,
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -258,7 +279,9 @@ export class DrivingSDK {
     // session inherits this one's state instead of resetting.
     this.validationManager.stop();
     this.isValidating = false;
-    this.sensorManager.stop();
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopRawRecording().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     const finalData = { ...this.currentTripData };
@@ -281,7 +304,8 @@ export class DrivingSDK {
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     this.currentTripData = null;
-    this.sensorManager.stop();
+    // Same raw-recording guard as stopTrip() — a staged session may still be running.
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
     this.phoneManager.stop();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
@@ -327,14 +351,19 @@ export class DrivingSDK {
     // Store all SDK-qualified events in the trip (used for route map markers and raw display).
     // Whether an event counts toward a score is decided by each registered listener's conditions.
     this.currentTripData.events.push(event);
-    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h severity=${event.severity?.toFixed(2)}`);
+    // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
+    const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
+    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
 
     // Dispatch to conditional listeners — each listener fires only when its conditions are met.
     const snapshot = { ...event };
     for (const { type, condition, handler } of this.sensorListeners.values()) {
       if (type !== event.type) continue;
       if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      if (condition.minSeverity !== undefined && (event.severity ?? 0) < condition.minSeverity) continue;
+      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
+      // motion events can satisfy, so it must not silently block them either.
+      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
+          && (event.severity ?? 0) < condition.minSeverity) continue;
       try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
     }
 
@@ -344,14 +373,15 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleInteractionData(data: { touchEpochs: number; screenInteractionSeconds: number }) {
+  private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs = data.touchEpochs;
-    this.currentTripData.screenInteractionSeconds = data.screenInteractionSeconds;
+    this.currentTripData.touchEpochs += data.touchEpochs;
+    this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
+    if (this.onInteractionData) this.onInteractionData({ ...data });
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number }) {
+  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; accelInitFailed: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number; accuracy?: number }) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -362,6 +392,8 @@ export class DrivingSDK {
     // Keep last known location for event stamping
     if (update.lat !== undefined && update.lng !== undefined) {
       this.lastKnownLocation = { lat: update.lat, lng: update.lng };
+      // Every GPS fix, unthinned — waypoints below downsample for TripData, this doesn't.
+      this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
     }
 
     // Always feed sensor data to TripValidationManager (works in both phases)
@@ -376,6 +408,13 @@ export class DrivingSDK {
     });
 
     if (!this.isTripActive || !this.currentTripData) return;
+
+    // Trip-level IMU health, carried into the save payload so the server can tell a
+    // quiet drive from a dead sensor (CAR-189) — not fraud input, just plumbed through.
+    // Latch, never reset: a healthy accelerometer that goes stale in the last seconds of
+    // a trip must not arrive as `false`, which is the signature of missing hardware.
+    this.currentTripData.accelAvailable ||= update.accelAvailable;
+    this.currentTripData.accelInitFailed = update.accelInitFailed;
 
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise
     // accumulates phantom distance via Haversine (D-SDK-3).
@@ -442,7 +481,35 @@ export class DrivingSDK {
       if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
     }
   }
+
+  // ─── Calibration recording (CAR-31) ──────────────────────────────────────────
+  // Records the raw accel/gyro/GPS stream for a staged session — phone handheld,
+  // on-seat, in-pocket, mounted — independent of any real trip. Not a trip: works
+  // whether or not startTrip() was ever called, and never touches currentTripData.
+
+  /** Starts a staged recording session, tagged with a caller-supplied scenario/platform label. */
+  public async startRawRecording(scenario: string, platform: string): Promise<void> {
+    await this.sensorManager.start(); // idempotent — no-op if a real trip already has it running
+    this.rawRecorder.start(scenario, platform);
+  }
+
+  /** Ends the staged session and flushes it to disk. Leaves sensors running if a real trip is active or validating. */
+  public async stopRawRecording(): Promise<void> {
+    await this.rawRecorder.stop();
+    // A BT-triggered trip may be mid-validation (isValidating, before isTripActive
+    // flips) when a calibration session starts — stopping sensors here would silently
+    // kill that trip's confirmation. Same two-flag check as handleBluetoothConnect.
+    if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+  }
+
+  /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
+  public async exportRawRecording(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
+    return this.rawRecorder.exportAsync();
+  }
 }
 
 
 export * from './types';
+// Emitted by onInteractionData — part of the public surface, so it is re-exported here
+// rather than leaving hosts to reach into sensors/.
+export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';

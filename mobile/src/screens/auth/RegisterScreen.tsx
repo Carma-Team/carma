@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, KeyboardAvoidingView, Platform
@@ -7,9 +7,12 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { Button }   from '@/components/ui/Button'
+import { LocationPicker } from '@/components/ui/LocationPicker'
 import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
+import { leaderboardApi } from '@/services/api/leaderboard.api'
+import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
 
@@ -25,6 +28,36 @@ interface FormState {
 
 const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
 
+// Every bound below is `RegisterIn` in server/app/schemas/auth.py. They are checked
+// here so the driver is told which field is wrong: the server answers all of them
+// with one 422 that names nothing they can act on.
+const MIN_NAME = 2
+const MAX_NAME = 80
+const MIN_PASSWORD = 8
+const MAX_PASSWORD = 200
+const MAX_CITY = 80
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^[\d\s+()-]{6,20}$/
+// Digits only, checked before the numeric bounds below: `Number('abc')` is NaN, and
+// every comparison against NaN is false, so a non-numeric entry passes both bounds
+// and reaches the server as null. The numeric keyboard is a hint, not a constraint —
+// it still offers '.' and '-', and a hardware keyboard ignores it entirely.
+const INT_RE = /^\d+$/
+
+// CARMA is for private-car (class B) drivers in Israel only. The practical test
+// opens at 16 years and 9 months, so nobody holds a licence issued before the
+// year they turned 16 -- which is also why MIN_AGE is 16 and not 17.
+const MIN_AGE = 16
+const MAX_AGE = 120
+const MIN_LICENSE_AGE = 16
+// The oldest licence the app will accept at all, for a driver who did not fill in
+// an age. Matches RegisterIn; a real class-B licence from before it is not in use.
+const MIN_LICENSE_YEAR = 1950
+// Read once per render rather than per field. A session left open across midnight
+// on the 31st of December keeps the old year until the screen re-renders, which
+// costs nothing: the driver is told a year is too late, one day too early.
+const CURRENT_YEAR = new Date().getFullYear()
+
 export default function RegisterScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -33,6 +66,16 @@ export default function RegisterScreen() {
   const [form,    setForm]    = useState<FormState>(INITIAL)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const [cities,  setCities]  = useState<string[]>([])
+
+  useEffect(() => {
+    leaderboardApi.getLocations()
+      .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
+      // Expected, not exceptional: /api/leaderboard/locations requires a bearer
+      // token and registration has none yet, so this 401s on every fresh install.
+      // An empty list is the signal to fall back to a free-text city field below.
+      .catch(() => setCities([]))
+  }, [])
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
@@ -49,11 +92,7 @@ export default function RegisterScreen() {
    * then shows a welcome toast. Navigation to tabs happens automatically via the root Layout.
    */
   async function handleRegister() {
-    if (!form.name)  { setError(t('auth.errors.nameRequired'));  return }
-    if (!form.email) { setError(t('auth.errors.emailRequired')); return }
-    // Must match RegisterIn in server/app/schemas/auth.py — the server answers a
-    // shorter one with a 422 the user cannot act on.
-    if (form.password.length < 8) { setError(t('auth.errors.passwordTooShort')); return }
+    if (!canSubmit) return
 
     setLoading(true); setError('')
     try {
@@ -62,6 +101,9 @@ export default function RegisterScreen() {
         email:       form.email.trim().toLowerCase(),
         password:    form.password,
         phone:       form.phone   || undefined,
+        // City is optional — '' means the placeholder is still showing, i.e. no
+        // pick was made, not "picked nothing." Send undefined so the server sees
+        // an unanswered field, not an empty string.
         city:        form.city    || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
@@ -71,14 +113,57 @@ export default function RegisterScreen() {
       const firstName = data.user?.name?.split(' ')[0] ?? t('auth.defaultUserName')
       addToast({ type: 'success', message: t('auth.welcomeToast').replace('{name}', firstName) })
       // No need for router.replace — the root Layout detects the logged-in user and redirects to tabs
-    } catch {
-      // The server's error detail is always English — show the localized
-      // message instead so Hebrew users don't see raw English error text (CAR-59).
-      setError(t('auth.errors.emailExists'))
+    } catch (e) {
+      // Only a 409 means the address is taken. Every other failure used to be shown
+      // as one too, which is how a 422, a 429 and a dead network all read as "that
+      // email is registered" (CAR-149).
+      setError(authErrorMessage(e, t, { 409: 'auth.errors.emailExists' }))
     } finally {
       setLoading(false)
     }
   }
+
+  /**
+   * The message under each field, or '' when there is nothing to say.
+   *
+   * A field that is still empty says nothing — an error that appears before the
+   * driver has typed anything reads as a rejection rather than as guidance. The
+   * required ones are held by the disabled button instead.
+   */
+  const age         = INT_RE.test(form.age)         ? Number(form.age)         : NaN
+  const licenseYear = INT_RE.test(form.licenseYear) ? Number(form.licenseYear) : NaN
+
+  // The earliest licence year this particular driver could hold. Age is given in
+  // whole years, so the birth year is CURRENT_YEAR - age give or take one; taking
+  // the earlier side keeps a real driver from being turned away over that year.
+  const earliestLicenseYear = Number.isNaN(age)
+    ? MIN_LICENSE_YEAR
+    : Math.max(MIN_LICENSE_YEAR, CURRENT_YEAR - age + MIN_LICENSE_AGE)
+
+  const fieldErrors: Record<keyof FormState, string> = {
+    name:        form.name && (form.name.trim().length < MIN_NAME || form.name.trim().length > MAX_NAME)
+      ? t('auth.errors.invalidName') : '',
+    email:       form.email && !EMAIL_RE.test(form.email.trim())     ? t('auth.errors.invalidEmail')     : '',
+    password:    form.password && (form.password.length < MIN_PASSWORD || form.password.length > MAX_PASSWORD)
+      ? t('auth.errors.invalidPassword') : '',
+    phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
+    city:        form.city && form.city.trim().length > MAX_CITY     ? t('auth.errors.cityTooLong')      : '',
+    age:         form.age && (Number.isNaN(age) || age < MIN_AGE || age > MAX_AGE)
+      ? t('auth.errors.invalidAge') : '',
+    licenseYear: form.licenseYear && (Number.isNaN(licenseYear) || licenseYear < MIN_LICENSE_YEAR || licenseYear > CURRENT_YEAR)
+      ? t('auth.errors.invalidLicenseYear')
+      // Only reachable once the year itself is valid, so the driver is never told
+      // about their age while the year is still the thing that is wrong.
+      : form.licenseYear && licenseYear < earliestLicenseYear
+        ? t('auth.errors.licenseYearBeforeAge') : '',
+  }
+
+  const requiredFilled =
+    form.name.trim().length >= MIN_NAME &&
+    EMAIL_RE.test(form.email.trim()) &&
+    form.password.length >= MIN_PASSWORD
+
+  const canSubmit = requiredFilled && Object.values(fieldErrors).every(m => !m)
 
   const fields: { key: keyof FormState; label: string; placeholder: string; keyboard?: any; secure?: boolean; required?: boolean }[] = [
     { key: 'name',        label: t('auth.name'),        placeholder: t('auth.namePlaceholder'),  required: true },
@@ -103,6 +188,7 @@ export default function RegisterScreen() {
         </View>
 
         <Text style={styles.heading}>{t('auth.register')}</Text>
+        <Text style={styles.requiredHint}>{t('auth.requiredHint')}</Text>
 
         {error ? (
           <View style={COMMON_STYLES.errorBox}>
@@ -116,21 +202,37 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            <TextInput
-              style={COMMON_STYLES.input}
-              value={form[field.key]}
-              onChangeText={v => update(field.key, v)}
-              placeholder={field.placeholder}
-              placeholderTextColor={COLORS.textMuted}
-              secureTextEntry={field.secure}
-              keyboardType={field.keyboard ?? 'default'}
-              autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
-              textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
-            />
+            {/* No list to pick from — keep the free-text field rather than a picker
+                nobody can fill. Drop this branch once the city list is reachable
+                before login (CAR-218). */}
+            {field.key === 'city' && cities.length > 0 ? (
+              <LocationPicker
+                value={form.city}
+                options={cities}
+                placeholder={t('auth.citySelectPlaceholder')}
+                onChange={v => update('city', v)}
+                style={styles.cityTrigger}
+              />
+            ) : (
+              <TextInput
+                style={COMMON_STYLES.input}
+                value={form[field.key]}
+                onChangeText={v => update(field.key, v)}
+                placeholder={field.placeholder}
+                placeholderTextColor={COLORS.textMuted}
+                secureTextEntry={field.secure}
+                keyboardType={field.keyboard ?? 'default'}
+                autoCapitalize={field.key === 'email' ? 'none' : 'sentences'}
+                textContentType={field.key === 'password' ? 'newPassword' : field.key === 'email' ? 'emailAddress' : 'none'}
+              />
+            )}
+            {fieldErrors[field.key] ? (
+              <Text style={styles.fieldError}>{fieldErrors[field.key]}</Text>
+            ) : null}
           </View>
         ))}
 
-        <Button fullWidth size="lg" onPress={handleRegister} loading={loading} style={styles.btn}>
+        <Button fullWidth size="lg" onPress={handleRegister} loading={loading} disabled={!canSubmit} style={styles.btn}>
           {t('auth.registerBtn')}
         </Button>
 
@@ -152,8 +254,11 @@ const styles = StyleSheet.create({
   logoTagline:{ ...TYPOGRAPHY.caption, fontSize: 13, marginTop: 2 },
   heading:  { ...TYPOGRAPHY.h2, marginBottom: 20, textAlign: 'center' },
   field:    { marginBottom: 14 },
+  cityTrigger: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
+  requiredHint: { ...TYPOGRAPHY.caption, fontSize: 13, marginBottom: 16, textAlign: 'center' },
+  fieldError: { ...TYPOGRAPHY.caption, fontSize: 13, color: COLORS.danger, marginTop: 4 },
   btn:      { marginTop: 8 },
   link:     { marginTop: 20, alignItems: 'center' },
   linkText: { ...TYPOGRAPHY.caption, fontSize: 14 },

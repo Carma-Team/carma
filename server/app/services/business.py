@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -102,29 +102,34 @@ async def update_reward(db: AsyncSession, business: Business, reward_id: str, dt
     return RewardOut.from_orm_reward(reward, rewards_service.available_units(reward.stock, claimed.get(reward.id, 0)))
 
 
-async def delete_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
-    """Hard-delete a reward, but only while no voucher was ever issued for it.
+async def live_voucher_count(db: AsyncSession, business: Business, reward_id: str) -> int:
+    """Outstanding vouchers a business should know about before archiving this reward."""
+    reward = await _owned_reward(db, business, reward_id)
+    return await rewards_service.count_live_vouchers(db, reward.id)
 
-    Redemption.reward_id is NOT NULL with no cascade: deleting a reward that
-    drivers already redeemed would take their voucher history with it. Once a
-    voucher exists the reward is history, so the caller is told to deactivate it
-    instead — an inactive reward already disappears from the driver marketplace.
+
+async def archive_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Archive a reward — it leaves the catalog, but the row and its vouchers stay.
+
+    Replaces the old hard delete, which `Redemption.reward_id` (NOT NULL, no
+    cascade) made unsafe the moment a voucher existed — this used to 409 instead
+    of risking that. Archiving sidesteps the FK entirely: nothing is removed, so
+    a voucher already issued keeps working to its own expiry (CAR-111).
     """
     reward = await _owned_reward(db, business, reward_id)
-
-    issued = await db.scalar(select(func.count()).select_from(Redemption).where(Redemption.reward_id == reward.id))
-    if issued:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Reward has issued vouchers and cannot be deleted — set isActive to false instead",
-        )
-
-    await db.delete(reward)
+    reward.archived_at = datetime.now(UTC)
     await db.commit()
-    audit("business.reward.deleted", business_id=business.id, reward_id=reward_id)
+    audit("business.reward.archived", business_id=business.id, reward_id=reward_id)
 
 
 # ── Vouchers ─────────────────────────────────────────────────────────────────
+
+# Same convention as `services.rewards`'s REWARD_* codes: a client branches on
+# `detail["code"]`, never on `detail["message"]` — the two 409s below share a
+# status code and used to share a bare-string detail too, which left "already
+# used" and "expired" distinguishable only by sniffing English text (CAR-67).
+VOUCHER_ALREADY_USED = "VOUCHER_ALREADY_USED"
+VOUCHER_EXPIRED = "VOUCHER_EXPIRED"
 
 
 async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Redemption:
@@ -179,11 +184,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
     # runtime, but `execute` is typed as returning a plain Result.
     used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
-        .where(
-            Redemption.id == voucher_id,
-            Redemption.status == RedemptionStatus.PENDING,
-            Redemption.expires_at > now,
-        )
+        .where(Redemption.id == voucher_id, *rewards_service.live_voucher_where(now))
         .values(status=RedemptionStatus.USED, used_at=now)
     )
     if used.rowcount == 0:
@@ -191,10 +192,11 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
         # Re-read rather than trusting the status loaded a moment ago: whoever won
         # the race is the reason this lost, and the client deserves the real one.
         current = await db.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Voucher already used" if current == RedemptionStatus.USED else "Voucher expired",
-        )
+        if current == RedemptionStatus.USED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, {"code": VOUCHER_ALREADY_USED, "message": "Voucher already used"}
+            )
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
 
     await db.commit()
     await db.refresh(voucher, attribute_names=["status", "used_at"])

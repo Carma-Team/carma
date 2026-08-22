@@ -29,13 +29,13 @@ const rewards: Reward[] = [
   {
     id: 'mock-catalog-1', businessId: 'mock-business-id', business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'שובר דלק 50 ש"ח', titleEn: '50₪ Fuel Voucher', descriptionHe: 'שובר לתדלוק', descriptionEn: 'A fuel voucher',
-    category: 'fuel', costPoints: 500, imageIcon: 'car-outline', isActive: true,
+    category: 'fuel', costPoints: 500, imageIcon: 'car-outline', isActive: true, archivedAt: null,
     stock: null, available: null, expiresAt: null,
   },
   {
     id: 'mock-catalog-2', businessId: 'mock-business-id', business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'כרטיס קולנוע', titleEn: 'Movie Ticket', descriptionHe: 'כרטיס לסרט', descriptionEn: 'One movie ticket',
-    category: 'entertainment', costPoints: 800, imageIcon: 'film-outline', isActive: true,
+    category: 'entertainment', costPoints: 800, imageIcon: 'film-outline', isActive: true, archivedAt: null,
     stock: 20, available: 20, expiresAt: null,
   },
 ];
@@ -64,6 +64,7 @@ function handleRequest(method: string, path: string, _body: unknown): { status: 
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       redeemedAt: null,
       createdAt: new Date().toISOString(),
+      pointsCost: reward.costPoints,
       reward,
     };
     vouchers = [voucher, ...vouchers];
