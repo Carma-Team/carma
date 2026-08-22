@@ -107,6 +107,17 @@ async def test_a_legacy_label_resolves_in_either_language(db_session: AsyncSessi
 
 
 @pytest.mark.asyncio
+async def test_the_labels_people_actually_write_resolve_too(db_session: AsyncSession) -> None:
+    """The register says "תל אביב - יפו"; nobody types that. Same for CBS's
+    "קרית" where people write "קריית". These were the most common stored values,
+    and dropping them to NULL would have hit more rows than the exact passes."""
+    assert await svc.resolve_code(db_session, code=None, label="תל אביב") == TEL_AVIV
+    assert await svc.resolve_code(db_session, code=None, label="Tel Aviv") == TEL_AVIV
+    assert await svc.resolve_code(db_session, code=None, label="קריית שמונה") == "2800"
+    assert await svc.resolve_code(db_session, code=None, label="פתח תקוה") == "7900"
+
+
+@pytest.mark.asyncio
 async def test_an_unrecognised_value_is_none_rather_than_an_error(db_session: AsyncSession) -> None:
     """The same answer the column gave before any of this existed."""
     assert await svc.resolve_code(db_session, code=None, label="Nowhereville") is None

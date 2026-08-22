@@ -10,6 +10,23 @@ from app.schemas.city import CitiesOut, CityOut, CountryOut
 # used to be the bare string "ישראל" sent to the English build as well (CAR-218).
 COUNTRY = CountryOut(name_he="ישראל", name_en="Israel")
 
+# Labels people actually write that are not the CBS form. The register says
+# "תל אביב - יפו" and "Tel Aviv-Yafo"; nobody types either. Keyed by the
+# normalised label, checked after both exact passes fail. The migration embeds
+# the same pairs for the backfill - keep the two lists identical.
+LEGACY_ALIASES: dict[str, str] = {
+    "תל אביב": "5000",
+    "תל אביב יפו": "5000",
+    "tel aviv": "5000",
+    "פתח תקוה": "7900",  # canonical spells it פתח תקווה
+    "קריית שמונה": "2800",  # CBS spells קרית without the second yod
+    "קריית גת": "2630",
+    "קריית ים": "9600",
+    "קריית ביאליק": "9500",
+    "קריית מוצקין": "8200",
+    "קריית אונו": "2620",
+}
+
 
 async def all_cities(db: AsyncSession) -> CitiesOut:
     """The whole canonical list, for registration to pick from.
@@ -47,4 +64,10 @@ async def resolve_code(db: AsyncSession, *, code: str | None, label: str | None)
     if by_he:
         return by_he
     by_en: str | None = await db.scalar(select(City.code).where(func.lower(func.btrim(City.name_en)) == wanted))
-    return by_en
+    if by_en:
+        return by_en
+    alias = LEGACY_ALIASES.get(wanted)
+    if alias:
+        exists: str | None = await db.scalar(select(City.code).where(City.code == alias))
+        return exists
+    return None

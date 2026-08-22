@@ -77,6 +77,27 @@ def upgrade() -> None:
             )
         )
 
+    # Third pass: labels people actually write that are not the CBS form -
+    # "תל אביב" for "תל אביב - יפו", "קריית" spellings for CBS's "קרית". The
+    # pairs mirror services/cities.py LEGACY_ALIASES; keep the two identical.
+    for label, code in (
+        ("תל אביב", "5000"),
+        ("תל אביב יפו", "5000"),
+        ("tel aviv", "5000"),
+        ("פתח תקוה", "7900"),
+        ("קריית שמונה", "2800"),
+        ("קריית גת", "2630"),
+        ("קריית ים", "9600"),
+        ("קריית ביאליק", "9500"),
+        ("קריית מוצקין", "8200"),
+        ("קריית אונו", "2620"),
+    ):
+        op.execute(
+            sa.text(
+                "UPDATE users SET city_code = :code WHERE city_code IS NULL AND lower(btrim(city)) = :label"
+            ).bindparams(code=code, label=label)
+        )
+
     lost = (
         op.get_bind()
         .execute(sa.text("SELECT count(*) FROM users WHERE city_code IS NULL AND btrim(coalesce(city, '')) <> ''"))

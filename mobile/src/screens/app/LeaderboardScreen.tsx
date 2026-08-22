@@ -59,7 +59,7 @@ export default function LeaderboardScreen() {
         if (user?.city) setSelectedCityCode(user.city.code)
       })
       .catch(() => {/* non-critical — fall back to user's own values */})
-  }, [user?.city])
+  }, [user?.city?.code])
 
   const fetchLeaderboard = useCallback((
     tab: LeaderboardType,
