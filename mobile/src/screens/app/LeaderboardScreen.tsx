@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useApp } from '@/context/AppContext'
 import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
+import { LocationPicker } from '@/components/ui/LocationPicker'
 import { useTranslation } from '@/hooks/useTranslation'
 import { leaderboardApi, type LocationsOut } from '@/services/api/leaderboard.api'
 import { userApi, type FoundUser } from '@/services/api/user.api'
@@ -18,93 +19,6 @@ import type { FollowStatus, LeaderboardEntry, LeaderboardType } from '@/types'
 type SearchState = 'idle' | 'loading' | 'found' | 'not_found'
 
 const INSTALL_LINK = 'https://carma.app/download'
-
-// ─── Compact location picker ──────────────────────────────────────────────────
-
-interface PickerProps {
-  value: string
-  options: string[]
-  placeholder: string
-  onChange: (v: string) => void
-}
-
-function LocationPicker({ value, options, placeholder, onChange }: PickerProps) {
-  const [open, setOpen] = useState(false)
-  const insets = useSafeAreaInsets()
-
-  return (
-    <>
-      <TouchableOpacity onPress={() => setOpen(true)} style={pickerStyles.trigger}>
-        <Text style={pickerStyles.triggerText} numberOfLines={1}>
-          {value || placeholder}
-        </Text>
-        <Ionicons name="chevron-down" size={14} color={COLORS.textMuted} />
-      </TouchableOpacity>
-
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <TouchableOpacity style={pickerStyles.overlay} activeOpacity={1} onPress={() => setOpen(false)}>
-          <View style={[pickerStyles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <FlatList
-              data={options}
-              keyExtractor={o => o}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[pickerStyles.option, item === value && pickerStyles.optionActive]}
-                  onPress={() => { onChange(item); setOpen(false) }}
-                >
-                  <Text style={[pickerStyles.optionText, item === value && pickerStyles.optionTextActive]}>
-                    {item}
-                  </Text>
-                  {item === value && <Ionicons name="checkmark" size={16} color={COLORS.brand} />}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </>
-  )
-}
-
-const pickerStyles = StyleSheet.create({
-  trigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    flex: 1,
-    minWidth: 0,
-  },
-  triggerText: { ...TYPOGRAPHY.caption, color: COLORS.text, flex: 1 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: COLORS.card,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: 8,
-    maxHeight: 320,
-  },
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-  },
-  optionActive: { backgroundColor: COLORS.dark },
-  optionText: { ...TYPOGRAPHY.body, color: COLORS.text },
-  optionTextActive: { color: COLORS.brand, fontWeight: '700' },
-})
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 

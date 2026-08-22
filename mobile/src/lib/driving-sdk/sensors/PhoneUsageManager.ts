@@ -23,12 +23,14 @@
  *
  * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
  * features are exposed through getMotionFeatures() alongside the acceleration variance.
- * They are descriptive only — the hand-held decision here is unchanged.
+ * A hand stabilises orientation, a phone loose on a seat tumbles — CAR-174 uses that to
+ * veto the acceleration-only hand-held read when rotation says otherwise.
  *
- * Two metrics emitted via onInteractionData callback:
- *   - touchEpochs              count of sharp single-sample acceleration transients
+ * Emitted once per second via onInteractionData, as a delta since the previous emission
+ * (CAR-175) — never a running total:
+ *   - touchEpochs              sharp single-sample acceleration transients this tick
  *                               (glass-tap proxy; also fires on foreground touch events)
- *   - screenInteractionSeconds  seconds where IMU variance indicates a hand-held phone
+ *   - screenInteractionSeconds  1 if this second was judged hand-held, else 0
  *                               (low variance = vehicle-mounted → not counted)
  *   - speedKmh                  vehicle speed last reported via updateSpeed(), passed
  *                               through as-is so the host can relate handling to motion
@@ -49,6 +51,13 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 //   Requires empirical calibration before Sprint+1 — see RFC-001 §4.3.
 const HANDHELD_VARIANCE_THRESHOLD = 0.025;
 
+// ROTATION_VARIANCE_MAX_THRESHOLD ((rad/s)²):
+//   A hand stabilises orientation; a phone loose on the seat tumbles. Below this,
+//   rotation confirms accelVariance's hand-held read; at/above it, the accel spike
+//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-183),
+//   same calibration caveat as the threshold above.
+const ROTATION_VARIANCE_MAX_THRESHOLD = 0.5;
+
 // GLASS_TAP_MAGNITUDE_THRESHOLD (g):
 //   A finger tap on glass/screen produces a sharp transient of 1.8–3.0 g total
 //   magnitude. Road bumps rarely reach 1.8 g with the same sharp onset profile.
@@ -60,8 +69,13 @@ const EPOCH_COOLDOWN_MS = 1500;
 // Rolling variance window: 10 samples at 10 Hz = 1-second analysis window.
 const VARIANCE_WINDOW_SIZE = 10;
 
+// Matches the 1 s analysis window at the expected 10 Hz gyro feed.
+const GYRO_STALE_MS = 1000;
+
 export interface InteractionData {
+  /** Touch-epoch transients since the previous emission — a delta, not a running total. */
   touchEpochs: number;
+  /** Whether this second was judged hand-held (0 or 1) — a delta, not a running total. */
   screenInteractionSeconds: number;
   /**
    * Vehicle speed (km/h) as last reported by the host at the moment this data was
@@ -79,10 +93,8 @@ export interface InteractionData {
  * Raw motion features behind the hand-held decision, over the same 1-second window.
  * Exposed for calibration and for classifiers that need more than acceleration
  * variance — a hand stabilises orientation, a phone loose on a seat tumbles, and
- * only the rotational terms separate those two.
- *
- * Descriptive only: nothing here is interpreted, and the hand-held decision below
- * still reads `accelVariance` alone.
+ * only the rotational terms separate those two. The hand-held decision (CAR-174)
+ * reads both: high accelVariance with low rotationVariance.
  */
 export interface MotionFeatures {
   /** Variance of total acceleration magnitude (g²). */
@@ -106,8 +118,10 @@ export class PhoneUsageManager {
   // same second. Fed by pushGyroSample() rather than a subscription of its own.
   private rotationWindow: number[] = [];
   private touchEpochs = 0;
+  private touchEpochsThisTick = 0;
   private screenInteractionSeconds = 0;
   private lastEpochMs = 0;
+  private lastGyroMs = 0;
   private handheldTimer: ReturnType<typeof setInterval> | null = null;
   // Last speed the host reported. Stored and passed through untouched — no threshold
   // and no weighting here, both of which are scoring decisions outside this SDK.
@@ -127,8 +141,10 @@ export class PhoneUsageManager {
   public start(): void {
     this.isActive = true;
     this.touchEpochs = 0;
+    this.touchEpochsThisTick = 0;
     this.screenInteractionSeconds = 0;
     this.lastEpochMs = 0;
+    this.lastGyroMs = 0;
     this.magnitudeWindow = [];
     this.rotationWindow = [];
     this.speedKmh = 0;
@@ -182,17 +198,28 @@ export class PhoneUsageManager {
    */
   public pushGyroSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
+    const now = Date.now();
+    // A gap wider than the analysis window means every held sample predates it — drop
+    // them here rather than in the reader, or the first push after the gap resets
+    // lastGyroMs and makes a window of entirely pre-gap samples read as fresh again.
+    if (this.lastGyroMs !== 0 && now - this.lastGyroMs > GYRO_STALE_MS) this.rotationWindow = [];
+    this.lastGyroMs = now;
     this.rotationWindow.push(Math.sqrt(x * x + y * y + z * z));
     if (this.rotationWindow.length > VARIANCE_WINDOW_SIZE) this.rotationWindow.shift();
   }
 
   /** Current window's raw motion features. See {@link MotionFeatures}. */
   public getMotionFeatures(): MotionFeatures {
-    const n = this.rotationWindow.length;
+    // A gyro feed that has gone quiet since the last push (not just gapped mid-stream)
+    // still holds those samples until the next pushGyroSample() call clears them —
+    // treat them as if none had been pushed rather than wait for a push that may not come.
+    const stale = this.rotationWindow.length > 0 && Date.now() - this.lastGyroMs > GYRO_STALE_MS;
+    const window = stale ? [] : this.rotationWindow;
+    const n = window.length;
     return {
       accelVariance: this.computeVariance(this.magnitudeWindow),
-      rotationRateMean: n === 0 ? 0 : this.rotationWindow.reduce((s, v) => s + v, 0) / n,
-      rotationVariance: this.computeVariance(this.rotationWindow),
+      rotationRateMean: n === 0 ? 0 : window.reduce((s, v) => s + v, 0) / n,
+      rotationVariance: this.computeVariance(window),
       rotationSampleCount: n,
     };
   }
@@ -208,8 +235,8 @@ export class PhoneUsageManager {
     const now = Date.now();
     if (mag > GLASS_TAP_MAGNITUDE_THRESHOLD && now - this.lastEpochMs > EPOCH_COOLDOWN_MS) {
       this.touchEpochs++;
+      this.touchEpochsThisTick++;
       this.lastEpochMs = now;
-      this.onInteractionData(this.getSnapshot());
     }
   }
 
@@ -223,11 +250,19 @@ export class PhoneUsageManager {
   private startHandheldTimer(): void {
     this.stopHandheldTimer();
     // Tick every second for as long as this manager runs, foreground or background.
-    // Only accumulate when IMU variance indicates the phone is hand-held.
-    // Low variance (mounted phone navigating via Waze) → zero penalty.
+    // Hand-held requires high acceleration variance AND low rotation variance (CAR-174) —
+    // a phone loose on a seat also bounces, but only a hand keeps orientation stable.
+    // No gyro pushed yet → rotationVariance computes to 0 (see computeVariance, n<2),
+    // which always clears the threshold below, so this falls back to acceleration alone
+    // without a separate branch for it.
     this.handheldTimer = setInterval(() => {
       if (!this.isActive) return;
-      if (this.computeVariance(this.magnitudeWindow) > HANDHELD_VARIANCE_THRESHOLD) {
+      const motion = this.getMotionFeatures();
+      const isHandheld =
+        motion.accelVariance > HANDHELD_VARIANCE_THRESHOLD &&
+        motion.rotationVariance < ROTATION_VARIANCE_MAX_THRESHOLD;
+
+      if (isHandheld) {
         this.screenInteractionSeconds++;
         // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
         // IMU-confirmed signal replacing the old "any AppState change" trigger.
@@ -235,10 +270,17 @@ export class PhoneUsageManager {
           this.isHandheldStretchOpen = true;
           this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
         }
-        this.onInteractionData(this.getSnapshot());
       } else {
         this.isHandheldStretchOpen = false;
       }
+
+      // One emission per tick regardless of outcome (CAR-175) — a delta, not a snapshot.
+      this.onInteractionData({
+        touchEpochs: this.touchEpochsThisTick,
+        screenInteractionSeconds: isHandheld ? 1 : 0,
+        speedKmh: this.speedKmh,
+      });
+      this.touchEpochsThisTick = 0;
     }, 1000);
   }
 

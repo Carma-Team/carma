@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, update
+from fastapi import HTTPException, Request, Response, status
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -13,11 +15,13 @@ from app.core.security import (
     create_access_token,
     hash_code,
     hash_password,
+    hash_refresh_token,
     random_digits,
+    random_refresh_token,
     verify_code,
     verify_password,
 )
-from app.models import Language, LoginFailure, OtpCode, User, UserRole
+from app.models import Language, LoginFailure, OtpCode, RefreshToken, User, UserRole
 from app.schemas.auth import (
     AuthOut,
     LoginIn,
@@ -135,12 +139,15 @@ async def _clear_failures(db: AsyncSession, user: User, caller_ip: str) -> None:
     await _sweep_expired(db, _now() - timedelta(seconds=settings.login_failure_window_seconds))
 
 
-def _token_for(user: User) -> str:
-    return create_access_token(user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role))
+def _token_for(user: User, *, expires_minutes: int | None = None) -> str:
+    return create_access_token(
+        user_id=user.id, email=user.email, phone=user.phone, role=UserRole(user.role), expires_minutes=expires_minutes
+    )
 
 
-async def _auth_response(db: AsyncSession, user: User) -> AuthOut:
-    return AuthOut(token=_token_for(user), user=await users_service.profile_out(db, user))
+async def _auth_response(db: AsyncSession, user: User, *, expires_minutes: int | None = None) -> AuthOut:
+    token = _token_for(user, expires_minutes=expires_minutes)
+    return AuthOut(token=token, user=await users_service.profile_out(db, user))
 
 
 # ─── Email + password (May's app) ────────────────────────────────────────────
@@ -169,7 +176,9 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
     return await _auth_response(db, user)
 
 
-async def login_with_password(db: AsyncSession, dto: LoginIn, caller_ip: str) -> AuthOut:
+async def login_with_password(
+    db: AsyncSession, dto: LoginIn, caller_ip: str, response: Response, *, is_browser: bool = False
+) -> AuthOut:
     user = await db.scalar(select(User).where(User.email == dto.email.lower()))
     if user is None or not user.password_hash:
         audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
@@ -189,10 +198,236 @@ async def login_with_password(db: AsyncSession, dto: LoginIn, caller_ip: str) ->
 
     await _clear_failures(db, user, caller_ip)
     user.last_logged_at = _now()
+    await _sweep_expired_refresh_tokens(db)
+    # Every successful email+password login mints one of these, mobile calls
+    # included — the row is a few bytes and the lazy sweep above bounds the
+    # table regardless of who never comes back to spend it. Unconditional for
+    # the same reason: mobile already ignores `Set-Cookie`, so the cookie is
+    # inert for it either way. The *access token's* lifetime is the one thing
+    # that does branch — see below — because unlike the cookie, mobile reads
+    # and uses that value, so it cannot be shortened for everyone.
+    raw_refresh = _mint_refresh_token(db, user)
     await db.commit()
     await db.refresh(user)
+    _set_refresh_cookie(response, raw_refresh)
     audit("auth.login.success", user_id=user.id, via="email")
-    return await _auth_response(db, user)
+    # `is_browser` is `X-Requested-With: XMLHttpRequest` — CARMA's web app
+    # sends it on every call (see `lib/auth/authApi.ts`), mobile never has.
+    # Web's very first access token is short-lived from this response, not
+    # just from the first `/refresh` — a 7-day bearer token that happened to
+    # leave the wire once is still a 7-day bearer token no matter how fast
+    # the tab that received it moves on from it; the token's own lifetime is
+    # what actually bounds that, so it has to be short from the start.
+    # Mobile's request never carries the header, so `expires_minutes` stays
+    # `None` and it keeps exactly `JWT_EXPIRES_MINUTES`, unchanged.
+    expires_minutes = settings.web_access_token_expires_minutes if is_browser else None
+    return await _auth_response(db, user, expires_minutes=expires_minutes)
+
+
+# ─── Web session — refresh cookie (CAR-217) ──────────────────────────────────
+
+REFRESH_COOKIE_NAME = "carma_refresh"
+# Scoped to the auth routes rather than "/": nothing else on the API ever
+# needs to read this cookie, and narrowing the path is free hardening — every
+# other request the browser makes simply never carries it.
+REFRESH_COOKIE_PATH = "/api/auth"
+
+REFRESH_REJECTED = "Session expired — sign in again"
+
+# Two tabs open on the same session can both read the cookie before either's
+# refresh lands, and then both present the same not-yet-rotated value. One of
+# them loses the race — the row it presents is revoked by the winner a
+# heartbeat earlier. This is how long that loser has to be recognised as
+# "the same session, a moment late" rather than "a dead token, replayed".
+# Long enough for real request latency and a retry; short enough that it
+# buys an actual attacker nothing — replaying a genuinely stolen token still
+# has to land inside this window of the legitimate rotation to slip through,
+# and it still only inherits the session that legitimate rotation produced.
+REUSE_GRACE_SECONDS = 10
+
+
+def _mint_refresh_token(db: AsyncSession, user: User) -> str:
+    """A brand-new row with no predecessor — login's case, not a rotation's.
+    `_try_rotate` is the atomic claim-and-mint used everywhere a row is being
+    *replaced*; this is the plain insert used the one time there is nothing
+    yet to replace."""
+    raw = random_refresh_token()
+    expires_at = _now() + timedelta(days=settings.refresh_token_expires_days)
+    db.add(RefreshToken(user_id=user.id, token_hash=hash_refresh_token(raw), expires_at=expires_at))
+    return raw
+
+
+async def _try_rotate(db: AsyncSession, row: RefreshToken) -> tuple[User, str] | None:
+    """Atomically claim `row` and mint its successor — the fix for a gap a
+    plain "read, check, then write" rotation has: two requests presenting the
+    same not-yet-rotated token can both read `revoked_at IS NULL` before
+    either commits, and a read-then-write rotation lets *both* mint their own
+    child. That is fine when both requesters are the same legitimate session
+    (see `REUSE_GRACE_SECONDS`) — it is not fine when one of them is whoever
+    is holding a stolen copy of `row`: two independent children never
+    intersect again, so no future use of either one would ever reveal the
+    theft.
+
+    The `WHERE revoked_at IS NULL` here is what closes that: Postgres can
+    only let one concurrent `UPDATE` match a given row, so at most one caller
+    ever gets a non-zero `rowcount` back, no matter how many callers read the
+    row as unrevoked first. The loser (`None`) is not told "you lose" — the
+    caller (`refresh_session`) routes it through the exact same grace-window
+    check a token that was *already* revoked when read goes through, so the
+    two cases share one answer.
+
+    The child is inserted (and flushed) *before* the claim, not after — the
+    claim's `replaced_by_id` has to point at a row that already exists, the
+    same foreign-key ordering `login_with_password` doesn't have to think
+    about because it has no predecessor to point from. Losing the claim
+    leaves that child orphaned: nobody was ever handed its raw value, so it
+    can never be presented, and it is as harmless as any other unclaimed row
+    until the sweep clears it.
+    """
+    user = await db.get(User, row.user_id)
+    if user is None:
+        return None
+    raw = random_refresh_token()
+    new_id = uuid.uuid4().hex
+    expires_at = _now() + timedelta(days=settings.refresh_token_expires_days)
+    db.add(RefreshToken(id=new_id, user_id=user.id, token_hash=hash_refresh_token(raw), expires_at=expires_at))
+    await db.flush()
+
+    # `execute` is typed as returning a plain Result, which has no rowcount.
+    # A DML statement always yields a CursorResult at runtime — the annotation
+    # tells mypy that, it does not change behaviour. Same pattern as rewards.py.
+    claim: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(RefreshToken)
+        .where(RefreshToken.id == row.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=_now(), replaced_by_id=new_id)
+    )
+    if claim.rowcount == 0:
+        return None
+    return user, raw
+
+
+async def _sweep_expired_refresh_tokens(db: AsyncSession) -> None:
+    """Same shape as `_sweep_expired` for `LoginFailure`: no job runs on a timer,
+    so this rides along with a write already happening on the table."""
+    await db.execute(delete(RefreshToken).where(RefreshToken.expires_at < _now()))
+
+
+def _set_refresh_cookie(response: Response, raw: str) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        raw,
+        max_age=settings.refresh_token_expires_days * 86400,
+        path=REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite=settings.refresh_cookie_samesite,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+
+
+async def _rotated_response(db: AsyncSession, user: User, new_raw: str, response: Response, *, event: str) -> AuthOut:
+    await _sweep_expired_refresh_tokens(db)
+    await db.commit()
+    _set_refresh_cookie(response, new_raw)
+    audit(event, user_id=user.id)
+    return AuthOut(
+        token=_token_for(user, expires_minutes=settings.web_access_token_expires_minutes),
+        user=await users_service.profile_out(db, user),
+    )
+
+
+async def refresh_session(db: AsyncSession, request: Request, response: Response) -> AuthOut:
+    """Trade the httpOnly cookie for a fresh, short-lived access token.
+
+    Rotates on every call, via `_try_rotate`'s atomic claim: the presented
+    row is good for exactly one silent renewal, the same shape a stolen
+    *access* token already has from `web_access_token_expires_minutes`, just
+    on the cookie's clock instead.
+
+    A row that is already revoked when read, or that loses the atomic claim
+    on this very call, usually means reuse — the row was (or just was)
+    replayed after something else already moved the session past it — and
+    every other live session on the account is cut, rather than guessing
+    which copy is legitimate. The one exception is `REUSE_GRACE_SECONDS`, and
+    it reaches exactly one hop: two tabs open on the same session can both
+    read the cookie before either's refresh lands, so the loser's row has
+    exactly one legitimate successor — its `replaced_by_id` — and that row
+    still being claimable is what tells this apart from an actual replay.
+    Claiming the successor is itself atomic for the same reason claiming the
+    original token is: a *third* racer (a stolen token replayed inside the
+    same instant as two legitimate tabs, or as this recovery itself) must not
+    be able to mint its own independent child either — see `_try_rotate`.
+    A successor that is already revoked when checked means the chain has
+    moved two rotations past whatever was presented — that is no longer "two
+    tabs, one instant," it is a token from further back, and it is cut like
+    any other reuse. This is deliberately not a walk to wherever the chain
+    currently ends: an old token does not get to ride every rotation since it
+    died back onto the grace window.
+    """
+    raw = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not raw:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, REFRESH_REJECTED)
+
+    row = await db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(raw)))
+
+    if row is None or row.expires_at < _now():
+        _clear_refresh_cookie(response)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, REFRESH_REJECTED)
+
+    if row.revoked_at is None:
+        claimed = await _try_rotate(db, row)
+        if claimed is not None:
+            user, new_raw = claimed
+            return await _rotated_response(db, user, new_raw, response, event="auth.refresh.success")
+        # Lost the atomic claim: someone else's request revoked this row
+        # between our SELECT above and the UPDATE inside `_try_rotate` —
+        # `row`'s own attributes are now stale in memory (this session never
+        # committed the change that made them so) and have to be re-read
+        # before anything below can trust `revoked_at`/`replaced_by_id`.
+        await db.refresh(row)
+
+    if row.revoked_at is not None:
+        within_grace = row.replaced_by_id is not None and _now() - row.revoked_at < timedelta(
+            seconds=REUSE_GRACE_SECONDS
+        )
+        successor = await db.get(RefreshToken, row.replaced_by_id) if within_grace else None
+        if successor is not None and successor.revoked_at is None and successor.expires_at > _now():
+            claimed = await _try_rotate(db, successor)
+            if claimed is not None:
+                user, new_raw = claimed
+                return await _rotated_response(db, user, new_raw, response, event="auth.refresh.grace_window_race")
+
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == row.user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=_now())
+    )
+    await db.commit()
+    audit("auth.refresh.reuse_detected", user_id=row.user_id)
+    _clear_refresh_cookie(response)
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, REFRESH_REJECTED)
+
+
+async def logout_session(db: AsyncSession, request: Request, response: Response) -> MessageOut:
+    """End the session the cookie names, then clear the cookie regardless.
+
+    Works with no access token at all — logging out is exactly what a browser
+    with a broken or expired one still needs to be able to do. Idempotent: no
+    cookie, an unknown one, or one already revoked all answer the same way.
+    """
+    raw = request.cookies.get(REFRESH_COOKIE_NAME)
+    if raw:
+        row = await db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(raw)))
+        if row is not None and row.revoked_at is None:
+            row.revoked_at = _now()
+            await db.commit()
+            audit("auth.logout", user_id=row.user_id)
+    _clear_refresh_cookie(response)
+    return MessageOut(message="Signed out")
 
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────

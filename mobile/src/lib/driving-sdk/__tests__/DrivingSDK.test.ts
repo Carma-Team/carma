@@ -38,7 +38,7 @@ let mockGyroPassthrough: ((sample: { x: number; y: number; z: number }) => void)
 let mockAccelPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number }) => void)
+  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockBtConnect: (() => void) | null = null;
 let mockBtDisconnect: (() => void) | null = null;
@@ -124,6 +124,7 @@ type SensorUpdate = {
   gyroZ: number;
   accelAvailable: boolean;
   gyroAvailable: boolean;
+  accelInitFailed: boolean;
   backgroundLocationAvailable: boolean;
   lat?: number;
   lng?: number;
@@ -223,6 +224,7 @@ describe('DrivingSDK', () => {
       gyroZ: 0,
       accelAvailable: true,
       gyroAvailable: true,
+      accelInitFailed: false,
       backgroundLocationAvailable: true,
       ...update,
     });
@@ -442,15 +444,26 @@ describe('DrivingSDK', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  // severity only exists on PHONE_USAGE since CAR-156 — minSeverity is exercised
+  // against that type now, not a motion event.
   it('holds a listener back below its minimum severity', async () => {
+    const handler = jest.fn();
+    sdk.on(DrivingEventType.PHONE_USAGE, { minSeverity: 0.8 }, handler);
+    await startTripReady();
+
+    mockPhoneEmit?.({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.3 });
+    expect(handler).not.toHaveBeenCalled();
+
+    mockPhoneEmit?.({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.9 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not gate a motion event on minSeverity — motion events carry no severity (CAR-156)', async () => {
     const handler = jest.fn();
     sdk.on(DrivingEventType.HARD_BRAKE, { minSeverity: 0.8 }, handler);
     await startTripReady();
 
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { severity: 0.3, atMs: 0 });
-    expect(handler).not.toHaveBeenCalled();
-
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { severity: 0.9, atMs: 600 });
+    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -572,12 +585,33 @@ describe('DrivingSDK', () => {
 
   // ── Phone interaction metrics ──────────────────────────────────────────────
 
-  it('copies phone interaction metrics onto the trip', async () => {
+  it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 31 });
+    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
+  });
+
+  it('carries accelerometer health onto the trip, not just the validator (CAR-189)', async () => {
+    await startTripReady();
+
+    sendSensorUpdate({ accelAvailable: false, accelInitFailed: true });
+
+    expect(tripData()).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  it('keeps accelAvailable true once seen live, even if the sensor goes stale later (CAR-189)', async () => {
+    await startTripReady();
+
+    // SensorManager gates accelAvailable on sample freshness (CAR-161), so a healthy
+    // accelerometer reports false after SENSOR_STALE_MS of silence. Ending the trip in
+    // that window must not look like a phone with no accelerometer.
+    sendSensorUpdate({ accelAvailable: true });
+    sendSensorUpdate({ accelAvailable: false });
+
+    expect(tripData()).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
   // ── Delegation to the injected TripValidator ───────────────────────────────

@@ -3,9 +3,9 @@
 # would try to resolve string annotations like "RegisterIn" against SlowAPI's
 # namespace and fail at import. Real annotation objects need no resolving.
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession, RequireBrowserHeader, is_browser_request
 from app.core.limiter import client_ip, limiter
 from app.schemas.auth import (
     AuthOut,
@@ -62,13 +62,41 @@ async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
 
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
 @limiter.limit(CREDENTIAL_LIMIT)
-async def login(request: Request, dto: LoginIn, db: DbSession) -> AuthOut:
-    return await auth_service.login_with_password(db, dto, client_ip(request))
+async def login(request: Request, response: Response, dto: LoginIn, db: DbSession) -> AuthOut:
+    return await auth_service.login_with_password(
+        db, dto, client_ip(request), response, is_browser=is_browser_request(request)
+    )
 
 
 @router.get("/me", response_model=UserOut, response_model_by_alias=True, summary="Get the authenticated user profile")
 async def me(user: CurrentUser, db: DbSession) -> UserOut:
     return await users_service.profile_out(db, user)
+
+
+# ─── Browser session — refresh cookie (CAR-217) ──────────────────────────────
+# Both read the session from the httpOnly cookie, not a bearer token — a
+# request with no `Authorization` header at all (an expired or reloaded tab)
+# is exactly the case these exist for. `RequireBrowserHeader` is the CSRF
+# guard: see `core.deps.require_browser_header` for why a cookie-only endpoint
+# needs one and `/login` does not. Left off the default rate limit's tighter
+# neighbours on purpose — the cookie's ~384 bits make guessing it infeasible,
+# so the 30/minute default ceiling (CAR-126) is the right-sized cap, not a
+# credential-guessing one.
+
+
+@router.post(
+    "/refresh",
+    response_model=AuthOut,
+    response_model_by_alias=True,
+    summary="Exchange the browser refresh cookie for a new access token",
+)
+async def refresh(request: Request, response: Response, db: DbSession, _: RequireBrowserHeader) -> AuthOut:
+    return await auth_service.refresh_session(db, request, response)
+
+
+@router.post("/logout", response_model=MessageOut, response_model_by_alias=True, summary="End the browser session")
+async def logout(request: Request, response: Response, db: DbSession, _: RequireBrowserHeader) -> MessageOut:
+    return await auth_service.logout_session(db, request, response)
 
 
 # ─── Phone + OTP (spec 4.2.1) ────────────────────────────────────────────────
