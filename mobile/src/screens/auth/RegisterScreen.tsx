@@ -32,9 +32,31 @@ const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city:
 // here so the driver is told which field is wrong: the server answers all of them
 // with one 422 that names nothing they can act on.
 const MIN_NAME = 2
+const MAX_NAME = 80
 const MIN_PASSWORD = 8
+const MAX_PASSWORD = 200
+const MAX_CITY = 80
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_RE = /^[\d\s+()-]{6,20}$/
+// Digits only, checked before the numeric bounds below: `Number('abc')` is NaN, and
+// every comparison against NaN is false, so a non-numeric entry passes both bounds
+// and reaches the server as null. The numeric keyboard is a hint, not a constraint —
+// it still offers '.' and '-', and a hardware keyboard ignores it entirely.
+const INT_RE = /^\d+$/
+
+// CARMA is for private-car (class B) drivers in Israel only. The practical test
+// opens at 16 years and 9 months, so nobody holds a licence issued before the
+// year they turned 16 -- which is also why MIN_AGE is 16 and not 17.
+const MIN_AGE = 16
+const MAX_AGE = 120
+const MIN_LICENSE_AGE = 16
+// The oldest licence the app will accept at all, for a driver who did not fill in
+// an age. Matches RegisterIn; a real class-B licence from before it is not in use.
+const MIN_LICENSE_YEAR = 1950
+// Read once per render rather than per field. A session left open across midnight
+// on the 31st of December keeps the old year until the screen re-renders, which
+// costs nothing: the driver is told a year is too late, one day too early.
+const CURRENT_YEAR = new Date().getFullYear()
 
 export default function RegisterScreen() {
   const router = useRouter()
@@ -108,16 +130,32 @@ export default function RegisterScreen() {
    * driver has typed anything reads as a rejection rather than as guidance. The
    * required ones are held by the disabled button instead.
    */
+  const age         = INT_RE.test(form.age)         ? Number(form.age)         : NaN
+  const licenseYear = INT_RE.test(form.licenseYear) ? Number(form.licenseYear) : NaN
+
+  // The earliest licence year this particular driver could hold. Age is given in
+  // whole years, so the birth year is CURRENT_YEAR - age give or take one; taking
+  // the earlier side keeps a real driver from being turned away over that year.
+  const earliestLicenseYear = Number.isNaN(age)
+    ? MIN_LICENSE_YEAR
+    : Math.max(MIN_LICENSE_YEAR, CURRENT_YEAR - age + MIN_LICENSE_AGE)
+
   const fieldErrors: Record<keyof FormState, string> = {
-    name:        form.name && form.name.trim().length < MIN_NAME     ? t('auth.errors.nameTooShort')     : '',
+    name:        form.name && (form.name.trim().length < MIN_NAME || form.name.trim().length > MAX_NAME)
+      ? t('auth.errors.invalidName') : '',
     email:       form.email && !EMAIL_RE.test(form.email.trim())     ? t('auth.errors.invalidEmail')     : '',
-    password:    form.password && form.password.length < MIN_PASSWORD ? t('auth.errors.passwordTooShort') : '',
+    password:    form.password && (form.password.length < MIN_PASSWORD || form.password.length > MAX_PASSWORD)
+      ? t('auth.errors.invalidPassword') : '',
     phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
-    age:         form.age && (Number(form.age) < 16 || Number(form.age) > 120)
+    city:        form.city && form.city.trim().length > MAX_CITY     ? t('auth.errors.cityTooLong')      : '',
+    age:         form.age && (Number.isNaN(age) || age < MIN_AGE || age > MAX_AGE)
       ? t('auth.errors.invalidAge') : '',
-    licenseYear: form.licenseYear && (Number(form.licenseYear) < 1950 || Number(form.licenseYear) > 2100)
-      ? t('auth.errors.invalidLicenseYear') : '',
-    city:        '',
+    licenseYear: form.licenseYear && (Number.isNaN(licenseYear) || licenseYear < MIN_LICENSE_YEAR || licenseYear > CURRENT_YEAR)
+      ? t('auth.errors.invalidLicenseYear')
+      // Only reachable once the year itself is valid, so the driver is never told
+      // about their age while the year is still the thing that is wrong.
+      : form.licenseYear && licenseYear < earliestLicenseYear
+        ? t('auth.errors.licenseYearBeforeAge') : '',
   }
 
   const requiredFilled =
