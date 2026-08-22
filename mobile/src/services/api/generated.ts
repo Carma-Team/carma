@@ -813,6 +813,48 @@ export interface components {
         BusinessRewardResponse: {
             reward: components["schemas"]["RewardOut"];
         };
+        /**
+         * BusinessVoucherOut
+         * @description VoucherOut's business-facing counterpart (CAR-78).
+         *
+         *     A business only needs to know what to hand over and whether it has already
+         *     been redeemed — never who the driver is. `user_id` stays off the wire here
+         *     on purpose; `Redemption.user_id` itself is untouched and still readable
+         *     internally.
+         */
+        BusinessVoucherOut: {
+            /** Id */
+            id: string;
+            /** Rewardid */
+            rewardId: string;
+            /** Code */
+            code: string;
+            /** Qrdata */
+            qrData: string;
+            /** Status */
+            status: string;
+            /** Isused */
+            isUsed: boolean;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+            /** Redeemedat */
+            redeemedAt: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Pointscost */
+            pointsCost: number;
+            reward: components["schemas"]["RewardOut"];
+        };
+        /** BusinessVoucherResponse */
+        BusinessVoucherResponse: {
+            voucher: components["schemas"]["BusinessVoucherOut"];
+        };
         /** ContactMatchOut */
         ContactMatchOut: {
             /** Phonehash */
@@ -2512,7 +2554,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VoucherResponse"];
+                    "application/json": components["schemas"]["BusinessVoucherResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2543,7 +2585,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VoucherResponse"];
+                    "application/json": components["schemas"]["BusinessVoucherResponse"];
                 };
             };
             /** @description Validation Error */
