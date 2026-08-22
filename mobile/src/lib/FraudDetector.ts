@@ -75,7 +75,7 @@ class CircularBuffer {
  *  `null` is UNKNOWN: the signal could not be evaluated, which is a different
  *  claim from `false`. It matches the nullable field on the wire
  *  (server/app/schemas/fraud.py) and never satisfies a TRUE requirement. */
-export interface FraudSignals {
+export type FraudSignals = {
   constantHighSpeed: boolean | null;
   noLateralForce: boolean | null;
   noHeadingChange: boolean | null;
