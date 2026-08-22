@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.core.audit import audit
 from app.core.security import normalise_voucher_code
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward
-from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, RewardOut, VoucherOut
+from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
@@ -160,7 +160,7 @@ async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Red
     return voucher
 
 
-async def peek_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+async def peek_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
     """What a scan shows before anyone commits to handing over the goods.
 
     Read-only on purpose: an employee scanning to check validity must not burn
@@ -170,7 +170,7 @@ async def peek_voucher(db: AsyncSession, business: Business, code: str) -> Vouch
     return await _voucher_out(db, voucher)
 
 
-async def consume_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+async def consume_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
     """Mark a voucher USED — the step that finally closes the redemption loop."""
     voucher = await _owned_voucher(db, business, code)
 
@@ -210,8 +210,8 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
     return await _voucher_out(db, voucher)
 
 
-async def _voucher_out(db: AsyncSession, voucher: Redemption) -> VoucherOut:
-    """VoucherOut with the reward's availability counted for it."""
+async def _voucher_out(db: AsyncSession, voucher: Redemption) -> BusinessVoucherOut:
+    """BusinessVoucherOut with the reward's availability counted for it."""
     claimed = await rewards_service.claimed_by_reward(db, [voucher.reward_id])
     available = rewards_service.available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
-    return VoucherOut.from_orm_redemption(voucher, available)
+    return BusinessVoucherOut.from_orm_redemption(voucher, available)

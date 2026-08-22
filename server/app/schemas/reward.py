@@ -92,6 +92,50 @@ class VoucherOut(CamelModel):
         )
 
 
+class BusinessVoucherOut(CamelModel):
+    """VoucherOut's business-facing counterpart (CAR-78).
+
+    A business only needs to know what to hand over and whether it has already
+    been redeemed — never who the driver is. `user_id` stays off the wire here
+    on purpose; `Redemption.user_id` itself is untouched and still readable
+    internally.
+    """
+
+    id: str
+    reward_id: str
+    code: str
+    qr_data: str
+    status: str
+    is_used: bool
+    expires_at: datetime
+    redeemed_at: datetime | None
+    created_at: datetime
+    points_cost: int
+    reward: RewardOut
+
+    @classmethod
+    def from_orm_redemption(cls, r: Any, available: int | None) -> BusinessVoucherOut:
+        return cls.model_validate(
+            {
+                "id": r.id,
+                "reward_id": r.reward_id,
+                "code": r.qr_code,
+                "qr_data": r.qr_data or r.qr_code,
+                "status": r.status.value.lower(),
+                "is_used": r.status.value == "USED",
+                "expires_at": r.expires_at,
+                "redeemed_at": r.used_at,
+                "created_at": r.created_at,
+                "points_cost": r.points_cost,
+                "reward": RewardOut.from_orm_reward(r.reward, available),
+            }
+        )
+
+
+class BusinessVoucherResponse(CamelModel):
+    voucher: BusinessVoucherOut
+
+
 class BusinessRewardIn(CamelModel):
     """Create payload for a business-owned reward.
 

@@ -1,7 +1,7 @@
 # No `from __future__ import annotations` here, unlike the other routers, for the
 # same reason as `routers/auth.py`: SlowAPI's decorator re-exports the handler
 # from its own module, so FastAPI would try to resolve string annotations like
-# "VoucherResponse" against SlowAPI's namespace and fail at import.
+# "BusinessVoucherResponse" against SlowAPI's namespace and fail at import.
 
 from fastapi import APIRouter, Request, Response, status
 
@@ -12,8 +12,8 @@ from app.schemas.reward import (
     BusinessRewardListOut,
     BusinessRewardPatchIn,
     BusinessRewardResponse,
+    BusinessVoucherResponse,
     LiveVoucherCountOut,
-    VoucherResponse,
 )
 from app.services import business as business_service
 
@@ -105,21 +105,25 @@ REDEEM_SCOPE = "business-voucher-redeem"
 
 @router.get(
     "/vouchers/{code}",
-    response_model=VoucherResponse,
+    response_model=BusinessVoucherResponse,
     response_model_by_alias=True,
     summary="Inspect a scanned voucher without consuming it. 404 unless it is this business's.",
 )
 @limiter.shared_limit(PEEK_LIMIT, scope=PEEK_SCOPE, key_func=business_key)
-async def peek_voucher(request: Request, code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
-    return VoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
+async def peek_voucher(
+    request: Request, code: str, business: CurrentBusiness, db: DbSession
+) -> BusinessVoucherResponse:
+    return BusinessVoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
 
 
 @router.post(
     "/vouchers/{code}/redeem",
-    response_model=VoucherResponse,
+    response_model=BusinessVoucherResponse,
     response_model_by_alias=True,
     summary="Consume a voucher. 409 if it was already used or has expired.",
 )
 @limiter.shared_limit(REDEEM_LIMIT, scope=REDEEM_SCOPE, key_func=business_key)
-async def consume_voucher(request: Request, code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
-    return VoucherResponse(voucher=await business_service.consume_voucher(db, business, code))
+async def consume_voucher(
+    request: Request, code: str, business: CurrentBusiness, db: DbSession
+) -> BusinessVoucherResponse:
+    return BusinessVoucherResponse(voucher=await business_service.consume_voucher(db, business, code))

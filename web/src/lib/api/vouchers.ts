@@ -32,9 +32,10 @@ export type Reward = {
   expiresAt: string | null;
 };
 
+// CAR-78: no driver identifier of any kind — the server's BusinessVoucherOut
+// deliberately drops `userId` so the business side never sees who the driver is.
 export type Voucher = {
   id: string;
-  userId: string;
   rewardId: string;
   code: string;
   qrData: string;
@@ -43,6 +44,7 @@ export type Voucher = {
   expiresAt: string;
   redeemedAt: string | null;
   createdAt: string;
+  pointsCost: number;
   reward: Reward;
 };
 

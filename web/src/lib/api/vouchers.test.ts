@@ -37,7 +37,6 @@ const REWARD = {
 
 const VOUCHER: Voucher = {
   id: 'v1',
-  userId: 'u1',
   rewardId: 'r1',
   code: 'ABC123XYZ0',
   qrData: 'ABC123XYZ0',
@@ -46,6 +45,7 @@ const VOUCHER: Voucher = {
   expiresAt: '2030-01-01T00:00:00Z',
   redeemedAt: null,
   createdAt: '2026-01-01T00:00:00Z',
+  pointsCost: 10,
   reward: REWARD,
 };
 

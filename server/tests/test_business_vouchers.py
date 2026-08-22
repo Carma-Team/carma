@@ -392,6 +392,80 @@ async def test_expire_overdue_leaves_the_callers_transaction_open(db_session: As
         await _cleanup(db_session, business, drivers=(driver,))
 
 
+# ─── Business-facing privacy (CAR-78) ───────────────────────────────────────
+
+# Any key, at any depth, that could name the driver. Checked recursively rather
+# than pinned to `userId` alone so a future field re-adding driver identity
+# under a different name — `driverId`, `driverName`, `driverPhone`, `email` —
+# trips this guard too, not just a literal repeat of the same mistake.
+_DRIVER_IDENTITY_KEYS = {"userId", "driverId", "driverName", "phone", "email"}
+
+
+def _find_forbidden_keys(payload: object) -> set[str]:
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in _DRIVER_IDENTITY_KEYS:
+                found.add(key)
+            found |= _find_forbidden_keys(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            found |= _find_forbidden_keys(item)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_peek_response_never_carries_a_driver_identifier(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """What actually reaches the wire, not just what the schema declares (CAR-78).
+
+    A business only needs to know what to hand over — never who the driver is.
+    `Redemption.user_id` stays in the database and internal to CARMA.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        resp = await db_api_client.get(f"/api/business/vouchers/{voucher.qr_code}", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert _find_forbidden_keys(body) == set()
+        assert body["voucher"]["pointsCost"] == voucher.points_cost
+
+        # The identity the response omits is still on the row, for internal use.
+        stored = await db_session.get(Redemption, voucher.id)
+        assert stored is not None and stored.user_id == driver.id
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_consume_response_never_carries_a_driver_identifier(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        resp = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert _find_forbidden_keys(body) == set()
+        assert body["voucher"]["pointsCost"] == voucher.points_cost
+
+        stored = await db_session.get(Redemption, voucher.id)
+        assert stored is not None and stored.user_id == driver.id
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
 @pytest.mark.asyncio
 async def test_expire_overdue_issues_no_commit_of_its_own(db_session: AsyncSession) -> None:
     """The narrow version of the above, without needing a second connection."""
