@@ -15,6 +15,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import { DrivingSDK } from '@/lib/driving-sdk'
 import type { FraudDetectedEvent } from '@/lib/driving-sdk/types'
+import type { FraudSignals } from '@/lib/FraudDetector'
 import { fraudApi } from '@/services/api/fraud.api'
 import type { AppUser } from '@/types'
 import { INITIAL_TRIP_STATE, type TripState } from './tripState'
@@ -35,11 +36,15 @@ export function useFraudBinding(
       fraudApi.syncInvalidTrip({
         userId: user?.id ?? 'anonymous',
         timestamp: new Date().toISOString(),
-        detectedMode: event.mode,
-        fraudScore: event.confidence,
+        detectedMode: event.detectedMode,
+        fraudScore: event.fraudScore,
         telemetry: event.telemetry,
+        // The SDK carries the gates as an untyped map so no CARMA type crosses into
+        // the library; this side of the boundary is where they get their name back.
+        signals: event.signals as FraudSignals | undefined,
         durationMs: event.durationMs,
         maxSpeedKmh: event.maxSpeedKmh,
+        distanceKm: event.distanceKm,
       }).catch(() => {});
     };
   }, [sdk, user, setTripState]);

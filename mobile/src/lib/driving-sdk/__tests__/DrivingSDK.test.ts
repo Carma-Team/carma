@@ -158,6 +158,9 @@ const FRAUD: SuspiciousActivityEvaluation = {
   score: 0.9,
   mode: TransportMode.TRAIN,
   telemetry: { avgSpeedKmh: 80, maxLateralAccelG: 0.02, yawVariance: 0.001 },
+  // A validator's own gate names, one of them unevaluated. The SDK must not read,
+  // rename or normalise any of it — see the passthrough assertion below.
+  signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: null },
 };
 
 /**
@@ -692,8 +695,11 @@ describe('DrivingSDK', () => {
     expect(onTripEnd).not.toHaveBeenCalled();
     expect(onFraudDetected).toHaveBeenCalledTimes(1);
     expect(onFraudDetected.mock.calls[0][0]).toMatchObject({
-      confidence: FRAUD.score,
-      mode: TransportMode.TRAIN,
+      fraudScore: FRAUD.score,
+      detectedMode: TransportMode.TRAIN,
+      signals: FRAUD.signals,
+      // Read before the abort clears the trip data — zero, not undefined (CAR-134).
+      distanceKm: 0,
     });
     expect(instance.getStatus().isActive).toBe(false);
     expect(instance.getStatus().tripData).toBeNull();
@@ -708,6 +714,17 @@ describe('DrivingSDK', () => {
     validator.onFraudSuspected?.(FRAUD);
 
     expect(onFraudDetected.mock.calls[0][0].maxSpeedKmh).toBe(90);
+  });
+
+  // The other half of the distance assertion above: caught at the pre-trip gate, no
+  // trip was ever confirmed, so there is no distance to report. Not zero — unknown.
+  it('omits the distance when the session is flagged before the trip is confirmed', async () => {
+    const validator = new StubValidator();
+    wire(new DrivingSDK({ tripValidator: validator }));
+
+    validator.onFraudSuspected?.(FRAUD);
+
+    expect(onFraudDetected.mock.calls[0][0].distanceKm).toBeUndefined();
   });
 
   // ── Auto-start seam ────────────────────────────────────────────────────────
