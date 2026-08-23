@@ -582,22 +582,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
-
-      // Load trips immediately on login to sync with the new user context
-      try {
-        const serverData = await tripsApi.list();
-        setRecentTrips(serverData.trips);
-        await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
-      } catch {
-        const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached) setRecentTrips(JSON.parse(cached));
-      }
     }
   }, []);
 
   const loginUser = useCallback(async (data: AuthResponse) => {
     await AsyncStorage.setItem('carma_token', data.token);
     await setUser(data.user);
+
+    // Trips are fetched here and not in setUser: every partial write to the user
+    // (points after a redeem, the drive mode toggle) goes through setUser too, and
+    // used to drag a full trip list refetch along with it.
+    try {
+      const serverData = await tripsApi.list();
+      setRecentTrips(serverData.trips);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+    } catch {
+      const cached = await AsyncStorage.getItem('carma_trips');
+      if (cached) setRecentTrips(JSON.parse(cached));
+    }
   }, [setUser]);
 
   const setLang = useCallback(async (l: Language) => {
