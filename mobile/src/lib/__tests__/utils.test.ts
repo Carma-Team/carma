@@ -1,4 +1,4 @@
-import { scoreToGrade, scoreToColor } from '@/lib/utils'
+import { scoreToGrade, scoreToColor, toE164 } from '@/lib/utils'
 
 // ─── scoreToGrade ─────────────────────────────────────────────────────────────
 
@@ -45,5 +45,24 @@ describe('scoreToColor', () => {
   it('returns red for score < 55', () => {
     expect(scoreToColor(54)).toBe('#ef4444')
     expect(scoreToColor(0)).toBe('#ef4444')
+  })
+})
+
+// ─── toE164 ───────────────────────────────────────────────────────────────────
+
+describe('toE164', () => {
+  it('turns a local Israeli number into E.164', () => {
+    expect(toE164('050-123-4567')).toBe('+972501234567')
+    expect(toE164('050 1234567')).toBe('+972501234567')
+  })
+
+  it('leaves a number that is already E.164 alone', () => {
+    expect(toE164('+972501234567')).toBe('+972501234567')
+  })
+
+  it('returns null for anything the server would answer with a 422', () => {
+    expect(toE164('abc')).toBeNull()
+    expect(toE164('0501')).toBeNull()         // 6 digits once +972 replaces the 0, one under the floor
+    expect(toE164('972501234567')).toBeNull() // no leading + and no leading 0
   })
 })

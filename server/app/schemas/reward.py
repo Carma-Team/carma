@@ -21,6 +21,9 @@ class RewardOut(CamelModel):
     cost_points: int
     image_icon: str
     is_active: bool
+    # None while the reward is still in the catalog; set once a business archives
+    # it (CAR-111). Independent of is_active — see the model for why.
+    archived_at: datetime | None
     # stock is the total the business allocated; available is what is left of it
     # right now. Both use None for "unlimited". `available` is passed in rather
     # than read off the model because it is derived from the redemptions ledger,
@@ -45,6 +48,7 @@ class RewardOut(CamelModel):
                 "cost_points": reward.cost_points,
                 "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
+                "archived_at": reward.archived_at,
                 "stock": reward.stock,
                 "available": available,
                 "expires_at": reward.expires_at,
@@ -63,6 +67,9 @@ class VoucherOut(CamelModel):
     expires_at: datetime
     redeemed_at: datetime | None
     created_at: datetime
+    # Snapshot taken at issue time (CAR-70) — independent of reward.cost_points,
+    # which is the reward's current, possibly since-changed, price.
+    points_cost: int
     reward: RewardOut
 
     @classmethod
@@ -79,9 +86,54 @@ class VoucherOut(CamelModel):
                 "expires_at": r.expires_at,
                 "redeemed_at": r.used_at,
                 "created_at": r.created_at,
+                "points_cost": r.points_cost,
                 "reward": RewardOut.from_orm_reward(r.reward, available),
             }
         )
+
+
+class BusinessVoucherOut(CamelModel):
+    """VoucherOut's business-facing counterpart (CAR-78).
+
+    A business only needs to know what to hand over and whether it has already
+    been redeemed — never who the driver is. `user_id` stays off the wire here
+    on purpose; `Redemption.user_id` itself is untouched and still readable
+    internally.
+    """
+
+    id: str
+    reward_id: str
+    code: str
+    qr_data: str
+    status: str
+    is_used: bool
+    expires_at: datetime
+    redeemed_at: datetime | None
+    created_at: datetime
+    points_cost: int
+    reward: RewardOut
+
+    @classmethod
+    def from_orm_redemption(cls, r: Any, available: int | None) -> BusinessVoucherOut:
+        return cls.model_validate(
+            {
+                "id": r.id,
+                "reward_id": r.reward_id,
+                "code": r.qr_code,
+                "qr_data": r.qr_data or r.qr_code,
+                "status": r.status.value.lower(),
+                "is_used": r.status.value == "USED",
+                "expires_at": r.expires_at,
+                "redeemed_at": r.used_at,
+                "created_at": r.created_at,
+                "points_cost": r.points_cost,
+                "reward": RewardOut.from_orm_reward(r.reward, available),
+            }
+        )
+
+
+class BusinessVoucherResponse(CamelModel):
+    voucher: BusinessVoucherOut
 
 
 class BusinessRewardIn(CamelModel):
@@ -124,6 +176,12 @@ class BusinessRewardPatchIn(CamelModel):
 
 class BusinessRewardListOut(CamelModel):
     rewards: list[RewardOut]
+
+
+class LiveVoucherCountOut(CamelModel):
+    """How many outstanding vouchers a reward has right now — check before archiving it."""
+
+    live_vouchers: int
 
 
 class BusinessRewardResponse(CamelModel):

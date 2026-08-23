@@ -47,9 +47,11 @@ export function useSdkBindings({
         durationSeconds: data.durationSeconds,
         distanceKm: data.distanceKm,
         touchEpochs: data.touchEpochs,
-        screenInteractionSeconds: data.screenInteractionSeconds,
         // eventCounts is maintained by the listeners in scoringEvents.ts — not recomputed
         // here, so only events that met CARMA's conditions are counted.
+        // screenInteractionSeconds likewise: data carries the SDK's ungated sum, while the
+        // trip state holds only seconds above CARMA's speed gate (CAR-184). Copying it
+        // here would overwrite the gated count with the raw one.
       }));
     };
 

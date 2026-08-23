@@ -24,14 +24,24 @@ export type AppUser = Schemas['UserOut'] & {
   lastClearedHistory?: string;
 };
 
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+/** Answer to a code request. Says nothing about whether the number is registered. */
+export type OtpSent = Schemas['OtpSent'];
+export type MessageOut = Schemas['MessageOut'];
+
 // ─── Trip ─────────────────────────────────────────────────────────────────────
 export type Trip = Schemas['TripOut'] & {
   swerves?: number;                  // EVT_SWERVE — spec §א Table 1
   // Route map data — only returned by GET /api/trips/:id (not the list endpoint).
   // The schema types waypoints as an opaque object; this is what the map reads.
-  routeWaypoints?: Array<{ lat: number; lng: number; ts: number; speedKmh: number }>;
+  routeWaypoints?: { lat: number; lng: number; ts: number; speedKmh: number }[];
   // Local-only aliases (used by TripCard/TripDetailScreen for locally-created trips)
   score?: number;
+  // Client-only. Set on the row we create ourselves when the save never landed, and
+  // gone once SyncManager swaps in the server's row. The schema requires avgScore and
+  // points, so that row carries zeros — this flag is what tells them apart from a
+  // trip the server actually scored zero.
+  pendingSync?: boolean;
   eventsArray?: any[];
 };
 

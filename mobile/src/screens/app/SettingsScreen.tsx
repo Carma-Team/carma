@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,10 +26,42 @@ function formatJoinDate(dateStr: string): string {
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory, btDevice } = useApp();
+  const { user, setUser, clearTripHistory, btDevice, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
   const { t, lang, setLang } = useTranslation();
+  // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
+  // last *completed* session, so the button can't disappear the moment recording ends.
+  const [rawRecordingStatus, setRawRecordingStatus] = useState<'idle' | 'recording' | 'stopped'>('idle');
 
   if (!user) return null;
+
+  // CAR-31: staged calibration recording (accel/gyro/GPS), independent of trip start/stop.
+  // Scenario is the phone's mount position — labels the session for hand-held-vs-loose
+  // calibration (CAR-46/CAR-183). Platform is the device OS, not user-chosen.
+  const handleStartRawRecording = async (scenario: string) => {
+    try {
+      await startRawRecording(scenario, Platform.OS);
+      setRawRecordingStatus('recording');
+    } catch (e) {
+      // e.g. sensorManager.start() rejects on missing permissions — status stays 'idle'
+      Alert.alert('Raw recording', 'Could not start — check sensor permissions.');
+      console.error('startRawRecording failed', e);
+    }
+  };
+
+  const handleStopRawRecording = async () => {
+    await stopRawRecording();
+    setRawRecordingStatus('stopped');
+  };
+
+  const handleExportRawRecording = async () => {
+    const result = await exportRawRecording();
+    if (typeof result === 'object') {
+      Alert.alert(
+        'Export',
+        result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
+      );
+    }
+  };
 
   /**
    * Shows a confirmation dialog then logs out.
@@ -213,6 +245,43 @@ export default function SettingsScreen() {
                     <Text style={[styles.linkText, { color: COLORS.textMuted }]}>Open Admin Tools (coming soon)</Text>
                   </View>
                 </TouchableOpacity>
+
+                {/* CAR-31: raw sensor recording for calibration drives, see driving-sdk README */}
+                <View style={styles.rawRecordingSection}>
+                  <Text style={styles.rawRecordingLabel}>Raw Sample Recording</Text>
+                  {rawRecordingStatus === 'idle' && (
+                    <View style={styles.debugRow}>
+                      {(['Handheld', 'Mounted', 'Pocket', 'Seat'] as const).map(scenario => (
+                        <Button
+                          key={scenario}
+                          variant="outline"
+                          size="sm"
+                          onPress={() => handleStartRawRecording(scenario)}
+                          style={styles.debugBtn}
+                        >
+                          {scenario}
+                        </Button>
+                      ))}
+                    </View>
+                  )}
+                  {rawRecordingStatus === 'recording' && (
+                    <View style={styles.debugRow}>
+                      <Button variant="outline" size="sm" onPress={handleStopRawRecording} style={styles.debugBtn}>
+                        Stop
+                      </Button>
+                    </View>
+                  )}
+                  {rawRecordingStatus === 'stopped' && (
+                    <View style={styles.debugRow}>
+                      <Button variant="outline" size="sm" onPress={handleExportRawRecording} style={styles.debugBtn}>
+                        Export
+                      </Button>
+                      <Button variant="outline" size="sm" onPress={() => setRawRecordingStatus('idle')} style={styles.debugBtn}>
+                        Record Again
+                      </Button>
+                    </View>
+                  )}
+                </View>
               </Card>
             </View>
           )}
@@ -249,6 +318,10 @@ const styles = StyleSheet.create({
   },
   linkContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   linkText: { color: COLORS.brandLight, fontSize: 14, fontWeight: '600' },
+  rawRecordingSection: { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
+  rawRecordingLabel: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 8 },
+  debugRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  debugBtn: { flexGrow: 1 },
   langRow: { flexDirection: 'row', gap: 8 },
   langBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.dark, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
   langBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },

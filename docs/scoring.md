@@ -120,7 +120,7 @@ Two counters, matching CMT's two published metrics. Both count only while the ve
 | Counter | What it counts | How it is detected |
 |---|---|---|
 | **Screen interaction** | Typing, tapping, scrolling | A rhythmic **pattern** of gyroscope peaks. Tapping a screen produces taps in a cadence; that cadence is the signature, not the force of any one of them. |
-| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A hand stabilises orientation while the vehicle moves under it; a mount does not. |
+| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A handled phone rotates unlike any fixed placement, and the variance is what separates the two. |
 
 The counters are **mutually exclusive**. Each second is assigned to one or the other, never both, so a driver typing while holding the phone is charged once.
 
@@ -214,6 +214,8 @@ severity = g_factor × duration_factor
 | Cornering | Lateral | 0.35 g | 0.65 g |
 
 Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+
+**One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
 
 **Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
 
@@ -407,7 +409,7 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 
 - **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform, and iOS exposes no screen state to a backgrounded app. Both counters therefore read the motion a touch produces rather than the touch itself — which is why the signature is a cadence of gyroscope peaks and not any single reading.
 - **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
-- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two — a hand stabilises orientation, a phone sliding on a seat tumbles — but the study behind that finding normalises its features before clustering, so it hands us the right signal and no threshold. Until ours is fitted against labelled drives, the separation is assumed rather than measured.
+- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two, but which side of the cut-off a hand sits on is unresolved. The placement study behind the signal compares a hand against a population of mostly fixed mounts, never against a phone loose on a seat, and it normalises its features before clustering — so it hands us the right signal, no threshold, and no direction for this pair. Until ours is fitted against labelled drives with the phone on the seat, the separation is assumed rather than measured.
 - **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
 
 ### Calibration limits

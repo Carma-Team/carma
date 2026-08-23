@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -100,15 +101,18 @@ def normalise_voucher_code(code: str) -> str:
 _SEPARATORS = re.compile(r"[\s_\-\u2010-\u2015\u2212\u05be]+")
 
 
-def create_access_token(*, user_id: str, email: str | None, phone: str | None, role: UserRole) -> str:
+def create_access_token(
+    *, user_id: str, email: str | None, phone: str | None, role: UserRole, expires_minutes: int | None = None
+) -> str:
     now = datetime.now(UTC)
+    ttl = settings.jwt_expires_minutes if expires_minutes is None else expires_minutes
     payload: dict[str, Any] = {
         "sub": user_id,
         "email": email,
         "phone": phone,
         "role": role.value,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=settings.jwt_expires_minutes)).timestamp()),
+        "exp": int((now + timedelta(minutes=ttl)).timestamp()),
     }
     token: str = jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGO)
     return token
@@ -119,3 +123,24 @@ def decode_access_token(token: str) -> TokenPayload:
         return jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGO])  # type: ignore[no-any-return]
     except JWTError as e:
         raise ValueError(f"invalid token: {e}") from e
+
+
+# ─── Web session refresh tokens (CAR-217) ────────────────────────────────────
+
+
+def random_refresh_token() -> str:
+    """~384 bits from `secrets`, url-safe — this is the value that sits in the cookie."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    """A fast, deterministic digest — not `hash_password`/`hash_code`.
+
+    Those are bcrypt, salted on purpose so two equal passwords or OTP codes
+    don't hash alike. A refresh token has no such neighbour to hide from: it
+    is ~384 bits picked by `random_refresh_token`, already far past guessable,
+    and the cookie carries no other field to narrow a lookup by — `refresh_session`
+    has to find its row by this hash alone. Bcrypt can't do that (a fresh salt
+    every call makes two hashes of the same input unequal); SHA-256 can.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()

@@ -97,12 +97,3 @@ export function getUserLevelData(totalPoints: number): UserLevelData {
     isMaxLevel: config.maxPoints === Infinity
   };
 }
-
-export const REWARD_CATEGORIES = [
-  { key: 'fuel',          labelHe: 'דלק',          labelEn: 'Fuel',          icon: 'car-outline' },
-  { key: 'food',          labelHe: 'אוכל ושתייה',  labelEn: 'Food & Drink',  icon: 'restaurant-outline' },
-  { key: 'eco',           labelHe: 'תחבורה ירוקה', labelEn: 'Green Transit', icon: 'leaf-outline' },
-  { key: 'entertainment', labelHe: 'בידור',         labelEn: 'Entertainment', icon: 'film-outline' },
-  { key: 'shopping',      labelHe: 'קניות',         labelEn: 'Shopping',      icon: 'cart-outline' },
-  { key: 'other',         labelHe: 'אחר',           labelEn: 'Other',         icon: 'cube-outline' },
-]

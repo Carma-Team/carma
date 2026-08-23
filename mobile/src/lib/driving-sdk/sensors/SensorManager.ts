@@ -30,9 +30,9 @@
  * m/s², a cleaner signal than raw phone accelerometer) and are not directly
  * comparable to those g-values.
  *
- * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz gyroscope stream
- *   is also offered to an optional `onGyroSample` consumer, so nothing else has to
- *   subscribe to a sensor this class already keeps powered.
+ * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz accelerometer and
+ *   gyroscope streams are also offered to optional `onAccelSample`/`onGyroSample`
+ *   consumers, so nothing else has to subscribe to a sensor this class already keeps powered.
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
@@ -107,6 +107,12 @@ const SPEED_TICK_INTERVAL_MS = 2000;
 
 const MS2_PER_G = 9.81;
 
+// docs/fraud-detection.md §3.1: a sensor is available only while a subscription is
+// actively delivering samples, not merely because isAvailableAsync() once said yes.
+// A dead listener (OS killed it, hardware faulted mid-trip) must read as unavailable,
+// not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
+const SENSOR_STALE_MS = 5000;
+
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
 // /** EVT_SWERVE — GPS Heading change rate
 //  *  Spec: > 15 °/s sustained for ≥ 3 s
@@ -126,6 +132,10 @@ export class SensorManager {
   private isRunning = false;
   private accelAvailable = false;
   private gyroAvailable = false;
+  // Wall-clock timestamp of the last delivered sample per sensor — SENSOR_STALE_MS
+  // turns "was available at start()" into "is available right now" (§3.1).
+  private lastAccelSampleAtMs = 0;
+  private lastGyroSampleAtMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
@@ -167,17 +177,26 @@ export class SensorManager {
   // the onUpdate bundle below only carries gyroZ at GPS rate (~2 s), far too coarse
   // for anything sampling motion.
   private onGyroSample?: (sample: { x: number; y: number; z: number }) => void;
+  // Raw 10 Hz accelerometer tap, symmetric to onGyroSample — same reasoning: this
+  // class already owns the subscription, so a second consumer (RawSampleRecorder)
+  // taps it instead of opening its own.
+  private onAccelSample?: (sample: { x: number; y: number; z: number }) => void;
   private onUpdate: (data: {
     distanceKm: number; currentSpeed: number; timeDeltaS: number;
     accelX: number; gyroZ: number;
     // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
     // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
     accelAvailable: boolean; gyroAvailable: boolean;
+    // Whether accelerometer *registration* itself threw — distinct from
+    // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
+    // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
+    // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
+    accelInitFailed: boolean;
     // Whether "Always"/background location permission was granted — false means
     // automatic (background) tracking cannot run, distinct from it just not
     // having happened yet.
     backgroundLocationAvailable: boolean;
-    lat?: number; lng?: number;
+    lat?: number; lng?: number; accuracy?: number;
   }) => void;
 
   constructor(
@@ -186,16 +205,19 @@ export class SensorManager {
       distanceKm: number; currentSpeed: number; timeDeltaS: number;
       accelX: number; gyroZ: number;
       accelAvailable: boolean; gyroAvailable: boolean;
+      accelInitFailed: boolean;
       backgroundLocationAvailable: boolean;
-      lat?: number; lng?: number;
+      lat?: number; lng?: number; accuracy?: number;
     }) => void,
     thresholds?: Partial<MotionThresholds>,
     onGyroSample?: (sample: { x: number; y: number; z: number }) => void,
+    onAccelSample?: (sample: { x: number; y: number; z: number }) => void,
   ) {
     this.onEvent = onEvent;
     this.onUpdate = onUpdate;
     this.thresholds = { ...DEFAULT_MOTION_THRESHOLDS, ...thresholds };
     this.onGyroSample = onGyroSample;
+    this.onAccelSample = onAccelSample;
   }
 
   public async start() {
@@ -208,6 +230,8 @@ export class SensorManager {
     this.latestGyroZ  = 0;
     this.accelAvailable = false;
     this.gyroAvailable  = false;
+    this.lastAccelSampleAtMs = 0;
+    this.lastGyroSampleAtMs  = 0;
     this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
@@ -306,6 +330,9 @@ export class SensorManager {
       if (!this.isRunning) return;
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
+        // Grace period: a sensor subscribed a moment ago isn't stale yet even
+        // though no sample has landed. The first real sample overwrites this.
+        this.lastAccelSampleAtMs = Date.now();
         this.accelSub = Accelerometer.addListener(data => this.handleAccel(data));
       }
     } catch (err) {
@@ -320,8 +347,10 @@ export class SensorManager {
       if (!this.isRunning) return;
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
+        this.lastGyroSampleAtMs = Date.now(); // grace period, see accel above
         this.gyroSub = Gyroscope.addListener(data => {
           this.latestGyroZ = data.z;
+          this.lastGyroSampleAtMs = Date.now();
           this.onGyroSample?.(data);
         });
       }
@@ -392,11 +421,13 @@ export class SensorManager {
       timeDeltaS,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
-      accelAvailable: this.accelAvailable,
-      gyroAvailable:  this.gyroAvailable,
+      accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
+      gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
+      accuracy:     loc.coords.accuracy ?? undefined,
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
     this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
@@ -410,6 +441,12 @@ export class SensorManager {
    */
   private decayedSpeedMs(atMs: number): number {
     return (atMs - this.lastValidSpeedAtMs) < STALE_SPEED_MS ? this.lastValidSpeedMs : 0;
+  }
+
+  // §3.1: available at start() plus a sample within the last SENSOR_STALE_MS —
+  // not just "was present when start() ran".
+  private isSensorFresh(lastSampleAtMs: number): boolean {
+    return (Date.now() - lastSampleAtMs) < SENSOR_STALE_MS;
   }
 
   /**
@@ -426,8 +463,9 @@ export class SensorManager {
       timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
       accelX:       this.latestAccelX,
       gyroZ:        this.latestGyroZ,
-      accelAvailable: this.accelAvailable,
-      gyroAvailable:  this.gyroAvailable,
+      accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
+      gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
   }
@@ -543,6 +581,8 @@ export class SensorManager {
     const dynZ = data.z - this.gravity.z;
 
     this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
+    this.onAccelSample?.(data); // raw, pre-gravity-removal — see onAccelSample doc
+    this.lastAccelSampleAtMs = Date.now();
 
     // Step 3: orientation-invariant horizontal magnitude.
     // Project out the component along gravity (vertical); what remains is horizontal,

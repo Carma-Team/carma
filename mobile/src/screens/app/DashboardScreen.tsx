@@ -14,6 +14,7 @@ import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
+import { userApi } from '@/services/api/user.api';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -21,6 +22,31 @@ export default function DashboardScreen() {
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
   const [avgScore, setAvgScore] = useState<number | null>(null);
+  const [currentStreak, setCurrentStreak] = useState<number | null>(null);
+  const [bestStreak, setBestStreak] = useState<number | null>(null);
+
+  // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
+  useEffect(() => {
+    userApi.stats()
+      .then(d => {
+        setCurrentStreak(d.stats.currentStreak);
+        setBestStreak(d.stats.bestStreak);
+      })
+      .catch(err => console.error('Stats error:', err));
+  }, []);
+
+  // Re-fetch after a trip completes so a streak earned just now doesn't wait for app restart.
+  // Guarded on lastTripSummary itself (not showSummary) — closing the modal resets it to null,
+  // and without the guard that reset would fire this same request again.
+  useEffect(() => {
+    if (!lastTripSummary) return;
+    userApi.stats()
+      .then(d => {
+        setCurrentStreak(d.stats.currentStreak);
+        setBestStreak(d.stats.bestStreak);
+      })
+      .catch(err => console.error('Stats error:', err));
+  }, [lastTripSummary]);
 
   // Controls whether the post-trip summary modal is visible
   const [showSummary, setShowSummary] = useState(false);
@@ -73,7 +99,7 @@ export default function DashboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <DashboardHeader userName={user.name || ''} />
+        <DashboardHeader userName={user.name || ''} currentStreak={currentStreak} bestStreak={bestStreak} />
 
         {/* Level & Points Card */}
         <DashboardHero
@@ -111,7 +137,7 @@ export default function DashboardScreen() {
       {/* Post-trip summary modal */}
       <TripSummaryModal
         visible={showSummary}
-        trip={lastTripSummary}
+        summary={lastTripSummary}
         onClose={handleCloseSummary}
         onViewDetails={handleViewDetails}
       />
