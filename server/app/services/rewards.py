@@ -117,13 +117,26 @@ def _retry_after_seconds(nearest_expiry: datetime, now: datetime) -> int:
     return math.ceil(seconds_left) if seconds_left > 0 else 0
 
 
+def _nearest_slot_opens_at(live_expiries: list[datetime], cap: int) -> datetime:
+    """The expiry that actually brings a driver's live count under the cap.
+
+    Only matters when the driver already holds more than `cap` — state CAR-71
+    can find already sitting in the table, since it tightens a limit that
+    never existed before and VOUCHER_TTL_DAYS gives that state up to a week to
+    linger. The soonest of several expiries only removes one voucher; a slot
+    opens once enough of the earliest ones have lapsed to drop the count to
+    `cap - 1`, not on the very first one. At exactly `cap` live vouchers this
+    is the earliest expiry, same as before.
+    """
+    return live_expiries[len(live_expiries) - cap]
+
+
 async def _driver_live_voucher_expiries(
     db: AsyncSession, user_id: str, reward_id: str, now: datetime
 ) -> list[datetime]:
     """`expires_at` of this driver's live vouchers for this reward, earliest first.
 
-    Ordered so the CAR-71 cap can report `retryAfterSeconds` off the first
-    element — the nearest slot to free up — without a second query.
+    Ordered so `_nearest_slot_opens_at` can index straight into it.
     """
     rows = await db.scalars(
         select(Redemption.expires_at)
@@ -222,7 +235,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             {
                 "code": VOUCHER_LIMIT_REACHED,
                 "message": "You already have the maximum number of live vouchers for this reward",
-                "retryAfterSeconds": _retry_after_seconds(live_expiries[0], now),
+                "retryAfterSeconds": _retry_after_seconds(
+                    _nearest_slot_opens_at(live_expiries, MAX_LIVE_VOUCHERS_PER_REWARD), now
+                ),
             },
         )
 

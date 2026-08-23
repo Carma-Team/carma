@@ -17,13 +17,18 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.services import rewards as rewards_service
-from app.services.rewards import MAX_LIVE_VOUCHERS_PER_REWARD, VOUCHER_LIMIT_REACHED, _retry_after_seconds
+from app.services.rewards import (
+    MAX_LIVE_VOUCHERS_PER_REWARD,
+    VOUCHER_LIMIT_REACHED,
+    _nearest_slot_opens_at,
+    _retry_after_seconds,
+)
 
 
 # ─── retryAfterSeconds arithmetic (no DB) ────────────────────────────────────
@@ -40,6 +45,25 @@ def test_retry_after_seconds_floors_at_zero_for_a_non_positive_gap() -> None:
     now = datetime.now(UTC)
     assert _retry_after_seconds(now, now) == 0
     assert _retry_after_seconds(now - timedelta(seconds=1), now) == 0
+
+
+def test_nearest_slot_opens_at_the_earliest_expiry_when_exactly_at_the_cap() -> None:
+    # 2 live, cap 2 — unchanged from before pre-existing over-cap state was considered.
+    e1, e2 = datetime(2030, 1, 1, tzinfo=UTC), datetime(2030, 1, 2, tzinfo=UTC)
+    assert _nearest_slot_opens_at([e1, e2], cap=2) is e1
+
+
+def test_nearest_slot_opens_at_skips_expiries_that_do_not_drop_below_the_cap() -> None:
+    """The CAR-71 rollout case: a driver already over the new cap.
+
+    3 live vouchers against a cap of 2 — the earliest expiring only brings the
+    count to 2, still at the cap. A slot opens on the *second* expiry, which
+    brings the count to 1.
+    """
+    e1 = datetime(2030, 1, 1, tzinfo=UTC)
+    e2 = datetime(2030, 1, 2, tzinfo=UTC)
+    e3 = datetime(2030, 1, 3, tzinfo=UTC)
+    assert _nearest_slot_opens_at([e1, e2, e3], cap=2) is e2
 
 
 @asynccontextmanager
@@ -107,6 +131,21 @@ def _voucher(
     )
 
 
+async def _redemption_row_count(db: AsyncSession, user_id: str, reward_id: str) -> int:
+    """Every row for this (driver, reward), any status — not just the live ones.
+
+    A refused redeem must add none, so this is the count that proves "creates
+    no redemption row" directly, rather than inferring it from the live count
+    staying at 2.
+    """
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Redemption)
+        .where(Redemption.user_id == user_id, Redemption.reward_id == reward_id)
+    )
+    return count or 0
+
+
 async def _cleanup(db: AsyncSession, business_id: str, *driver_ids: str) -> None:
     """Takes ids, not instances — see `test_reward_stock._cleanup` for why."""
     for driver_id in driver_ids:
@@ -150,6 +189,7 @@ async def test_third_live_redeem_of_the_same_reward_is_refused(db_session: Async
         before = await db_session.get(User, driver_id)
         assert before is not None
         points_before = before.points
+        rows_before = await _redemption_row_count(db_session, driver_id, reward_id)
 
         with pytest.raises(HTTPException) as exc:
             await rewards_service.redeem(db_session, driver, reward_id)
@@ -162,6 +202,9 @@ async def test_third_live_redeem_of_the_same_reward_is_refused(db_session: Async
         assert after.points == points_before, "a refused redeem must not debit the driver"
         # Exactly the two that succeeded — the refused attempt wrote nothing.
         assert await rewards_service.count_live_vouchers(db_session, reward_id) == 2
+        assert (
+            await _redemption_row_count(db_session, driver_id, reward_id) == rows_before
+        ), "the refused attempt must create no redemption row at all, not merely leave the live count unchanged"
     finally:
         await _cleanup(db_session, business_id, driver_id)
 
@@ -207,6 +250,50 @@ async def test_lapsed_voucher_frees_its_slot_immediately(db_session: AsyncSessio
 
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
         assert voucher.status == "pending", "the lapsed row must not count against the cap"
+    finally:
+        await _cleanup(db_session, business_id, driver_id)
+
+
+@pytest.mark.asyncio
+async def test_pre_cap_over_limit_state_reports_when_the_count_actually_drops(db_session: AsyncSession) -> None:
+    """CAR-71 rollout: a driver who redeemed 3 times before this cap existed.
+
+    Nothing before CAR-71 ever refused a redeem for holding too many live
+    vouchers on one reward, and VOUCHER_TTL_DAYS gives such a row up to a week
+    to still be live when this ships — so 3+ live vouchers for one (driver,
+    reward) is state the cap must handle correctly, not assume away.
+
+    `retryAfterSeconds` must not be the earliest expiry here: once it lapses
+    the driver still holds 2 live vouchers, which is still the cap. The right
+    answer is the *second* earliest — the one that actually drops the count
+    to 1.
+    """
+    business, reward = await _make_reward(db_session)
+    driver = await _make_driver(db_session)
+    business_id, reward_id, driver_id = business.id, reward.id, driver.id
+    try:
+        db_session.add_all(
+            [
+                _voucher(reward, driver, expires_in=timedelta(minutes=5)),
+                _voucher(reward, driver, expires_in=timedelta(minutes=20)),
+                _voucher(reward, driver, expires_in=timedelta(minutes=45)),
+            ]
+        )
+        await db_session.commit()
+
+        assert (
+            await rewards_service.count_live_vouchers(db_session, reward_id) == 3
+        ), "the fixture must actually be over the cap, or this test proves nothing"
+
+        with pytest.raises(HTTPException) as exc:
+            await rewards_service.redeem(db_session, driver, reward_id)
+        assert exc.value.detail["code"] == VOUCHER_LIMIT_REACHED
+
+        retry_after = exc.value.detail["retryAfterSeconds"]
+        assert 19 * 60 <= retry_after <= 20 * 60, (
+            "must report the expiry that drops the count to 1 (~20min), not the "
+            "one that only drops it to 2 (~5min) — still at the cap either way"
+        )
     finally:
         await _cleanup(db_session, business_id, driver_id)
 
