@@ -444,6 +444,66 @@ describe('SensorManager', () => {
     expect(Gyroscope.addListener).not.toHaveBeenCalled();
   });
 
+  it('registers one listener per sensor when a stop/start pair races start() (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    // Only the first start() stalls; the restart below gets the default granted mock.
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+
+    // The Bluetooth flap this PR is written around: drops and reconnects while the
+    // permission dialog is still up, so a whole second run completes underneath.
+    raceManager.stop();
+    await raceManager.start();
+
+    // The dialog is answered only now. isRunning is true again — but it is the *new*
+    // run's true, which is exactly what the boolean alone could not distinguish.
+    resolvePermission({ status: 'granted' });
+    await stalledStart;
+
+    expect(Accelerometer.addListener).toHaveBeenCalledTimes(1);
+    expect(Gyroscope.addListener).toHaveBeenCalledTimes(1);
+
+    raceManager.stop();
+  });
+
+  it('leaves the location task alone when a superseded start() finishes late (CAR-177)', async () => {
+    // Pins the conditional half of the fix rather than the original leak: a superseded
+    // run must not undo the background task, because a newer run shares it and would
+    // lose location tracking mid-trip. A run counter without this check still breaks it.
+    const locationModule = jest.requireMock('expo-location');
+
+    let reachedStart: () => void = () => {};
+    const parkedInsideStart = new Promise<void>((resolve) => { reachedStart = resolve; });
+    let releaseStart: () => void = () => {};
+    locationModule.startLocationUpdatesAsync.mockImplementationOnce(
+      () => { reachedStart(); return new Promise<void>((resolve) => { releaseStart = resolve; }); },
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+    await parkedInsideStart;
+
+    raceManager.stop();
+    await raceManager.start(); // newer run now owns the location task
+    locationModule.stopLocationUpdatesAsync.mockClear();
+
+    releaseStart();
+    await stalledStart;
+
+    expect(locationModule.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+
+    raceManager.stop();
+  });
+
   // ── Sensor availability (§3.1 staleness) ───────────────────────────────────
   // docs/fraud-detection.md §3.1: available requires hardware present, subscription
   // active, AND a sample within the last 5s — not just "was present at start()".
