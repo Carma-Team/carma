@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/Button';
 import { DashboardHero } from '@/components/gamification/DashboardHero';
@@ -15,6 +15,8 @@ import { ICONS } from '@/constants/icons';
 import { formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
+import { friendsApi } from '@/services/api/friends.api';
+import { notificationsApi } from '@/services/api/notifications.api';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -24,6 +26,26 @@ export default function DashboardScreen() {
   const [avgScore, setAvgScore] = useState<number | null>(null);
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // On focus rather than on mount: both counts are cleared by the very screens the
+  // badges lead to, and the dashboard is what the user comes back to straight after.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      // Failures leave the count at whatever it was. A badge is an aid, not a fact the
+      // screen depends on, and an error banner over the dashboard for one would be worse
+      // than the badge being briefly stale.
+      friendsApi.getIncoming()
+        .then(d => { if (alive) setPendingRequests(d.requests.length); })
+        .catch(() => {});
+      notificationsApi.list()
+        .then(rows => { if (alive) setUnreadNotifications(rows.filter(n => !n.readAt).length); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, []),
+  );
 
   // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
   useEffect(() => {
@@ -99,7 +121,13 @@ export default function DashboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <DashboardHeader userName={user.name || ''} currentStreak={currentStreak} bestStreak={bestStreak} />
+        <DashboardHeader
+          userName={user.name || ''}
+          currentStreak={currentStreak}
+          bestStreak={bestStreak}
+          pendingRequests={pendingRequests}
+          unreadNotifications={unreadNotifications}
+        />
 
         {/* Level & Points Card */}
         <DashboardHero

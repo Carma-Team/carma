@@ -117,7 +117,7 @@ const he = {
     refresh: 'רענן',
   },
   roadmap: {
-    title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהג המדגם',
+    title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהיגה בטוחה יותר',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
@@ -168,7 +168,7 @@ const he = {
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
-    updatesTitle: 'עדכונים', friendsTitle: 'חברים',
+    updatesTitle: 'התראות', friendsTitle: 'חברים',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     level: 'רמה', joined: 'תאריך הצטרפות', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',
