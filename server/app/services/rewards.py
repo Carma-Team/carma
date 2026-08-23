@@ -27,6 +27,13 @@ VOUCHER_TTL_DAYS = 7
 
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 REWARD_CAMPAIGN_ENDED = "REWARD_CAMPAIGN_ENDED"
+VOUCHER_LIMIT_REACHED = "VOUCHER_LIMIT_REACHED"
+
+# CAR-71: caps a driver at N *live* vouchers per reward, not per driver overall
+# — nothing stops holding live vouchers for several different rewards at once.
+# The point is stopping one driver from hoarding a single reward's stock, not
+# rationing how many rewards they engage with.
+MAX_LIVE_VOUCHERS_PER_REWARD = 2
 
 # Three draws is plenty: at 31^10 the first one already almost never collides,
 # and a fourth would only ever be papering over a broken generator.
@@ -96,6 +103,22 @@ async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
         .where(Redemption.reward_id == reward_id, *live_voucher_where(datetime.now(UTC)))
     )
     return count or 0
+
+
+async def _driver_live_voucher_expiries(
+    db: AsyncSession, user_id: str, reward_id: str, now: datetime
+) -> list[datetime]:
+    """`expires_at` of this driver's live vouchers for this reward, earliest first.
+
+    Ordered so the CAR-71 cap can report `retryAfterSeconds` off the first
+    element — the nearest slot to free up — without a second query.
+    """
+    rows = await db.scalars(
+        select(Redemption.expires_at)
+        .where(Redemption.user_id == user_id, Redemption.reward_id == reward_id, *live_voucher_where(now))
+        .order_by(Redemption.expires_at.asc())
+    )
+    return list(rows.all())
 
 
 async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
@@ -175,6 +198,22 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             status.HTTP_409_CONFLICT,
             {"code": REWARD_CAMPAIGN_ENDED, "message": "This reward's campaign has ended"},
         )
+    # Same reward row is already locked FOR UPDATE above, so two redeems by this
+    # driver racing for this reward serialise here too — the loser re-checks
+    # against the winner's committed voucher instead of both reading "1 live".
+    live_expiries = await _driver_live_voucher_expiries(db, user.id, reward.id, datetime.now(UTC))
+    if len(live_expiries) >= MAX_LIVE_VOUCHERS_PER_REWARD:
+        await db.rollback()
+        retry_after_seconds = max(int((live_expiries[0] - datetime.now(UTC)).total_seconds()), 0)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": VOUCHER_LIMIT_REACHED,
+                "message": "You already have the maximum number of live vouchers for this reward",
+                "retryAfterSeconds": retry_after_seconds,
+            },
+        )
+
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
