@@ -114,7 +114,7 @@ const en: TranslationMap = {
     refresh: 'Refresh',
   },
   roadmap: {
-    title: 'Progress Roadmap', subtitle: 'Your path to Model Driver',
+    title: 'Progress Roadmap', subtitle: 'Your path to safer driving',
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',
     perks: 'Perks', locked: 'Locked', unlocked: 'Unlocked',
     pointsNeeded: 'Points needed', completed: 'Completed',
@@ -165,7 +165,7 @@ const en: TranslationMap = {
   profile: {
     title: 'My Profile', stats: 'Stats', chart: 'Stats', achievements: 'Achievements',
     tripHistory: 'Trip History', notifications: 'Notifications', settings: 'Settings', language: 'Language',
-    updatesTitle: 'Updates', friendsTitle: 'Friends',
+    updatesTitle: 'Notifications', friendsTitle: 'Friends',
     totalDistance: 'km', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     level: 'Level', joined: 'Join date', phone: 'Phone', city: 'City', age: 'Age',
     licenseYear: 'Licensed', noTrips: 'No trips yet',
