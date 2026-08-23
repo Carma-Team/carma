@@ -36,6 +36,13 @@ export default function TripDetailScreen() {
   // away the fetched detail and flashed the spinner on every step.
   const [currentId, setCurrentId] = useState(tripId);
 
+  // The param is the opening trip, not the current one — but it still wins whenever
+  // it changes. Reading it only at mount would leave the previous trip on screen if
+  // the route is ever re-entered onto this instance rather than a fresh one.
+  useEffect(() => {
+    if (tripId) setCurrentId(tripId);
+  }, [tripId]);
+
   // The cached row paints immediately; the fetch is what carries the event timeline
   // and, for anything but a just-completed trip, the route as well.
   const [detail, setDetail] = useState<TripDetail | null>(null);
