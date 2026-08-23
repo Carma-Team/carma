@@ -122,11 +122,13 @@ const en: TranslationMap = {
   },
   marketplace: {
     title: 'Rewards Store', subtitle: 'Redeem your points',
-    myVouchers: 'My Vouchers', allRewards: 'All Rewards', points: 'points',
+    myVouchers: 'My Vouchers', allRewards: 'All Rewards',
     redeem: 'Redeem', redeemSuccess: 'Reward redeemed successfully!',
-    notEnoughPoints: 'Not enough points', missingPoints: 'Missing', outOfStock: 'Out of stock', expires: 'Expires',
+    // The two reasons the server refuses a redemption that looked available a moment ago.
+    redeemOutOfStock: 'This reward just ran out', redeemCampaignEnded: 'This reward\'s campaign has ended',
+    missingPoints: 'Missing', outOfStock: 'Out of stock',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
-    voucher: { title: 'Your Voucher', code: 'Code', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active' },
+    voucher: { title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active' },
     bonusDilemma: {
       title: 'Choose your reward!', invest: 'Save points', investDesc: 'Save for a bigger reward',
       redeem: 'Redeem now', redeemDesc: 'Get an instant reward', cancel: 'Cancel',
