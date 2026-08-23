@@ -38,7 +38,7 @@
  */
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
-import { DrivingEventType, DrivingEvent, MotionThresholds } from '@/lib/driving-sdk/types';
+import { DrivingEventType, DrivingEvent, MotionThresholds, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
 import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
@@ -111,7 +111,7 @@ const MS2_PER_G = 9.81;
 // actively delivering samples, not merely because isAvailableAsync() once said yes.
 // A dead listener (OS killed it, hardware faulted mid-trip) must read as unavailable,
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
-const SENSOR_STALE_MS = 5000;
+// Defined in types.ts so a TripValidator can apply the same cutoff to GPS speed.
 
 // EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
 // /** EVT_SWERVE — GPS Heading change rate

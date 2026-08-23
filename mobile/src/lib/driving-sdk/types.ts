@@ -22,6 +22,12 @@ export enum TransportMode {
   BUS     = 'BUS',      // Phase 2 classifier (reserved — FraudDetector emits UNKNOWN until implemented)
 }
 
+// How long a sample stays usable after it arrives (docs/fraud-detection.md §3.1, §7).
+// Lives here rather than in SensorManager because a TripValidator needs it too, and
+// SensorManager pulls expo-location/expo-sensors in at module scope — importing it for
+// one number drags those into every consumer, jest included.
+export const SENSOR_STALE_MS = 5000;
+
 // Snapshot fed into TripValidationManager each tick.
 // speed is required for Rules 1 & 2; sensor fields are optional placeholders for Phase 2.
 export interface ValidationSample {

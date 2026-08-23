@@ -304,6 +304,11 @@ export class DrivingSDK {
     // caught the session, and stays undefined all the way to the server.
     const distanceKm = this.currentTripData?.distanceKm;
 
+    // Same reason stopTrip() stops it: the validator outlives the session unless it is
+    // stopped here, and its ticker keeps evaluating the last speed it saw — which no
+    // longer updates, because the sensors are stopped a few lines down.
+    this.validationManager.stop();
+
     // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }

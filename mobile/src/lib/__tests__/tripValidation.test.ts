@@ -1,4 +1,5 @@
 import { TripValidationManager } from '@/lib/TripValidationManager';
+import { FraudDetector, FraudEvaluation } from '@/lib/FraudDetector';
 import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -330,6 +331,130 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
     advanceFraudTicks(m, 1, 80, 0.01, () => 0.001);
     expect(m.getDebugSnapshot().fraudEvaluation.isReady).toBe(true);
     expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+});
+
+// ─── Rule 3: report-once, confidence gate, stale input ───────────────────────
+// docs/fraud-detection.md §3.5 / §3.6 / §3.1, conformance rule 4.
+//
+// The real detector cannot return TRAIN today — signals 2 and 3 are pinned to null
+// (CAR-167), so no verdict is reachable through it. Spying on evaluate() reaches the
+// decline path without a production seam that only a test would use.
+
+describe('Rule 3 — report-once and the decline gate', () => {
+
+  const TRAIN_VERDICT: FraudEvaluation = {
+    score: 1,
+    confidence: 1,
+    isReady: true,
+    mode: TransportMode.TRAIN,
+    signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: true },
+    telemetry: { avgSpeedKmh: 82, maxLateralAccelG: 0.02, yawVariance: 0.001 },
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // The bug this rule exists for: a rejection returns the machine to IDLE while the
+  // train is still moving, so the window refills and the same journey reports again
+  // every 30 seconds for its full duration.
+  test('a continuing train journey reports once, not once every 30 seconds', () => {
+    jest.spyOn(FraudDetector.prototype, 'evaluate').mockReturnValue(TRAIN_VERDICT);
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+    expect(m.getState()).toBe(ValidationState.IDLE);
+
+    // Five more minutes of the same journey — ten more windows' worth.
+    advanceFraudTicks(m, 300, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+    expect(m.getState()).toBe(ValidationState.IDLE);
+    m.stop();
+  });
+
+  // "Genuinely stops" is the trip-end rule's stop, so a station dwell does not re-arm.
+  test('classification re-arms only after a full trip-end stop', () => {
+    jest.spyOn(FraudDetector.prototype, 'evaluate').mockReturnValue(TRAIN_VERDICT);
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+
+    // One second short of the end threshold, then moving again: still one report.
+    advanceTicks(m, 179, 0);
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+
+    // The full stop re-arms it, and the next journey is a new report.
+    advanceTicks(m, 180, 0);
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(2);
+    m.stop();
+  });
+
+  // Rule 2 counts exactly 10 km/h as still moving. The release must read it the same
+  // way — two definitions of "stopped" in one class is how this drifts back.
+  test('speed exactly at the threshold never re-arms classification', () => {
+    jest.spyOn(FraudDetector.prototype, 'evaluate').mockReturnValue(TRAIN_VERDICT);
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+
+    // Four minutes at the threshold — past the end duration, never below it.
+    advanceTicks(m, 240, 10);
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).toHaveBeenCalledTimes(1);
+    m.stop();
+  });
+
+  // §3.5: declining to start is the device's only unilateral action, and it requires
+  // complete evidence. Partial confidence never reaches it.
+  test('a TRAIN verdict at partial confidence does not decline the trip', () => {
+    jest.spyOn(FraudDetector.prototype, 'evaluate')
+      .mockReturnValue({ ...TRAIN_VERDICT, confidence: 0.75 });
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 30, 80, 0.01);
+    expect(fraudSuspected).not.toHaveBeenCalled();
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+
+  // §3.1: without a live GPS speed there is no verdict of any kind — a frozen reading
+  // is 30 identical samples, which is the train fingerprint by construction.
+  test('a stale sample suspends classification while Rules 1 and 2 keep running', () => {
+    jest.spyOn(FraudDetector.prototype, 'evaluate').mockReturnValue(TRAIN_VERDICT);
+    const addSample = jest.spyOn(FraudDetector.prototype, 'addSample');
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 10, 80, 0.01);
+    // Ticks continue with no new sample: speed goes stale, Rule 1 still completes.
+    jest.advanceTimersByTime(20_000);
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    expect(fraudSuspected).not.toHaveBeenCalled();
+
+    addSample.mockClear();
+    jest.advanceTimersByTime(5_000);
+    expect(addSample).not.toHaveBeenCalled();
     m.stop();
   });
 });

@@ -703,6 +703,9 @@ describe('DrivingSDK', () => {
     });
     expect(instance.getStatus().isActive).toBe(false);
     expect(instance.getStatus().tripData).toBeNull();
+    // The validator is torn down with the rest of the session. Left running, its ticker
+    // keeps evaluating the last speed it saw after the sensors feeding it have stopped.
+    expect(validator.stopped).toBe(1);
   });
 
   it('reports the peak speed seen during validation on the fraud payload', async () => {
