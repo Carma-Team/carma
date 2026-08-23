@@ -14,9 +14,15 @@ import { DrivingEventType, type DrivingEvent } from '@/lib/driving-sdk/types';
 import type { TripEvent } from '@/types';
 
 /**
- * Two mismatches to bridge, both silent if missed: the server lower-cases `type`
+ * Three mismatches to bridge, all silent if missed: the server lower-cases `type`
  * on the wire while the SDK enum and the map's icon/colour tables are upper-case,
- * and coordinates arrive flat rather than nested under `location`.
+ * coordinates arrive flat rather than nested under `location`, and `severity` is on
+ * two different scales on the two sides.
+ *
+ * `severity` is deliberately not carried across, rather than mapped: the server's is
+ * 1.0–3.0 for every event type, while the SDK's field means phone-usage intensity on
+ * 0.0–1.0 and motion events carry none at all (CAR-156). There is no conversion that
+ * makes the server's number mean what the SDK's field claims, so it is left unset.
  *
  * An unknown type is dropped, not passed through — TripMapPlaceholder looks up its
  * icon and colour by type and would otherwise draw an invisible, uncoloured marker.
@@ -32,7 +38,6 @@ export function toDrivingEvents(events: TripEvent[] | undefined): DrivingEvent[]
     return [{
       type,
       timestamp: new Date(e.timestamp),
-      severity: e.severity,
       location: e.lat !== null && e.lng !== null
         ? { latitude: e.lat, longitude: e.lng }
         : undefined,
