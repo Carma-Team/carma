@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -105,6 +106,17 @@ async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
     return count or 0
 
 
+def _retry_after_seconds(nearest_expiry: datetime, now: datetime) -> int:
+    """Seconds until the nearest live voucher frees its slot for CAR-71's cap.
+
+    Ceiling, not floor: a voucher 0.4s from expiring is still live right now,
+    and truncating to `int()` would report 0s — telling a refused caller the
+    slot is already free, when redeeming again immediately hits the same cap.
+    """
+    seconds_left = (nearest_expiry - now).total_seconds()
+    return math.ceil(seconds_left) if seconds_left > 0 else 0
+
+
 async def _driver_live_voucher_expiries(
     db: AsyncSession, user_id: str, reward_id: str, now: datetime
 ) -> list[datetime]:
@@ -201,16 +213,16 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     # Same reward row is already locked FOR UPDATE above, so two redeems by this
     # driver racing for this reward serialise here too — the loser re-checks
     # against the winner's committed voucher instead of both reading "1 live".
-    live_expiries = await _driver_live_voucher_expiries(db, user.id, reward.id, datetime.now(UTC))
+    now = datetime.now(UTC)
+    live_expiries = await _driver_live_voucher_expiries(db, user.id, reward.id, now)
     if len(live_expiries) >= MAX_LIVE_VOUCHERS_PER_REWARD:
         await db.rollback()
-        retry_after_seconds = max(int((live_expiries[0] - datetime.now(UTC)).total_seconds()), 0)
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {
                 "code": VOUCHER_LIMIT_REACHED,
                 "message": "You already have the maximum number of live vouchers for this reward",
-                "retryAfterSeconds": retry_after_seconds,
+                "retryAfterSeconds": _retry_after_seconds(live_expiries[0], now),
             },
         )
 

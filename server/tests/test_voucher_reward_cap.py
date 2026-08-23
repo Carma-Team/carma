@@ -23,7 +23,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.services import rewards as rewards_service
-from app.services.rewards import MAX_LIVE_VOUCHERS_PER_REWARD, VOUCHER_LIMIT_REACHED
+from app.services.rewards import MAX_LIVE_VOUCHERS_PER_REWARD, VOUCHER_LIMIT_REACHED, _retry_after_seconds
+
+
+# ─── retryAfterSeconds arithmetic (no DB) ────────────────────────────────────
+def test_retry_after_seconds_rounds_up_not_down() -> None:
+    now = datetime.now(UTC)
+    # 0.4s left truncates to 0 under int() — that would tell a refused caller
+    # the slot is already free, when redeeming again immediately still refuses.
+    assert _retry_after_seconds(now + timedelta(milliseconds=400), now) == 1
+    assert _retry_after_seconds(now + timedelta(seconds=9, milliseconds=1), now) == 10
+    assert _retry_after_seconds(now + timedelta(seconds=10), now) == 10
+
+
+def test_retry_after_seconds_floors_at_zero_for_a_non_positive_gap() -> None:
+    now = datetime.now(UTC)
+    assert _retry_after_seconds(now, now) == 0
+    assert _retry_after_seconds(now - timedelta(seconds=1), now) == 0
 
 
 @asynccontextmanager
@@ -236,10 +252,40 @@ async def test_retry_after_seconds_matches_the_nearer_of_the_two_expiries(db_ses
         await _cleanup(db_session, business_id, driver_id)
 
 
+@pytest.mark.asyncio
+async def test_redeem_wires_the_rounding_policy_through_to_the_response(db_session: AsyncSession) -> None:
+    """End-to-end sanity that `redeem` actually calls `_retry_after_seconds`.
+
+    The rounding edge cases themselves are covered without a DB above — this
+    only proves the wiring, so it uses a margin wide enough not to flake on
+    scheduler jitter between the commit and the query.
+    """
+    business, reward = await _make_reward(db_session)
+    driver = await _make_driver(db_session)
+    business_id, reward_id, driver_id = business.id, reward.id, driver.id
+    try:
+        db_session.add_all(
+            [
+                _voucher(reward, driver, expires_in=timedelta(minutes=5)),
+                _voucher(reward, driver, expires_in=timedelta(seconds=3)),
+            ]
+        )
+        await db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            await rewards_service.redeem(db_session, driver, reward_id)
+
+        assert 1 <= exc.value.detail["retryAfterSeconds"] <= 3, "must round up, never floor to 0 while still live"
+    finally:
+        await _cleanup(db_session, business_id, driver_id)
+
+
 # ─── The race the reward's row lock also serialises ──────────────────────────
 @pytest.mark.asyncio
-async def test_concurrent_redeems_at_the_cap_yield_exactly_two_live_vouchers(db_session: AsyncSession) -> None:
-    """Same driver, same reward, two real connections racing for the 2nd slot.
+async def test_one_existing_plus_two_concurrent_yields_exactly_two_live_vouchers(db_session: AsyncSession) -> None:
+    """CAR-71 acceptance case: one live voucher already exists, two requests race
+    for the one remaining slot on two real connections — exactly one must
+    succeed and the database must end at exactly the cap.
 
     `redeem` already takes `FOR UPDATE` on the reward row for the stock race
     (CAR-47); that lock is per-reward, not per-caller, so it serialises this
@@ -269,6 +315,49 @@ async def test_concurrent_redeems_at_the_cap_yield_exactly_two_live_vouchers(db_
 
         assert not unexpected, f"the race must fail cleanly, not blow up: {unexpected}"
         assert len(issued) == 1, f"exactly one more voucher for one remaining slot, got {len(issued)}"
+        assert len(refused) == 1
+        assert refused[0].status_code == 409
+        assert refused[0].detail["code"] == VOUCHER_LIMIT_REACHED
+
+        live = await rewards_service.count_live_vouchers(db_session, reward_id)
+        assert live == MAX_LIVE_VOUCHERS_PER_REWARD, "the database must hold exactly the cap, whatever callers saw"
+    finally:
+        await db_session.execute(delete(Redemption).where(Redemption.reward_id == reward_id))
+        await db_session.commit()
+        await _cleanup(db_session, business_id, driver_id)
+
+
+@pytest.mark.asyncio
+async def test_three_concurrent_first_time_redeems_yield_exactly_two_live_vouchers(db_session: AsyncSession) -> None:
+    """CAR-71 acceptance case: no vouchers exist yet, three requests for the
+    same (driver, reward) race on three real connections — exactly two must
+    succeed and the database must end at exactly the cap, not three.
+    """
+    business, reward = await _make_reward(db_session)
+    driver = await _make_driver(db_session)
+    business_id, reward_id, driver_id = business.id, reward.id, driver.id
+    try:
+        async with _rival_session() as second, _rival_session() as third:
+            mine = await db_session.get(User, driver.id)
+            hers = await second.get(User, driver.id)
+            theirs = await third.get(User, driver.id)
+            assert mine is not None and hers is not None and theirs is not None
+
+            results = await asyncio.gather(
+                rewards_service.redeem(db_session, mine, reward.id),
+                rewards_service.redeem(second, hers, reward.id),
+                rewards_service.redeem(third, theirs, reward.id),
+                return_exceptions=True,
+            )
+
+        issued = [r for r in results if not isinstance(r, BaseException)]
+        refused = [r for r in results if isinstance(r, HTTPException)]
+        unexpected = [r for r in results if isinstance(r, BaseException) and not isinstance(r, HTTPException)]
+
+        assert not unexpected, f"the race must fail cleanly, not blow up: {unexpected}"
+        assert (
+            len(issued) == MAX_LIVE_VOUCHERS_PER_REWARD
+        ), f"exactly 2 of 3 first-time redeems must land, got {len(issued)}"
         assert len(refused) == 1
         assert refused[0].status_code == 409
         assert refused[0].detail["code"] == VOUCHER_LIMIT_REACHED
