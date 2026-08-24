@@ -193,6 +193,7 @@ async def test_another_business_cannot_see_or_touch_the_reward(db_session: Async
 def _voucher(
     reward_id: str,
     user_id: str,
+    business_id: str,
     *,
     status: RedemptionStatus = RedemptionStatus.PENDING,
     expires_in: timedelta = timedelta(days=1),
@@ -200,10 +201,12 @@ def _voucher(
     return Redemption(
         user_id=user_id,
         reward_id=reward_id,
+        business_id=business_id,
         points_cost=10,
         qr_code=uuid.uuid4().hex[:12].upper(),
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
+        settled_at=None if status == RedemptionStatus.PENDING else datetime.now(UTC),
     )
 
 
@@ -230,7 +233,7 @@ async def test_archive_succeeds_once_a_voucher_was_issued(db_session: AsyncSessi
     await db_session.commit()
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
-        voucher = _voucher(created.id, driver.id)
+        voucher = _voucher(created.id, driver.id, business.id)
         db_session.add(voucher)
         await db_session.commit()
         await db_session.refresh(voucher)
@@ -256,7 +259,7 @@ async def test_archived_reward_voucher_still_loads_and_can_be_consumed(db_sessio
     await db_session.commit()
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
-        voucher = _voucher(created.id, driver.id)
+        voucher = _voucher(created.id, driver.id, business.id)
         db_session.add(voucher)
         await db_session.commit()
         await db_session.refresh(voucher)
@@ -321,7 +324,7 @@ async def test_redemption_history_still_loads_an_archived_reward(db_session: Asy
     await db_session.commit()
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
-        db_session.add(_voucher(created.id, driver.id))
+        db_session.add(_voucher(created.id, driver.id, business.id))
         await db_session.commit()
 
         await business_service.archive_reward(db_session, business, created.id)
@@ -505,8 +508,8 @@ async def test_live_voucher_count_before_archive(db_session: AsyncSession) -> No
         created = await business_service.create_reward(db_session, business, _reward_payload())
         assert await business_service.live_voucher_count(db_session, business, created.id) == 0
 
-        db_session.add(_voucher(created.id, driver.id))
-        db_session.add(_voucher(created.id, driver.id))
+        db_session.add(_voucher(created.id, driver.id, business.id))
+        db_session.add(_voucher(created.id, driver.id, business.id))
         await db_session.commit()
 
         assert await business_service.live_voucher_count(db_session, business, created.id) == 2
@@ -524,12 +527,12 @@ async def test_live_voucher_count_excludes_used_and_expired(db_session: AsyncSes
     await db_session.commit()
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
-        db_session.add(_voucher(created.id, driver.id, status=RedemptionStatus.USED))
-        db_session.add(_voucher(created.id, driver.id, status=RedemptionStatus.EXPIRED))
+        db_session.add(_voucher(created.id, driver.id, business.id, status=RedemptionStatus.USED))
+        db_session.add(_voucher(created.id, driver.id, business.id, status=RedemptionStatus.EXPIRED))
         # Lapsed but still stored as PENDING — expire_overdue hasn't swept it yet.
         # The count must key off expires_at, not the stored status.
-        db_session.add(_voucher(created.id, driver.id, expires_in=timedelta(minutes=-5)))
-        db_session.add(_voucher(created.id, driver.id))  # the one truly live voucher
+        db_session.add(_voucher(created.id, driver.id, business.id, expires_in=timedelta(minutes=-5)))
+        db_session.add(_voucher(created.id, driver.id, business.id))  # the one truly live voucher
         await db_session.commit()
 
         assert await business_service.live_voucher_count(db_session, business, created.id) == 1
@@ -561,7 +564,7 @@ async def test_live_vouchers_http_returns_the_count_for_the_owning_business(
     await db_session.commit()
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
-        db_session.add(_voucher(created.id, driver.id))
+        db_session.add(_voucher(created.id, driver.id, business.id))
         await db_session.commit()
 
         r = await db_api_client.get(f"/api/business/rewards/{created.id}/live-vouchers", headers=headers)

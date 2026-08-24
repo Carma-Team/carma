@@ -105,6 +105,7 @@ async def _issue(
     voucher = Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        business_id=business.id,
         points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
