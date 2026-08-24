@@ -117,8 +117,19 @@ async def _make_driver(db: AsyncSession, *, points: int = 10_000) -> User:
 
 
 def _voucher(
-    reward: Reward, driver: User, *, status: RedemptionStatus = RedemptionStatus.PENDING, expires_in: timedelta
+    reward: Reward,
+    driver: User,
+    *,
+    status: RedemptionStatus = RedemptionStatus.PENDING,
+    expires_in: timedelta,
+    settled_at: datetime | None = None,
 ) -> Redemption:
+    """`settled_at` defaults to "just now" for a terminal status — deliberately
+    inside CAR-72's reissue cooldown, since that is the honest default for "this
+    just happened". A test that needs to redeem past a terminal voucher for the
+    same (driver, reward) must pass a `settled_at` outside the cooldown window
+    itself, the same way it already has to pick `expires_in` on purpose.
+    """
     code = uuid.uuid4().hex[:12].upper()
     return Redemption(
         user_id=driver.id,
@@ -129,7 +140,11 @@ def _voucher(
         qr_data=code,
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
-        settled_at=None if status == RedemptionStatus.PENDING else datetime.now(UTC),
+        settled_at=(
+            settled_at
+            if settled_at is not None
+            else (None if status == RedemptionStatus.PENDING else datetime.now(UTC))
+        ),
     )
 
 
@@ -217,11 +232,18 @@ async def test_used_expired_and_cancelled_vouchers_do_not_count(db_session: Asyn
     driver = await _make_driver(db_session)
     business_id, driver_id = business.id, driver.id
     try:
+        # EXPIRED/CANCELLED settled well outside CAR-72's reissue cooldown —
+        # this test is about the live-voucher cap, not the cooldown.
+        long_ago = datetime.now(UTC) - timedelta(days=1)
         db_session.add_all(
             [
                 _voucher(reward, driver, status=RedemptionStatus.USED, expires_in=timedelta(days=-1)),
-                _voucher(reward, driver, status=RedemptionStatus.EXPIRED, expires_in=timedelta(days=-1)),
-                _voucher(reward, driver, status=RedemptionStatus.CANCELLED, expires_in=timedelta(days=5)),
+                _voucher(
+                    reward, driver, status=RedemptionStatus.EXPIRED, expires_in=timedelta(days=-1), settled_at=long_ago
+                ),
+                _voucher(
+                    reward, driver, status=RedemptionStatus.CANCELLED, expires_in=timedelta(days=5), settled_at=long_ago
+                ),
             ]
         )
         await db_session.commit()

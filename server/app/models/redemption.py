@@ -52,6 +52,15 @@ class Redemption(Base):
 
     __table_args__ = (
         Index("ix_redemptions_user_status", "user_id", "status"),
+        # CAR-72: the reissue-cooldown lookup and the CAR-71 live-voucher-cap
+        # lookup both scope to one (driver, reward) pair, but the cooldown
+        # query spans three different statuses (EXPIRED, CANCELLED, a lapsed
+        # PENDING) rather than one equality, so it cannot narrow past user_id
+        # on ix_redemptions_user_status above — it would otherwise scan a
+        # driver's entire redemption history, across every reward, on every
+        # redeem() call. This index lets it seek straight to this reward's
+        # rows regardless of how large the driver's history elsewhere is.
+        Index("ix_redemptions_user_reward_status", "user_id", "reward_id", "status"),
         Index("ix_redemptions_qr_code", "qr_code"),
         Index("ix_redemptions_business_settled_id", "business_id", "settled_at", "id"),
         CheckConstraint(
