@@ -123,11 +123,13 @@ def _voucher(
     return Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        business_id=reward.business_id,
         points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
+        settled_at=None if status == RedemptionStatus.PENDING else datetime.now(UTC),
     )
 
 

@@ -520,6 +520,7 @@ async def run() -> None:
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
+                    business_id=paz_reward.business_id,
                     points_cost=paz_reward.cost_points,
                     # Real voucher format, not a descriptive slug: lookups fold
                     # the input to upper case with separators stripped, so the
@@ -532,6 +533,7 @@ async def run() -> None:
                     status=RedemptionStatus.USED,
                     expires_at=used_at + timedelta(days=VOUCHER_TTL_DAYS),
                     used_at=used_at,
+                    settled_at=used_at,
                 )
             )
 

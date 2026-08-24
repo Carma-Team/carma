@@ -159,14 +159,15 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
     checking stock, or crediting points in the same breath as the status flip.
     A commit in here would end that transaction and drop those locks.
     """
+    now = datetime.now(UTC)
     await db.execute(
         update(Redemption)
         .where(
             Redemption.status == RedemptionStatus.PENDING,
-            Redemption.expires_at < datetime.now(UTC),
+            Redemption.expires_at < now,
             *where,
         )
-        .values(status=RedemptionStatus.EXPIRED)
+        .values(status=RedemptionStatus.EXPIRED, settled_at=now)
     )
 
 
@@ -285,6 +286,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     redemption = Redemption(
         user_id=user.id,
         reward_id=reward.id,
+        business_id=reward.business_id,
         points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
