@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,6 +28,13 @@ VOUCHER_TTL_DAYS = 7
 
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 REWARD_CAMPAIGN_ENDED = "REWARD_CAMPAIGN_ENDED"
+VOUCHER_LIMIT_REACHED = "VOUCHER_LIMIT_REACHED"
+
+# CAR-71: caps a driver at N *live* vouchers per reward, not per driver overall
+# — nothing stops holding live vouchers for several different rewards at once.
+# The point is stopping one driver from hoarding a single reward's stock, not
+# rationing how many rewards they engage with.
+MAX_LIVE_VOUCHERS_PER_REWARD = 2
 
 # Three draws is plenty: at 31^10 the first one already almost never collides,
 # and a fourth would only ever be papering over a broken generator.
@@ -96,6 +104,46 @@ async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
         .where(Redemption.reward_id == reward_id, *live_voucher_where(datetime.now(UTC)))
     )
     return count or 0
+
+
+def _retry_after_seconds(nearest_expiry: datetime, now: datetime) -> int:
+    """Seconds until the nearest live voucher frees its slot for CAR-71's cap.
+
+    Ceiling, not floor: a voucher 0.4s from expiring is still live right now,
+    and truncating to `int()` would report 0s — telling a refused caller the
+    slot is already free, when redeeming again immediately hits the same cap.
+    """
+    seconds_left = (nearest_expiry - now).total_seconds()
+    return math.ceil(seconds_left) if seconds_left > 0 else 0
+
+
+def _nearest_slot_opens_at(live_expiries: list[datetime], cap: int) -> datetime:
+    """The expiry that actually brings a driver's live count under the cap.
+
+    Only matters when the driver already holds more than `cap` — state CAR-71
+    can find already sitting in the table, since it tightens a limit that
+    never existed before and VOUCHER_TTL_DAYS gives that state up to a week to
+    linger. The soonest of several expiries only removes one voucher; a slot
+    opens once enough of the earliest ones have lapsed to drop the count to
+    `cap - 1`, not on the very first one. At exactly `cap` live vouchers this
+    is the earliest expiry, same as before.
+    """
+    return live_expiries[len(live_expiries) - cap]
+
+
+async def _driver_live_voucher_expiries(
+    db: AsyncSession, user_id: str, reward_id: str, now: datetime
+) -> list[datetime]:
+    """`expires_at` of this driver's live vouchers for this reward, earliest first.
+
+    Ordered so `_nearest_slot_opens_at` can index straight into it.
+    """
+    rows = await db.scalars(
+        select(Redemption.expires_at)
+        .where(Redemption.user_id == user_id, Redemption.reward_id == reward_id, *live_voucher_where(now))
+        .order_by(Redemption.expires_at.asc())
+    )
+    return list(rows.all())
 
 
 async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
@@ -175,6 +223,24 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             status.HTTP_409_CONFLICT,
             {"code": REWARD_CAMPAIGN_ENDED, "message": "This reward's campaign has ended"},
         )
+    # Same reward row is already locked FOR UPDATE above, so two redeems by this
+    # driver racing for this reward serialise here too — the loser re-checks
+    # against the winner's committed voucher instead of both reading "1 live".
+    now = datetime.now(UTC)
+    live_expiries = await _driver_live_voucher_expiries(db, user.id, reward.id, now)
+    if len(live_expiries) >= MAX_LIVE_VOUCHERS_PER_REWARD:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": VOUCHER_LIMIT_REACHED,
+                "message": "You already have the maximum number of live vouchers for this reward",
+                "retryAfterSeconds": _retry_after_seconds(
+                    _nearest_slot_opens_at(live_expiries, MAX_LIVE_VOUCHERS_PER_REWARD), now
+                ),
+            },
+        )
+
     if user.points < reward.cost_points:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
