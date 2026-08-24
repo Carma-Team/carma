@@ -5,11 +5,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, and_, func, or_, select, update
+from sqlalchemy import CursorResult, and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
 
+from app.config import settings
 from app.core.audit import audit
 from app.core.security import random_voucher_code
 from app.models import BusinessCategory, Redemption, RedemptionStatus, Reward, User
@@ -29,6 +30,7 @@ VOUCHER_TTL_DAYS = 7
 REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 REWARD_CAMPAIGN_ENDED = "REWARD_CAMPAIGN_ENDED"
 VOUCHER_LIMIT_REACHED = "VOUCHER_LIMIT_REACHED"
+VOUCHER_REISSUE_COOLDOWN = "VOUCHER_REISSUE_COOLDOWN"
 
 # CAR-71: caps a driver at N *live* vouchers per reward, not per driver overall
 # — nothing stops holding live vouchers for several different rewards at once.
@@ -146,6 +148,43 @@ async def _driver_live_voucher_expiries(
     return list(rows.all())
 
 
+async def _cooldown_ends_at(db: AsyncSession, user_id: str, reward_id: str, now: datetime) -> datetime | None:
+    """When this driver's reissue cooldown on this reward lifts, if one is active.
+
+    CAR-72: derived from the redemptions table, no separate cooldown state. The
+    two terminal reasons do not share one honest timestamp column, so each
+    reads its own:
+
+    * EXPIRED (flipped or not) anchors to `expires_at`. That is the real "this
+      became EXPIRED" instant and is set once, at issue time, and never
+      changes — using `settled_at` instead would anchor the cooldown to
+      whenever `expire_overdue` happened to next run against this row, which
+      is an unrelated read endpoint's timing, not this event's. Same honest
+      value CAR-120's own backfill picked for legacy EXPIRED rows.
+    * CANCELLED anchors to `settled_at`. Unlike expiry, cancellation is never
+      lazy — a future cancel path writes status and settled_at together in one
+      statement (CAR-120), so settled_at *is* the real event time here.
+
+    USED rows never contribute; redeeming triggers no cooldown at all.
+    """
+    anchor = case((Redemption.status == RedemptionStatus.CANCELLED, Redemption.settled_at), else_=Redemption.expires_at)
+    last = await db.scalar(
+        select(func.max(anchor)).where(
+            Redemption.user_id == user_id,
+            Redemption.reward_id == reward_id,
+            or_(
+                Redemption.status == RedemptionStatus.CANCELLED,
+                Redemption.status == RedemptionStatus.EXPIRED,
+                and_(Redemption.status == RedemptionStatus.PENDING, Redemption.expires_at <= now),
+            ),
+        )
+    )
+    if last is None:
+        return None
+    cooldown_ends = last + timedelta(seconds=settings.reward_reissue_cooldown_seconds)
+    return cooldown_ends if cooldown_ends > now else None
+
+
 async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
     """Flip PENDING vouchers whose TTL has run out to EXPIRED.
 
@@ -228,6 +267,18 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     # driver racing for this reward serialise here too — the loser re-checks
     # against the winner's committed voucher instead of both reading "1 live".
     now = datetime.now(UTC)
+    cooldown_ends = await _cooldown_ends_at(db, user.id, reward.id, now)
+    if cooldown_ends is not None:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": VOUCHER_REISSUE_COOLDOWN,
+                "message": "You recently let a voucher for this reward lapse — try again shortly",
+                "retryAfterSeconds": _retry_after_seconds(cooldown_ends, now),
+            },
+        )
+
     live_expiries = await _driver_live_voucher_expiries(db, user.id, reward.id, now)
     if len(live_expiries) >= MAX_LIVE_VOUCHERS_PER_REWARD:
         await db.rollback()
