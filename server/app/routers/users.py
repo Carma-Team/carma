@@ -35,7 +35,7 @@ async def update_profile(dto: UpdateProfileIn, user: CurrentUser, db: DbSession)
 )
 async def update_location(dto: UpdateLocationIn, user: CurrentUser, db: DbSession) -> UserOut:
     updated = await users_service.update_location(db, user, dto)
-    return UserOut.model_validate(updated)
+    return await users_service.profile_out(db, updated)
 
 
 @router.get(

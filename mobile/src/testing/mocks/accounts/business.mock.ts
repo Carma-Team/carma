@@ -19,6 +19,8 @@ const user: AppUser = {
   language: 'HE',
   points: 0,
   totalPoints: 0,
+  availablePoints: 0,
+  reservedPoints: 0,
   totalDistance: 0,
   level: 1,
   isPrivate: false,

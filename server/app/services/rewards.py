@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, and_, case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
@@ -19,7 +18,7 @@ from app.schemas.reward import RewardOut, VoucherOut
 # How long the driver has to show the code — not an anti-fraud control. A
 # voucher is single-use because `business.consume_voucher` only ever flips it
 # out of PENDING, so shortening this window buys no safety and only costs the
-# driver the points already debited.
+# driver the points a live voucher reserves (CAR-73).
 #
 # A full week, so a voucher issued before a weekend survives it. Not longer,
 # because an unredeemed voucher holds a unit of the business's stock for the
@@ -92,6 +91,21 @@ def live_voucher_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElemen
     differently than the code that actually redeems one.
     """
     return (Redemption.status == RedemptionStatus.PENDING, Redemption.expires_at > now)
+
+
+async def reserved_points(db: AsyncSession, user_id: str) -> int:
+    """Points a driver's live vouchers are holding — CAR-73.
+
+    The sum, not a stored counter: a `reserved_points` column on `User` could
+    drift from the vouchers it counts, the sum cannot. Expiry and cancellation
+    need no release code because they simply stop being live and drop out of it.
+    """
+    total = await db.scalar(
+        select(func.coalesce(func.sum(Redemption.points_cost), 0)).where(
+            Redemption.user_id == user_id, *live_voucher_where(datetime.now(UTC))
+        )
+    )
+    return total or 0
 
 
 async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
@@ -293,7 +307,22 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
             },
         )
 
-    if user.points < reward.cost_points:
+    # Locks the user row so the reserved-points sum below and the voucher INSERT
+    # that follows are one indivisible step, the same guard the reward lock above
+    # gives stock. Without it two concurrent redeems could both sum the same
+    # reserved total, both see enough headroom, and jointly reserve more than the
+    # driver holds.
+    #
+    # A column select, not `select(User)` — the caller's `user` argument may
+    # already sit in this session's identity map under the same id, and a plain
+    # entity select returns that cached object rather than the row FOR UPDATE
+    # just locked, silently reading a stale `.points`. Selecting the column
+    # bypasses the identity map entirely.
+    locked_points = await db.scalar(select(User.points).where(User.id == user.id).with_for_update())
+    assert locked_points is not None, "the authenticated user must still exist"
+    reserved = await reserved_points(db, user.id)
+    if locked_points - reserved < reward.cost_points:
+        await db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
 
     claimed = await claimed_by_reward(db, [reward.id])
@@ -308,8 +337,8 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     code = await _allocate_voucher_code(db)
     if code is None:
         # Three draws from 31^10 all landing on taken codes is not bad luck, it
-        # is a broken generator. Give up here, before the debit, rather than
-        # charging a driver for a voucher we cannot write.
+        # is a broken generator. Give up here rather than write a voucher whose
+        # code cannot be trusted unique.
         await db.rollback()
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -320,20 +349,9 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     # who may still start a redemption, not whether one already granted survives.
     expires_at = datetime.now(UTC) + timedelta(days=VOUCHER_TTL_DAYS)
 
-    # Atomic conditional debit — two concurrent redeems cannot both pass the
-    # points check above and drive the balance negative.
-    # `execute` is typed as returning a plain Result, which has no rowcount.
-    # A DML statement always yields a CursorResult at runtime — the annotation
-    # tells mypy that, it does not change behaviour.
-    debited: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
-        update(User)
-        .where(User.id == user.id, User.points >= reward.cost_points)
-        .values(points=User.points - reward.cost_points)
-    )
-    if debited.rowcount == 0:
-        await db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Insufficient points")
-
+    # CAR-73: issuing reserves points, it no longer charges them — nothing here
+    # writes User.points. The user-row lock taken above is what keeps this
+    # INSERT and the reserved-points check it followed indivisible.
     redemption = Redemption(
         user_id=user.id,
         reward_id=reward.id,
@@ -346,7 +364,6 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     )
     db.add(redemption)
     await db.commit()
-    await db.refresh(user)
     await db.refresh(redemption)
     # eager-load reward+business for response
     await db.refresh(redemption, attribute_names=["reward"])
