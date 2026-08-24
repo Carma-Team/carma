@@ -1592,6 +1592,16 @@ export interface components {
             points: number;
             /** Totalpoints */
             totalPoints: number;
+            /**
+             * Availablepoints
+             * @default 0
+             */
+            availablePoints: number;
+            /**
+             * Reservedpoints
+             * @default 0
+             */
+            reservedPoints: number;
             /** Totaldistance */
             totalDistance: number;
             /** Level */

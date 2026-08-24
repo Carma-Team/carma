@@ -22,6 +22,13 @@ class UserOut(CamelModel):
     license_year: int | None = None
     points: int
     total_points: int
+    # Derived, never stored (CAR-73): reserved is the sum of points_cost over
+    # this driver's live vouchers, available is points minus that sum. Not on
+    # the User model, so users_service.profile_out fills these in after
+    # validation — the defaults here only satisfy from_attributes on that read.
+    # See rewards_service.reserved_points for why there is no reserved_points column.
+    available_points: int = 0
+    reserved_points: int = 0
     total_distance: float
     level: int
     is_private: bool = False

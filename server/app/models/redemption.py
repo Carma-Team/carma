@@ -61,6 +61,10 @@ class Redemption(Base):
         # redeem() call. This index lets it seek straight to this reward's
         # rows regardless of how large the driver's history elsewhere is.
         Index("ix_redemptions_user_reward_status", "user_id", "reward_id", "status"),
+        # CAR-73: the reserved-points sum scans one driver's live vouchers across
+        # every reward, so it needs status and expires_at past user_id the same
+        # way the index above needs them past (user_id, reward_id).
+        Index("ix_redemptions_user_status_expires", "user_id", "status", "expires_at"),
         Index("ix_redemptions_qr_code", "qr_code"),
         Index("ix_redemptions_business_settled_id", "business_id", "settled_at", "id"),
         CheckConstraint(

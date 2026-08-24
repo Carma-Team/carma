@@ -1,23 +1,34 @@
 """Points-balance atomicity — the regression guard CAR-12 §4 never got.
 
-`user.points` is written in exactly two places in the whole server: the credit in
-`services/trips.py` and the conditional debit in `services/rewards.py`. Both do
-their arithmetic inside an UPDATE, so Postgres serialises them on the row lock.
-Both are correct today, and until now neither had a single test — a refactor back
-to a Python-side `user.points += n` would have passed the entire suite while
-silently losing points in production, with no error anywhere to notice.
+`user.points` is written in exactly one place in the whole server: the credit in
+`services/trips.py`, an atomic SQL-side `points = points + n`. Issuing a voucher
+no longer debits it (CAR-73) — it reserves instead, holding `points_cost` against
+the driver's *available* balance (`points - reserved`, `reserved` the sum over
+their live vouchers) without ever writing `User.points`. A refactor back to a
+Python-side `user.points += n` in the trip credit would still pass the suite
+while silently losing points in production, with no error anywhere to notice —
+that is what the first test below still guards.
+
+The next three no longer guard a debit — there is none to race — they guard the
+available-balance check itself: the reserved-points sum and the voucher INSERT
+that follows it must be one indivisible step under `redeem`'s user-row lock, so
+concurrent redeems (or a redeem racing a trip credit) can never jointly reserve
+more than the row actually holds.
 
 **Why these catch that without riding on a lucky interleaving.** Each racer gets
-its own session *and its own `User` instance*, both loaded before the race starts,
-so both hold the same balance in memory. A Python-side read-modify-write reads
-that stale attribute and writes an absolute value, so whichever transaction
-commits last erases the other — every run. The SQL-side expression re-reads the
-committed row under the lock, and both land.
+its own session *and its own `User` instance*, both loaded before the race
+starts, so both hold the same stale balance in memory. Code that read that
+stale attribute instead of a freshly locked row would let both racers see the
+same headroom and both reserve against it. `redeem`'s `SELECT ... FOR UPDATE`
+on the user row is what forces the loser to re-read the committed balance
+instead.
 
-The first two tests race with `asyncio.gather` and assert only what holds
-whichever racer wins. The last two pin the commit order outright, because each
-order is what exposes a different one of the two writers — left to `gather`,
-redeem reliably commits first and the other ordering never runs.
+The first, second and fourth tests race with `asyncio.gather` and assert only
+what holds whichever racer wins (or, for the fourth, whichever order the
+database picks). The third pins the commit order outright: it is testing which
+of two orderings redeem's balance check reads, and `gather` would always
+resolve the same one — redeem awaits far less than a trip save, which queries
+scoring history — so the other ordering would never run.
 
 Two engines rather than one, because two coroutines sharing a connection would
 queue instead of contending. Needs Postgres — two real connections is the whole
@@ -124,12 +135,12 @@ async def _make_reward(db: AsyncSession, *, cost_points: int) -> Reward:
     return reward
 
 
-async def _cleanup(db: AsyncSession, user: User, reward: Reward | None = None) -> None:
+async def _cleanup(db: AsyncSession, user: User, *rewards: Reward) -> None:
     await db.execute(delete(Redemption).where(Redemption.user_id == user.id))
     await db.execute(delete(Trip).where(Trip.user_id == user.id))
     await db.execute(delete(User).where(User.id == user.id))
     await db.commit()
-    if reward is not None:
+    for reward in rewards:
         business = await db.get(Business, reward.business_id)
         if business is not None:
             owner_id = business.owner_user_id
@@ -192,20 +203,32 @@ async def test_concurrent_trip_saves_both_credit_their_points(db_session: AsyncS
 
 @pytest.mark.asyncio
 async def test_concurrent_redeems_cannot_spend_the_same_points_twice(db_session: AsyncSession) -> None:
-    """One reward's worth of points, two simultaneous redeems: exactly one wins."""
-    cost = 500
-    reward = await _make_reward(db_session, cost_points=cost)
-    user = await _make_driver(db_session, points=cost)
+    """Two *different* rewards, each affordable alone, together exceed the balance.
+
+    Deliberately not the same reward for both racers: `redeem` also takes
+    `FOR UPDATE` on the reward row (for the stock/voucher-cap checks, unrelated
+    to CAR-73), and racing one reward would serialise the two redeems on that
+    lock alone — passing even with CAR-73's user-row lock deleted entirely.
+    Two separate reward rows mean the *only* thing that can still serialise
+    them is the lock on the shared `User` row.
+    """
+    balance = 600
+    cost_a, cost_b = 400, 400  # each fits alone; together they don't.
+    reward_a = await _make_reward(db_session, cost_points=cost_a)
+    reward_b = await _make_reward(db_session, cost_points=cost_b)
+    user = await _make_driver(db_session, points=balance)
     try:
         async with _rival_session() as rival_db:
             rival_user = await rival_db.get(User, user.id)
             assert rival_user is not None
 
             # Both racers pass the Python pre-check in `redeem` — they each see a
-            # balance of `cost`. Only the conditional UPDATE can separate them.
+            # balance of `balance` and no reservations yet, against different
+            # reward rows. Only the user-row lock around the reserved-points
+            # check can separate them.
             results = await asyncio.gather(
-                rewards_service.redeem(db_session, user, reward.id),
-                rewards_service.redeem(rival_db, rival_user, reward.id),
+                rewards_service.redeem(db_session, user, reward_a.id),
+                rewards_service.redeem(rival_db, rival_user, reward_b.id),
                 return_exceptions=True,
             )
 
@@ -216,38 +239,55 @@ async def test_concurrent_redeems_cannot_spend_the_same_points_twice(db_session:
         assert refused.status_code == 400
         assert refused.detail == "Insufficient points"
 
-        assert await _balance(db_session, user.id) == 0, "the balance must not go negative"
+        assert await _balance(db_session, user.id) == balance, "issuing a voucher must never touch User.points"
 
-        # The assertion that bites hardest: without the WHERE guard both debits
-        # compute cost - cost = 0 from their stale objects, the balance still
-        # reads 0, and the business has quietly handed out two vouchers.
+        # The assertion that bites hardest: without the user-row lock, both
+        # racers sum the same (empty) reserved total against their own,
+        # independently-locked reward row, both see `balance` of headroom, and
+        # the business has quietly handed out two vouchers this driver's balance
+        # cannot jointly cover.
         vouchers = await db_session.scalar(
             select(func.count()).select_from(Redemption).where(Redemption.user_id == user.id)
         )
-        assert vouchers == 1, "one reward's worth of points must issue exactly one voucher"
+        assert vouchers == 1, "the available balance must issue exactly one of the two vouchers"
+        # Costs are equal, so whichever racer won, reserved must reflect only that one.
+        assert await rewards_service.reserved_points(db_session, user.id) == cost_a
     finally:
-        await _cleanup(db_session, user, reward)
+        await _cleanup(db_session, user, reward_a, reward_b)
 
 
-# ─── CAR-12 §4 as written: a trip save racing a redeem, in both orderings ────
+# ─── CAR-12 §4 as written: a trip save racing a redeem ───────────────────────
 #
-# The overlap is real in both: the second actor loaded its `User` before the
-# first committed, which is exactly the state two overlapping API requests are
-# in. Only the commit order is pinned — `gather` would always give the same one,
-# because redeem awaits far less than a trip save, which queries scoring history.
+# The overlap in the first is real: the second actor loaded its `User` before
+# the first committed, which is exactly the state two overlapping API requests
+# are in. The commit order is pinned rather than left to `gather` — redeem
+# awaits far less than a trip save, which queries scoring history, so `gather`
+# would always resolve the same order and the other one would never run.
+#
+# The second used to be that test's mirror: a redeem committing first, then a
+# trip credit racing a stale view of the balance. Post-CAR-73 that pairing
+# cannot expose an unsafe interleaving under any implementation — the credit is
+# an unconditional `points + n` that never reads anything redeem wrote, so
+# whichever order the two land in, both effects always survive; there is no
+# stale absolute-write path left for either side to erase the other's work.
+# What CAR-73 actually put at risk here is different: `redeem` now holds a
+# `FOR UPDATE` lock on the user row for the length of its whole transaction —
+# a lock a credit landing on the very same row must wait behind. Run for real
+# with `gather` rather than sequential awaits, this proves that overlap
+# resolves cleanly rather than stalling or losing either side's effect.
 
 
 @pytest.mark.asyncio
 async def test_a_redeem_cannot_erase_a_trip_credit_that_landed_first(db_session: AsyncSession) -> None:
-    """Trip commits, then a redeem holding a pre-trip view of the balance spends.
+    """Trip commits, then a redeem holding a pre-trip view of the balance reserves.
 
-    The debit must apply to the balance in the row — starting points plus the
-    trip's — not to the `cost` its own stale object still reports. A debit that
-    wrote an absolute figure would take the balance to zero and swallow the trip.
+    The driver starts with nothing, so the redeem can only succeed at all if its
+    available-balance check reads the committed row — points plus the trip's —
+    rather than the `0` its own stale object still reports. Code that trusted the
+    stale attribute would wrongly refuse a redeem the real balance can afford.
     """
-    cost = 500
-    reward = await _make_reward(db_session, cost_points=cost)
-    user = await _make_driver(db_session, points=cost)
+    reward = await _make_reward(db_session, cost_points=1)
+    user = await _make_driver(db_session, points=0)
     try:
         async with _rival_session() as rival_db:
             # Loaded before the trip lands: from here on this object is stale.
@@ -259,17 +299,25 @@ async def test_a_redeem_cannot_erase_a_trip_credit_that_landed_first(db_session:
 
             await rewards_service.redeem(rival_db, rival_user, reward.id)
 
-        assert await _balance(db_session, user.id) == trip.points
+        assert await _balance(db_session, user.id) == trip.points, "issuing a voucher must never touch User.points"
+        assert await rewards_service.reserved_points(db_session, user.id) == 1
     finally:
         await _cleanup(db_session, user, reward)
 
 
 @pytest.mark.asyncio
-async def test_a_trip_credit_cannot_erase_a_redeem_that_landed_first(db_session: AsyncSession) -> None:
-    """Redeem commits, then a trip save holding a pre-redeem view of the balance credits.
+async def test_a_trip_credit_does_not_stall_or_lose_a_concurrent_redeems_reservation(
+    db_session: AsyncSession,
+) -> None:
+    """A redeem and a trip credit land on the same user row at the same time.
 
-    The mirror image: the credit must add to the debited row, not to the `cost`
-    its own stale object still reports, which would refund the redemption.
+    `redeem` holds `FOR UPDATE` on that row for its whole transaction — reward
+    lock, cooldown check, live-voucher check, the reserved-points check, the
+    voucher INSERT, then commit. The trip's credit is an independent UPDATE on
+    the same row, so real overlap (`gather`, not sequential awaits) forces one
+    to queue behind the other. Whichever order the database picks, both effects
+    must land: the credit must not be lost, and the lock must not stall it
+    indefinitely or let its read miss the reservation.
     """
     cost = 500
     reward = await _make_reward(db_session, cost_points=cost)
@@ -279,13 +327,16 @@ async def test_a_trip_credit_cannot_erase_a_redeem_that_landed_first(db_session:
             rival_user = await rival_db.get(User, user.id)
             assert rival_user is not None
 
-            await rewards_service.redeem(rival_db, rival_user, reward.id)
-
-            # `user` in this session still reports the pre-redeem balance.
-            trip = await trips_service.save(db_session, user, _scoring_trip(), idempotency_key=uuid.uuid4().hex)
+            _, trip = await asyncio.gather(
+                rewards_service.redeem(rival_db, rival_user, reward.id),
+                trips_service.save(db_session, user, _scoring_trip(), idempotency_key=uuid.uuid4().hex),
+            )
             assert trip.points > 0, "the trip must be worth points for this to prove anything"
 
-        assert await _balance(db_session, user.id) == trip.points
+        assert (
+            await _balance(db_session, user.id) == cost + trip.points
+        ), "the credit must add to the row, and the reservation must not have debited it"
+        assert await rewards_service.reserved_points(db_session, user.id) == cost
     finally:
         await _cleanup(db_session, user, reward)
 
