@@ -185,7 +185,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
     used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
         .where(Redemption.id == voucher_id, *rewards_service.live_voucher_where(now))
-        .values(status=RedemptionStatus.USED, used_at=now)
+        .values(status=RedemptionStatus.USED, used_at=now, settled_at=now)
     )
     if used.rowcount == 0:
         await db.rollback()
@@ -199,7 +199,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
         raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
 
     await db.commit()
-    await db.refresh(voucher, attribute_names=["status", "used_at"])
+    await db.refresh(voucher, attribute_names=["status", "used_at", "settled_at"])
     audit(
         "business.voucher.consumed",
         business_id=business.id,
