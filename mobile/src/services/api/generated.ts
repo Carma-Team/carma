@@ -492,6 +492,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a business registration request for admin review */
+        post: operations["submit_join_request_api_business_join_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/join-requests/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The authenticated applicant's own join-request status */
+        get: operations["my_join_request_api_business_join_requests_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/leaderboard": {
         parameters: {
             query?: never;
@@ -758,6 +792,59 @@ export interface components {
             /** Token */
             token: string;
             user: components["schemas"]["UserOut"];
+        };
+        /**
+         * BusinessJoinRequestIn
+         * @description Submission payload. No `phone`, no `userId` — both come from the caller's
+         *     own OTP-verified session (`CurrentUser`), never from the request body.
+         */
+        BusinessJoinRequestIn: {
+            /** Name */
+            name: string;
+            /** Namehe */
+            nameHe?: string | null;
+            /** Category */
+            category?: string | null;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
+            /** Address */
+            address?: string | null;
+            /** Registrationnumber */
+            registrationNumber: string;
+            /** Contactperson */
+            contactPerson: string;
+        };
+        /** BusinessJoinRequestOut */
+        BusinessJoinRequestOut: {
+            /** Id */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "pending" | "approved" | "rejected";
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /**
+         * BusinessJoinRequestStatusOut
+         * @description The applicant's own status — nothing here implies business access.
+         */
+        BusinessJoinRequestStatusOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "pending" | "approved" | "rejected";
+            /** Createdat */
+            createdAt?: string | null;
+            /** Reviewernote */
+            reviewerNote?: string | null;
         };
         /**
          * BusinessRewardIn
@@ -2653,6 +2740,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_join_request_api_business_join_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessJoinRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_join_request_api_business_join_requests_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestStatusOut"];
                 };
             };
         };
