@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
 from app.core.security import normalise_voucher_code
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward
+from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
@@ -197,6 +197,28 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
                 status.HTTP_409_CONFLICT, {"code": VOUCHER_ALREADY_USED, "message": "Voucher already used"}
             )
         raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
+
+    # CAR-109: unconditional — CAR-73's reservation invariant (available =
+    # points - reserved, enforced on the issue path) guarantees the points are
+    # there. Gating this on balance would strand a voucher USED-but-unpaid
+    # after the goods already left the till, which is worse than a negative
+    # balance. Joins the conditional UPDATE above in the same transaction, so a
+    # failure here rolls back the status flip too.
+    new_points = await db.scalar(
+        update(User)
+        .where(User.id == voucher.user_id)
+        .values(points=User.points - voucher.points_cost)
+        .returning(User.points)
+    )
+    assert new_points is not None, "the voucher's user must still exist"
+    if new_points < 0:
+        audit(
+            "rewards.points.negative_after_debit",
+            user_id=voucher.user_id,
+            voucher_id=voucher.id,
+            points_cost=voucher.points_cost,
+            resulting_points=new_points,
+        )
 
     await db.commit()
     await db.refresh(voucher, attribute_names=["status", "used_at", "settled_at"])

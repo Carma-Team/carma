@@ -13,13 +13,14 @@ no Postgres is reachable.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -220,6 +221,139 @@ async def test_consume_marks_it_used_once_and_refuses_the_second_time(db_session
         assert (
             exc.value.detail["code"] == business_service.VOUCHER_ALREADY_USED
         ), "the client needs a code, not a message to parse"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+# ─── Charging points (CAR-109) ────────────────────────────────────────────────
+
+
+async def _balance(db: AsyncSession, user_id: str) -> int:
+    balance = await db.scalar(select(User.points).where(User.id == user_id))
+    assert balance is not None
+    return balance
+
+
+@pytest.mark.asyncio
+async def test_consume_debits_exactly_points_cost_and_marks_used(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        cost = voucher.points_cost
+        starting = await _balance(db_session, driver_id)
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting - cost
+        voucher_after = await db_session.get(Redemption, voucher.id)
+        assert voucher_after is not None and voucher_after.status == RedemptionStatus.USED
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_repricing_the_reward_after_issue_does_not_change_the_charge(db_session: AsyncSession) -> None:
+    """The price agreed at issue is what gets charged, not whatever the reward costs now."""
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        original_cost = voucher.points_cost
+        starting = await _balance(db_session, driver_id)
+
+        reward = await db_session.get(Reward, voucher.reward_id)
+        assert reward is not None
+        reward.cost_points = original_cost * 5
+        await db_session.commit()
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting - original_cost
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expired_voucher_consume_charges_nothing(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(seconds=-1))
+        starting = await _balance(db_session, driver_id)
+
+        with pytest.raises(HTTPException):
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_second_consume_of_the_same_voucher_charges_nothing(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        balance_after_first = await _balance(db_session, driver_id)
+
+        with pytest.raises(HTTPException):
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == balance_after_first
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_consume_never_touches_total_points(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        starting_total = await db_session.scalar(select(User.total_points).where(User.id == driver_id))
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        after_total = await db_session.scalar(select(User.total_points).where(User.id == driver_id))
+        assert after_total == starting_total, "total_points is lifetime earned; spending must never move it"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_a_broken_invariant_still_completes_the_debit_and_raises_an_audit_event(
+    db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The reservation invariant should make a negative balance impossible — but if it ever breaks,
+    the debit must still land (the goods are already gone) and an audit event must fire, rather than
+    the debit silently no-oping and stranding the voucher PENDING.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        # Forces the invariant to break: balance manually driven below the cost.
+        await db_session.execute(update(User).where(User.id == driver_id).values(points=voucher.points_cost - 1))
+        await db_session.commit()
+
+        with caplog.at_level(logging.INFO, logger="carma.audit"):
+            out = await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert out.status == "used"
+        assert await _balance(db_session, driver_id) == -1
+        assert any(
+            getattr(r, "event", None) == "rewards.points.negative_after_debit" for r in caplog.records
+        ), "a debit that takes the balance negative must raise an audit event"
     finally:
         await _cleanup(db_session, business, drivers=(driver,))
 

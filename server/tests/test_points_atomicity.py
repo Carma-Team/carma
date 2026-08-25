@@ -46,7 +46,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -55,8 +55,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models import Business, BusinessCategory, Redemption, Reward, Trip, User
-from app.models.enums import UserRole
+from app.models.enums import RedemptionStatus, UserRole
 from app.schemas.trip import SaveTripIn
+from app.services import business as business_service
 from app.services import rewards as rewards_service
 from app.services import scoring
 from app.services import trips as trips_service
@@ -254,6 +255,63 @@ async def test_concurrent_redeems_cannot_spend_the_same_points_twice(db_session:
         assert await rewards_service.reserved_points(db_session, user.id) == cost_a
     finally:
         await _cleanup(db_session, user, reward_a, reward_b)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_consumes_of_one_voucher_charge_exactly_once(db_session: AsyncSession) -> None:
+    """Two tills scan the same QR at once. Exactly one wins, and the debit lands exactly once.
+
+    CAR-109's debit joins the existing conditional UPDATE on `Redemption`
+    (`status=PENDING AND expires_at>now`) rather than taking a lock of its own —
+    that UPDATE's row lock is what already serialises the two tills. This proves
+    the debit inherits that guarantee: the loser's UPDATE affects zero rows and
+    never reaches the debit at all, so the winner's `points_cost` is taken from
+    the balance exactly once, not twice and not zero times.
+    """
+    cost = 300
+    balance = 1000
+    reward = await _make_reward(db_session, cost_points=cost)
+    user = await _make_driver(db_session, points=balance)
+    try:
+        business = await db_session.get(Business, reward.business_id)
+        assert business is not None
+
+        code = uuid.uuid4().hex[:12].upper()
+        voucher = Redemption(
+            user_id=user.id,
+            reward_id=reward.id,
+            business_id=reward.business_id,
+            points_cost=cost,
+            qr_code=code,
+            qr_data=code,
+            status=RedemptionStatus.PENDING,
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+        db_session.add(voucher)
+        await db_session.commit()
+
+        async with _rival_session() as rival_db:
+            rival_business = await rival_db.get(Business, reward.business_id)
+            assert rival_business is not None
+
+            results = await asyncio.gather(
+                business_service.consume_voucher(db_session, business, code),
+                business_service.consume_voucher(rival_db, rival_business, code),
+                return_exceptions=True,
+            )
+
+        failures = [r for r in results if isinstance(r, BaseException)]
+        assert len(failures) == 1, f"exactly one consume must be refused, got {results}"
+        refused = failures[0]
+        assert isinstance(refused, HTTPException)
+        assert refused.status_code == 409
+
+        # The assertion that bites hardest: a debit racing the conditional UPDATE
+        # instead of joining its transaction could run twice (double charge) or,
+        # gated on balance, zero times (voucher USED but never paid for).
+        assert await _balance(db_session, user.id) == balance - cost, "the debit must land exactly once"
+    finally:
+        await _cleanup(db_session, user, reward)
 
 
 # ─── CAR-12 §4 as written: a trip save racing a redeem ───────────────────────
