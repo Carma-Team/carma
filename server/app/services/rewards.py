@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import CursorResult, and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import ColumnElement
@@ -30,6 +31,12 @@ REWARD_OUT_OF_STOCK = "REWARD_OUT_OF_STOCK"
 REWARD_CAMPAIGN_ENDED = "REWARD_CAMPAIGN_ENDED"
 VOUCHER_LIMIT_REACHED = "VOUCHER_LIMIT_REACHED"
 VOUCHER_REISSUE_COOLDOWN = "VOUCHER_REISSUE_COOLDOWN"
+# Same convention: a client branches on `detail["code"]`, never on
+# `detail["message"]` (CAR-67). `business.consume_voucher` reports the same two
+# terminal states under these codes — CAR-110's cancel() shares them rather
+# than minting a second pair for what is, to a client, the same conflict.
+VOUCHER_ALREADY_USED = "VOUCHER_ALREADY_USED"
+VOUCHER_EXPIRED = "VOUCHER_EXPIRED"
 
 # CAR-71: caps a driver at N *live* vouchers per reward, not per driver overall
 # — nothing stops holding live vouchers for several different rewards at once.
@@ -377,6 +384,56 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     # Re-counted after the commit so the response reflects the unit just taken.
     claimed = await claimed_by_reward(db, [reward.id])
     return VoucherOut.from_orm_redemption(redemption, available_units(reward.stock, claimed.get(reward.id, 0)))
+
+
+async def cancel(db: AsyncSession, user: User, voucher_id: str) -> VoucherOut:
+    """Cancel one of the driver's own live vouchers — CAR-110.
+
+    Releases nothing explicitly: `claimed_by_reward`, `reserved_points` and
+    `count_live_vouchers` all key off `live_voucher_where`, and `_cooldown_ends_at`
+    already anchors CANCELLED to `settled_at`. Once this UPDATE lands, the unit,
+    the reserved points, the CAR-71 slot and the CAR-72 cooldown all follow from
+    the status alone.
+    """
+    voucher = await db.scalar(select(Redemption).where(Redemption.id == voucher_id))
+    # Ownership folded into the same 404 as "no such voucher" — same reasoning
+    # as business._owned_voucher: a 403 would confirm another driver's voucher
+    # exists.
+    if voucher is None or voucher.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Voucher not found")
+
+    # Conditional UPDATE, not read-then-write — same shape as consume_voucher's,
+    # so two concurrent cancels of the same voucher cannot both succeed.
+    now = datetime.now(UTC)
+    voucher_id = voucher.id
+    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(Redemption)
+        .where(Redemption.id == voucher_id, *live_voucher_where(now))
+        .values(status=RedemptionStatus.CANCELLED, settled_at=now)
+    )
+    if result.rowcount == 0:
+        await db.rollback()
+        # Re-read rather than trusting the status loaded a moment ago: whoever
+        # settled it first (a redeem, an expiry, or another cancel) is the
+        # reason this one lost.
+        current = await db.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
+        if current == RedemptionStatus.USED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, {"code": VOUCHER_ALREADY_USED, "message": "Voucher already used"}
+            )
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
+
+    await db.commit()
+    voucher = await db.scalar(
+        select(Redemption)
+        .where(Redemption.id == voucher_id)
+        .options(selectinload(Redemption.reward).selectinload(Reward.business))
+    )
+    assert voucher is not None, "just-cancelled voucher must still be readable"
+    audit("rewards.voucher.cancelled", user_id=user.id, voucher_id=voucher.id, reward_id=voucher.reward_id)
+    claimed = await claimed_by_reward(db, [voucher.reward_id])
+    available = available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
+    return VoucherOut.from_orm_redemption(voucher, available)
 
 
 async def _allocate_voucher_code(db: AsyncSession) -> str | None:

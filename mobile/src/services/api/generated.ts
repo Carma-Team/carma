@@ -388,6 +388,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vouchers/{voucher_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel one of the authenticated user's own live vouchers */
+        post: operations["cancel_voucher_api_vouchers__voucher_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/rewards": {
         parameters: {
             query?: never;
@@ -2395,6 +2412,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoucherListOut"];
+                };
+            };
+        };
+    };
+    cancel_voucher_api_vouchers__voucher_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
