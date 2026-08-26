@@ -70,6 +70,19 @@ async def current_business(request: Request, user: CurrentUser, db: DbSession) -
 CurrentBusiness = Annotated[Business, Depends(current_business)]
 
 
+async def current_admin(user: CurrentUser) -> User:
+    """An ADMIN, resolved from the DB row `CurrentUser` already re-reads on every
+    request — never from the JWT's `role` claim. That is what makes a role
+    change (grant or revoke) effective on the very next request instead of
+    waiting out a week-long token TTL (CAR-77)."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin account required")
+    return user
+
+
+CurrentAdmin = Annotated[User, Depends(current_admin)]
+
+
 def is_browser_request(request: Request) -> bool:
     """Whether this call carries the header only CARMA's own web app sends.
 

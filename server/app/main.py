@@ -21,6 +21,7 @@ from app.middlewares.request_id import RequestIdMiddleware
 from app.middlewares.request_log import RequestLogMiddleware
 from app.monitoring import configure_monitoring
 from app.routers import (
+    admin_business_requests,
     auth,
     business,
     business_join_requests,
@@ -101,6 +102,7 @@ app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(business.router)
 app.include_router(business_join_requests.router)
+app.include_router(admin_business_requests.router)
 app.include_router(leaderboard.router)
 app.include_router(friends.router)
 app.include_router(invites.router)
