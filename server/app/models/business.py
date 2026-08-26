@@ -20,6 +20,11 @@ class Business(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
     owner_user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id"), unique=True)
+    # Nullable: businesses that predate CAR-77 (seed data, anything created
+    # before approval flowed through a join request) have none. Every Business
+    # created via CAR-77's approve path always sets it, copied verbatim from the
+    # BusinessJoinRequest — see services.business_join_requests.approve.
+    registration_number: Mapped[str | None] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)  # canonical / English display name
     name_he: Mapped[str | None] = mapped_column(String(120))  # Hebrew override; falls back to `name`
     category: Mapped[BusinessCategory] = mapped_column(
