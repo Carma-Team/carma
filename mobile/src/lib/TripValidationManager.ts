@@ -26,16 +26,9 @@ export class TripValidationManager implements TripValidator {
   private ticker: ReturnType<typeof setInterval> | null = null;
   private fraudDetector        = new FraudDetector();
   private fraudSuspectedFired  = false;
-  // Region is checked once per trip, off the first sample that carries a fix — not
-  // every sample, since reverse-geocoding on every tick would be wasteful and the
+  // Region is checked once per trip, off the first sample that carries a fix. The
   // answer can't change mid-trip in a way CARMA needs to react to twice.
   private regionChecked        = false;
-  // Bumped on every start() — checkRegion() captures it before its await and compares
-  // after, so a stale result from a stopped-then-restarted session (same instance,
-  // reused across trips) can't reject a later, unrelated trip. A `this.ticker` null
-  // check alone isn't enough: a quick stop()+start() (e.g. BT drop/reconnect) leaves
-  // the ticker truthy again by the time the old promise resolves.
-  private sessionToken         = 0;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
   public onTripConfirmed?: () => void;
@@ -53,7 +46,6 @@ export class TripValidationManager implements TripValidator {
   public start(): void {
     if (this.ticker) return;
     this.reset();
-    this.sessionToken++;
     this.ticker = setInterval(() => this.tick(), TICK_INTERVAL_MS);
     console.log('[Validation] Started — waiting for movement');
   }
@@ -77,23 +69,17 @@ export class TripValidationManager implements TripValidator {
     if (sample.gyroYaw !== undefined) {
       this.latestGyroZ = sample.gyroYaw;
     }
+    // CAR-23: fired once, off the first fix. Synchronous, so there is no window in
+    // which the answer lands after the session it belongs to has already stopped.
     if (!this.regionChecked && sample.lat !== undefined && sample.lng !== undefined) {
       this.regionChecked = true;
-      this.checkRegion(sample.lat, sample.lng);
+      if (!isRegionAllowed(sample.lat, sample.lng)) {
+        console.log('[Validation] Region check failed — trip rejected');
+        this.reset();
+        this.setState(ValidationState.IDLE);
+        this.onRegionRejected?.();
+      }
     }
-  }
-
-  // CAR-23: fired once, off the first fix. Async, so it can land after stop()/reset()
-  // has already run — the ticker check below is what makes that a no-op instead of
-  // reviving a session that's no longer running.
-  private async checkRegion(lat: number, lng: number): Promise<void> {
-    const token = this.sessionToken;
-    const allowed = await isRegionAllowed(lat, lng);
-    if (allowed || !this.ticker || token !== this.sessionToken) return;
-    console.log('[Validation] Region check failed — trip rejected');
-    this.reset();
-    this.setState(ValidationState.IDLE);
-    this.onRegionRejected?.();
   }
 
   // ─── Public Getters ────────────────────────────────────────────────────────

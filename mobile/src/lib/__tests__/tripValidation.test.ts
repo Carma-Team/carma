@@ -1,19 +1,11 @@
 let mockRegionAllowed = true;
 jest.mock('@/lib/regionCheck', () => ({
-  isRegionAllowed: jest.fn(async () => mockRegionAllowed),
+  isRegionAllowed: jest.fn(() => mockRegionAllowed),
 }));
 
 import { TripValidationManager } from '@/lib/TripValidationManager';
 import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
 import { isRegionAllowed } from '@/lib/regionCheck';
-
-// Region check is async — a fake-timer tick doesn't flush its microtask queue,
-// so tests that need the result must await this after the sample is fed in.
-// Several hops: the mocked isRegionAllowed() resolves, then checkRegion()
-// continues past its own await — one Promise.resolve() isn't always enough.
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -354,25 +346,21 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
 
 describe('Rule 4 — region check', () => {
 
-  test('a fix outside Israel rejects the trip and fires onRegionRejected', async () => {
+  test('a fix outside the box rejects the trip and fires onRegionRejected', () => {
     mockRegionAllowed = false;
     const m = new TripValidationManager();
-    const confirmed = jest.fn();
     const regionRejected = jest.fn();
-    m.onTripConfirmed = confirmed;
     m.onRegionRejected = regionRejected;
     m.start();
 
     m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
-    jest.advanceTimersByTime(1000);
-    await flushMicrotasks();
 
     expect(regionRejected).toHaveBeenCalledTimes(1);
     expect(m.getState()).toBe(ValidationState.IDLE);
     m.stop();
   });
 
-  test('a fix inside Israel does not reject the trip', async () => {
+  test('a fix inside the box does not reject the trip', () => {
     const m = new TripValidationManager();
     const regionRejected = jest.fn();
     m.onRegionRejected = regionRejected;
@@ -380,59 +368,42 @@ describe('Rule 4 — region check', () => {
 
     advanceTicks(m, 30, 50); // reaches SCORING via Rule 1 — no lat/lng, region never checked
     m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
-    await flushMicrotasks();
 
     expect(regionRejected).not.toHaveBeenCalled();
     expect(m.getState()).toBe(ValidationState.SCORING);
     m.stop();
   });
 
-  test('checks the region only once per trip, off the first fix', async () => {
+  test('checks the region only once per trip, off the first fix', () => {
     const m = new TripValidationManager();
     m.start();
 
     m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
     m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
     m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
-    await flushMicrotasks();
 
     expect(isRegionAllowed).toHaveBeenCalledTimes(1);
     m.stop();
   });
 
-  test('a late rejection after stop() does not revive the session', async () => {
-    mockRegionAllowed = false;
+  // Location permission denied: no sample ever carries a fix, so the gate never fires
+  // and the trip scores normally. This is current behaviour, not a settled decision —
+  // whether a fixless trip should instead be rejected is CAR-256.
+  test('a trip that never carries a fix is never region-checked, and still confirms', () => {
+    mockRegionAllowed = false; // would reject, if it were ever consulted
     const m = new TripValidationManager();
+    const confirmed = jest.fn();
     const regionRejected = jest.fn();
+    m.onTripConfirmed = confirmed;
     m.onRegionRejected = regionRejected;
     m.start();
 
-    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
-    m.stop(); // stop before the async check resolves
-    await flushMicrotasks();
+    advanceTicks(m, 30, 50);
 
+    expect(isRegionAllowed).not.toHaveBeenCalled();
     expect(regionRejected).not.toHaveBeenCalled();
-  });
-
-  test('a stale check from a stopped session does not reject a restarted one', async () => {
-    let resolveCheck: (allowed: boolean) => void;
-    (isRegionAllowed as jest.Mock).mockImplementationOnce(
-      () => new Promise<boolean>(resolve => { resolveCheck = resolve; }),
-    );
-
-    const m = new TripValidationManager();
-    const regionRejected = jest.fn();
-    m.onRegionRejected = regionRejected;
-    m.start();
-    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 }); // old session's fix, check in flight
-
-    m.stop();
-    m.start(); // restarted before the old check resolves — ticker is truthy again
-
-    resolveCheck!(false); // old session's stale, unrelated answer arrives late
-    await flushMicrotasks();
-
-    expect(regionRejected).not.toHaveBeenCalled();
+    expect(confirmed).toHaveBeenCalledTimes(1);
+    expect(m.getState()).toBe(ValidationState.SCORING);
     m.stop();
   });
 });

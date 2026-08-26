@@ -67,6 +67,7 @@ npx expo install expo-file-system expo-sharing
 | `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
 | `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer + gyroscope variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
 | `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS stream to an NDJSON file for a staged calibration session (scenario/platform-tagged); exports via `expo-sharing` |
+| `DeviceCapabilities.ts` | One-shot startup probe: which motion sensors the device exposes, and whether the OS meets the floor in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds; what the host app does about it is the host app's decision |
 | `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
 
 ---

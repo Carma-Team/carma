@@ -17,11 +17,6 @@ web-build/
 *.key
 *.mobileprovision
 
-# Local scratch — command output + draft PR/commit content, fixed filenames,
-# always overwritten in place. Whole directory, not per-file, so a new file
-# added here never needs a matching gitignore edit.
-.local/
-
 # Metro
 .metro-health-check*
 

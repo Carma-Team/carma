@@ -299,21 +299,31 @@ export class DrivingSDK {
 
   // --- Fraud Handling ---
 
+  // Teardown shared by the two silent aborts (fraud, region): same shape as stopTrip()
+  // minus the trip payload, since neither fires onTripEnd and neither has anything to
+  // persist. Stopping the validator is the part that is easy to forget and expensive to
+  // miss — its 1 Hz ticker outlives the session otherwise, and start() early-returns
+  // while that ticker is alive, so the next trip inherits this one's state.
+  private abortSession(): void {
+    this.isValidating = false;
+    this.isTripActive = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.validationManager.stop();
+    this.currentTripData = null;
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopTrip().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
+    this.phoneManager.stop();
+  }
+
   private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
-    this.isValidating = false;
 
     // Read before the abort clears it below — undefined here means the pre-trip gate
     // caught the session, and stays undefined all the way to the server.
     const distanceKm = this.currentTripData?.distanceKm;
 
-    // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
-    this.isTripActive = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    this.currentTripData = null;
-    // Same raw-recording guard as stopTrip() — a staged session may still be running.
-    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
-    this.phoneManager.stop();
+    this.abortSession();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
     const event: FraudDetectedEvent = {
@@ -328,16 +338,11 @@ export class DrivingSDK {
     this.onFraudDetected?.(event);
   }
 
-  // CAR-23: same silent-abort shape as handleFraud() — no event payload, since
-  // there's nothing to report and no server call for a region rejection.
+  // CAR-23: no event payload, since there's nothing to report and no server call for
+  // a region rejection.
   private handleRegionRejected(): void {
     console.log('[SDK] Region check failed — aborting session');
-    this.isValidating = false;
-    this.isTripActive = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    this.currentTripData = null;
-    this.sensorManager.stop();
-    this.phoneManager.stop();
+    this.abortSession();
     this.onRegionRejected?.();
   }
 
