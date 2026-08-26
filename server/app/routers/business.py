@@ -128,4 +128,7 @@ async def peek_voucher(
 async def consume_voucher(
     request: Request, code: str, membership: CurrentBusinessMembership, db: DbSession
 ) -> BusinessVoucherResponse:
-    return BusinessVoucherResponse(voucher=await business_service.consume_voucher(db, membership.business, code))
+    voucher = await business_service.consume_voucher(
+        db, membership.business, code, consumed_by_user_id=membership.user_id
+    )
+    return BusinessVoucherResponse(voucher=voucher)

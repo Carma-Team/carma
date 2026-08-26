@@ -269,6 +269,8 @@ async def test_archived_reward_voucher_still_loads_and_can_be_consumed(db_sessio
     driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
     db_session.add(driver)
     await db_session.commit()
+    member_id = business.owner_user_id
+    assert member_id is not None
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
         voucher = _voucher(created.id, driver.id, business.id)
@@ -283,7 +285,9 @@ async def test_archived_reward_voucher_still_loads_and_can_be_consumed(db_sessio
         assert peeked.reward.id == created.id
 
         # …and consuming it works exactly as it would for a non-archived reward.
-        consumed = await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        consumed = await business_service.consume_voucher(
+            db_session, business, voucher.qr_code, consumed_by_user_id=member_id
+        )
         assert consumed.status == "used"
     finally:
         await db_session.delete(driver)
