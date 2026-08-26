@@ -139,18 +139,23 @@ async def test_a_long_lived_voucher_is_still_single_use(db_session: AsyncSession
     """
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
+    member = await _make_driver(db_session)
     business_id, driver_id = business.id, driver.id
     try:
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
         await db_session.refresh(business)
 
-        consumed = await business_service.consume_voucher(db_session, business, voucher.code)
+        consumed = await business_service.consume_voucher(
+            db_session, business, voucher.code, consumed_by_user_id=member.id
+        )
         assert consumed.status == "used"
 
         with pytest.raises(HTTPException) as second:
-            await business_service.consume_voucher(db_session, business, voucher.code)
+            await business_service.consume_voucher(db_session, business, voucher.code, consumed_by_user_id=member.id)
         assert second.value.status_code == 409
     finally:
+        await db_session.delete(member)
+        await db_session.commit()
         await _cleanup(db_session, business_id, driver_id)
 
 
@@ -159,6 +164,7 @@ async def test_a_voucher_past_the_long_window_is_still_refused(db_session: Async
     """Lengthening the window must not amount to switching expiry off."""
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
+    member = await _make_driver(db_session)
     business_id, driver_id = business.id, driver.id
     try:
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
@@ -171,7 +177,7 @@ async def test_a_voucher_past_the_long_window_is_still_refused(db_session: Async
         await db_session.refresh(business)
 
         with pytest.raises(HTTPException) as refused:
-            await business_service.consume_voucher(db_session, business, voucher.code)
+            await business_service.consume_voucher(db_session, business, voucher.code, consumed_by_user_id=member.id)
         assert refused.value.status_code == 409
 
         # `_owned_voucher` settles the TTL before reading, so the row lands on
@@ -180,4 +186,6 @@ async def test_a_voucher_past_the_long_window_is_still_refused(db_session: Async
         assert settled is not None
         assert settled.status is RedemptionStatus.EXPIRED
     finally:
+        await db_session.delete(member)
+        await db_session.commit()
         await _cleanup(db_session, business_id, driver_id)
