@@ -34,8 +34,8 @@ function makeVoucher(overrides: Partial<Voucher> = {}): Voucher {
   return {
     id: 'v1',
     rewardId: 'r1',
-    code: 'CRM8421',
-    qrData: 'CRM8421',
+    code: 'TXQ947ZKPS',
+    qrData: 'TXQ947ZKPS',
     status: 'pending',
     isUsed: false,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
@@ -89,7 +89,7 @@ describe('RedemptionPage', () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
 
     expect(screen.getByRole('heading', { name: 'קפה גדול חינם' })).toBeInTheDocument();
     expect(consumeVoucher).not.toHaveBeenCalled();
@@ -100,14 +100,14 @@ describe('RedemptionPage', () => {
     vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ status: 'used' }) });
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
 
     fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
     fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).toBeInTheDocument());
     expect(consumeVoucher).toHaveBeenCalledTimes(1);
-    expect(consumeVoucher).toHaveBeenCalledWith('CRM8421');
+    expect(consumeVoucher).toHaveBeenCalledWith('TXQ947ZKPS');
   });
 
   it('does not send a second consume request on a double click', async () => {
@@ -116,7 +116,7 @@ describe('RedemptionPage', () => {
     vi.mocked(consumeVoucher).mockReturnValue(new Promise((resolve) => (resolveConsume = resolve)));
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
 
     fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
     const confirmButton = screen.getByRole('button', { name: 'כן, מימוש ההטבה' });
@@ -133,9 +133,9 @@ describe('RedemptionPage', () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
 
     renderPage();
-    await enterCode('  crm-8421 ');
+    await enterCode('  txq-947z kps ');
 
-    expect(peekVoucher).toHaveBeenCalledWith('  crm-8421 ');
+    expect(peekVoucher).toHaveBeenCalledWith('  txq-947z kps ');
     expect(screen.getByRole('heading', { name: 'קפה גדול חינם' })).toBeInTheDocument();
   });
 
@@ -145,7 +145,7 @@ describe('RedemptionPage', () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ expiresAt }) });
 
     renderPage();
-    fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'CRM8421' } });
+    fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
     fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
     // flush the mocked async peekVoucher without real timers
     await vi.waitFor(() => expect(screen.getByText('5:00')).toBeInTheDocument());
@@ -160,23 +160,27 @@ describe('RedemptionPage', () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ status: 'used' }) });
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
 
     expect(screen.getByRole('button', { name: 'מימוש ההטבה' })).toBeDisabled();
     expect(consumeVoucher).not.toHaveBeenCalled();
   });
 
-  it('shows a generic, unmistakable failure state without redeeming when consume fails', async () => {
+  it('leaves the page recoverable, not stuck, when consume fails after a successful lookup', async () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
     vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'already_used' });
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
     fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
     fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
+
+    // Not stuck: the failure offers a way back to code entry.
+    fireEvent.click(screen.getByRole('button', { name: 'הזנת קוד אחר' }));
+    expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument();
   });
 
   it('renders in Hebrew RTL by default', async () => {
@@ -208,7 +212,7 @@ describe('RedemptionPage', () => {
     vi.mocked(consumeVoucher).mockReturnValue(new Promise((resolve) => (resolveConsume = resolve)));
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
     fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
     fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
@@ -234,7 +238,7 @@ describe('RedemptionPage', () => {
     vi.mocked(consumeVoucher).mockReturnValue(new Promise((resolve) => (resolveConsume = resolve)));
 
     renderPage();
-    await enterCode('CRM8421');
+    await enterCode('TXQ947ZKPS');
     fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
     const confirmYes = screen.getByRole('button', { name: 'כן, מימוש ההטבה' });
     fireEvent.click(confirmYes);
@@ -261,7 +265,7 @@ describe('RedemptionPage', () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ expiresAt }) });
 
     renderPage();
-    fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'CRM8421' } });
+    fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
     fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
     await vi.waitFor(() => expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument());
 
@@ -290,5 +294,173 @@ describe('RedemptionPage', () => {
     const input = screen.getByLabelText('קוד שובר') as HTMLInputElement;
     const example = input.placeholder.replace(/[^A-Z0-9]/g, '');
     expect(example).toMatch(VOUCHER_CODE_PATTERN);
+  });
+
+  // ── CAR-69: one distinct, actionable failure state per row ─────────────────
+
+  describe('failure states', () => {
+    it('rejects a malformed code before calling the API, with a format hint', async () => {
+      renderPage();
+
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TOOSHORT' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      expect(peekVoucher).not.toHaveBeenCalled();
+      expect(screen.getByText(/הזינו קוד בן 10 תווים/)).toBeInTheDocument();
+      // Still on the entry form, not stuck in a loading or failure step.
+      expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument();
+    });
+
+    it('clears the format hint once the cashier edits the code', async () => {
+      renderPage();
+
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TOOSHORT' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+      expect(screen.getByText(/הזינו קוד בן 10 תווים/)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'T' } });
+      expect(screen.queryByText(/הזינו קוד בן 10 תווים/)).not.toBeInTheDocument();
+    });
+
+    it('reads an unknown or another business’s voucher (404) first as "check the code"', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'not_valid_here' });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      expect(screen.getByRole('heading', { name: 'בדקו את הקוד' })).toBeInTheDocument();
+    });
+
+    it('shows when an already-used voucher was redeemed, on a peek result', async () => {
+      const redeemedAt = '2026-08-20T10:00:00.000Z';
+      vi.mocked(peekVoucher).mockResolvedValue({
+        outcome: 'ok',
+        voucher: makeVoucher({ status: 'used', isUsed: true, redeemedAt }),
+      });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+
+      expect(screen.getByText('מומש בתאריך')).toBeInTheDocument();
+      expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
+    });
+
+    it('shows when an already-used voucher was redeemed even when the conflict is only discovered at confirm', async () => {
+      const redeemedAt = '2026-08-20T10:00:00.000Z';
+      vi.mocked(peekVoucher)
+        .mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher() })
+        // Someone else redeemed it between the peek and the confirm click; the
+        // re-peek this triggers is how the page learns the real timestamp.
+        .mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher({ status: 'used', redeemedAt }) });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'already_used' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'השובר כבר מומש' })).toBeInTheDocument());
+      expect(peekVoucher).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
+    });
+
+    it('reads an expired-between-lookup-and-confirm conflict as a timing problem, not a rejection', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'expired' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'פג תוקף השובר' })).toBeInTheDocument());
+      expect(screen.getByText(/לפני שהמימוש אושר/)).toBeInTheDocument();
+    });
+
+    it('reaches the expired-timing state purely from the server response, not from any fixed TTL value', async () => {
+      // Two vouchers with wildly different TTLs both land on the same
+      // expired-conflict copy — nothing in the client hardcodes a duration.
+      for (const expiresAt of [
+        new Date(Date.now() + 5_000).toISOString(),
+        new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      ]) {
+        vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ expiresAt }) });
+        vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'expired' });
+
+        const { unmount } = renderPage();
+        await enterCode('TXQ947ZKPS');
+        fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+        fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+        await waitFor(() => expect(screen.getByRole('heading', { name: 'פג תוקף השובר' })).toBeInTheDocument());
+        unmount();
+      }
+    });
+
+    it('shows the Retry-After value for a rate-limited attempt', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'rate_limited', retryAfterSeconds: 42 });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      expect(screen.getByText('נסו שוב בעוד (שניות)')).toBeInTheDocument();
+      expect(screen.getByText('42')).toBeInTheDocument();
+    });
+
+    it('renders the cannot-verify state, not success, on a connectivity failure — and says not to hand over the goods', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'network_error' });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      expect(screen.getByRole('heading', { name: 'לא ניתן לאמת את השובר' })).toBeInTheDocument();
+      expect(screen.getByText(/אל תמסרו את המוצר/)).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
+    });
+
+    it('renders the cannot-verify state when connectivity drops during confirm, not a false success', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'network_error' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'לא ניתן לאמת את השובר' })).toBeInTheDocument());
+      expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
+    });
+
+    it('falls back to a safe, translated message for an unexpected failure, without any raw server text or status code', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'unexpected_error' });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      expect(screen.getByRole('heading', { name: 'משהו השתבש' })).toBeInTheDocument();
+      expect(screen.queryByText(/500/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Internal/)).not.toBeInTheDocument();
+    });
+
+    it('offers a way back to code entry from every failure state', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'not_valid_here' });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'הזנת קוד אחר' }));
+
+      expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument();
+    });
   });
 });

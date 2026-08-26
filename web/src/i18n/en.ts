@@ -60,6 +60,25 @@ const en: TranslationMap = {
     successSubtitle: 'No further action needed.',
     redeemAnotherButton: 'Redeem another reward',
     backToHomeButton: 'Back to home',
+    codeFormatError: 'Enter the 10-character code exactly as shown — letters and digits only, no 0, 1, I, O or L.',
+    redeemedAtLabel: 'Redeemed at',
+    retryAfterLabel: 'Retry after (seconds)',
+    tryAnotherCodeButton: 'Enter another code',
+    failureNotValidTitle: 'Check the code',
+    failureNotValidMessage:
+      "We couldn't find a voucher with that code for this business. Re-enter it carefully — a mistyped or misheard character is the most common reason.",
+    failureAlreadyUsedTitle: 'Already redeemed',
+    failureAlreadyUsedMessage: 'This voucher was already redeemed and cannot be used again.',
+    failureExpiredTitle: 'Voucher expired',
+    failureExpiredMessage:
+      "The voucher's time window ran out just now, before the redemption was confirmed. Ask the driver to return to the reward and issue a new voucher if their current voucher policy allows it.",
+    failureRateLimitedTitle: 'Too many attempts',
+    failureRateLimitedMessage: 'Wait a moment before trying again.',
+    failureNetworkTitle: 'Cannot verify the voucher',
+    failureNetworkMessage:
+      "We couldn't reach the server, so the voucher cannot be verified. Do not hand over the goods — check the connection and try again.",
+    failureUnexpectedTitle: 'Something went wrong',
+    failureUnexpectedMessage: 'Please try again.',
   },
   auth: {
     signInTitle: 'Sign in',

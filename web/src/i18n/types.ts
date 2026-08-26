@@ -74,6 +74,22 @@ export type TranslationMap = {
     successSubtitle: string;
     redeemAnotherButton: string;
     backToHomeButton: string;
+    codeFormatError: string;
+    redeemedAtLabel: string;
+    retryAfterLabel: string;
+    tryAnotherCodeButton: string;
+    failureNotValidTitle: string;
+    failureNotValidMessage: string;
+    failureAlreadyUsedTitle: string;
+    failureAlreadyUsedMessage: string;
+    failureExpiredTitle: string;
+    failureExpiredMessage: string;
+    failureRateLimitedTitle: string;
+    failureRateLimitedMessage: string;
+    failureNetworkTitle: string;
+    failureNetworkMessage: string;
+    failureUnexpectedTitle: string;
+    failureUnexpectedMessage: string;
   };
   auth: {
     signInTitle: string;
