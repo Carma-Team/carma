@@ -1,7 +1,11 @@
 from app.models.base import Base
 from app.models.business import Business
+from app.models.business_join_request import BusinessJoinRequest
+from app.models.business_membership import BusinessMembership
 from app.models.enums import (
     BusinessCategory,
+    BusinessJoinRequestStatus,
+    BusinessMembershipRole,
     EventType,
     FriendStatus,
     Language,
@@ -35,6 +39,10 @@ __all__ = [
     "Base",
     "Business",
     "BusinessCategory",
+    "BusinessJoinRequest",
+    "BusinessJoinRequestStatus",
+    "BusinessMembership",
+    "BusinessMembershipRole",
     "Event",
     "EventType",
     "FriendStatus",

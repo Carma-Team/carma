@@ -19,7 +19,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
-from app.models import Business, BusinessCategory, User, UserRole
+from app.models import Business, BusinessCategory, BusinessMembership, BusinessMembershipRole, User, UserRole
 from app.routers.business import PEEK_LIMIT, REDEEM_LIMIT
 
 # Read off the route rather than repeated here, so tuning the ceiling does not
@@ -47,6 +47,8 @@ async def _make_business(db: AsyncSession) -> tuple[Business, dict[str, str]]:
         location_lng=34.78,
     )
     db.add(business)
+    await db.flush()
+    db.add(BusinessMembership(user_id=owner.id, business_id=business.id, role=BusinessMembershipRole.OWNER))
     await db.commit()
     await db.refresh(business)
 

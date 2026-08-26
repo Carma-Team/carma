@@ -9,6 +9,10 @@ export type AuthUser = {
   role: 'DRIVER' | 'BUSINESS' | 'ADMIN';
   businessId: string | null;
   businessCategory: string | null;
+  // Raw fields, not a pre-resolved fallback — callers pick businessNameHe ??
+  // businessName themselves (see AppShell), same as the server's UserOut.
+  businessName: string | null;
+  businessNameHe: string | null;
 };
 
 // 'error' is distinct from 'unauthenticated': it means the one-time bootstrap

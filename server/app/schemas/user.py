@@ -22,6 +22,13 @@ class UserOut(CamelModel):
     license_year: int | None = None
     points: int
     total_points: int
+    # Derived, never stored (CAR-73): reserved is the sum of points_cost over
+    # this driver's live vouchers, available is points minus that sum. Not on
+    # the User model, so users_service.profile_out fills these in after
+    # validation — the defaults here only satisfy from_attributes on that read.
+    # See rewards_service.reserved_points for why there is no reserved_points column.
+    available_points: int = 0
+    reserved_points: int = 0
     total_distance: float
     level: int
     is_private: bool = False
@@ -32,6 +39,12 @@ class UserOut(CamelModel):
     # screens key off businessCategory to categorise new rewards.
     business_id: str | None = None
     business_category: str | None = None
+    # Raw fields, not a server-resolved fallback — the business web shell
+    # picks between them itself based on the active UI language (HE prefers
+    # businessNameHe, EN prefers businessName), which the server has no
+    # notion of.
+    business_name: str | None = None
+    business_name_he: str | None = None
     created_at: datetime
 
 
