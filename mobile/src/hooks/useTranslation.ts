@@ -9,6 +9,7 @@
  *
  * @remarks No server calls — local only.
  */
+import { useCallback } from 'react'
 import { useApp } from '@/context/AppContext'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
@@ -31,9 +32,13 @@ export function useTranslation() {
   const { lang, setLang } = useApp()
   const translations: TranslationMap = lang === 'HE' ? he : en
 
-  function t(key: string): string {
-    return getNestedValue(translations as unknown as Record<string, unknown>, key)
-  }
+  // Memoised on the language, which is the only thing it reads. A `t` with a fresh
+  // identity every render cannot be named in a dependency array — an effect that
+  // depends on it re-runs on every render, which for a fetching effect is a loop.
+  const t = useCallback(
+    (key: string): string => getNestedValue(translations as unknown as Record<string, unknown>, key),
+    [translations]
+  )
 
   return { t, lang, setLang }
 }
