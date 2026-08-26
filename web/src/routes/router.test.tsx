@@ -77,10 +77,21 @@ describe('routes', () => {
   it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
 
-    renderAt('/redemption');
+    renderAt('/rewards');
 
     // Not `getByText` — the sidebar's own disabled nav items carry the same
     // "coming soon" badge copy. The heading is the page-level marker.
     await waitFor(() => expect(screen.getByRole('heading', { name: 'בקרוב' })).toBeInTheDocument());
+  });
+
+  it('renders the real redemption page inside the shell at /redemption (CAR-68)', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
+
+    renderAt('/redemption');
+
+    await waitFor(() => expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument());
+    // Still inside the shell.
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 });

@@ -47,6 +47,34 @@ export type TranslationMap = {
     title: string;
     message: string;
   };
+  redemption: {
+    title: string;
+    subtitle: string;
+    codeLabel: string;
+    codePlaceholder: string;
+    checkButton: string;
+    checkingLabel: string;
+    statusPending: string;
+    statusUsed: string;
+    statusExpired: string;
+    statusCancelled: string;
+    costPointsLabel: string;
+    expiresLabel: string;
+    timeRemainingLabel: string;
+    expiredLabel: string;
+    redeemButton: string;
+    notRedeemableMessage: string;
+    backToEntry: string;
+    confirmTitle: string;
+    confirmBody: string;
+    confirmYes: string;
+    confirmCancel: string;
+    confirmCloseLabel: string;
+    successTitle: string;
+    successSubtitle: string;
+    redeemAnotherButton: string;
+    backToHomeButton: string;
+  };
   auth: {
     signInTitle: string;
     emailLabel: string;
