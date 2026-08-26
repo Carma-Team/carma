@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "mobile"
+    "mobile",
+    "web"
   ],
   "scripts": {
     "postinstall": "patch-package",
     "mobile:start": "npm run start  --workspace=mobile",
     "mobile:test": "npm run test   --workspace=mobile",
-    "mobile:lint": "npm run lint   --workspace=mobile"
+    "mobile:lint": "npm run lint   --workspace=mobile",
+    "web:start": "npm run dev      --workspace=web",
+    "web:test": "npm run test      --workspace=web",
+    "web:lint": "npm run lint      --workspace=web"
   },
   "engines": {
     "node": ">=20"

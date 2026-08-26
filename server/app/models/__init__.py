@@ -1,7 +1,9 @@
 from app.models.base import Base
 from app.models.business import Business
+from app.models.business_join_request import BusinessJoinRequest
 from app.models.enums import (
     BusinessCategory,
+    BusinessJoinRequestStatus,
     EventType,
     FriendStatus,
     Language,
@@ -22,6 +24,7 @@ from app.models.notification import (
 )
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
+from app.models.refresh_token import RefreshToken
 from app.models.reward import Reward
 from app.models.trip import Trip
 from app.models.user import User
@@ -34,6 +37,8 @@ __all__ = [
     "Base",
     "Business",
     "BusinessCategory",
+    "BusinessJoinRequest",
+    "BusinessJoinRequestStatus",
     "Event",
     "EventType",
     "FriendStatus",
@@ -44,6 +49,7 @@ __all__ = [
     "OtpCode",
     "Redemption",
     "RedemptionStatus",
+    "RefreshToken",
     "Reward",
     "Trip",
     "TripStatus",

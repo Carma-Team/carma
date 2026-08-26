@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange the browser refresh cookie for a new access token */
+        post: operations["refresh_api_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End the browser session */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/otp/register": {
         parameters: {
             query?: never;
@@ -354,6 +388,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vouchers/{voucher_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel one of the authenticated user's own live vouchers */
+        post: operations["cancel_voucher_api_vouchers__voucher_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/rewards": {
         parameters: {
             query?: never;
@@ -382,12 +433,29 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete an owned reward. 409 once any voucher has been issued for it. */
-        delete: operations["delete_reward_api_business_rewards__reward_id__delete"];
+        /** Archive an owned reward — removed from the catalog, history and live vouchers untouched */
+        delete: operations["archive_reward_api_business_rewards__reward_id__delete"];
         options?: never;
         head?: never;
         /** Update fields of an owned reward */
         patch: operations["update_reward_api_business_rewards__reward_id__patch"];
+        trace?: never;
+    };
+    "/api/business/rewards/{reward_id}/live-vouchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live (unused, unexpired) voucher count for an owned reward — check before archiving */
+        get: operations["live_voucher_count_api_business_rewards__reward_id__live_vouchers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/business/vouchers/{code}": {
@@ -418,6 +486,40 @@ export interface paths {
         put?: never;
         /** Consume a voucher. 409 if it was already used or has expired. */
         post: operations["consume_voucher_api_business_vouchers__code__redeem_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a business registration request for admin review */
+        post: operations["submit_join_request_api_business_join_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/join-requests/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The authenticated applicant's own join-request status */
+        get: operations["my_join_request_api_business_join_requests_me_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -692,6 +794,59 @@ export interface components {
             user: components["schemas"]["UserOut"];
         };
         /**
+         * BusinessJoinRequestIn
+         * @description Submission payload. No `phone`, no `userId` — both come from the caller's
+         *     own OTP-verified session (`CurrentUser`), never from the request body.
+         */
+        BusinessJoinRequestIn: {
+            /** Name */
+            name: string;
+            /** Namehe */
+            nameHe?: string | null;
+            /** Category */
+            category?: string | null;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
+            /** Address */
+            address?: string | null;
+            /** Registrationnumber */
+            registrationNumber: string;
+            /** Contactperson */
+            contactPerson: string;
+        };
+        /** BusinessJoinRequestOut */
+        BusinessJoinRequestOut: {
+            /** Id */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "pending" | "approved" | "rejected";
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+        };
+        /**
+         * BusinessJoinRequestStatusOut
+         * @description The applicant's own status — nothing here implies business access.
+         */
+        BusinessJoinRequestStatusOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "none" | "pending" | "approved" | "rejected";
+            /** Createdat */
+            createdAt?: string | null;
+            /** Reviewernote */
+            reviewerNote?: string | null;
+        };
+        /**
          * BusinessRewardIn
          * @description Create payload for a business-owned reward.
          *
@@ -761,6 +916,48 @@ export interface components {
         /** BusinessRewardResponse */
         BusinessRewardResponse: {
             reward: components["schemas"]["RewardOut"];
+        };
+        /**
+         * BusinessVoucherOut
+         * @description VoucherOut's business-facing counterpart (CAR-78).
+         *
+         *     A business only needs to know what to hand over and whether it has already
+         *     been redeemed — never who the driver is. `user_id` stays off the wire here
+         *     on purpose; `Redemption.user_id` itself is untouched and still readable
+         *     internally.
+         */
+        BusinessVoucherOut: {
+            /** Id */
+            id: string;
+            /** Rewardid */
+            rewardId: string;
+            /** Code */
+            code: string;
+            /** Qrdata */
+            qrData: string;
+            /** Status */
+            status: string;
+            /** Isused */
+            isUsed: boolean;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+            /** Redeemedat */
+            redeemedAt: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Pointscost */
+            pointsCost: number;
+            reward: components["schemas"]["RewardOut"];
+        };
+        /** BusinessVoucherResponse */
+        BusinessVoucherResponse: {
+            voucher: components["schemas"]["BusinessVoucherOut"];
         };
         /** ContactMatchOut */
         ContactMatchOut: {
@@ -1066,6 +1263,14 @@ export interface components {
             levels: components["schemas"]["LevelOut"][];
         };
         /**
+         * LiveVoucherCountOut
+         * @description How many outstanding vouchers a reward has right now — check before archiving it.
+         */
+        LiveVoucherCountOut: {
+            /** Livevouchers */
+            liveVouchers: number;
+        };
+        /**
          * LocationsOut
          * @description Filter options for the leaderboard's city picker.
          *
@@ -1246,6 +1451,8 @@ export interface components {
             imageIcon: string;
             /** Isactive */
             isActive: boolean;
+            /** Archivedat */
+            archivedAt: string | null;
             /** Stock */
             stock: number | null;
             /** Available */
@@ -1462,6 +1669,8 @@ export interface components {
             city?: string | null;
             /** Isprivate */
             isPrivate?: boolean | null;
+            /** Drivemodeenabled */
+            driveModeEnabled?: boolean | null;
         };
         /** UserOut */
         UserOut: {
@@ -1487,6 +1696,16 @@ export interface components {
             points: number;
             /** Totalpoints */
             totalPoints: number;
+            /**
+             * Availablepoints
+             * @default 0
+             */
+            availablePoints: number;
+            /**
+             * Reservedpoints
+             * @default 0
+             */
+            reservedPoints: number;
             /** Totaldistance */
             totalDistance: number;
             /** Level */
@@ -1567,6 +1786,8 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+            /** Pointscost */
+            pointsCost: number;
             reward: components["schemas"]["RewardOut"];
         };
         /** VoucherResponse */
@@ -1664,6 +1885,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    refresh_api_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
         };
@@ -2242,6 +2503,37 @@ export interface operations {
             };
         };
     };
+    cancel_voucher_api_vouchers__voucher_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_rewards_api_business_rewards_get: {
         parameters: {
             query?: never;
@@ -2295,7 +2587,7 @@ export interface operations {
             };
         };
     };
-    delete_reward_api_business_rewards__reward_id__delete: {
+    archive_reward_api_business_rewards__reward_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -2359,6 +2651,37 @@ export interface operations {
             };
         };
     };
+    live_voucher_count_api_business_rewards__reward_id__live_vouchers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveVoucherCountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     peek_voucher_api_business_vouchers__code__get: {
         parameters: {
             query?: never;
@@ -2376,7 +2699,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VoucherResponse"];
+                    "application/json": components["schemas"]["BusinessVoucherResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2407,7 +2730,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VoucherResponse"];
+                    "application/json": components["schemas"]["BusinessVoucherResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2417,6 +2740,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_join_request_api_business_join_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessJoinRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_join_request_api_business_join_requests_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestStatusOut"];
                 };
             };
         };

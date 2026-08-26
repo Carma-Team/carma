@@ -4,14 +4,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
 from app.core.security import normalise_voucher_code
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward
-from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, RewardOut, VoucherOut
+from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
+from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
@@ -102,29 +102,34 @@ async def update_reward(db: AsyncSession, business: Business, reward_id: str, dt
     return RewardOut.from_orm_reward(reward, rewards_service.available_units(reward.stock, claimed.get(reward.id, 0)))
 
 
-async def delete_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
-    """Hard-delete a reward, but only while no voucher was ever issued for it.
+async def live_voucher_count(db: AsyncSession, business: Business, reward_id: str) -> int:
+    """Outstanding vouchers a business should know about before archiving this reward."""
+    reward = await _owned_reward(db, business, reward_id)
+    return await rewards_service.count_live_vouchers(db, reward.id)
 
-    Redemption.reward_id is NOT NULL with no cascade: deleting a reward that
-    drivers already redeemed would take their voucher history with it. Once a
-    voucher exists the reward is history, so the caller is told to deactivate it
-    instead — an inactive reward already disappears from the driver marketplace.
+
+async def archive_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Archive a reward — it leaves the catalog, but the row and its vouchers stay.
+
+    Replaces the old hard delete, which `Redemption.reward_id` (NOT NULL, no
+    cascade) made unsafe the moment a voucher existed — this used to 409 instead
+    of risking that. Archiving sidesteps the FK entirely: nothing is removed, so
+    a voucher already issued keeps working to its own expiry (CAR-111).
     """
     reward = await _owned_reward(db, business, reward_id)
-
-    issued = await db.scalar(select(func.count()).select_from(Redemption).where(Redemption.reward_id == reward.id))
-    if issued:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Reward has issued vouchers and cannot be deleted — set isActive to false instead",
-        )
-
-    await db.delete(reward)
+    reward.archived_at = datetime.now(UTC)
     await db.commit()
-    audit("business.reward.deleted", business_id=business.id, reward_id=reward_id)
+    audit("business.reward.archived", business_id=business.id, reward_id=reward_id)
 
 
 # ── Vouchers ─────────────────────────────────────────────────────────────────
+
+# Same convention as `services.rewards`'s REWARD_* codes: a client branches on
+# `detail["code"]`, never on `detail["message"]` — the two 409s below share a
+# status code and used to share a bare-string detail too, which left "already
+# used" and "expired" distinguishable only by sniffing English text (CAR-67).
+VOUCHER_ALREADY_USED = "VOUCHER_ALREADY_USED"
+VOUCHER_EXPIRED = "VOUCHER_EXPIRED"
 
 
 async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Redemption:
@@ -155,7 +160,7 @@ async def _owned_voucher(db: AsyncSession, business: Business, code: str) -> Red
     return voucher
 
 
-async def peek_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+async def peek_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
     """What a scan shows before anyone commits to handing over the goods.
 
     Read-only on purpose: an employee scanning to check validity must not burn
@@ -165,7 +170,7 @@ async def peek_voucher(db: AsyncSession, business: Business, code: str) -> Vouch
     return await _voucher_out(db, voucher)
 
 
-async def consume_voucher(db: AsyncSession, business: Business, code: str) -> VoucherOut:
+async def consume_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
     """Mark a voucher USED — the step that finally closes the redemption loop."""
     voucher = await _owned_voucher(db, business, code)
 
@@ -179,25 +184,44 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
     # runtime, but `execute` is typed as returning a plain Result.
     used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
-        .where(
-            Redemption.id == voucher_id,
-            Redemption.status == RedemptionStatus.PENDING,
-            Redemption.expires_at > now,
-        )
-        .values(status=RedemptionStatus.USED, used_at=now)
+        .where(Redemption.id == voucher_id, *rewards_service.live_voucher_where(now))
+        .values(status=RedemptionStatus.USED, used_at=now, settled_at=now)
     )
     if used.rowcount == 0:
         await db.rollback()
         # Re-read rather than trusting the status loaded a moment ago: whoever won
         # the race is the reason this lost, and the client deserves the real one.
         current = await db.scalar(select(Redemption.status).where(Redemption.id == voucher_id))
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Voucher already used" if current == RedemptionStatus.USED else "Voucher expired",
+        if current == RedemptionStatus.USED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, {"code": VOUCHER_ALREADY_USED, "message": "Voucher already used"}
+            )
+        raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
+
+    # CAR-109: unconditional — CAR-73's reservation invariant (available =
+    # points - reserved, enforced on the issue path) guarantees the points are
+    # there. Gating this on balance would strand a voucher USED-but-unpaid
+    # after the goods already left the till, which is worse than a negative
+    # balance. Joins the conditional UPDATE above in the same transaction, so a
+    # failure here rolls back the status flip too.
+    new_points = await db.scalar(
+        update(User)
+        .where(User.id == voucher.user_id)
+        .values(points=User.points - voucher.points_cost)
+        .returning(User.points)
+    )
+    assert new_points is not None, "the voucher's user must still exist"
+    if new_points < 0:
+        audit(
+            "rewards.points.negative_after_debit",
+            user_id=voucher.user_id,
+            voucher_id=voucher.id,
+            points_cost=voucher.points_cost,
+            resulting_points=new_points,
         )
 
     await db.commit()
-    await db.refresh(voucher, attribute_names=["status", "used_at"])
+    await db.refresh(voucher, attribute_names=["status", "used_at", "settled_at"])
     audit(
         "business.voucher.consumed",
         business_id=business.id,
@@ -208,8 +232,8 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Vo
     return await _voucher_out(db, voucher)
 
 
-async def _voucher_out(db: AsyncSession, voucher: Redemption) -> VoucherOut:
-    """VoucherOut with the reward's availability counted for it."""
+async def _voucher_out(db: AsyncSession, voucher: Redemption) -> BusinessVoucherOut:
+    """BusinessVoucherOut with the reward's availability counted for it."""
     claimed = await rewards_service.claimed_by_reward(db, [voucher.reward_id])
     available = rewards_service.available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
-    return VoucherOut.from_orm_redemption(voucher, available)
+    return BusinessVoucherOut.from_orm_redemption(voucher, available)

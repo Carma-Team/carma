@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
 from app.models.enums import Language, UserRole
 from app.schemas._base import CamelModel
@@ -22,6 +22,13 @@ class UserOut(CamelModel):
     license_year: int | None = None
     points: int
     total_points: int
+    # Derived, never stored (CAR-73): reserved is the sum of points_cost over
+    # this driver's live vouchers, available is points minus that sum. Not on
+    # the User model, so users_service.profile_out fills these in after
+    # validation — the defaults here only satisfy from_attributes on that read.
+    # See rewards_service.reserved_points for why there is no reserved_points column.
+    available_points: int = 0
+    reserved_points: int = 0
     total_distance: float
     level: int
     is_private: bool = False
@@ -75,6 +82,19 @@ class UpdateProfileIn(CamelModel):
     age: int | None = Field(default=None, ge=16, le=120)
     city: str | None = Field(default=None, max_length=80)
     is_private: bool | None = None
+    drive_mode_enabled: bool | None = None
+
+    @field_validator("language", "is_private", "drive_mode_enabled")
+    @classmethod
+    def _reject_explicit_null(cls, value: Language | bool | None) -> Language | bool:
+        """These three back NOT NULL columns; name, age and city are clearable.
+
+        An unset field never reaches here, so omitting the key still leaves the
+        setting alone. Only an explicit null does, and it used to answer 500.
+        """
+        if value is None:
+            raise ValueError("cannot be null — omit the field to leave it unchanged")
+        return value
 
 
 class UpdateLocationIn(CamelModel):

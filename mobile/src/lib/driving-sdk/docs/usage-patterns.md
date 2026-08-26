@@ -31,13 +31,14 @@ Any number of listeners may be registered for the same event type with
 different conditions or handlers. Each fires independently:
 
 ```typescript
-// Listener A: low-severity warning, any speed
+// Listener A: immediate warning, any speed
 const tokenA = sdk.on(DrivingEventType.HARD_BRAKE, {}, (e) => showWarning(e));
 
-// Listener B: high-severity scoring event, only above driving speed
+// Listener B: scoring-relevant event, only above driving speed
+// (minSeverity is not useful here — HARD_BRAKE carries no severity, CAR-156)
 const tokenB = sdk.on(
   DrivingEventType.HARD_BRAKE,
-  { minSpeedKmh: 15, minSeverity: 0.3 },
+  { minSpeedKmh: 15 },
   (e) => { hardBrakeCount++; },
 );
 
@@ -142,7 +143,7 @@ reporting, not for deciding whether to keep the trip:
 ```typescript
 sdk.onFraudDetected = (event) => {
   discardInProgressTripState();
-  reportSuspectedFraud(event); // event.mode, event.confidence, event.telemetry
+  reportSuspectedFraud(event); // event.detectedMode, event.fraudScore, event.signals, event.telemetry
 };
 ```
 

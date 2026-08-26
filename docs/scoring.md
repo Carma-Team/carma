@@ -66,7 +66,30 @@ These are the same five behaviours Cambridge Mobile Telematics (CMT) measures in
 The phone uploads two things per trip:
 
 1. **A signed telemetry digest.** Event counts, severities, distraction seconds, and distance. This is the input to the score. The signature is what makes it trustworthy.
-2. **A waypoint trace.** The GPS path, thinned to one point every 5 seconds. The server uses it to re-detect events independently and to verify the claimed distance.
+2. **A waypoint trace.** The GPS path, one point every **2 seconds**. The server uses it to re-detect events independently and to verify the claimed distance.
+
+#### Why the cadence is 2 seconds
+
+The cadence is not a payload preference — it is fixed by the threshold it has to catch. The server detects braking as the *average* deceleration between two consecutive points, so the sampling interval is the denominator of the physics:
+
+```
+decel = (speed_prev - speed_cur) / 3.6 / dt
+```
+
+A detection at the 3.0 m/s² threshold therefore needs a speed drop between two consecutive points of:
+
+| Cadence | Required drop |
+|---|---|
+| 6 s | 65 km/h |
+| 5 s | 54 km/h |
+| 4 s | 43 km/h |
+| **2 s** | **22 km/h** |
+
+A real hard brake is about 3.5 m/s² sustained for about two seconds — a drop of roughly 25 km/h. Averaged over a 6-second gap, four of those seconds contain nothing, the event reads 1.2 m/s², and it is never detected. **The sampling interval must not exceed the event it has to measure.** A hard brake lasts ~2 s, so the cadence is 2 s. Sharp turns follow the same rule — bearing rate divides by the same `dt`.
+
+The phone already requests a GPS fix every 2 seconds and pays that battery cost today, so this costs no power — only payload. A 30-minute trip carries ~900 points (~68 KB), against DriveQuant's ~150 KB at 1 Hz for the same trip.
+
+**Full confidence is granted at 2.5 s, not at 2 s.** That is the ceiling of the same arithmetic: the widest median gap at which a 2 s brake at 3.75 m/s² still averages to the 3.0 m/s² threshold (2 × 3.75 / 3.0). The target sits below the ceiling so a device that complies with this spec is never penalised for ordinary jitter.
 
 Anything that feeds the score travels inside the signed digest. Unsigned data is stored for diagnostics and never scored.
 
@@ -74,7 +97,7 @@ Anything that feeds the score travels inside the signed digest. Unsigned data is
 
 Events are detected twice — once on the phone in real time, once on the server from the waypoint trace.
 
-- The phone sees a denser stream and catches short events the thinned trace misses.
+- The phone sees a denser stream and catches events shorter than the 2-second trace can resolve.
 - The server sees a verified trace and cannot be influenced by a modified client.
 - The final count for each event type is `max(phone, server)`.
 
@@ -97,7 +120,7 @@ Two counters, matching CMT's two published metrics. Both count only while the ve
 | Counter | What it counts | How it is detected |
 |---|---|---|
 | **Screen interaction** | Typing, tapping, scrolling | A rhythmic **pattern** of gyroscope peaks. Tapping a screen produces taps in a cadence; that cadence is the signature, not the force of any one of them. |
-| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A hand stabilises orientation while the vehicle moves under it; a mount does not. |
+| **Phone motion** | Holding and handling the device | Gyroscope variance over a 1-second window. A handled phone rotates unlike any fixed placement, and the variance is what separates the two. |
 
 The counters are **mutually exclusive**. Each second is assigned to one or the other, never both, so a driver typing while holding the phone is charged once.
 
@@ -108,7 +131,7 @@ distraction rate = (screen_interaction_seconds + phone_motion_seconds)
 
 **The denominator.** Driving hours come from the GPS trace, under three rules:
 
-- **A segment between two fixes counts by the mean of its two speeds**, not by the closing one. At the 4-5 second cadence a phone actually delivers, letting the last fix decide made one minute of identical driving worth 60 seconds or 3 — depending only on whether the driver happened to be stopped when the fix came back.
+- **A segment between two fixes counts by the mean of its two speeds**, not by the closing one. Letting the last fix decide zeroes any segment whose closing fix happens to land below 15 km/h, so a minute of identical stop-and-go driving was worth anywhere between a full minute and nothing — depending only on when the fixes came back. Tightening the cadence to 2 seconds shrinks each misallocated segment; it does not remove the bias, so the mean rule stays.
 - **Time the trace never saw is credited as driving.** The counters are whole-trip totals, so a denominator drawn only from what the GPS witnessed would charge every handling second against a trace that may have died after five minutes of a 45-minute drive. Crediting the unwitnessed remainder errs in the driver's favour, which is the direction to err when speed data is missing.
 - **It never falls below 5 minutes.** A two-minute drive with fifteen seconds of handling is not a 7.5-minute-per-hour driver, it is a short drive. Small exposure must not produce a large rate. At the driver level the same job is done by weighting each trip by its distance, so one short trip moves the CARMA Score very little either way.
 
@@ -191,6 +214,8 @@ severity = g_factor × duration_factor
 | Cornering | Lateral | 0.35 g | 0.65 g |
 
 Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+
+**One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
 
 **Speed is not a severity input.** Speed is already scored as its own component at weight 0.25. Multiplying event severity by speed as well would charge the same behaviour twice.
 
@@ -384,7 +409,7 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 
 - **Phone touches cannot be seen directly.** No app can observe touches delivered to another app, on either platform, and iOS exposes no screen state to a backgrounded app. Both counters therefore read the motion a touch produces rather than the touch itself — which is why the signature is a cadence of gyroscope peaks and not any single reading.
 - **A phone typed on in a fixed mount is invisible.** Detection looks for the phone moving; a phone clamped to a mount moves with the car. This matters more in Israel than in the US, because regulation 28(b) bans texting whether the phone is mounted or not. The alternative signal — screen state — is exposed only by Android, which would create a blind spot for half the user base instead of a shared one.
-- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two — a hand stabilises orientation, a phone sliding on a seat tumbles — but the study behind that finding normalises its features before clustering, so it hands us the right signal and no threshold. Until ours is fitted against labelled drives, the separation is assumed rather than measured.
+- **A phone loose on a seat can read as a phone in a hand until the cut-off is fitted.** Rotational variance is what separates the two, but which side of the cut-off a hand sits on is unresolved. The placement study behind the signal compares a hand against a population of mostly fixed mounts, never against a phone loose on a seat, and it normalises its features before clustering — so it hands us the right signal, no threshold, and no direction for this pair. Until ours is fitted against labelled drives with the phone on the seat, the separation is assumed rather than measured.
 - **No GPS speed means no harsh events, and there is no fallback.** Both detectors trigger on GPS, so a tunnel, a parking garage or a street of tall buildings blinds both at once. Distance and distraction keep working; braking, acceleration and cornering do not. The accelerometer cannot take over, because an uncalibrated phone at an unknown orientation cannot distinguish braking from a bump. The reference approach in the field is the opposite architecture: treat the accelerometer as the instrument, use sparse GPS to estimate the phone-to-vehicle rotation, and fall back to rest-period recalibration and post-trip map matching when GPS degrades. That approach loses accuracy gracefully. Ours loses the measurement entirely. The gap is not evenly distributed — dense urban driving has both the worst GPS and the most harsh events.
 
 ### Calibration limits

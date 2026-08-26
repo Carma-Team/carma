@@ -393,11 +393,14 @@ async def test_codes_issued_before_the_change_still_resolve(db_session: AsyncSes
             Redemption(
                 user_id=driver.id,
                 reward_id=reward.id,
+                business_id=business.id,
+                points_cost=reward.cost_points,
                 qr_code=legacy,
                 qr_data=legacy,
                 status=RedemptionStatus.USED,
                 expires_at=datetime.now(UTC) - timedelta(minutes=5),
                 used_at=datetime.now(UTC) - timedelta(minutes=5),
+                settled_at=datetime.now(UTC) - timedelta(minutes=5),
             )
         )
         await db_session.commit()

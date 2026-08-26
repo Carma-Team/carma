@@ -154,10 +154,12 @@ documented in `mobile/CLAUDE.md`.
 | `constants.ts` | Shared | The 10-tier level ladder held as a first-paint cache, replaced by `GET /api/levels`. Also holds the reward-category list used by the marketplace screen. |
 | `notifications.ts` | May | Every decision the notifications screen makes, with no React and no API calls. What a row says, where tapping it leads, and what the screen shows after a request fails. |
 | `utils.ts` | May | Generic display formatting shared across screens and components. Numbers, distances, durations, dates and relative times in Hebrew and English, plus score/level to icon, colour and grade mappings. |
+| `authErrors.ts` | May | Turns a failed auth request into a message the driver can read. Maps the HTTP status onto a translation key, per screen, and never shows the server's own `detail` — that string is always English. |
 | `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
 | `rewardStock.ts` | Shaun | The two reward-stock rules the business screens share. Formats the "left out of allocated" line, and parses the stock field where blank means no cap. |
 | `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
+| `tripSummary.ts` | May | One shape for the end-of-trip summary, built either from the device's own trip data or from a trip the server returned. Both summary surfaces render this shape, so neither can show a field the other does not. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
 | `__tests__/` | — | Unit tests for the files directly under `lib/` |
 

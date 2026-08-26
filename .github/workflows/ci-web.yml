@@ -1,0 +1,120 @@
+name: CI · web
+
+# web/ is a plain Vite + React SPA: no database, no heavy service container,
+# nothing that makes any of these checks expensive. There is no cheap/full
+# split like ci-server.yml's develop-push vs PR distinction, and no reason for
+# one — so typecheck, lint, test and build all run unconditionally on every
+# push and PR that touches web/. Deliberately not modeled on ci-mobile.yml's
+# `test` and `contract-check` jobs, which are gated behind a `run-full-ci`
+# label: CAR-8 and CAR-121 are what happens when a check can be silently
+# skipped while the workflow still reports green. None of the jobs below
+# carry a conditional `if:` that could skip them on a normal PR.
+#
+# build is its own job (not folded into typecheck) even though `npm run build`
+# also runs `tsc -b` — it additionally runs `vite build` itself, which catches
+# bundler-only failures (e.g. a broken asset import) that typecheck/lint/test
+# can't see, and which the AC calls out by name ("produces a production build").
+#
+# The path filters cover web/** plus the root files a web build actually
+# depends on: package.json/package-lock.json (the npm workspace + its
+# resolved deps) and tsconfig.json (the project reference to ./web). A PR that
+# only touches those root files — e.g. a lockfile-only dependency bump — still
+# needs to run this workflow, or it could change what web/ resolves to without
+# ever being checked.
+
+# `pull_request` deliberately carries no `paths:` filter. A workflow skipped by
+# a path filter never reports at all, and a required check that never reports
+# pins the PR on "Expected - waiting for status to be reported" forever.
+# GitHub's own advice is not to require a workflow that can be skipped. Pushes
+# keep their filter, because nothing gates a push. The cost is ~2 idle minutes
+# on an unrelated PR, and Actions is free on a public repo (CAR-122).
+#
+# Jobs carry an explicit `name:` because the required-check context is the bare
+# job name with no workflow prefix, and `lint` and `test` each existed in two
+# of these three workflows (CAR-122).
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'web/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/ci-web.yml'
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# One run per branch/PR. Superseded runs on develop and feature branches are
+# cancelled; main is never cancelled so every deployable commit keeps its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # web is an npm workspace sharing the root package-lock.json (like mobile),
+  # so `npm ci` runs at the repo root — not inside ./web — same as ci-mobile.yml.
+  typecheck:
+    name: web typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: TypeScript (no emit)
+        working-directory: ./web
+        run: npm run typecheck
+
+  lint:
+    name: web lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: ESLint
+        working-directory: ./web
+        run: npm run lint
+
+  test:
+    name: web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Vitest
+        working-directory: ./web
+        run: npm test
+
+  build:
+    name: web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Production build
+        working-directory: ./web
+        run: npm run build

@@ -13,17 +13,19 @@ no Postgres is reachable.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
+from app.core.security import create_access_token
 from app.main import app
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
 from app.services import business as business_service
@@ -104,6 +106,8 @@ async def _issue(
     voucher = Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        business_id=business.id,
+        points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=RedemptionStatus.PENDING,
@@ -214,7 +218,169 @@ async def test_consume_marks_it_used_once_and_refuses_the_second_time(db_session
         with pytest.raises(HTTPException) as exc:
             await business_service.consume_voucher(db_session, business, voucher.qr_code)
         assert exc.value.status_code == 409
-        assert "already used" in str(exc.value.detail)
+        assert (
+            exc.value.detail["code"] == business_service.VOUCHER_ALREADY_USED
+        ), "the client needs a code, not a message to parse"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+# ─── Charging points (CAR-109) ────────────────────────────────────────────────
+
+
+async def _balance(db: AsyncSession, user_id: str) -> int:
+    balance = await db.scalar(select(User.points).where(User.id == user_id))
+    assert balance is not None
+    return balance
+
+
+@pytest.mark.asyncio
+async def test_consume_debits_exactly_points_cost_and_marks_used(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        cost = voucher.points_cost
+        starting = await _balance(db_session, driver_id)
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting - cost
+        voucher_after = await db_session.get(Redemption, voucher.id)
+        assert voucher_after is not None and voucher_after.status == RedemptionStatus.USED
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_repricing_the_reward_after_issue_does_not_change_the_charge(db_session: AsyncSession) -> None:
+    """The price agreed at issue is what gets charged, not whatever the reward costs now."""
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        original_cost = voucher.points_cost
+        starting = await _balance(db_session, driver_id)
+
+        reward = await db_session.get(Reward, voucher.reward_id)
+        assert reward is not None
+        reward.cost_points = original_cost * 5
+        await db_session.commit()
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting - original_cost
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expired_voucher_consume_charges_nothing(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(seconds=-1))
+        starting = await _balance(db_session, driver_id)
+
+        with pytest.raises(HTTPException):
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == starting
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_second_consume_of_the_same_voucher_charges_nothing(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        balance_after_first = await _balance(db_session, driver_id)
+
+        with pytest.raises(HTTPException):
+            await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert await _balance(db_session, driver_id) == balance_after_first
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_consume_never_touches_total_points(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        starting_total = await db_session.scalar(select(User.total_points).where(User.id == driver_id))
+
+        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        after_total = await db_session.scalar(select(User.total_points).where(User.id == driver_id))
+        assert after_total == starting_total, "total_points is lifetime earned; spending must never move it"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_a_broken_invariant_still_completes_the_debit_and_raises_an_audit_event(
+    db_session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The reservation invariant should make a negative balance impossible — but if it ever breaks,
+    the debit must still land (the goods are already gone) and an audit event must fire, rather than
+    the debit silently no-oping and stranding the voucher PENDING.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    driver_id = driver.id
+    try:
+        voucher = await _issue(db_session, business, driver)
+        # Forces the invariant to break: balance manually driven below the cost.
+        await db_session.execute(update(User).where(User.id == driver_id).values(points=voucher.points_cost - 1))
+        await db_session.commit()
+
+        with caplog.at_level(logging.INFO, logger="carma.audit"):
+            out = await business_service.consume_voucher(db_session, business, voucher.qr_code)
+
+        assert out.status == "used"
+        assert await _balance(db_session, driver_id) == -1
+        assert any(
+            getattr(r, "event", None) == "rewards.points.negative_after_debit" for r in caplog.records
+        ), "a debit that takes the balance negative must raise an audit event"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_already_used_conflict_reaches_the_wire_as_a_machine_readable_code(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """What `lib/api/vouchers.ts` actually receives over HTTP, not just what the service raises.
+
+    FastAPI serializes an `HTTPException.detail` verbatim into the response
+    body's `detail` field — this pins that the dict survives the round trip
+    rather than collapsing back to a bare string somewhere in between (CAR-67).
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        first = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert first.status_code == 200
+
+        second = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert second.status_code == 409
+        assert second.json()["detail"] == {"code": "VOUCHER_ALREADY_USED", "message": "Voucher already used"}
     finally:
         await _cleanup(db_session, business, drivers=(driver,))
 
@@ -249,11 +415,34 @@ async def test_expired_voucher_cannot_be_consumed(db_session: AsyncSession) -> N
         with pytest.raises(HTTPException) as exc:
             await business_service.consume_voucher(db_session, business, voucher.qr_code)
         assert exc.value.status_code == 409
-        assert "expired" in str(exc.value.detail)
+        assert exc.value.detail["code"] == business_service.VOUCHER_EXPIRED
 
         await db_session.refresh(voucher)
         assert voucher.status == RedemptionStatus.EXPIRED
         assert voucher.used_at is None, "a refused redemption must not stamp used_at"
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_expired_conflict_reaches_the_wire_as_a_machine_readable_code(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The expired sibling of `test_already_used_conflict_reaches_the_wire_as_a_machine_readable_code`.
+
+    Both 409s share a status code; only the wire-level `detail.code` is what
+    lets `lib/api/vouchers.ts` tell them apart, so both need this same proof.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver, ttl=timedelta(seconds=-1))
+
+        redeem = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert redeem.status_code == 409
+        assert redeem.json()["detail"] == {"code": "VOUCHER_EXPIRED", "message": "Voucher expired"}
     finally:
         await _cleanup(db_session, business, drivers=(driver,))
 
@@ -335,6 +524,80 @@ async def test_expire_overdue_leaves_the_callers_transaction_open(db_session: As
         assert still_pending == RedemptionStatus.PENDING, "a rolled-back caller must discard the settle too"
     finally:
         await engine.dispose()
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+# ─── Business-facing privacy (CAR-78) ───────────────────────────────────────
+
+# Any key, at any depth, that could name the driver. Checked recursively rather
+# than pinned to `userId` alone so a future field re-adding driver identity
+# under a different name — `driverId`, `driverName`, `driverPhone`, `email` —
+# trips this guard too, not just a literal repeat of the same mistake.
+_DRIVER_IDENTITY_KEYS = {"userId", "driverId", "driverName", "phone", "email"}
+
+
+def _find_forbidden_keys(payload: object) -> set[str]:
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in _DRIVER_IDENTITY_KEYS:
+                found.add(key)
+            found |= _find_forbidden_keys(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            found |= _find_forbidden_keys(item)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_peek_response_never_carries_a_driver_identifier(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """What actually reaches the wire, not just what the schema declares (CAR-78).
+
+    A business only needs to know what to hand over — never who the driver is.
+    `Redemption.user_id` stays in the database and internal to CARMA.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        resp = await db_api_client.get(f"/api/business/vouchers/{voucher.qr_code}", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert _find_forbidden_keys(body) == set()
+        assert body["voucher"]["pointsCost"] == voucher.points_cost
+
+        # The identity the response omits is still on the row, for internal use.
+        stored = await db_session.get(Redemption, voucher.id)
+        assert stored is not None and stored.user_id == driver.id
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
+
+
+@pytest.mark.asyncio
+async def test_consume_response_never_carries_a_driver_identifier(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    token = create_access_token(user_id=business.owner_user_id, email=None, phone=None, role=UserRole.BUSINESS)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        voucher = await _issue(db_session, business, driver)
+
+        resp = await db_api_client.post(f"/api/business/vouchers/{voucher.qr_code}/redeem", headers=headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert _find_forbidden_keys(body) == set()
+        assert body["voucher"]["pointsCost"] == voucher.points_cost
+
+        stored = await db_session.get(Redemption, voucher.id)
+        assert stored is not None and stored.user_id == driver.id
+    finally:
         await _cleanup(db_session, business, drivers=(driver,))
 
 

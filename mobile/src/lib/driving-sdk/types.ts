@@ -51,14 +51,14 @@ export enum DrivingEventType {
 export interface DrivingEvent {
   type: DrivingEventType;
   timestamp: Date;
-  severity: number; // 0.0 to 1.0
+  severity?: number; // 0.0 to 1.0. PHONE_USAGE only — motion events omit it (scoring.md §3.4: no vehicle-frame axis, no severity)
   speedKmh?: number; // vehicle speed at the moment the event fired — stamped by DrivingSDK
   location?: {
     latitude: number;
     longitude: number;
   };
   // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
-  peakG?: number;      // gravity-removed peak horizontal g-force, the value already compared against the detection threshold
+  peakG?: number;      // reserved for a single vehicle-frame axis once a phone→vehicle rotation stage exists; not populated until then
   durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 
@@ -69,7 +69,9 @@ export interface DrivingEvent {
 export interface SensorEventCondition {
   /** GPS speed (km/h) must be at or above this value at the moment of detection. */
   minSpeedKmh?: number;
-  /** Event severity [0–1] must be at or above this value. */
+  /** Event severity [0–1] must be at or above this value. PHONE_USAGE only —
+   *  motion events don't carry severity (CAR-156), so this condition is ignored
+   *  rather than blocking them. */
   minSeverity?: number;
 }
 
@@ -110,6 +112,11 @@ export interface SuspiciousActivityEvaluation {
     maxLateralAccelG: number;
     yawVariance: number;
   };
+  // Whichever rule gates the validator evaluated, under its own names. Opaque on
+  // purpose: naming them here would put a consumer's classifier vocabulary inside
+  // the SDK. `null` is "could not be evaluated", which is not the same claim as
+  // `false` — the SDK carries the distinction without interpreting it.
+  signals?: Record<string, boolean | null>;
 }
 
 /**
@@ -159,7 +166,11 @@ export interface TripData {
   /** @deprecated v1.7 — replaced by touchEpochs + screenInteractionSeconds */
   phoneSeconds: number;
   touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds
+  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds, no speed gate
+                                    // (per-second samples arrive via onInteractionData)
+  accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
+                             // why — see accelInitFailed
+  accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
 
 export type TripUpdateCallback = (data: Partial<TripData>) => void;
@@ -172,13 +183,16 @@ export type StateChangeCallback = (isActive: boolean) => void;
 // it, so the host app can decide what to do — surface it, drop the trip, or report
 // it upstream. The SDK itself takes no action beyond emitting this.
 export interface FraudDetectedEvent {
-  confidence: number;       // 0–1 fraud score
-  mode: TransportMode;      // classified transport mode
+  fraudScore: number;       // 0–1 weighted rule score — not a calibrated confidence
+  detectedMode: TransportMode; // classified transport mode
   telemetry: {
     avgSpeedKmh: number;    // average speed over the detection window
     maxLateralAccelG: number; // peak gravity-removed lateral force (g-units)
     yawVariance: number;    // yaw rate variance (rad²/s²)
   };
+  signals?: Record<string, boolean | null>; // the gates behind the verdict, passed through untouched
   durationMs: number;       // validation session length (BT connect → fraud detection)
   maxSpeedKmh: number;      // peak speed seen during the session
+  distanceKm?: number;      // absent for a detection at the pre-trip gate: the trip was never
+                            // confirmed, so no distance was ever accumulated. Not zero — unknown.
 }

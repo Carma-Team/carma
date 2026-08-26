@@ -1,7 +1,7 @@
 # No `from __future__ import annotations` here, unlike the other routers, for the
 # same reason as `routers/auth.py`: SlowAPI's decorator re-exports the handler
 # from its own module, so FastAPI would try to resolve string annotations like
-# "VoucherResponse" against SlowAPI's namespace and fail at import.
+# "BusinessVoucherResponse" against SlowAPI's namespace and fail at import.
 
 from fastapi import APIRouter, Request, Response, status
 
@@ -12,7 +12,8 @@ from app.schemas.reward import (
     BusinessRewardListOut,
     BusinessRewardPatchIn,
     BusinessRewardResponse,
-    VoucherResponse,
+    BusinessVoucherResponse,
+    LiveVoucherCountOut,
 )
 from app.services import business as business_service
 
@@ -54,14 +55,25 @@ async def update_reward(
     return BusinessRewardResponse(reward=reward)
 
 
+@router.get(
+    "/rewards/{reward_id}/live-vouchers",
+    response_model=LiveVoucherCountOut,
+    response_model_by_alias=True,
+    summary="Live (unused, unexpired) voucher count for an owned reward — check before archiving",
+)
+async def live_voucher_count(reward_id: str, business: CurrentBusiness, db: DbSession) -> LiveVoucherCountOut:
+    count = await business_service.live_voucher_count(db, business, reward_id)
+    return LiveVoucherCountOut(live_vouchers=count)
+
+
 @router.delete(
     "/rewards/{reward_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
-    summary="Delete an owned reward. 409 once any voucher has been issued for it.",
+    summary="Archive an owned reward — removed from the catalog, history and live vouchers untouched",
 )
-async def delete_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
-    await business_service.delete_reward(db, business, reward_id)
+async def archive_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
+    await business_service.archive_reward(db, business, reward_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -93,21 +105,25 @@ REDEEM_SCOPE = "business-voucher-redeem"
 
 @router.get(
     "/vouchers/{code}",
-    response_model=VoucherResponse,
+    response_model=BusinessVoucherResponse,
     response_model_by_alias=True,
     summary="Inspect a scanned voucher without consuming it. 404 unless it is this business's.",
 )
 @limiter.shared_limit(PEEK_LIMIT, scope=PEEK_SCOPE, key_func=business_key)
-async def peek_voucher(request: Request, code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
-    return VoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
+async def peek_voucher(
+    request: Request, code: str, business: CurrentBusiness, db: DbSession
+) -> BusinessVoucherResponse:
+    return BusinessVoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
 
 
 @router.post(
     "/vouchers/{code}/redeem",
-    response_model=VoucherResponse,
+    response_model=BusinessVoucherResponse,
     response_model_by_alias=True,
     summary="Consume a voucher. 409 if it was already used or has expired.",
 )
 @limiter.shared_limit(REDEEM_LIMIT, scope=REDEEM_SCOPE, key_func=business_key)
-async def consume_voucher(request: Request, code: str, business: CurrentBusiness, db: DbSession) -> VoucherResponse:
-    return VoucherResponse(voucher=await business_service.consume_voucher(db, business, code))
+async def consume_voucher(
+    request: Request, code: str, business: CurrentBusiness, db: DbSession
+) -> BusinessVoucherResponse:
+    return BusinessVoucherResponse(voucher=await business_service.consume_voucher(db, business, code))
