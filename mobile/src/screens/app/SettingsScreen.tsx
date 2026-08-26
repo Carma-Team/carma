@@ -27,7 +27,7 @@ function formatJoinDate(dateStr: string): string {
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
+  const { user, setUser, patchUser, clearTripHistory, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
   // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
@@ -46,7 +46,7 @@ export default function SettingsScreen() {
     setSavingDriveMode(true);
     try {
       await userApi.updateProfile({ driveModeEnabled: next });
-      await setUser({ ...user, driveModeEnabled: next });
+      patchUser({ driveModeEnabled: next });
     } catch (e) {
       addToast({ type: 'error', message: t('profile.driveModeFailed') });
       console.error('[Settings] Failed to update drive mode', e);
