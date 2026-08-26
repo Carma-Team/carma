@@ -39,18 +39,21 @@ export function AppShell() {
           <NavLink to="/business-profile" className={({ isActive }) => navClass(styles, isActive)}>
             {t('shell.navBusinessProfile')}
           </NavLink>
-          <span className={styles.navDisabled} aria-disabled="true">
+          <span className={styles.navDisabled}>
             {t('shell.navTeam')}
             <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
           </span>
         </nav>
 
+        {/* Not aria-disabled — these were never interactive controls to begin
+            with, so there's no widget state to convey. The muted styling plus
+            "coming soon" badge text already say everything a reader needs. */}
         <div className={styles.navGroup} aria-label={t('shell.navGroupUpcoming')}>
-          <span className={styles.navDisabled} aria-disabled="true">
+          <span className={styles.navDisabled}>
             {t('shell.navOverview')}
             <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
           </span>
-          <span className={styles.navDisabled} aria-disabled="true">
+          <span className={styles.navDisabled}>
             {t('shell.navAnalytics')}
             <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
           </span>

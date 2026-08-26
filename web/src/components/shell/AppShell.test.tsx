@@ -61,14 +61,17 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'פרטי העסק' })).toHaveAttribute('href', '/business-profile');
   });
 
-  it('renders nav items with no backing route as disabled, not dead links', () => {
+  it('renders nav items with no backing route as non-interactive text, not dead links', () => {
     renderShell();
 
     for (const label of ['צוות והרשאות', 'סקירה כללית', 'אנליטיקס']) {
-      const disabled = screen.getByText(label).closest('[aria-disabled="true"]');
-      expect(disabled).not.toBeNull();
-      expect(disabled?.tagName).not.toBe('A');
+      // Not a widget with a disabled state — these were never interactive,
+      // so there's no link/button role and nothing for aria-disabled to
+      // describe. The "coming soon" badge is what tells the reader why.
+      const item = screen.getByText(label).closest('a, button');
+      expect(item).toBeNull();
     }
+    expect(screen.getAllByText('בקרוב')).toHaveLength(3);
     expect(screen.queryByRole('link', { name: /צוות והרשאות/ })).not.toBeInTheDocument();
   });
 

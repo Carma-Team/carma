@@ -69,6 +69,9 @@ describe('routes', () => {
     await waitFor(() => expect(screen.getByText('הדף לא נמצא')).toBeInTheDocument());
     // Still inside the shell — the sidebar's business identity is present.
     expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+    // AppShell owns the page's one <main> landmark — NotFoundPage must not
+    // add a second, nested one when rendered inside it.
+    expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
   it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
