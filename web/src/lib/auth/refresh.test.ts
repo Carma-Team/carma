@@ -16,6 +16,8 @@ const USER: AuthUser = {
   role: 'BUSINESS',
   businessId: null,
   businessCategory: null,
+  businessName: null,
+  businessNameHe: null,
 };
 
 describe('attemptRefresh', () => {

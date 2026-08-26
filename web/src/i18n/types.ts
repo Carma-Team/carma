@@ -9,10 +9,6 @@ export type TranslationMap = {
   app: {
     name: string;
   };
-  placeholder: {
-    title: string;
-    message: string;
-  };
   common: {
     loading: string;
     errorTitle: string;
@@ -27,6 +23,27 @@ export type TranslationMap = {
     en: string;
   };
   notFound: {
+    title: string;
+    message: string;
+  };
+  shell: {
+    brandTag: string;
+    navGroupManagement: string;
+    navGroupUpcoming: string;
+    navRewards: string;
+    navRedemption: string;
+    navBusinessProfile: string;
+    navTeam: string;
+    navOverview: string;
+    navAnalytics: string;
+    comingSoonBadge: string;
+  };
+  home: {
+    title: string;
+    subtitle: string;
+    redeemCta: string;
+  };
+  comingSoon: {
     title: string;
     message: string;
   };

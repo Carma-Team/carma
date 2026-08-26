@@ -39,6 +39,8 @@ async def profile_out(db: AsyncSession, user: User) -> UserOut:
         if business is not None:
             out.business_id = business.id
             out.business_category = business.category.value.lower()
+            out.business_name = business.name
+            out.business_name_he = business.name_he
     return out
 
 
