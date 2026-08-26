@@ -1682,6 +1682,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
             /** Routewaypoints */
             routeWaypoints?: {
                 [key: string]: unknown;
@@ -1752,6 +1754,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
         };
         /** TripSingle */
         TripSingle: {

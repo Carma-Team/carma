@@ -125,6 +125,66 @@ class TestComputeTripScore:
         assert 0.0 < worse.score < bad.score
 
 
+class TestWeakestFactor:
+    """CAR-185: the behaviour with the largest weighted score loss,
+    weight * (100 - subscore) — the counterfactual the composite implies,
+    not merely whichever subscore happens to be lowest."""
+
+    def test_higher_weight_beats_lower_subscore(self) -> None:
+        # 6 sharp turns / 20km / 30min: cornering subscore ~69.8, weighted loss ~3.0.
+        # 40s handling / 30min driving: distraction subscore ~75.6, weighted loss ~7.3.
+        # Cornering's subscore is lower, but distraction costs more — weight 0.30 vs 0.10.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=6,
+            w_distraction=40,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_cornering < r.sub_distraction
+        assert r.weakest_factor == "distraction"
+
+    def test_clean_trip_names_nothing(self) -> None:
+        r = compute_trip_score(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        assert r.weakest_factor is None
+
+    def test_speeding_excluded_when_no_speed_data(self) -> None:
+        # A catastrophic speeding weight must never surface when the weight set
+        # that dropped it (has_speed_data=False) is the one in effect — the
+        # candidate list omits it entirely rather than scoring it at weight 0.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=6,
+            w_distraction=0,
+            w_speed=1000,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=False,
+        )
+        assert r.weakest_factor == "cornering"
+
+    def test_tie_breaks_toward_the_higher_weighted_behaviour(self) -> None:
+        # Constructed so braking's weighted loss (~5.0) is a hair above
+        # acceleration's (~4.999999) while acceleration's *subscore* is the
+        # lower of the two — a lowest-subscore rule would name acceleration.
+        # Fixed candidate order (descending weight) makes braking's win
+        # deterministic rather than a coin flip on near-equal float loss.
+        r = compute_trip_score(
+            w_brake=15.982337358432273,
+            w_accel=18.430227641280425,
+            w_corner=0,
+            w_distraction=0,
+            distance_km=100.0,
+            duration_min=60.0,
+            has_speed_data=True,
+        )
+        assert r.sub_acceleration < r.sub_braking
+        assert r.weakest_factor == "braking"
+
+
 # ─── driver score ───────────────────────────────────────────────────────────────
 
 
