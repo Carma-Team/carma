@@ -617,6 +617,25 @@ async def test_profile_out_carries_business_fields(db_session: AsyncSession) -> 
         # RewardFormScreen categorises new rewards from businessCategory.
         assert out.business_id == business.id
         assert out.business_category == "entertainment"
+        assert out.business_name == business.name
+        # _make_business never sets name_he — the web shell falls back to
+        # businessName itself, so a null here is the real, expected value.
+        assert out.business_name_he is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_profile_out_carries_the_hebrew_business_name_when_set(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    business.name_he = "שם בעברית"
+    await db_session.commit()
+    assert business.owner_user_id
+    owner = await db_session.get(User, business.owner_user_id)
+    assert owner is not None
+    try:
+        out = await users_service.profile_out(db_session, owner)
+        assert out.business_name_he == "שם בעברית"
     finally:
         await _cleanup(db_session, business)
 
@@ -629,6 +648,7 @@ async def test_profile_out_leaves_business_fields_empty_for_a_driver(db_session:
     try:
         out = await users_service.profile_out(db_session, driver)
         assert out.business_id is None and out.business_category is None
+        assert out.business_name is None and out.business_name_he is None
     finally:
         await db_session.delete(driver)
         await db_session.commit()

@@ -39,6 +39,12 @@ class UserOut(CamelModel):
     # screens key off businessCategory to categorise new rewards.
     business_id: str | None = None
     business_category: str | None = None
+    # Raw fields, not a server-resolved fallback — the business web shell
+    # picks between them itself based on the active UI language (HE prefers
+    # businessNameHe, EN prefers businessName), which the server has no
+    # notion of.
+    business_name: str | None = None
+    business_name_he: str | None = None
     created_at: datetime
 
 

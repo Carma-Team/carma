@@ -1725,6 +1725,10 @@ export interface components {
             businessId?: string | null;
             /** Businesscategory */
             businessCategory?: string | null;
+            /** Businessname */
+            businessName?: string | null;
+            /** Businessnamehe */
+            businessNameHe?: string | null;
             /**
              * Createdat
              * Format: date-time

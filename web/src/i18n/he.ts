@@ -2,10 +2,6 @@ import type { TranslationMap } from './types';
 
 const he: TranslationMap = {
   app: { name: 'כרמה עסקים' },
-  placeholder: {
-    title: 'תשתית האתר פעילה',
-    message: 'הדף הזה מוודא שהניתוב, המבנה הבסיסי והתרגומים מחוברים כראוי.',
-  },
   common: {
     loading: 'טוען…',
     errorTitle: 'משהו השתבש',
@@ -16,6 +12,27 @@ const he: TranslationMap = {
   },
   language: { label: 'שפה', he: 'עברית', en: 'English' },
   notFound: { title: 'הדף לא נמצא', message: 'הדף שחיפשת לא קיים.' },
+  shell: {
+    brandTag: 'Business',
+    navGroupManagement: 'ניהול',
+    navGroupUpcoming: 'בקרוב',
+    navRewards: 'הטבות',
+    navRedemption: 'מימושים',
+    navBusinessProfile: 'פרטי העסק',
+    navTeam: 'צוות והרשאות',
+    navOverview: 'סקירה כללית',
+    navAnalytics: 'אנליטיקס',
+    comingSoonBadge: 'בקרוב',
+  },
+  home: {
+    title: 'מימוש הטבה',
+    subtitle: 'זו הפעולה היומית שלכם — סרקו או הזינו קוד כדי לממש הטבה ללקוח.',
+    redeemCta: 'מימוש הטבה',
+  },
+  comingSoon: {
+    title: 'בקרוב',
+    message: 'העמוד הזה עדיין לא נבנה.',
+  },
   auth: {
     signInTitle: 'התחברות',
     emailLabel: 'אימייל',

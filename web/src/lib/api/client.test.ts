@@ -13,6 +13,8 @@ const USER: AuthUser = {
   role: 'BUSINESS',
   businessId: null,
   businessCategory: null,
+  businessName: null,
+  businessNameHe: null,
 };
 
 function jsonResponse(body: unknown, status: number, headers?: HeadersInit) {
