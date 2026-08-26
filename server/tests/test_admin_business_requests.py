@@ -27,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.core.security import create_access_token
-from app.models import Business, BusinessJoinRequest, BusinessJoinRequestStatus, User
-from app.models.enums import BusinessCategory, UserRole
+from app.models import Business, BusinessJoinRequest, BusinessJoinRequestStatus, BusinessMembership, User
+from app.models.enums import BusinessCategory, BusinessMembershipRole, UserRole
 from app.services import business_join_requests as svc
 
 LIST_URL = "/api/admin/business-requests"
@@ -161,6 +161,16 @@ async def test_approve_creates_business_sets_owner_and_flips_role(
         refreshed_applicant = await db_session.get(User, applicant.id)
         assert refreshed_applicant is not None
         assert refreshed_applicant.role == UserRole.BUSINESS
+
+        # CAR-74: the same transaction must also mint the OWNER membership that
+        # `current_business` now authorizes against — not a follow-up write.
+        membership = await db_session.scalar(
+            select(BusinessMembership).where(
+                BusinessMembership.business_id == business.id, BusinessMembership.user_id == applicant.id
+            )
+        )
+        assert membership is not None, "approval must create the OWNER membership, not just owner_user_id"
+        assert membership.role == BusinessMembershipRole.OWNER
 
         refreshed_request = await db_session.get(BusinessJoinRequest, request.id)
         assert refreshed_request is not None
@@ -473,9 +483,10 @@ async def test_forced_failure_during_approval_rolls_back_every_write(db_session:
     itself, which fights the greenlet context SQLAlchemy's async layer needs
     for the connection-pool ping on the next query.
 
-    All three writes (Business insert, role change, status flip) are staged
-    and flushed by this point; the event fires before the actual COMMIT is
-    sent, so nothing crosses into a separate transaction to prove clean."""
+    All four writes (Business insert, OWNER membership insert, role change,
+    status flip) are staged and flushed by this point; the event fires before
+    the actual COMMIT is sent, so nothing crosses into a separate transaction
+    to prove clean."""
     admin = await _make_user(db_session, role=UserRole.ADMIN)
     applicant = await _make_user(db_session, role=UserRole.DRIVER)
     admin_id, applicant_id = admin.id, applicant.id
@@ -508,6 +519,14 @@ async def test_forced_failure_during_approval_rolls_back_every_write(db_session:
 
         business = await db_session.scalar(select(Business).where(Business.registration_number == reg_number))
         assert business is None, "no Business may survive a forced failure mid-approval"
+
+        # CAR-74: ensure_owner_membership() flushes to get business.id but must
+        # never commit independently — the membership insert has to roll back
+        # with everything else in the same transaction, not survive it.
+        membership = await db_session.scalar(
+            select(BusinessMembership).where(BusinessMembership.user_id == applicant_id)
+        )
+        assert membership is None, "no membership may survive a forced failure mid-approval"
     finally:
         await _cleanup(db_session, admin_id, applicant_id)
 

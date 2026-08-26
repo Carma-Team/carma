@@ -22,7 +22,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
 from app.main import app
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
+from app.models import (
+    Business,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    Redemption,
+    RedemptionStatus,
+    Reward,
+    User,
+    UserRole,
+)
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn
 from app.services import business as business_service
 from app.services import rewards as rewards_service
@@ -70,6 +80,8 @@ async def _make_business(db: AsyncSession, *, category: BusinessCategory = Busin
         location_lng=34.78,
     )
     db.add(business)
+    await db.flush()
+    db.add(BusinessMembership(user_id=owner.id, business_id=business.id, role=BusinessMembershipRole.OWNER))
     await db.commit()
     await db.refresh(business)
     return business
@@ -120,7 +132,7 @@ async def test_list_includes_inactive_rewards(db_session: AsyncSession) -> None:
         await business_service.create_reward(db_session, business, _reward_payload(isActive=True))
         await business_service.create_reward(db_session, business, _reward_payload(isActive=False))
 
-        result = await business_service.list_rewards(db_session, business)
+        result = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         rewards = result["rewards"]
         assert isinstance(rewards, list)
         # The driver-facing list filters is_active; the owner's dashboard must not.
@@ -170,7 +182,7 @@ async def test_another_business_cannot_see_or_touch_the_reward(db_session: Async
     try:
         created = await business_service.create_reward(db_session, owner_biz, _reward_payload())
 
-        listed = await business_service.list_rewards(db_session, other_biz)
+        listed = await business_service.list_rewards(db_session, other_biz, BusinessMembershipRole.OWNER)
         assert listed["rewards"] == [], "another business's catalog must not appear in this one's list"
 
         # 404 rather than 403 on both — a 403 would confirm the id exists.
@@ -350,7 +362,7 @@ async def test_business_reward_list_still_includes_an_archived_reward(db_session
         created = await business_service.create_reward(db_session, business, _reward_payload())
         await business_service.archive_reward(db_session, business, created.id)
 
-        listed = await business_service.list_rewards(db_session, business)
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         assert created.id in {r.id for r in listed["rewards"]}
     finally:
         await _cleanup(db_session, business)
@@ -448,7 +460,7 @@ async def test_expired_reward_still_in_the_business_list(db_session: AsyncSessio
             db_session, business, _reward_payload(expiresAt=datetime.now(UTC) - timedelta(days=1))
         )
 
-        listed = await business_service.list_rewards(db_session, business)
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         assert created.id in {r.id for r in listed["rewards"]}
     finally:
         await _cleanup(db_session, business)
