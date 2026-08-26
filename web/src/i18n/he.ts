@@ -75,6 +75,9 @@ const he: TranslationMap = {
     failureRateLimitedMessage: 'המתינו רגע לפני שתנסו שוב.',
     failureNetworkTitle: 'לא ניתן לאמת את השובר',
     failureNetworkMessage: 'לא הצלחנו להתחבר לשרת, ולכן לא ניתן לאמת את השובר. אל תמסרו את המוצר — בדקו את החיבור ונסו שוב.',
+    failureConfirmNetworkTitle: 'המימוש לא אושר',
+    failureConfirmNetworkMessage:
+      'השובר היה תקף, אך לא הצלחנו להתחבר לשרת כדי לאשר את המימוש, ולכן לא ידוע אם הוא נקלט. אל תמסרו את המוצר — בדקו את החיבור, ואז בדקו את הקוד שוב לפני ניסיון מימוש נוסף.',
     failureUnexpectedTitle: 'משהו השתבש',
     failureUnexpectedMessage: 'נסו שוב.',
   },

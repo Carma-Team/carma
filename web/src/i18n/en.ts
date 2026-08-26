@@ -77,6 +77,9 @@ const en: TranslationMap = {
     failureNetworkTitle: 'Cannot verify the voucher',
     failureNetworkMessage:
       "We couldn't reach the server, so the voucher cannot be verified. Do not hand over the goods — check the connection and try again.",
+    failureConfirmNetworkTitle: 'Redemption not confirmed',
+    failureConfirmNetworkMessage:
+      "The voucher was valid, but we couldn't reach the server to confirm the redemption, so we don't know whether it was recorded. Do not hand over the goods — check the connection, then check the code again before redeeming it.",
     failureUnexpectedTitle: 'Something went wrong',
     failureUnexpectedMessage: 'Please try again.',
   },

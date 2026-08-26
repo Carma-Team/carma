@@ -366,6 +366,55 @@ describe('RedemptionPage', () => {
       expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
     });
 
+    // ── CAR-69 review: the already_used recovery re-peek must stay guarded ────
+
+    it('blocks every exit path and a second redeem attempt while the already_used recovery re-peek is still pending, and lands on one deterministic state once it settles', async () => {
+      vi.mocked(peekVoucher).mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher() });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'already_used' });
+
+      const redeemedAt = '2026-08-20T10:00:00.000Z';
+      let resolveRecoveryPeek!: (result: VoucherResult) => void;
+      vi.mocked(peekVoucher).mockReturnValueOnce(new Promise((resolve) => (resolveRecoveryPeek = resolve)));
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      // consume has settled as already_used; the recovery re-peek is now the
+      // one request still in flight, and every exit path is attempted while
+      // it is held open.
+      await waitFor(() => expect(consumeVoucher).toHaveBeenCalledTimes(1));
+
+      document.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); // Escape
+      fireEvent.click(screen.getByRole('button', { name: 'סגירה' })); // dialog's own "x"
+      fireEvent.click(screen.getByRole('button', { name: 'ביטול' })); // dialog Cancel
+      fireEvent.click(screen.getByRole('button', { name: 'ביטול וחזרה' })); // review card's back-to-entry
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' })); // review card's own Redeem button
+
+      // None of the above reopened code entry or restarted the confirm flow —
+      // still mid-recovery, not the stale pending voucher, not back at entry.
+      expect(screen.queryByLabelText('קוד שובר')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'כן, מימוש ההטבה' })).toBeDisabled();
+
+      // No second consumeVoucher call happened no matter what was clicked above.
+      expect(consumeVoucher).toHaveBeenCalledTimes(1);
+
+      // The recovery re-peek settles — exactly one deterministic outcome,
+      // not overwritten by any of the attempted exits above.
+      resolveRecoveryPeek({ outcome: 'ok', voucher: makeVoucher({ status: 'used', redeemedAt }) });
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'השובר כבר מומש' })).toBeInTheDocument());
+      expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
+      expect(consumeVoucher).toHaveBeenCalledTimes(1);
+      expect(peekVoucher).toHaveBeenCalledTimes(2);
+
+      // The guard released once the flow actually finished: back-to-entry
+      // now works normally.
+      fireEvent.click(screen.getByRole('button', { name: 'הזנת קוד אחר' }));
+      expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument();
+    });
+
     it('reads an expired-between-lookup-and-confirm conflict as a timing problem, not a rejection', async () => {
       vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
       vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'expired' });
@@ -424,7 +473,11 @@ describe('RedemptionPage', () => {
       expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
     });
 
-    it('renders the cannot-verify state when connectivity drops during confirm, not a false success', async () => {
+    it('renders a not-recorded state (not the lookup-phase copy, and not success) when connectivity drops during confirm', async () => {
+      // At this point the voucher was already verified — the uncertainty is
+      // whether the redemption itself was recorded, which is a different
+      // thing to tell a cashier than "cannot verify the voucher" (the
+      // lookup-phase copy, asserted not to appear here).
       vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
       vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'network_error' });
 
@@ -433,8 +486,27 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
       fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'לא ניתן לאמת את השובר' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'המימוש לא אושר' })).toBeInTheDocument());
+      expect(screen.getByText(/אל תמסרו את המוצר/)).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'לא ניתן לאמת את השובר' })).not.toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
+    });
+
+    it('renders the confirm-phase not-recorded copy in English too', async () => {
+      window.localStorage.setItem('carma_lang', 'EN');
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'network_error' });
+
+      renderPage();
+      fireEvent.change(screen.getByLabelText('Voucher code'), { target: { value: 'TXQ947ZKPS' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Check code' }));
+      await waitFor(() => expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Redeem reward' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Yes, redeem it' }));
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Redemption not confirmed' })).toBeInTheDocument());
+      expect(screen.getByText(/Do not hand over the goods/)).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Cannot verify the voucher' })).not.toBeInTheDocument();
     });
 
     it('falls back to a safe, translated message for an unexpected failure, without any raw server text or status code', async () => {

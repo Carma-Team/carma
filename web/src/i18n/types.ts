@@ -88,6 +88,8 @@ export type TranslationMap = {
     failureRateLimitedMessage: string;
     failureNetworkTitle: string;
     failureNetworkMessage: string;
+    failureConfirmNetworkTitle: string;
+    failureConfirmNetworkMessage: string;
     failureUnexpectedTitle: string;
     failureUnexpectedMessage: string;
   };
