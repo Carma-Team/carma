@@ -25,6 +25,7 @@ from app.schemas.business_join_request import (
     BusinessJoinRequestOut,
     BusinessJoinRequestStatusOut,
 )
+from app.services import business as business_service
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 _STATUS_BY_STR = {s.value.lower(): s for s in BusinessJoinRequestStatus}
@@ -243,6 +244,14 @@ async def approve(db: AsyncSession, admin: User, request_id: str) -> BusinessJoi
         registration_number=request.registration_number,
     )
     db.add(business)
+    # Flushed so `business.id` exists before the membership row below is built
+    # from it — the FK the OWNER row needs, not yet assigned on an unflushed
+    # ORM object.
+    await db.flush()
+    # CAR-74: authorization for /api/business/* now comes from this row, not
+    # from `owner_user_id` — without it the applicant's first request after
+    # approval would 403.
+    await business_service.ensure_owner_membership(db, business.id, applicant.id)
     applicant.role = UserRole.BUSINESS
     request.status = BusinessJoinRequestStatus.APPROVED
     request.reviewed_at = datetime.now(UTC)

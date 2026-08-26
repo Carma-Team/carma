@@ -10,7 +10,16 @@ from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
 from app.core.security import normalise_voucher_code
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User
+from app.models import (
+    Business,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    Redemption,
+    RedemptionStatus,
+    Reward,
+    User,
+)
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
@@ -22,6 +31,25 @@ def _parse_category(value: str) -> BusinessCategory:
     if category is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category '{value}'")
     return category
+
+
+async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: str) -> None:
+    """Grant OWNER access to a business's owner, if it does not already exist.
+
+    Every path that sets `Business.owner_user_id` outside of the one-time
+    migration backfill (CAR-77's approve flow, `seed.py`) must call this too —
+    otherwise the owner it just created has no membership row and
+    `current_business` refuses them with a 403 on their very first request.
+    Idempotent so a re-run (e.g. `seed.py` against an already-seeded database)
+    does not trip the table's `UNIQUE(user_id, business_id)`.
+    """
+    existing = await db.scalar(
+        select(BusinessMembership).where(
+            BusinessMembership.business_id == business_id, BusinessMembership.user_id == user_id
+        )
+    )
+    if existing is None:
+        db.add(BusinessMembership(business_id=business_id, user_id=user_id, role=BusinessMembershipRole.OWNER))
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
@@ -40,16 +68,20 @@ async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) ->
     return reward
 
 
-async def list_rewards(db: AsyncSession, business: Business) -> dict[str, object]:
-    """Every reward of this business — inactive ones included, unlike the driver-facing list."""
-    rewards = (
-        await db.scalars(
-            select(Reward)
-            .where(Reward.business_id == business.id)
-            .options(selectinload(Reward.business))
-            .order_by(Reward.created_at.desc())
-        )
-    ).all()
+async def list_rewards(db: AsyncSession, business: Business, role: BusinessMembershipRole) -> dict[str, object]:
+    """Every reward of this business — inactive ones included, unlike the driver-facing list.
+
+    A CASHIER is the one role CAR-74 caps at "view active rewards": the query
+    gets `rewards_service.active_reward_where`, the exact predicate the
+    driver-facing catalog filters on (CAR-131's campaign-expiry leg included),
+    rather than a second definition of "active" invented for this endpoint.
+    OWNER and MANAGER are unchanged — they manage the catalog, so they still
+    see everything.
+    """
+    query = select(Reward).where(Reward.business_id == business.id).options(selectinload(Reward.business))
+    if role == BusinessMembershipRole.CASHIER:
+        query = query.where(*rewards_service.active_reward_where(datetime.now(UTC)))
+    rewards = (await db.scalars(query.order_by(Reward.created_at.desc()))).all()
     claimed = await rewards_service.claimed_by_reward(db, [r.id for r in rewards])
     return {
         "rewards": [

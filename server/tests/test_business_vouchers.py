@@ -27,7 +27,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.config import settings
 from app.core.security import create_access_token
 from app.main import app
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
+from app.models import (
+    Business,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    Redemption,
+    RedemptionStatus,
+    Reward,
+    User,
+    UserRole,
+)
 from app.services import business as business_service
 from app.services import rewards as rewards_service
 
@@ -70,6 +80,8 @@ async def _make_business(db: AsyncSession) -> Business:
         location_lng=34.78,
     )
     db.add(business)
+    await db.flush()
+    db.add(BusinessMembership(user_id=owner.id, business_id=business.id, role=BusinessMembershipRole.OWNER))
     await db.commit()
     await db.refresh(business)
     return business
