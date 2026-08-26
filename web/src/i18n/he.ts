@@ -37,7 +37,7 @@ const he: TranslationMap = {
     title: 'מימוש הטבה',
     subtitle: 'הזינו את קוד השובר שהלקוח מקריא לכם.',
     codeLabel: 'קוד שובר',
-    codePlaceholder: 'לדוגמה CRM-8421',
+    codePlaceholder: 'לדוגמה TXQ947ZKPS',
     checkButton: 'בדיקת קוד',
     checkingLabel: 'בודקים את השובר…',
     statusPending: 'שובר תקף',

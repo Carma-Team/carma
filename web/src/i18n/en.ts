@@ -37,7 +37,7 @@ const en: TranslationMap = {
     title: 'Redeem a reward',
     subtitle: 'Enter the voucher code the customer reads out to you.',
     codeLabel: 'Voucher code',
-    codePlaceholder: 'e.g. CRM-8421',
+    codePlaceholder: 'e.g. TXQ947ZKPS',
     checkButton: 'Check code',
     checkingLabel: 'Checking the voucher…',
     statusPending: 'Voucher valid',

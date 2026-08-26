@@ -36,9 +36,14 @@ export function RedemptionPage() {
   // before React has re-rendered and disabled the confirm button.
   const redeemInFlight = useRef(false);
 
+  // Guarded by the same ref as handleConfirm: while a consume request is in
+  // flight, nothing may leave the 'redeeming' step — not Escape, not the
+  // dialog's close button, not this reset — or the in-flight guard would be
+  // cleared out from under a request that hasn't settled yet, opening the
+  // door to a second one.
   function resetToEntry() {
+    if (redeemInFlight.current) return;
     setCode('');
-    redeemInFlight.current = false;
     setStep({ kind: 'entry' });
   }
 
@@ -58,12 +63,18 @@ export function RedemptionPage() {
     setStep({ kind: 'confirming', voucher });
   }
 
+  // Same guard as resetToEntry — closing the dialog (Escape, the "x", or our
+  // own Cancel button) must not be able to back out of an in-flight consume.
   function handleCloseDialog(voucher: Voucher) {
+    if (redeemInFlight.current) return;
     setStep({ kind: 'review', voucher });
   }
 
   async function handleConfirm(voucher: Voucher) {
-    if (redeemInFlight.current) return;
+    // Also refuses a voucher that ticked over to expired while the dialog
+    // was already open — the countdown is live for as long as the review
+    // card is mounted, which includes 'confirming' and 'redeeming'.
+    if (redeemInFlight.current || new Date(voucher.expiresAt).getTime() <= Date.now()) return;
     redeemInFlight.current = true;
     setStep({ kind: 'redeeming', voucher });
     const result = await consumeVoucher(voucher.code);
@@ -214,7 +225,7 @@ function ReviewCard({
         <Button variant="primary" disabled={!canRedeem} onClick={() => onOpenConfirm(voucher)}>
           {t('redemption.redeemButton')}
         </Button>
-        <Button variant="secondary" onClick={onBackToEntry}>
+        <Button variant="secondary" disabled={submitting} onClick={onBackToEntry}>
           {t('redemption.backToEntry')}
         </Button>
       </div>
@@ -230,7 +241,13 @@ function ReviewCard({
           {title} · {voucher.pointsCost}
         </Text>
         <div className={styles.actions}>
-          <Button variant="primary" disabled={submitting} onClick={() => onConfirm(voucher)}>
+          <Button
+            variant="primary"
+            disabled={submitting || !canRedeem}
+            onClick={() => {
+              if (canRedeem) onConfirm(voucher);
+            }}
+          >
             {t('redemption.confirmYes')}
           </Button>
           <Button variant="secondary" disabled={submitting} onClick={() => onCloseDialog(voucher)}>
