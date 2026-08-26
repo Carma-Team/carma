@@ -11,6 +11,7 @@ import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { ApiError } from '@/services/api/client'
+import { sortByAvailability } from '@/lib/rewardStock'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import { REWARD_CATEGORIES, type IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
@@ -149,8 +150,9 @@ export default function MarketplaceScreen() {
               <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
             ) : (
               <View style={{ gap: 10 }}>
-                {rewards
-                  .filter(r => category === 'all' || r.category === category)
+                {sortByAvailability(
+                  rewards.filter(r => category === 'all' || r.category === category)
+                )
                   .map(r => (
                     <RewardCard
                       key={r.id}
