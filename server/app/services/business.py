@@ -202,8 +202,20 @@ async def peek_voucher(db: AsyncSession, business: Business, code: str) -> Busin
     return await _voucher_out(db, voucher)
 
 
-async def consume_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
-    """Mark a voucher USED — the step that finally closes the redemption loop."""
+async def consume_voucher(
+    db: AsyncSession, business: Business, code: str, *, consumed_by_user_id: str
+) -> BusinessVoucherOut:
+    """Mark a voucher USED — the step that finally closes the redemption loop.
+
+    `consumed_by_user_id` is the acting business member's own user id (CAR-75)
+    — required, not defaulted: every new consume must name who did it, and a
+    caller with no member to name has no business calling this at all. The
+    router always passes `CurrentBusinessMembership.user_id`. Written in the
+    same UPDATE as the status flip below, never a separate write, so a voucher
+    can never end up USED with no member recorded or vice versa; a losing race
+    or a rejected (already-used, expired) attempt never reaches this UPDATE at
+    all, so it records nothing either way.
+    """
     voucher = await _owned_voucher(db, business, code)
 
     # Conditional UPDATE rather than a read-then-write: two tills scanning the
@@ -217,7 +229,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
     used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
         .where(Redemption.id == voucher_id, *rewards_service.live_voucher_where(now))
-        .values(status=RedemptionStatus.USED, used_at=now, settled_at=now)
+        .values(status=RedemptionStatus.USED, used_at=now, settled_at=now, consumed_by_user_id=consumed_by_user_id)
     )
     if used.rowcount == 0:
         await db.rollback()
@@ -260,6 +272,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
         voucher_id=voucher.id,
         reward_id=voucher.reward_id,
         user_id=voucher.user_id,
+        consumed_by_user_id=consumed_by_user_id,
     )
     return await _voucher_out(db, voucher)
 

@@ -187,11 +187,12 @@ async def test_cancelling_a_used_voucher_is_409_and_leaves_it_used(db_session: A
 
     business = await _make_business(db_session)
     driver = await _make_driver(db_session)
-    business_id, driver_id = business.id, driver.id
+    member = await _make_driver(db_session)
+    business_id, driver_id, member_id = business.id, driver.id, member.id
     try:
         reward = await _make_reward(db_session, business)
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
-        await business_service.consume_voucher(db_session, business, voucher.code)
+        await business_service.consume_voucher(db_session, business, voucher.code, consumed_by_user_id=member_id)
 
         with pytest.raises(HTTPException) as exc:
             await rewards_service.cancel(db_session, driver, voucher.id)
@@ -201,7 +202,7 @@ async def test_cancelling_a_used_voucher_is_409_and_leaves_it_used(db_session: A
         stored = await db_session.get(Redemption, voucher.id)
         assert stored is not None and stored.status is RedemptionStatus.USED
     finally:
-        await _cleanup(db_session, business_id=business_id, driver_ids=[driver_id])
+        await _cleanup(db_session, business_id=business_id, driver_ids=[driver_id, member_id])
 
 
 @pytest.mark.asyncio
@@ -241,17 +242,18 @@ async def test_wire_level_conflict_code_for_a_used_voucher(
 
     business = await _make_business(db_session)
     driver = await _make_driver(db_session)
-    business_id, driver_id = business.id, driver.id
+    member = await _make_driver(db_session)
+    business_id, driver_id, member_id = business.id, driver.id, member.id
     try:
         reward = await _make_reward(db_session, business)
         voucher = await rewards_service.redeem(db_session, driver, reward.id)
-        await business_service.consume_voucher(db_session, business, voucher.code)
+        await business_service.consume_voucher(db_session, business, voucher.code, consumed_by_user_id=member_id)
 
         resp = await db_api_client.post(f"/api/vouchers/{voucher.id}/cancel", headers=_auth(driver))
         assert resp.status_code == 409
         assert resp.json()["detail"] == {"code": "VOUCHER_ALREADY_USED", "message": "Voucher already used"}
     finally:
-        await _cleanup(db_session, business_id=business_id, driver_ids=[driver_id])
+        await _cleanup(db_session, business_id=business_id, driver_ids=[driver_id, member_id])
 
 
 @pytest.mark.asyncio

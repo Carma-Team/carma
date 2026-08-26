@@ -39,6 +39,13 @@ class Redemption(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The business member who scanned this — CAR-75. NULL for every row that
+    # predates the membership table (nothing to backfill it from) and for any
+    # row that never reached USED. Written in the same UPDATE as the status
+    # flip in `business_service.consume_voucher`, never on its own, so the two
+    # can never disagree. Not yet read anywhere — CAR-79's history endpoint is
+    # the first consumer.
+    consumed_by_user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"))
     # When this voucher left the live state — set in the same statement as the
     # status write, on every terminal transition (consume, expire, cancel), so
     # the two can never disagree. NULL iff PENDING (see the check constraint
@@ -47,7 +54,11 @@ class Redemption(Base):
     # this and leave used_at NULL.
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    user: Mapped[User] = relationship(back_populates="redemptions")
+    # `foreign_keys` pins this to the voucher's own owner now that
+    # `consumed_by_user_id` gives the table a second FK to `users.id` —
+    # without it SQLAlchemy has two equally valid join paths and refuses to
+    # guess which one `.user` means.
+    user: Mapped[User] = relationship(back_populates="redemptions", foreign_keys=[user_id])
     reward: Mapped[Reward] = relationship(back_populates="redemptions")
 
     __table_args__ = (
@@ -67,6 +78,7 @@ class Redemption(Base):
         Index("ix_redemptions_user_status_expires", "user_id", "status", "expires_at"),
         Index("ix_redemptions_qr_code", "qr_code"),
         Index("ix_redemptions_business_settled_id", "business_id", "settled_at", "id"),
+        Index("ix_redemptions_consumed_by_user_id", "consumed_by_user_id"),
         CheckConstraint(
             "(status = 'PENDING') = (settled_at IS NULL)",
             name="ck_redemptions_settled_at_matches_status",

@@ -267,11 +267,18 @@ async def test_concurrent_consumes_of_one_voucher_charge_exactly_once(db_session
     the debit inherits that guarantee: the loser's UPDATE affects zero rows and
     never reaches the debit at all, so the winner's `points_cost` is taken from
     the balance exactly once, not twice and not zero times.
+
+    CAR-75 rides the same UPDATE: two distinct member ids are passed in, one
+    per till, so the same lock that stops a double charge is also what proves
+    the loser's id can never land — only the winner's own id may end up
+    recorded, never both and never neither.
     """
     cost = 300
     balance = 1000
     reward = await _make_reward(db_session, cost_points=cost)
     user = await _make_driver(db_session, points=balance)
+    member_a = await _make_driver(db_session, points=0)
+    member_b = await _make_driver(db_session, points=0)
     try:
         business = await db_session.get(Business, reward.business_id)
         assert business is not None
@@ -295,8 +302,8 @@ async def test_concurrent_consumes_of_one_voucher_charge_exactly_once(db_session
             assert rival_business is not None
 
             results = await asyncio.gather(
-                business_service.consume_voucher(db_session, business, code),
-                business_service.consume_voucher(rival_db, rival_business, code),
+                business_service.consume_voucher(db_session, business, code, consumed_by_user_id=member_a.id),
+                business_service.consume_voucher(rival_db, rival_business, code, consumed_by_user_id=member_b.id),
                 return_exceptions=True,
             )
 
@@ -310,7 +317,15 @@ async def test_concurrent_consumes_of_one_voucher_charge_exactly_once(db_session
         # instead of joining its transaction could run twice (double charge) or,
         # gated on balance, zero times (voucher USED but never paid for).
         assert await _balance(db_session, user.id) == balance - cost, "the debit must land exactly once"
+
+        # CAR-75: whichever till lost never reaches the UPDATE at all, so its
+        # member id can never be the one recorded — only the winner's can.
+        winner_id = member_b.id if isinstance(results[0], BaseException) else member_a.id
+        recorded = await db_session.scalar(select(Redemption.consumed_by_user_id).where(Redemption.id == voucher.id))
+        assert recorded == winner_id, "only the winning till's member id may be recorded"
     finally:
+        await db_session.execute(delete(User).where(User.id.in_([member_a.id, member_b.id])))
+        await db_session.commit()
         await _cleanup(db_session, user, reward)
 
 
