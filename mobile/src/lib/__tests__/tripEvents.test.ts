@@ -31,8 +31,8 @@ describe('toDrivingEvents', () => {
   })
 
   it('drops a type the SDK has no enum for, rather than passing it through', () => {
-    // SPEEDING exists server-side only; it has no icon or colour in the map's
-    // tables, so a marker for it would be invisible.
+    // SPEEDING exists server-side only -- there is no DrivingEventType member
+    // to map it onto, so adding a map entry for it would not bring it through.
     expect(toDrivingEvents([event({ type: 'speeding' })])).toEqual([])
   })
 
