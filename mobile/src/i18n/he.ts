@@ -269,9 +269,7 @@ const he = {
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
   time: {
-    now: 'עכשיו', ago: 'לפני',
     secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",
-    hoursWord: 'שעות', daysWord: 'ימים',
   },
 } as const
 

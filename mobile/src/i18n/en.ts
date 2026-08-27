@@ -265,9 +265,7 @@ const en: TranslationMap = {
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
   },
   time: {
-    now: 'just now', ago: 'ago',
     secondsShort: 's', minutesShort: 'm', hoursShort: 'h',
-    hoursWord: 'h', daysWord: 'd',
   },
 }
 
