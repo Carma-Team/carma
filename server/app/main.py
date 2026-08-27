@@ -24,6 +24,7 @@ from app.routers import (
     admin_business_requests,
     auth,
     business,
+    business_invitations,
     business_join_requests,
     fraud,
     friends,
@@ -101,6 +102,8 @@ app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(business.router)
+app.include_router(business_invitations.router)
+app.include_router(business_invitations.redeem_router)
 app.include_router(business_join_requests.router)
 app.include_router(admin_business_requests.router)
 app.include_router(leaderboard.router)
