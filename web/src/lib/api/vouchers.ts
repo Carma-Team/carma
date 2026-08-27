@@ -95,6 +95,17 @@ export function normalizeVoucherCode(code: string): string {
   return stripped.toUpperCase();
 }
 
+// Mirrors server/app/core/security.py's READABLE_ALPHABET and
+// VOUCHER_CODE_LENGTH — no 0/O/1/I/L, exactly 10 characters. Checked against
+// the normalized code so a mistyped code is rejected before it ever reaches
+// the network, rather than spending a round trip to learn what a regex could
+// have said locally (CAR-69).
+const VOUCHER_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{10}$/;
+
+export function isWellFormedVoucherCode(code: string): boolean {
+  return VOUCHER_CODE_PATTERN.test(normalizeVoucherCode(code));
+}
+
 async function toResult(call: () => Promise<{ voucher: Voucher }>): Promise<VoucherResult> {
   try {
     const { voucher } = await call();

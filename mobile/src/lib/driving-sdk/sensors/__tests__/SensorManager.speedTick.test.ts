@@ -111,6 +111,8 @@ describe('SensorManager — speed tick', () => {
     const payload = onUpdate.mock.calls[0][0];
     expect(payload.lat).toBeUndefined();
     expect(payload.lng).toBeUndefined();
+    // No fix behind this update, so no fix time to thin waypoints against.
+    expect(payload.fixTs).toBeUndefined();
     // Distance is the other half of the same guarantee: nothing to accumulate.
     expect(payload.distanceKm).toBe(0);
   });

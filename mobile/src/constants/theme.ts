@@ -191,6 +191,28 @@ export const COMMON_STYLES = {
     fontSize: 13,
     textAlign: 'center' as const,
   },
+  // ─── Notice row (icon + muted line inside a summary) ────────────────────────
+  // Every informational strip a trip summary shows. One block, so changing how a
+  // notice looks changes all of them — they were separate copies before, and had
+  // already started to drift apart.
+  noticeRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    alignSelf: 'stretch' as const,
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  noticeText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
+    fontSize: 12,
+    flex: 1,
+  },
+
   // ─── Category label row (icon + muted text above a Card) ────────────────────
   sectionLabelRow: {
     flexDirection: 'row' as const,

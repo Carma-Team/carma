@@ -25,10 +25,18 @@ const EVENT_LABEL_KEY: Record<DrivingEventType, string> = {
   [DrivingEventType.PHONE_USAGE]:      'trip.phoneUsage',
 };
 
+// The column is PHONE_USE while the SDK enum is PHONE_USAGE; the server bridges the
+// inbound direction only (services/trips.py), so without this every distraction event
+// is dropped here and never reaches the map.
+const SERVER_TYPE_ALIAS: Record<string, DrivingEventType> = {
+  PHONE_USE: DrivingEventType.PHONE_USAGE,
+};
+
 /**
- * Two mismatches to bridge, both silent if missed: the server lower-cases `type`
+ * Three mismatches to bridge, all silent if missed: the server lower-cases `type`
  * on the wire while the SDK enum and the map's icon/colour tables are upper-case,
- * and coordinates arrive flat rather than nested under `location`.
+ * one name differs outright (see SERVER_TYPE_ALIAS), and coordinates arrive flat
+ * rather than nested under `location`.
  *
  * An unknown type is dropped, not passed through — TripMapPlaceholder looks up its
  * icon and colour by type and would otherwise draw an invisible, uncoloured marker.
@@ -38,7 +46,8 @@ export function toDrivingEvents(events: TripEvent[] | undefined): DrivingEvent[]
   if (!events?.length) return [];
 
   return events.flatMap<DrivingEvent>(e => {
-    const type = DrivingEventType[e.type.toUpperCase() as keyof typeof DrivingEventType];
+    const name = e.type.toUpperCase();
+    const type = SERVER_TYPE_ALIAS[name] ?? DrivingEventType[name as keyof typeof DrivingEventType];
     if (!type) return [];
 
     return [{

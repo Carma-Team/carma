@@ -37,6 +37,11 @@ export type Trip = Schemas['TripOut'] & {
   routeWaypoints?: { lat: number; lng: number; ts: number; speedKmh: number }[];
   // Local-only aliases (used by TripCard/TripDetailScreen for locally-created trips)
   score?: number;
+  // Client-only. Set on the row we create ourselves when the save never landed, and
+  // gone once SyncManager swaps in the server's row. The schema requires avgScore and
+  // points, so that row carries zeros — this flag is what tells them apart from a
+  // trip the server actually scored zero.
+  pendingSync?: boolean;
   eventsArray?: any[];
 };
 

@@ -30,6 +30,7 @@ from app.models import (
     UserFriend,
     UserRole,
 )
+from app.services.business import ensure_owner_membership
 from app.services.rewards import VOUCHER_TTL_DAYS
 
 # ---------------------------------------------------------------------------
@@ -520,6 +521,7 @@ async def run() -> None:
                 Redemption(
                     user_id=dan.id,
                     reward_id=paz_reward.id,
+                    business_id=paz_reward.business_id,
                     points_cost=paz_reward.cost_points,
                     # Real voucher format, not a descriptive slug: lookups fold
                     # the input to upper case with separators stripped, so the
@@ -532,6 +534,7 @@ async def run() -> None:
                     status=RedemptionStatus.USED,
                     expires_at=used_at + timedelta(days=VOUCHER_TTL_DAYS),
                     used_at=used_at,
+                    settled_at=used_at,
                 )
             )
 
@@ -623,6 +626,9 @@ async def run() -> None:
             await db.flush()
         if aroma is not None:
             aroma.owner_user_id = biz_owner.id
+            # CAR-74: authorization for /api/business/* comes from this row now,
+            # not from owner_user_id alone — without it the seeded owner 403s.
+            await ensure_owner_membership(db, aroma.id, biz_owner.id)
 
         # --- Yoni follows friends (Friends leaderboard) ---
         for friend_email in YONI_FRIENDS:
