@@ -19,6 +19,8 @@ const USER: AuthUser = {
   role: 'BUSINESS',
   businessId: 'b1',
   businessCategory: 'FOOD',
+  businessName: 'Aroma',
+  businessNameHe: null,
 };
 
 function Probe() {

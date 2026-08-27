@@ -25,10 +25,6 @@ const SIDE_BOX = 52;
 // Slot height drives the snap interval; the slack over CENTER_BOX is the visible gap.
 const ITEM_HEIGHT = 106;
 const VISIBLE = 3;
-// Odd repeat count around the real level list — dragging feels endless in normal use,
-// re-centering only kicks in if a single gesture scrolls several loops. Not truly
-// infinite; raise REPEAT if that ever becomes reachable in practice.
-const REPEAT = 9;
 // How far the side levels sit to the right of the centered one — the ")" curve. The
 // scroll content reserves this much on both sides so a shifted row can't run off-screen.
 const ARC_OFFSET = 14;
@@ -72,13 +68,12 @@ const TRACK_PATH = trackPath();
 export function LevelWheel({ levels, currentLevel, currentPoints, lang }: LevelWheelProps) {
   const { t } = useTranslation();
   const total = levels.length;
-  // The ladder comes from GET /api/levels, so an empty one is reachable. Every
-  // index below is modulo `total`, which without this would be a divide by zero
-  // and a scrollTo(NaN) rather than an empty wheel.
+  // The ladder comes from GET /api/levels, so an empty one is reachable — an empty
+  // wheel rather than a scroll into nothing.
   const hasLevels = total > 0;
-  const mid = Math.floor(REPEAT / 2);
-  const repeated: LevelConfig[] = Array.from({ length: REPEAT }, () => levels).flat();
-  const initialIndex = mid * total + (currentLevel - 1);
+  // Clamped because `currentLevel` and the ladder come from two different responses:
+  // a driver past the last level the server listed would scroll outside the content.
+  const initialIndex = Math.min(Math.max(currentLevel - 1, 0), total - 1);
 
   const scrollRef = useRef<any>(null);
   const scrollY = useRef(new Animated.Value(initialIndex * ITEM_HEIGHT)).current;
@@ -88,17 +83,6 @@ export function LevelWheel({ levels, currentLevel, currentPoints, lang }: LevelW
     const idx = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
     setCenteredIndex(prev => (prev === idx ? prev : idx));
   }, []);
-
-  const handleMomentumEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
-    // Near either edge of the repeated range — jump to the equivalent spot in the middle
-    // repetition, unanimated so it is invisible, leaving room to keep rolling either way.
-    if (idx < total || idx > repeated.length - total) {
-      const recentered = mid * total + (idx % total);
-      scrollRef.current?.scrollTo({ y: recentered * ITEM_HEIGHT, animated: false });
-      setCenteredIndex(recentered);
-    }
-  }, [repeated.length, total, mid]);
 
   // After the hooks, never before them — the hook order has to stay stable.
   if (!hasLevels) return null;
@@ -141,9 +125,8 @@ export function LevelWheel({ levels, currentLevel, currentPoints, lang }: LevelW
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true, listener: handleScroll },
         )}
-        onMomentumScrollEnd={handleMomentumEnd}
       >
-        {repeated.map((lvl, i) => {
+        {levels.map((lvl, i) => {
           const isCentered = i === centeredIndex;
           const isRealCompleted = currentLevel > lvl.level;
           const isRealCurrent = currentLevel === lvl.level;

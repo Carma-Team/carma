@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { peekVoucher, consumeVoucher, normalizeVoucherCode } from './vouchers';
+import { peekVoucher, consumeVoucher, normalizeVoucherCode, isWellFormedVoucherCode } from './vouchers';
 import type { Voucher } from './vouchers';
 import { setSession } from '@/lib/auth/session';
 import { attemptRefresh } from '@/lib/auth/refresh';
@@ -14,6 +14,8 @@ const USER: AuthUser = {
   role: 'BUSINESS',
   businessId: null,
   businessCategory: null,
+  businessName: null,
+  businessNameHe: null,
 };
 
 const REWARD = {
@@ -169,6 +171,28 @@ describe('vouchers', () => {
 
     const url = String(vi.mocked(fetch).mock.calls[0][0]);
     expect(url.endsWith('/api/business/vouchers/ABC123XYZ0')).toBe(true);
+  });
+
+  // ── format validation (CAR-69: reject before ever calling) ────────────────
+
+  it('accepts a code drawn from the real voucher alphabet at the real length', () => {
+    expect(isWellFormedVoucherCode('TXQ947ZKPS')).toBe(true);
+    expect(isWellFormedVoucherCode('  txq-947z kps ')).toBe(true);
+  });
+
+  it('rejects a code that is too short or too long', () => {
+    expect(isWellFormedVoucherCode('TXQ947ZK')).toBe(false);
+    expect(isWellFormedVoucherCode('TXQ947ZKPSX')).toBe(false);
+  });
+
+  it('rejects a code containing a character outside the voucher alphabet', () => {
+    // 0, 1, I, O, L are excluded from READABLE_ALPHABET on the server.
+    expect(isWellFormedVoucherCode('TXQ947ZKP0')).toBe(false);
+    expect(isWellFormedVoucherCode('TXQ947ZKPI')).toBe(false);
+  });
+
+  it('rejects an empty code', () => {
+    expect(isWellFormedVoucherCode('')).toBe(false);
   });
 
   // ── method and path ──────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 
 from fastapi import APIRouter, Request, Response, status
 
-from app.core.deps import CurrentBusiness, DbSession
+from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
 from app.schemas.reward import (
     BusinessRewardIn,
@@ -26,8 +26,8 @@ router = APIRouter(prefix="/api/business", tags=["business"])
     response_model_by_alias=True,
     summary="List every reward owned by the authenticated business, inactive included",
 )
-async def list_rewards(business: CurrentBusiness, db: DbSession) -> dict[str, object]:
-    return await business_service.list_rewards(db, business)
+async def list_rewards(membership: CurrentBusinessMembership, db: DbSession) -> dict[str, object]:
+    return await business_service.list_rewards(db, membership.business, membership.role)
 
 
 @router.post(
@@ -37,8 +37,10 @@ async def list_rewards(business: CurrentBusiness, db: DbSession) -> dict[str, ob
     status_code=status.HTTP_201_CREATED,
     summary="Create a reward in the authenticated business's catalog",
 )
-async def create_reward(dto: BusinessRewardIn, business: CurrentBusiness, db: DbSession) -> BusinessRewardResponse:
-    reward = await business_service.create_reward(db, business, dto)
+async def create_reward(
+    dto: BusinessRewardIn, membership: CurrentBusinessManager, db: DbSession
+) -> BusinessRewardResponse:
+    reward = await business_service.create_reward(db, membership.business, dto)
     return BusinessRewardResponse(reward=reward)
 
 
@@ -49,9 +51,9 @@ async def create_reward(dto: BusinessRewardIn, business: CurrentBusiness, db: Db
     summary="Update fields of an owned reward",
 )
 async def update_reward(
-    reward_id: str, dto: BusinessRewardPatchIn, business: CurrentBusiness, db: DbSession
+    reward_id: str, dto: BusinessRewardPatchIn, membership: CurrentBusinessManager, db: DbSession
 ) -> BusinessRewardResponse:
-    reward = await business_service.update_reward(db, business, reward_id, dto)
+    reward = await business_service.update_reward(db, membership.business, reward_id, dto)
     return BusinessRewardResponse(reward=reward)
 
 
@@ -61,8 +63,8 @@ async def update_reward(
     response_model_by_alias=True,
     summary="Live (unused, unexpired) voucher count for an owned reward — check before archiving",
 )
-async def live_voucher_count(reward_id: str, business: CurrentBusiness, db: DbSession) -> LiveVoucherCountOut:
-    count = await business_service.live_voucher_count(db, business, reward_id)
+async def live_voucher_count(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> LiveVoucherCountOut:
+    count = await business_service.live_voucher_count(db, membership.business, reward_id)
     return LiveVoucherCountOut(live_vouchers=count)
 
 
@@ -72,8 +74,8 @@ async def live_voucher_count(reward_id: str, business: CurrentBusiness, db: DbSe
     response_class=Response,
     summary="Archive an owned reward — removed from the catalog, history and live vouchers untouched",
 )
-async def archive_reward(reward_id: str, business: CurrentBusiness, db: DbSession) -> Response:
-    await business_service.archive_reward(db, business, reward_id)
+async def archive_reward(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> Response:
+    await business_service.archive_reward(db, membership.business, reward_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -111,9 +113,9 @@ REDEEM_SCOPE = "business-voucher-redeem"
 )
 @limiter.shared_limit(PEEK_LIMIT, scope=PEEK_SCOPE, key_func=business_key)
 async def peek_voucher(
-    request: Request, code: str, business: CurrentBusiness, db: DbSession
+    request: Request, code: str, membership: CurrentBusinessMembership, db: DbSession
 ) -> BusinessVoucherResponse:
-    return BusinessVoucherResponse(voucher=await business_service.peek_voucher(db, business, code))
+    return BusinessVoucherResponse(voucher=await business_service.peek_voucher(db, membership.business, code))
 
 
 @router.post(
@@ -124,6 +126,9 @@ async def peek_voucher(
 )
 @limiter.shared_limit(REDEEM_LIMIT, scope=REDEEM_SCOPE, key_func=business_key)
 async def consume_voucher(
-    request: Request, code: str, business: CurrentBusiness, db: DbSession
+    request: Request, code: str, membership: CurrentBusinessMembership, db: DbSession
 ) -> BusinessVoucherResponse:
-    return BusinessVoucherResponse(voucher=await business_service.consume_voucher(db, business, code))
+    voucher = await business_service.consume_voucher(
+        db, membership.business, code, consumed_by_user_id=membership.user_id
+    )
+    return BusinessVoucherResponse(voucher=voucher)

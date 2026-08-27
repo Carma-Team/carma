@@ -125,11 +125,13 @@ def _voucher(reward: Reward, driver: User, *, status: RedemptionStatus, expires_
     return Redemption(
         user_id=driver.id,
         reward_id=reward.id,
+        business_id=reward.business_id,
         points_cost=reward.cost_points,
         qr_code=code,
         qr_data=code,
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
+        settled_at=None if status == RedemptionStatus.PENDING else datetime.now(UTC),
     )
 
 
@@ -241,28 +243,38 @@ async def test_stock_is_never_written_back_to(db_session: AsyncSession) -> None:
 # ─── The guard on the issue path ─────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_redeem_refuses_once_the_allocation_is_taken(db_session: AsyncSession) -> None:
-    """The headline of CAR-47: a reward with 2 units cannot issue a 3rd voucher."""
-    business, reward = await _make_reward(db_session, stock=2)
-    driver = await _make_driver(db_session)
-    business_id, reward_id, driver_id = business.id, reward.id, driver.id
-    try:
-        await rewards_service.redeem(db_session, driver, reward.id)
-        await rewards_service.redeem(db_session, driver, reward.id)
+    """The headline of CAR-47: a reward with 2 units cannot issue a 3rd voucher.
 
-        before = await db_session.get(User, driver_id)
+    Two different drivers take the two units — one driver alone would hit the
+    CAR-71 per-driver cap first, which is a different guard (see
+    test_voucher_reward_cap.py) and would mask what this test is checking.
+    """
+    business, reward = await _make_reward(db_session, stock=2)
+    first, second, third = (
+        await _make_driver(db_session),
+        await _make_driver(db_session),
+        await _make_driver(db_session),
+    )
+    business_id, reward_id = business.id, reward.id
+    first_id, second_id, third_id = first.id, second.id, third.id
+    try:
+        await rewards_service.redeem(db_session, first, reward.id)
+        await rewards_service.redeem(db_session, second, reward.id)
+
+        before = await db_session.get(User, third_id)
         assert before is not None
         points_before = before.points
 
         with pytest.raises(HTTPException) as exc:
-            await rewards_service.redeem(db_session, driver, reward_id)
+            await rewards_service.redeem(db_session, third, reward_id)
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == REWARD_OUT_OF_STOCK, "the client needs a code, not a message to parse"
 
-        after = await db_session.get(User, driver_id)
+        after = await db_session.get(User, third_id)
         assert after is not None
         assert after.points == points_before, "a refused redeem must not debit the driver"
     finally:
-        await _cleanup(db_session, business_id, driver_id)
+        await _cleanup(db_session, business_id, first_id, second_id, third_id)
 
 
 @pytest.mark.asyncio
@@ -299,15 +311,23 @@ async def test_redeem_reopens_when_a_held_voucher_lapses(db_session: AsyncSessio
 
 @pytest.mark.asyncio
 async def test_unlimited_reward_never_refuses(db_session: AsyncSession) -> None:
+    """Five separate drivers, each well under the CAR-71 per-driver cap.
+
+    One driver looping 5 times would hit that cap on the 3rd attempt — a
+    different guard than the one this test checks. See
+    test_voucher_reward_cap.py for that behaviour.
+    """
     business, reward = await _make_reward(db_session, stock=None)
-    driver = await _make_driver(db_session)
-    business_id, driver_id = business.id, driver.id
+    business_id = business.id
+    driver_ids: list[str] = []
     try:
         for _ in range(5):
+            driver = await _make_driver(db_session)
+            driver_ids.append(driver.id)
             voucher = await rewards_service.redeem(db_session, driver, reward.id)
         assert voucher.reward.available is None, "an uncapped reward reports unlimited, never a number"
     finally:
-        await _cleanup(db_session, business_id, driver_id)
+        await _cleanup(db_session, business_id, *driver_ids)
 
 
 # ─── The create path ─────────────────────────────────────────────────────────
