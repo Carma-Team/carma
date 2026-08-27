@@ -6,7 +6,7 @@
  * @description
  * Nothing else in the SDK persists raw samples — SensorManager and PhoneUsageManager
  * hold only rolling windows of a few samples and discard them, and TripData carries
- * GPS waypoints thinned to ~1 point/5s with no IMU at all. This fills that gap for
+ * GPS waypoints thinned to ~1 point/2s with no IMU at all. This fills that gap for
  * staged sessions (phone handheld / on-seat / in-pocket / mounted, held still or
  * moved deliberately) where the raw stream itself is the deliverable, not a derived
  * event. Trip recording is untouched — this class is never wired into startTrip/stopTrip.

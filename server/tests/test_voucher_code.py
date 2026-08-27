@@ -306,6 +306,7 @@ async def test_a_cashier_typing_the_code_by_hand_finds_the_voucher(db_session: A
     """Lower case with the grouping the app shows, through both business routes."""
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
+    member = await _make_driver(db_session)
     business_id, driver_id = business.id, driver.id
     try:
         issued = await rewards_service.redeem(db_session, driver, reward.id)
@@ -314,10 +315,12 @@ async def test_a_cashier_typing_the_code_by_hand_finds_the_voucher(db_session: A
         peeked = await business_service.peek_voucher(db_session, business, typed)
         assert peeked.code == issued.code
 
-        consumed = await business_service.consume_voucher(db_session, business, f"  {typed}  ")
+        consumed = await business_service.consume_voucher(
+            db_session, business, f"  {typed}  ", consumed_by_user_id=member.id
+        )
         assert consumed.status == "used"
     finally:
-        await _cleanup(db_session, business_id, driver_id)
+        await _cleanup(db_session, business_id, driver_id, member.id)
 
 
 @pytest.mark.asyncio
@@ -352,7 +355,8 @@ async def test_a_lapsed_voucher_typed_in_by_hand_reads_as_expired(db_session: As
     """
     business, reward = await _make_reward(db_session)
     driver = await _make_driver(db_session)
-    business_id, driver_id = business.id, driver.id
+    member = await _make_driver(db_session)
+    business_id, driver_id, member_id = business.id, driver.id, member.id
     try:
         issued = await rewards_service.redeem(db_session, driver, reward.id)
         voucher_id = (await db_session.scalar(select(Redemption.id).where(Redemption.qr_code == issued.code))) or ""
@@ -370,10 +374,10 @@ async def test_a_lapsed_voucher_typed_in_by_hand_reads_as_expired(db_session: As
         assert peeked.status == "expired", "a lapsed voucher must not read as pending just because it was typed"
 
         with pytest.raises(HTTPException) as exc:
-            await business_service.consume_voucher(db_session, business, typed)
+            await business_service.consume_voucher(db_session, business, typed, consumed_by_user_id=member_id)
         assert exc.value.status_code == 409
     finally:
-        await _cleanup(db_session, business_id, driver_id)
+        await _cleanup(db_session, business_id, driver_id, member_id)
 
 
 @pytest.mark.asyncio
@@ -393,12 +397,14 @@ async def test_codes_issued_before_the_change_still_resolve(db_session: AsyncSes
             Redemption(
                 user_id=driver.id,
                 reward_id=reward.id,
+                business_id=business.id,
                 points_cost=reward.cost_points,
                 qr_code=legacy,
                 qr_data=legacy,
                 status=RedemptionStatus.USED,
                 expires_at=datetime.now(UTC) - timedelta(minutes=5),
                 used_at=datetime.now(UTC) - timedelta(minutes=5),
+                settled_at=datetime.now(UTC) - timedelta(minutes=5),
             )
         )
         await db_session.commit()

@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     invite_base_url: str = "https://carma.app"
     trip_signing_secret: str = Field(default="", min_length=0)
 
+    # CAR-72: after a voucher for a (driver, reward) pair lapses or is
+    # cancelled, that pair is locked out of reissuing for this long. Consuming
+    # a voucher never starts this — only churn does.
+    reward_reissue_cooldown_seconds: int = Field(default=60, ge=0)
+
     @field_validator("cors_origins")
     @classmethod
     def _normalise_origins(cls, v: str) -> str:

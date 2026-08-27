@@ -18,7 +18,7 @@ from app.schemas.user import (
     UpdateProfileIn,
     UserOut,
 )
-from app.services import friends, trips
+from app.services import friends, rewards, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
@@ -29,11 +29,18 @@ async def profile_out(db: AsyncSession, user: User) -> UserOut:
     authenticated request in the app.
     """
     out = UserOut.model_validate(user)
+    # Only a DRIVER ever holds vouchers, but the sum is 0 for anyone else either
+    # way — no need to gate this on role.
+    reserved = await rewards.reserved_points(db, user.id)
+    out.reserved_points = reserved
+    out.available_points = user.points - reserved
     if user.role == UserRole.BUSINESS:
         business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
         if business is not None:
             out.business_id = business.id
             out.business_category = business.category.value.lower()
+            out.business_name = business.name
+            out.business_name_he = business.name_he
     return out
 
 

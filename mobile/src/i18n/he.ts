@@ -86,6 +86,10 @@ const he = {
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
     openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
+    phoneUsage: 'שימוש בטלפון',
+    routeStart: 'התחלת הנסיעה', routeEnd: 'סיום הנסיעה',
+    kmh: 'קמ"ש',
+    openLocationInMaps: 'פתיחת המיקום במפות',
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',
@@ -117,7 +121,7 @@ const he = {
     refresh: 'רענן',
   },
   roadmap: {
-    title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהג המדגם',
+    title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהיגה בטוחה יותר',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
@@ -125,11 +129,13 @@ const he = {
   },
   marketplace: {
     title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
-    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים', points: 'נקודות',
+    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים',
     redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
-    notEnoughPoints: 'אין מספיק נקודות', missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי', expires: 'תפוגה',
+    // The two reasons the server refuses a redemption that looked available a moment ago.
+    redeemOutOfStock: 'הפרס אזל מהמלאי הרגע', redeemCampaignEnded: 'מבצע הפרס הסתיים',
+    missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
-    voucher: { title: 'השובר שלך', code: 'קוד', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
+    voucher: { title: 'השובר שלך', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
     bonusDilemma: {
       title: 'בחר את הפרס שלך!', invest: 'השקע בנקודות', investDesc: 'שמור נקודות לפרס גדול יותר',
       redeem: 'ממש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',
@@ -168,7 +174,7 @@ const he = {
   profile: {
     title: 'הפרופיל שלי', stats: 'הישגים', chart: 'סטטיסטיקות', achievements: 'הישגים',
     tripHistory: 'היסטוריית נסיעות', notifications: 'הודעות', language: 'שפה',
-    updatesTitle: 'עדכונים', friendsTitle: 'חברים',
+    updatesTitle: 'התראות', friendsTitle: 'חברים',
     totalDistance: 'ק"מ', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     level: 'רמה', joined: 'תאריך הצטרפות', phone: 'טלפון', city: 'עיר', age: 'גיל',
     licenseYear: 'רישיון מ-', noTrips: 'עדיין אין נסיעות',

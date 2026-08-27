@@ -1,0 +1,64 @@
+.centered {
+  max-width: 28rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.codeInput input,
+.codeInput {
+  text-align: center;
+}
+
+.reviewCard {
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-label);
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.statusBadge[data-status='pending'] {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-block: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.successBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-inline: auto;
+  border-radius: 999px;
+  background-color: var(--color-primary-surface);
+  color: var(--color-success);
+  font-size: 2rem;
+  font-weight: 800;
+}

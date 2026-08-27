@@ -10,7 +10,16 @@ from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
 from app.core.security import normalise_voucher_code
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward
+from app.models import (
+    Business,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    Redemption,
+    RedemptionStatus,
+    Reward,
+    User,
+)
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
@@ -22,6 +31,25 @@ def _parse_category(value: str) -> BusinessCategory:
     if category is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category '{value}'")
     return category
+
+
+async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: str) -> None:
+    """Grant OWNER access to a business's owner, if it does not already exist.
+
+    Every path that sets `Business.owner_user_id` outside of the one-time
+    migration backfill (CAR-77's approve flow, `seed.py`) must call this too —
+    otherwise the owner it just created has no membership row and
+    `current_business` refuses them with a 403 on their very first request.
+    Idempotent so a re-run (e.g. `seed.py` against an already-seeded database)
+    does not trip the table's `UNIQUE(user_id, business_id)`.
+    """
+    existing = await db.scalar(
+        select(BusinessMembership).where(
+            BusinessMembership.business_id == business_id, BusinessMembership.user_id == user_id
+        )
+    )
+    if existing is None:
+        db.add(BusinessMembership(business_id=business_id, user_id=user_id, role=BusinessMembershipRole.OWNER))
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
@@ -40,16 +68,20 @@ async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) ->
     return reward
 
 
-async def list_rewards(db: AsyncSession, business: Business) -> dict[str, object]:
-    """Every reward of this business — inactive ones included, unlike the driver-facing list."""
-    rewards = (
-        await db.scalars(
-            select(Reward)
-            .where(Reward.business_id == business.id)
-            .options(selectinload(Reward.business))
-            .order_by(Reward.created_at.desc())
-        )
-    ).all()
+async def list_rewards(db: AsyncSession, business: Business, role: BusinessMembershipRole) -> dict[str, object]:
+    """Every reward of this business — inactive ones included, unlike the driver-facing list.
+
+    A CASHIER is the one role CAR-74 caps at "view active rewards": the query
+    gets `rewards_service.active_reward_where`, the exact predicate the
+    driver-facing catalog filters on (CAR-131's campaign-expiry leg included),
+    rather than a second definition of "active" invented for this endpoint.
+    OWNER and MANAGER are unchanged — they manage the catalog, so they still
+    see everything.
+    """
+    query = select(Reward).where(Reward.business_id == business.id).options(selectinload(Reward.business))
+    if role == BusinessMembershipRole.CASHIER:
+        query = query.where(*rewards_service.active_reward_where(datetime.now(UTC)))
+    rewards = (await db.scalars(query.order_by(Reward.created_at.desc()))).all()
     claimed = await rewards_service.claimed_by_reward(db, [r.id for r in rewards])
     return {
         "rewards": [
@@ -170,8 +202,20 @@ async def peek_voucher(db: AsyncSession, business: Business, code: str) -> Busin
     return await _voucher_out(db, voucher)
 
 
-async def consume_voucher(db: AsyncSession, business: Business, code: str) -> BusinessVoucherOut:
-    """Mark a voucher USED — the step that finally closes the redemption loop."""
+async def consume_voucher(
+    db: AsyncSession, business: Business, code: str, *, consumed_by_user_id: str
+) -> BusinessVoucherOut:
+    """Mark a voucher USED — the step that finally closes the redemption loop.
+
+    `consumed_by_user_id` is the acting business member's own user id (CAR-75)
+    — required, not defaulted: every new consume must name who did it, and a
+    caller with no member to name has no business calling this at all. The
+    router always passes `CurrentBusinessMembership.user_id`. Written in the
+    same UPDATE as the status flip below, never a separate write, so a voucher
+    can never end up USED with no member recorded or vice versa; a losing race
+    or a rejected (already-used, expired) attempt never reaches this UPDATE at
+    all, so it records nothing either way.
+    """
     voucher = await _owned_voucher(db, business, code)
 
     # Conditional UPDATE rather than a read-then-write: two tills scanning the
@@ -185,7 +229,7 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
     used: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         update(Redemption)
         .where(Redemption.id == voucher_id, *rewards_service.live_voucher_where(now))
-        .values(status=RedemptionStatus.USED, used_at=now)
+        .values(status=RedemptionStatus.USED, used_at=now, settled_at=now, consumed_by_user_id=consumed_by_user_id)
     )
     if used.rowcount == 0:
         await db.rollback()
@@ -198,14 +242,37 @@ async def consume_voucher(db: AsyncSession, business: Business, code: str) -> Bu
             )
         raise HTTPException(status.HTTP_409_CONFLICT, {"code": VOUCHER_EXPIRED, "message": "Voucher expired"})
 
+    # CAR-109: unconditional — CAR-73's reservation invariant (available =
+    # points - reserved, enforced on the issue path) guarantees the points are
+    # there. Gating this on balance would strand a voucher USED-but-unpaid
+    # after the goods already left the till, which is worse than a negative
+    # balance. Joins the conditional UPDATE above in the same transaction, so a
+    # failure here rolls back the status flip too.
+    new_points = await db.scalar(
+        update(User)
+        .where(User.id == voucher.user_id)
+        .values(points=User.points - voucher.points_cost)
+        .returning(User.points)
+    )
+    assert new_points is not None, "the voucher's user must still exist"
+    if new_points < 0:
+        audit(
+            "rewards.points.negative_after_debit",
+            user_id=voucher.user_id,
+            voucher_id=voucher.id,
+            points_cost=voucher.points_cost,
+            resulting_points=new_points,
+        )
+
     await db.commit()
-    await db.refresh(voucher, attribute_names=["status", "used_at"])
+    await db.refresh(voucher, attribute_names=["status", "used_at", "settled_at"])
     audit(
         "business.voucher.consumed",
         business_id=business.id,
         voucher_id=voucher.id,
         reward_id=voucher.reward_id,
         user_id=voucher.user_id,
+        consumed_by_user_id=consumed_by_user_id,
     )
     return await _voucher_out(db, voucher)
 
