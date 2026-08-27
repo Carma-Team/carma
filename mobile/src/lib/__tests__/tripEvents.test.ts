@@ -40,10 +40,11 @@ describe('eventMarkerText', () => {
 // cases that matter here are the ones with no visible symptom other than a
 // missing marker (CAR-225).
 
-const event = (over: Partial<TripEvent>): TripEvent => ({
+// severity is on the server's scale on purpose -- 1.0-3.0, per scoring.md §3.4.
+const event = (over: Partial<TripEvent> = {}): TripEvent => ({
   id: 'e1',
   type: 'hard_brake',
-  severity: 0.5,
+  severity: 2.4,
   timestamp: '2026-06-14T08:06:00Z',
   lat: 32.07,
   lng: 34.78,
@@ -68,6 +69,16 @@ describe('toDrivingEvents', () => {
     // SPEEDING exists server-side only -- there is no DrivingEventType member
     // to map it onto, so adding a map entry for it would not bring it through.
     expect(toDrivingEvents([event({ type: 'speeding' })])).toEqual([])
+  })
+
+  // CAR-210. The field is optional on DrivingEvent, so a wrong value here compiles
+  // and reads back as a plausible number -- nothing but this assertion catches it.
+  it('leaves severity unset -- the server sends 1-3, the SDK field means 0-1', () => {
+    expect(toDrivingEvents([event()])[0].severity).toBeUndefined()
+  })
+
+  it('nests flat coordinates under location', () => {
+    expect(toDrivingEvents([event()])[0].location).toEqual({ latitude: 32.07, longitude: 34.78 })
   })
 
   it('leaves location undefined when the event was detected during a GPS gap', () => {
