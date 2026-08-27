@@ -83,16 +83,19 @@ not the sensor layer.
 
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary).
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- **Waypoints, `(since #139)`:** appended on the same gate, downsampled to one
-  point per **~5 seconds of real elapsed GPS time** while moving —
-  accumulated from each tick's actual measured interval (`timeDeltaS`, floored
-  at 0.5 s), not an assumed fixed cadence. Before #139 this accumulator
-  hardcoded `+= 2` regardless of the real interval, so a throttled or jittery
-  GPS stream (see #17 above) silently desynced waypoint density from
-  wall-clock reality. The ~5s-elapsed target itself is unchanged — only the
-  accounting behind it is real now. At a steady 2 s tick interval the nominal
-  rate is unchanged too (~300 points per 30 minutes); the fix only matters
-  when ticks *aren't* steady.
+- **Waypoints:** appended on the same gate, downsampled to one point per
+  **2 seconds of elapsed GPS-fix time** while moving. Two things decide that:
+  - **The interval.** The server re-detects a brake as the average deceleration
+    between two consecutive points, so a sampling interval longer than the event
+    smears it across time in which nothing happened — at 5 s it takes a 54 km/h
+    drop between two points to register a brake, where a real one is ~25 km/h.
+    A hard brake lasts ~2 s, so the cadence is 2 s. ~900 points per 30-minute
+    trip, and no extra battery: the location stream already runs at 2 s.
+  - **The clock.** Elapsed time is measured between the GPS fixes themselves
+    (`fixTs`), never between arrivals. Android defers updates under Doze and
+    releases them as a batch in one JS turn (see #17 above), where arrival time
+    barely moves — thinning against it would collapse the whole deferred window
+    into a single point and stamp every point in the batch with one instant.
 
 ---
 

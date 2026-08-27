@@ -38,7 +38,7 @@
  */
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
-import { DrivingEventType, DrivingEvent, MotionThresholds } from '@/lib/driving-sdk/types';
+import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
 import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
@@ -181,34 +181,11 @@ export class SensorManager {
   // class already owns the subscription, so a second consumer (RawSampleRecorder)
   // taps it instead of opening its own.
   private onAccelSample?: (sample: { x: number; y: number; z: number }) => void;
-  private onUpdate: (data: {
-    distanceKm: number; currentSpeed: number; timeDeltaS: number;
-    accelX: number; gyroZ: number;
-    // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
-    // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
-    accelAvailable: boolean; gyroAvailable: boolean;
-    // Whether accelerometer *registration* itself threw — distinct from
-    // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
-    // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
-    // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
-    accelInitFailed: boolean;
-    // Whether "Always"/background location permission was granted — false means
-    // automatic (background) tracking cannot run, distinct from it just not
-    // having happened yet.
-    backgroundLocationAvailable: boolean;
-    lat?: number; lng?: number; accuracy?: number;
-  }) => void;
+  private onUpdate: (data: SensorUpdate) => void;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
-    onUpdate: (data: {
-      distanceKm: number; currentSpeed: number; timeDeltaS: number;
-      accelX: number; gyroZ: number;
-      accelAvailable: boolean; gyroAvailable: boolean;
-      accelInitFailed: boolean;
-      backgroundLocationAvailable: boolean;
-      lat?: number; lng?: number; accuracy?: number;
-    }) => void,
+    onUpdate: (data: SensorUpdate) => void,
     thresholds?: Partial<MotionThresholds>,
     onGyroSample?: (sample: { x: number; y: number; z: number }) => void,
     onAccelSample?: (sample: { x: number; y: number; z: number }) => void,
@@ -408,6 +385,7 @@ export class SensorManager {
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
       accuracy:     loc.coords.accuracy ?? undefined,
+      fixTs:        loc.timestamp,
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
     this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
