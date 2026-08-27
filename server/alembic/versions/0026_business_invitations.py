@@ -5,9 +5,10 @@ column reuses `business_membership_role` (CAR-74) rather than declaring a
 second enum with the same three values — OWNER is simply never written here,
 enforced in `services.business_invitations`, not by the schema.
 
-`token_hash` is the only copy of the token this table ever holds — a SHA-256
-digest, the same split `refresh_tokens` uses, so a database leak alone cannot
-be redeemed.
+`token_hash` is the only copy of the token this table ever holds — a keyed
+HMAC, not the bare digest `refresh_tokens` uses, because this token is short
+enough to read aloud and needs the server's own secret to even attempt a
+guess against a leaked dump (see `services.business_invitations._hash`).
 
 Revision ID: 0026_business_invitations
 Revises: 0025_redemption_consumed_by

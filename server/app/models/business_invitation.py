@@ -23,9 +23,12 @@ class BusinessInvitation(Base):
     """A one-time grant of business-scoped access (CAR-76).
 
     `token_hash` is what the table can be looked up by — the plaintext token is
-    never stored, the same split `RefreshToken` uses (`core.security.hash_refresh_token`),
-    so a database leak alone cannot be redeemed. `redeemed_at`, `redeemed_by_user_id`
-    and `revoked_at` are only ever written by the conditional UPDATE in
+    never stored. Unlike `RefreshToken` (`core.security.hash_refresh_token`),
+    this is a keyed HMAC, not a bare digest: the token is short enough to read
+    aloud, so a fast unkeyed hash of it would be offline-crackable from a
+    database leak alone within the 72h window — see
+    `services.business_invitations._hash`. `redeemed_at`, `redeemed_by_user_id`
+    and `revoked_at` are only ever written by the conditional UPDATEs in
     `services.business_invitations`, never by a plain read-then-write — see that
     module for why. `role` is restricted to MANAGER/CASHIER at the service layer,
     not by the column itself, which shares the enum `BusinessMembership.role` uses.

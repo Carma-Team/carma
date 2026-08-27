@@ -4,6 +4,8 @@
 - Prod (ENV=production): JSON records that Application Insights parses automatically.
 - Every record carries a `request_id` set by `app.middlewares.request_id`.
 - `RedactFilter` blanks out password/code/token/qr_code if they ever leak.
+- `redact_path` blanks a secret that lives in the URL path itself (CAR-76's
+  invitation token), which `RedactFilter` cannot reach.
 """
 
 from __future__ import annotations
@@ -41,6 +43,20 @@ class RedactFilter(logging.Filter):
         if isinstance(record.msg, str):
             record.msg = _SENSITIVE_PATTERN.sub(r"\1=***", record.msg)
         return True
+
+
+# A request path that carries the secret itself, not a `key=value` pair —
+# `RedactFilter` above cannot help here, since a bare token in a URL segment
+# never takes the shape its pattern matches. CAR-76's invitation token lives in
+# the path (`/api/invitations/{token}`, `.../accept`), so anything that logs
+# `request.url.path` verbatim — `RequestLogMiddleware`'s structured field, the
+# unhandled-exception handler, an exported trace — must redact it first.
+_INVITATION_TOKEN_PATH = re.compile(r"^(/api/invitations/)[^/]+")
+
+
+def redact_path(path: str) -> str:
+    """A request path with its invitation token (if any) replaced by `***`."""
+    return _INVITATION_TOKEN_PATH.sub(r"\1***", path)
 
 
 def configure_logging() -> None:

@@ -13,6 +13,7 @@ one-time state transition race-safe.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -38,20 +39,28 @@ _TOKEN_LEN = 10
 _INVITABLE_ROLES = {"manager": BusinessMembershipRole.MANAGER, "cashier": BusinessMembershipRole.CASHIER}
 _EXPIRES_AFTER = timedelta(hours=72)
 
-# The generic 404 every invalid token gets — unknown, expired, redeemed and
-# revoked must all read identically (CAR-76's security notes), so this is the
-# one HTTPException raised from every branch that fails the lookup, never a
-# variant with more detail.
-_UNKNOWN_INVITATION = HTTPException(status.HTTP_404_NOT_FOUND, "Unknown or expired invitation")
-
 ALREADY_MEMBER = "ALREADY_MEMBER"
+ALREADY_REDEEMED = "ALREADY_REDEEMED"
+
+# A dedicated, derived key rather than `settings.jwt_secret` used directly:
+# domain-separated so a JWT-signing compromise and an invitation-hash
+# compromise stay independent incidents. Computed once at import time, not
+# per call — it never changes while the process is up.
+_TOKEN_HASH_KEY = hashlib.sha256(f"business-invitation-token-hash:{settings.jwt_secret}".encode()).digest()
 
 
 def _hash(token: str) -> str:
-    """SHA-256, not bcrypt: this token is ~49 bits of CSPRNG output used only as
-    its own lookup key, the same reasoning `core.security.hash_refresh_token`
-    documents — a salted hash would make an equality lookup impossible."""
-    return hashlib.sha256(token.encode()).hexdigest()
+    """Keyed HMAC, not a bare hash: this token is a deliberately short,
+    readable ~49-bit code (so it can be read aloud at a counter), and a fast,
+    unkeyed digest of that few bits of entropy is recoverable offline well
+    within the 72h window on a single modern GPU. Keying it on
+    `_TOKEN_HASH_KEY` means a database-only leak carries no way to even test a
+    guess — computing this hash for a candidate token needs the server's
+    secret, which the dump does not contain. `hash_refresh_token` gets away
+    with a bare SHA-256 only because its input already has ~384 bits of
+    entropy; this one does not, so it cannot reuse that shortcut.
+    """
+    return hmac.new(_TOKEN_HASH_KEY, token.encode(), hashlib.sha256).hexdigest()
 
 
 def _new_token() -> str:
@@ -60,6 +69,19 @@ def _new_token() -> str:
 
 def _link(token: str) -> str:
     return f"{settings.invite_base_url.rstrip('/')}/business-invite/{token}"
+
+
+def _unknown_invitation() -> HTTPException:
+    """A fresh instance every call — never a shared module-level object.
+
+    Every invalid state (unknown, expired, redeemed, revoked) must read
+    identically (CAR-76's security notes), which is why every one of those
+    branches raises through this one function — but each call still builds
+    its own exception. Reusing a single instance would accumulate a traceback,
+    and everything the traceback keeps alive (the request's token, the DB
+    session), across every invalid-token request the process ever handles.
+    """
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Unknown or expired invitation")
 
 
 async def create_invitation(
@@ -108,24 +130,55 @@ async def create_invitation(
 
 
 async def revoke_invitation(db: AsyncSession, business: Business, invitation_id: str) -> None:
-    """Immediate: a revoked invitation fails the very next accept, since its
-    conditional UPDATE checks `revoked_at IS NULL` alongside everything else.
+    """Immediate, and safe against a concurrent `accept_invitation`.
 
-    Scoped to `business` and answering 404 for another business's invitation,
-    like `_owned_reward` — a 403 would confirm the id exists elsewhere.
+    Both act through a conditional UPDATE on the same
+    `redeemed_at IS NULL AND revoked_at IS NULL` predicate, so whichever
+    transaction's UPDATE reaches Postgres first is the only one that can still
+    change the row — the loser's own WHERE clause matches nothing once the
+    winner commits, the same competition `consume_voucher` runs against a
+    racing peek. That is also what stops an already-redeemed invitation from
+    being mutated here: its `redeemed_at` is no longer NULL, so this UPDATE
+    cannot touch it regardless of timing.
     """
-    invitation = await db.scalar(
+    # Captured before any rollback below: `rollback()` expires every attribute
+    # on every object in the session, and re-reading `business.id` afterwards
+    # would trigger an implicit lazy-load outside the async context that can
+    # service one (`MissingGreenlet`).
+    business_id = business.id
+    now = datetime.now(UTC)
+    revoked: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(BusinessInvitation)
+        .where(
+            BusinessInvitation.id == invitation_id,
+            BusinessInvitation.business_id == business_id,
+            BusinessInvitation.redeemed_at.is_(None),
+            BusinessInvitation.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    if revoked.rowcount == 1:
+        await db.commit()
+        audit("business.invitation.revoked", business_id=business_id, invitation_id=invitation_id)
+        return
+
+    await db.rollback()
+    # The UPDATE's rowcount alone can't tell "no such invitation" (404) apart
+    # from "already redeemed" (a real conflict — nothing left to revoke) or
+    # "already revoked" (the same terminal state the caller asked for, so a
+    # silent no-op rather than a second audit event for the same fact).
+    current = await db.scalar(
         select(BusinessInvitation).where(
-            BusinessInvitation.id == invitation_id, BusinessInvitation.business_id == business.id
+            BusinessInvitation.id == invitation_id, BusinessInvitation.business_id == business_id
         )
     )
-    if invitation is None:
+    if current is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found")
-
-    if invitation.revoked_at is None:
-        invitation.revoked_at = datetime.now(UTC)
-        await db.commit()
-        audit("business.invitation.revoked", business_id=business.id, invitation_id=invitation.id)
+    if current.redeemed_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": ALREADY_REDEEMED, "message": "This invitation has already been redeemed"},
+        )
 
 
 async def _valid_invitation(db: AsyncSession, token: str) -> BusinessInvitation:
@@ -135,10 +188,10 @@ async def _valid_invitation(db: AsyncSession, token: str) -> BusinessInvitation:
         .options(selectinload(BusinessInvitation.business))
     )
     if invitation is None:
-        raise _UNKNOWN_INVITATION
+        raise _unknown_invitation()
     now = datetime.now(UTC)
     if invitation.redeemed_at is not None or invitation.revoked_at is not None or invitation.expires_at <= now:
-        raise _UNKNOWN_INVITATION
+        raise _unknown_invitation()
     return invitation
 
 
@@ -177,6 +230,8 @@ async def accept_invitation(db: AsyncSession, current: User, token: str) -> Busi
     # Conditional UPDATE, not a read-then-write: two recipients racing the same
     # token, or the same recipient double-tapping accept, must not both see
     # "redeemed, rowcount 1" — the same shape as consume_voucher's status flip.
+    # This predicate is also `revoke_invitation`'s — see there for how the two
+    # compete safely against each other, not just against themselves.
     now = datetime.now(UTC)
     invitation_id = invitation.id
     role = invitation.role
@@ -195,7 +250,7 @@ async def accept_invitation(db: AsyncSession, current: User, token: str) -> Busi
         # Lost the race — someone else redeemed or revoked it a moment ago.
         # Indistinguishable from unknown, same as every other invalid state.
         await db.rollback()
-        raise _UNKNOWN_INVITATION
+        raise _unknown_invitation()
 
     db.add(BusinessMembership(user_id=current.id, business_id=business_id, role=role))
     try:
