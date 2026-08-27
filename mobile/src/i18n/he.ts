@@ -86,6 +86,10 @@ const he = {
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
     openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
+    phoneUsage: 'שימוש בטלפון',
+    routeStart: 'התחלת הנסיעה', routeEnd: 'סיום הנסיעה',
+    kmh: 'קמ"ש',
+    openLocationInMaps: 'פתיחת המיקום במפות',
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',

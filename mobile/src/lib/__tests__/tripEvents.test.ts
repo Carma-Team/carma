@@ -1,6 +1,40 @@
-import { toDrivingEvents } from '@/lib/tripEvents'
-import { DrivingEventType } from '@/lib/driving-sdk/types'
+import { eventMarkerText, toDrivingEvents } from '@/lib/tripEvents'
+import { DrivingEventType, type DrivingEvent } from '@/lib/driving-sdk/types'
 import type { TripEvent } from '@/types'
+
+// The marker callout is the only place these two fields are read, so the test asserts
+// the label mapping and the "speed only when the SDK stamped one" rule.
+const t = (key: string) => key
+
+function drivingEvent(over: Partial<DrivingEvent> = {}): DrivingEvent {
+  return {
+    type: DrivingEventType.PHONE_USAGE,
+    timestamp: new Date('2026-08-23T14:32:00Z'),
+    ...over,
+  }
+}
+
+describe('eventMarkerText', () => {
+  it('titles the marker with the trip label of its event type', () => {
+    expect(eventMarkerText(drivingEvent({ type: DrivingEventType.HARD_BRAKE }), t).title).toBe('trip.hardBrakes')
+    expect(eventMarkerText(drivingEvent(), t).title).toBe('trip.phoneUsage')
+  })
+
+  it('appends the speed only when the event carries one', () => {
+    const [withSpeed] = eventMarkerText(drivingEvent({ speedKmh: 61.6 }), t).description.split('\n')
+    expect(withSpeed).toContain('62 trip.kmh')
+
+    const [noSpeed] = eventMarkerText(drivingEvent(), t).description.split('\n')
+    expect(noSpeed).not.toContain('trip.kmh')
+    expect(noSpeed).toMatch(/^\d{2}:\d{2}$/)
+  })
+
+  it('closes the description with the line that explains the callout press', () => {
+    const lines = eventMarkerText(drivingEvent(), t).description.split('\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toBe('trip.openLocationInMaps')
+  })
+})
 
 // The map renders nothing the adapter drops, and it drops silently, so the
 // cases that matter here are the ones with no visible symptom other than a

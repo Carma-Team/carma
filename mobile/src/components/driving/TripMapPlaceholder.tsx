@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
 import { COLORS, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS, type IoniconName } from '@/constants/icons';
 import { useTranslation } from '@/hooks/useTranslation';
+import { eventMarkerText } from '@/lib/tripEvents';
 import type { DrivingEvent } from '@/lib/driving-sdk/types';
 
 // react-native-maps requires a native build (dev build / production).
@@ -90,10 +91,24 @@ class MapErrorBoundary extends React.Component<
   render() { return this.state.hasError ? this.props.fallback : this.props.children; }
 }
 
+// An iOS device without the Google Maps app installed sends a google.com/maps link to
+// Safari, which is where most of them end up; maps.apple.com opens the native app
+// instead. Android has no Apple Maps, so it keeps the Google URLs (CAR-201).
 function openInExternalMaps(coordinates: { latitude: number; longitude: number }[]) {
   const origin = coordinates[0];
   const destination = coordinates[coordinates.length - 1];
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+  const url = Platform.OS === 'ios'
+    ? `https://maps.apple.com/?saddr=${origin.latitude},${origin.longitude}&daddr=${destination.latitude},${destination.longitude}&dirflg=d`
+    : `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+  Linking.openURL(url);
+}
+
+// `q` is what makes Apple Maps drop a labelled pin — with `ll` alone it just centres
+// the map and the user sees no marker at all.
+function openPointInExternalMaps(point: { latitude: number; longitude: number }, label: string) {
+  const url = Platform.OS === 'ios'
+    ? `https://maps.apple.com/?ll=${point.latitude},${point.longitude}&q=${encodeURIComponent(label)}`
+    : `https://www.google.com/maps/search/?api=1&query=${point.latitude},${point.longitude}`;
   Linking.openURL(url);
 }
 
@@ -137,6 +152,7 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
         <Marker
           coordinate={coordinates[0]}
           anchor={{ x: 0.5, y: 0.5 }}
+          title={t('trip.routeStart')}
         >
           <View style={[styles.dot, styles.dotStart]} />
         </Marker>
@@ -145,29 +161,40 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
         <Marker
           coordinate={coordinates[coordinates.length - 1]}
           anchor={{ x: 0.5, y: 0.5 }}
+          title={t('trip.routeEnd')}
         >
           <View style={[styles.dot, styles.dotEnd]} />
         </Marker>
 
-        {/* Event markers */}
-        {eventsWithLocation.map((event, i) => (
-          <Marker
-            key={i}
-            coordinate={{
-              latitude:  event.location!.latitude,
-              longitude: event.location!.longitude,
-            }}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={[styles.eventBubble, { backgroundColor: EVENT_COLOR[event.type] ?? COLORS.warning }]}>
-              <Ionicons
-                name={EVENT_ICON[event.type] ?? ICONS.hardBrake}
-                size={12}
-                color="#fff"
-              />
-            </View>
-          </Marker>
-        ))}
+        {/* Event markers. `title`/`description` are what make a marker tappable at all:
+            react-native-maps renders its own callout for them, so no Callout child of
+            ours is needed. The press target is the whole bubble — the native callout
+            has no way to make only its last line tappable (CAR-223). */}
+        {eventsWithLocation.map((event, i) => {
+          const { title, description } = eventMarkerText(event, t);
+          const coordinate = {
+            latitude:  event.location!.latitude,
+            longitude: event.location!.longitude,
+          };
+          return (
+            <Marker
+              key={i}
+              coordinate={coordinate}
+              anchor={{ x: 0.5, y: 0.5 }}
+              title={title}
+              description={description}
+              onCalloutPress={() => openPointInExternalMaps(coordinate, title)}
+            >
+              <View style={[styles.eventBubble, { backgroundColor: EVENT_COLOR[event.type] ?? COLORS.warning }]}>
+                <Ionicons
+                  name={EVENT_ICON[event.type] ?? ICONS.hardBrake}
+                  size={12}
+                  color="#fff"
+                />
+              </View>
+            </Marker>
+          );
+        })}
       </MapView>
       </View>
     </MapErrorBoundary>
