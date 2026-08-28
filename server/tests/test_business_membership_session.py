@@ -1,11 +1,11 @@
 """CAR-258 — DB-resolved business membership context on the web session.
 
 `profile_out` (services/users.py) resolves the caller's business identity and
-role from `business_memberships` now, never from the legacy
-`Business.owner_user_id` lookup, `User.role`, or the JWT's `role` claim. This
-is the read side of the same table `core.deps.current_business` already
-authorizes `/api/business/*` off (CAR-74) — these tests hold the contract
-login, refresh and `/api/auth/me` all share as a result.
+role from `business_memberships` now, via `business_service.list_memberships`
+— the same query `core.deps.current_business` authorizes `/api/business/*`
+off (CAR-74) — never from the legacy `Business.owner_user_id` lookup,
+`User.role`, or the JWT's `role` claim. These tests hold the contract login,
+refresh and `/api/auth/me` all share as a result.
 
 Needs a real database — see conftest.db_session — and skips without one.
 """
@@ -51,9 +51,10 @@ async def _make_user(db: AsyncSession, *, role: UserRole = UserRole.DRIVER, emai
     return user
 
 
-async def _make_business(db: AsyncSession) -> Business:
+async def _make_business(db: AsyncSession, *, name_he: str | None = None) -> Business:
     business = Business(
         name=f"Session Ctx Biz {uuid.uuid4().hex[:6]}",
+        name_he=name_he,
         category=BusinessCategory.FOOD,
         location_lat=32.07,
         location_lng=34.78,
@@ -86,7 +87,7 @@ async def _cleanup(db: AsyncSession, *, users: tuple[User, ...] = (), businesses
 async def test_me_exposes_the_db_resolved_role_for_every_membership_role(
     role: BusinessMembershipRole, db_session: AsyncSession, db_api_client: AsyncClient
 ) -> None:
-    business = await _make_business(db_session)
+    business = await _make_business(db_session, name_he="שם בעברית")
     # Global role stays DRIVER throughout — proving the identity fields come
     # from the membership row, not from a BUSINESS-flavoured `User.role`.
     user = await _make_user(db_session, role=UserRole.DRIVER)
@@ -98,6 +99,7 @@ async def test_me_exposes_the_db_resolved_role_for_every_membership_role(
         assert body["businessId"] == business.id
         assert body["businessCategory"] == business.category.value.lower()
         assert body["businessName"] == business.name
+        assert body["businessNameHe"] == "שם בעברית"
         assert body["businessMembershipRole"] == role.value
         assert body["businessMembershipAmbiguous"] is False
     finally:
@@ -235,7 +237,7 @@ async def test_login_refresh_and_me_return_a_consistent_business_context(
     db_session: AsyncSession, db_api_client: AsyncClient
 ) -> None:
     email = f"web-membership-{uuid.uuid4().hex[:8]}@carmatest.com"
-    business = await _make_business(db_session)
+    business = await _make_business(db_session, name_he="שם בעברית")
     user = await _make_user(db_session, role=UserRole.BUSINESS, email=email)
     await _add_membership(db_session, user, business, BusinessMembershipRole.MANAGER)
     try:
@@ -255,6 +257,8 @@ async def test_login_refresh_and_me_return_a_consistent_business_context(
 
         for body in (login_user, refresh_user, me_user):
             assert body["businessId"] == business.id
+            assert body["businessName"] == business.name
+            assert body["businessNameHe"] == "שם בעברית"
             assert body["businessMembershipRole"] == "MANAGER"
             assert body["businessMembershipAmbiguous"] is False
     finally:

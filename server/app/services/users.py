@@ -7,10 +7,9 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
-from app.models import BusinessMembership, Trip, TripStatus, User, UserRole
+from app.models import Trip, TripStatus, User, UserRole
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import (
     ContactMatchOut,
@@ -19,15 +18,16 @@ from app.schemas.user import (
     UpdateProfileIn,
     UserOut,
 )
+from app.services import business as business_service
 from app.services import friends, rewards, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
-    """UserOut plus the business membership context (CAR-258).
-
-    Looked up on demand rather than eager-loaded in `current_user`: this costs one
-    indexed query on the handful of business requests instead of a join on every
-    authenticated request in the app.
+    """The one place a `User` becomes a `UserOut` — every endpoint that returns
+    a profile (login, refresh, `/api/auth/me`, `/api/users/me` and its two
+    PATCH routes) goes through here, so the contract can never drift between
+    them. See `_apply_business_context` for why that now includes an extra
+    query on every call, not only a `BUSINESS`-role one.
     """
     out = UserOut.model_validate(user)
     # Only a DRIVER ever holds vouchers, but the sum is 0 for anyone else either
@@ -40,24 +40,20 @@ async def profile_out(db: AsyncSession, user: User) -> UserOut:
 
 
 async def _apply_business_context(db: AsyncSession, user: User, out: UserOut) -> None:
-    """Fill the business identity + role from `business_memberships`, never from
-    the legacy `Business.owner_user_id` lookup or `User.role` (CAR-258).
+    """Fill the business identity + role from `business_memberships` — never
+    from the legacy `Business.owner_user_id` lookup or `User.role` (CAR-258).
 
-    Resolved for every account, not gated on `role == BUSINESS`: CAR-74 lets a
-    DRIVER hold a membership too (e.g. a CASHIER), and that membership must
-    surface here the same as an OWNER's. Same table `core.deps.current_business`
-    reads for `/api/business/*` authorization, so a revoked or role-changed
-    membership takes effect on the very next profile read — but this is the
-    read-only counterpart: it never raises, so a driver session with zero or
-    several memberships still resolves normally.
+    Runs unconditionally, not gated on `role == BUSINESS` the way the old
+    owner-only lookup was: CAR-74 lets a DRIVER hold a membership too (e.g. a
+    CASHIER), so only a real query can tell. `business_service.list_memberships`
+    is the same query `core.deps.current_business` authorizes `/api/business/*`
+    off, so a revoked or role-changed membership shows up here on the very next
+    profile read too — but this path never raises: zero or several memberships
+    both resolve to a normal (if business-context-less) profile, which is what
+    keeps a driver session valid regardless of how many businesses it also
+    belongs to.
     """
-    memberships = (
-        await db.scalars(
-            select(BusinessMembership)
-            .where(BusinessMembership.user_id == user.id)
-            .options(selectinload(BusinessMembership.business))
-        )
-    ).all()
+    memberships = await business_service.list_memberships(db, user.id)
     if not memberships:
         return
     if len(memberships) > 1:

@@ -21,6 +21,8 @@ const businessUser = {
   businessCategory: 'food',
   businessName: 'Aroma Israel',
   businessNameHe: null,
+  businessMembershipRole: null,
+  businessMembershipAmbiguous: false,
 };
 
 function renderAt(path: string) {

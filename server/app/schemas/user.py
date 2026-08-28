@@ -35,12 +35,11 @@ class UserOut(CamelModel):
     drive_mode_enabled: bool
     bluetooth_device_id: str | None = None
     bluetooth_device_name: str | None = None
-    # Resolved from `business_memberships` (CAR-258), never from
-    # `Business.owner_user_id` or `User.role` — see users_service.profile_out.
-    # Set for any of the three roles below, not only a legacy owner, and
-    # independent of the account's global role: a DRIVER can hold a CASHIER
-    # membership (CAR-74). The business screens key off businessCategory to
-    # categorise new rewards.
+    # This whole block is resolved from `business_memberships` on every read
+    # (never `Business.owner_user_id`, `User.role`, or the JWT) — see
+    # users_service.profile_out. Independent of the account's global role: a
+    # DRIVER can hold a CASHIER membership (CAR-74). businessCategory is what
+    # the business screens key new rewards off.
     business_id: str | None = None
     business_category: str | None = None
     # Raw fields, not a server-resolved fallback — the business web shell
@@ -49,17 +48,10 @@ class UserOut(CamelModel):
     # notion of.
     business_name: str | None = None
     business_name_he: str | None = None
-    # The caller's business-scoped role (OWNER/MANAGER/CASHIER) on `business_id`
-    # above — DB-resolved on every read, deliberately not a JWT claim, so a
-    # revoked or changed membership takes effect on the very next login,
-    # refresh or `/api/auth/me` rather than waiting out the token's TTL.
     business_membership_role: BusinessMembershipRole | None = None
-    # True when the account holds more than one membership. CAR-258 fails
-    # closed for the business portal rather than picking one arbitrarily —
-    # every field above stays null in that case, exactly like no membership at
-    # all, so the portal must check this flag to tell the two apart. Does not
-    # affect a driver session: `business_id` being null either way is already
-    # a no-op for the mobile app.
+    # True for more than one membership. CAR-258 fails closed rather than
+    # picking one arbitrarily — every field above stays null, exactly like no
+    # membership at all, so this is what tells the two states apart.
     business_membership_ambiguous: bool = False
     created_at: datetime
 

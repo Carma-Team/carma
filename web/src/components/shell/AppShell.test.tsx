@@ -20,6 +20,8 @@ const baseUser = {
   businessCategory: 'food',
   businessName: 'Aroma Israel',
   businessNameHe: null,
+  businessMembershipRole: null,
+  businessMembershipAmbiguous: false,
 };
 
 function renderShell() {
