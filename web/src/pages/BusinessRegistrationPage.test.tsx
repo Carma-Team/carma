@@ -109,6 +109,71 @@ describe('BusinessRegistrationPage', () => {
     );
   });
 
+  it('blocks continuing after a successful geocode is edited to an incomplete pair, and never submits the stale value', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+    vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+
+    renderPage();
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: 'המשך' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'אישור המיקום' })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).not.toBeDisabled();
+
+    // Clearing one coordinate of an otherwise-valid, geocoded pair must
+    // block continuing immediately — the other, still-populated field must
+    // not let a half pair through.
+    fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
+
+    // Nothing to submit while blocked — pressing on would be the bug.
+    fireEvent.click(screen.getByRole('button', { name: 'אישור והמשך' }));
+    expect(startPhoneVerification).not.toHaveBeenCalled();
+  });
+
+  it('blocks continuing after a successful geocode is edited to an out-of-range value, and re-enables once corrected', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+
+    renderPage();
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: 'המשך' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'אישור המיקום' })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).not.toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '999' } });
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
+    // The invalid value stays visible — the field is not silently reverted
+    // to the earlier, valid geocode result behind the applicant's back.
+    expect(screen.getByLabelText('קו רוחב')).toHaveValue(999);
+
+    fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '31.5' } });
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).not.toBeDisabled();
+  });
+
+  it('submits the corrected pair after invalidating and fixing a successful geocode — never the original, stale coordinates', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+    vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+    vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
+    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'ok', id: 'r1', createdAt: '2026-08-27T00:00:00Z' });
+
+    renderPage();
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole('button', { name: 'המשך' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'אישור המיקום' })).toBeInTheDocument());
+
+    // Invalidate the geocoded pair, then correct it to a different value —
+    // the corrected, currently-displayed pair is what must reach the server.
+    fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '999' } });
+    fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '31.9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אישור והמשך' }));
+    await waitFor(() => expect(screen.getByLabelText('קוד אימות')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הבקשה התקבלה' })).toBeInTheDocument());
+    expect(submitJoinRequest).toHaveBeenCalledWith(expect.objectContaining({ locationLat: 31.9, locationLng: 34.7748 }), 'jwt-1');
+  });
+
   it('requires the applicant to place a pin before continuing when the address cannot be geocoded — never a silent default', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'not_found' });
 

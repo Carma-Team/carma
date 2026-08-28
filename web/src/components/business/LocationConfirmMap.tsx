@@ -38,60 +38,81 @@ function ClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }
   return null;
 }
 
+// The single source of truth for "is this pair usable" — parsing an empty
+// string with `Number()` yields 0, not NaN, so an empty/whitespace field is
+// rejected explicitly rather than trusted to fail the range check.
+function parseValidPair(latDraft: string, lngDraft: string): { lat: number; lng: number } | null {
+  if (latDraft.trim() === '' || lngDraft.trim() === '') return null;
+  const lat = Number(latDraft);
+  const lng = Number(lngDraft);
+  if (!isValidLatitude(lat) || !isValidLongitude(lng)) return null;
+  return { lat, lng };
+}
+
 type LocationConfirmMapProps = {
   // `null` means no complete, valid, deliberately-chosen position exists
   // yet — the map must not imply one by showing a pin.
   latitude: number | null;
   longitude: number | null;
-  onChange: (lat: number, lng: number) => void;
+  // Called on every edit, not only a valid one: `(null, null)` is how this
+  // component reports "what's on screen right now cannot be submitted" —
+  // see the module doc for why the parent must never hold onto a value
+  // this component itself is no longer displaying.
+  onChange: (lat: number | null, lng: number | null) => void;
   latLabel: string;
   lngLabel: string;
 };
 
-// This is the *correction* step, not the primary way to give a location —
-// CAR-203's address text field already did that. The map exists only so an
-// applicant can see and fix a wrong or missing geocode; it never appears
-// before an address has been typed, and it never centers on the device's
-// own location.
+/**
+ * This is the *correction* step, not the primary way to give a location —
+ * CAR-203's address text field already did that. The map exists only so an
+ * applicant can see and fix a wrong or missing geocode; it never appears
+ * before an address has been typed, and it never centers on the device's
+ * own location.
+ *
+ * Invariant: the parent's notion of "the current coordinate" is exactly
+ * what this component displays, never a value from before the applicant's
+ * latest edit. Earlier revisions tracked the typed drafts and the last
+ * *valid* pair as two separate pieces of state — editing one field back to
+ * something invalid left the draft showing the edit while the parent still
+ * held the old, valid pair, so "Confirm and continue" stayed enabled and a
+ * stale coordinate could reach submission. Every change here — a keystroke,
+ * a map click, a drag — now calls `onChange` unconditionally, passing
+ * `(null, null)` whenever the pair on screen is incomplete or invalid, so
+ * the parent's state can never diverge from what the applicant is looking
+ * at.
+ */
 export function LocationConfirmMap({ latitude, longitude, onChange, latLabel, lngLabel }: LocationConfirmMapProps) {
   const hasPosition = latitude !== null && longitude !== null;
   const center: [number, number] = hasPosition ? [latitude, longitude] : ISRAEL_CENTER;
 
-  // Local drafts, separate from the confirmed `latitude`/`longitude` props:
-  // a coordinate is only ever reported to the parent once BOTH fields parse
-  // to a finite, in-range number together. Typing "-" while writing "-31.5",
-  // or clearing one field mid-edit, must not blank the other field's value
-  // or silently commit a half-typed pair.
   const [latDraft, setLatDraft] = useState(latitude !== null ? String(latitude) : '');
   const [lngDraft, setLngDraft] = useState(longitude !== null ? String(longitude) : '');
 
-  const commitIfComplete = useCallback(
-    (nextLatDraft: string, nextLngDraft: string) => {
-      if (nextLatDraft.trim() === '' || nextLngDraft.trim() === '') return;
-      const lat = Number(nextLatDraft);
-      const lng = Number(nextLngDraft);
-      if (isValidLatitude(lat) && isValidLongitude(lng)) onChange(lat, lng);
-    },
-    [onChange],
-  );
-
   const handleLatChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      setLatDraft(event.target.value);
-      commitIfComplete(event.target.value, lngDraft);
+      const nextDraft = event.target.value;
+      setLatDraft(nextDraft);
+      const pair = parseValidPair(nextDraft, lngDraft);
+      onChange(pair?.lat ?? null, pair?.lng ?? null);
     },
-    [lngDraft, commitIfComplete],
+    [lngDraft, onChange],
   );
   const handleLngChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      setLngDraft(event.target.value);
-      commitIfComplete(latDraft, event.target.value);
+      const nextDraft = event.target.value;
+      setLngDraft(nextDraft);
+      const pair = parseValidPair(latDraft, nextDraft);
+      onChange(pair?.lat ?? null, pair?.lng ?? null);
     },
-    [latDraft, commitIfComplete],
+    [latDraft, onChange],
   );
 
   const handlePick = useCallback(
     (lat: number, lng: number) => {
+      // A map click/drag always supplies a complete, already-validated
+      // pair (see ClickHandler and the dragend guard below) — no partial
+      // state possible, so this always reports a real position.
       setLatDraft(String(lat));
       setLngDraft(String(lng));
       onChange(lat, lng);

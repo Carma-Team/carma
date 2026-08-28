@@ -23,6 +23,25 @@
  */
 import { isValidLatitude, isValidLongitude } from '@/lib/geo/coordinates';
 
+// `Number(...)` alone is not a safe parser here: `Number(null)` and
+// `Number('')` both evaluate to `0`, not `NaN`, so a provider result
+// missing a coordinate (or sending it as an empty string) would silently
+// pass the bounds check below as a "legitimate" 0,0 — the intersection of
+// the equator and prime meridian, and not this business's location. Only a
+// real number or a non-empty numeric string is accepted; anything else
+// (null, undefined, '', whitespace, a boolean, an object) is rejected
+// before it ever reaches `Number()`. An explicit `0` supplied as a real
+// coordinate — a business that actually sits on the equator or prime
+// meridian — still parses and validates correctly.
+function parseProviderCoordinate(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  const parsed = Number(trimmed);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 const BASE_URL = import.meta.env.VITE_GEOCODING_URL ?? 'https://nominatim.openstreetmap.org';
 
 // Same convention as `lib/auth/authApi.ts::REQUEST_TIMEOUT_MS` — a hung
@@ -61,12 +80,12 @@ export async function geocodeAddress(address: string): Promise<GeocodeOutcome> {
     if (results.length === 0) return { outcome: 'not_found' };
 
     const [first] = results as Array<{ lat?: unknown; lon?: unknown }>;
-    const lat = Number(first.lat);
-    const lng = Number(first.lon);
-    // A provider result outside real-world bounds (or not a number at all)
-    // is not a usable coordinate, whatever the reason — never forwarded as
-    // though it were a successful match.
-    if (!isValidLatitude(lat) || !isValidLongitude(lng)) return { outcome: 'unavailable' };
+    const lat = parseProviderCoordinate(first.lat);
+    const lng = parseProviderCoordinate(first.lon);
+    // A missing/malformed value, or one outside real-world bounds, is not a
+    // usable coordinate, whatever the reason — never forwarded as though it
+    // were a successful match.
+    if (lat === null || lng === null || !isValidLatitude(lat) || !isValidLongitude(lng)) return { outcome: 'unavailable' };
 
     return { outcome: 'found', lat, lng };
   } catch {

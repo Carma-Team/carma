@@ -78,6 +78,52 @@ describe('geocodeAddress', () => {
     await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
   });
 
+  // `Number(null)` and `Number('')` both evaluate to 0, not NaN — a naive
+  // `Number(...)` parse would let a missing/malformed provider coordinate
+  // silently pass the bounds check as a "legitimate" 0,0 (the equator/prime
+  // meridian intersection, not this business's address).
+  it('rejects a null latitude from the provider — never silently becomes 0', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: null, lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('rejects an empty-string latitude from the provider — never silently becomes 0', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: '', lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('rejects a whitespace-only latitude from the provider — never silently becomes 0', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: '   ', lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('rejects a result missing the latitude key entirely — never silently becomes 0', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('rejects a boolean coordinate from the provider — Number(true) is 1, not a real parse', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: true, lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('rejects an object/array coordinate from the provider', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: { nested: true }, lon: '34.7748' }]));
+
+    await expect(geocodeAddress('Rothschild 1')).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('still accepts a legitimate numeric zero explicitly supplied as a real coordinate', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse([{ lat: '0', lon: '0' }]));
+
+    await expect(geocodeAddress('Null Island')).resolves.toEqual({ outcome: 'found', lat: 0, lng: 0 });
+  });
+
   it('reports a network failure as unavailable instead of throwing', async () => {
     vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
 
