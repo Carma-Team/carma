@@ -19,8 +19,8 @@ const sdk = useMemo(() => new DrivingSDK(), []);
 
 Pass `tripValidator` only if the default confirm-immediately/never-flag
 behavior isn't right for your app — see [trip-lifecycle.md](./trip-lifecycle.md).
-Every other `SDKConfig` field (`autoStartOnBluetooth`, `sensorUpdateInterval`,
-`motionThresholds`, …) has a sensible default; override only the one you
+Every other `SDKConfig` field (`autoStartOnBluetooth`, `targetBluetoothId`,
+`motionThresholds`) has a sensible default; override only the one you
 actually need to change.
 
 ---

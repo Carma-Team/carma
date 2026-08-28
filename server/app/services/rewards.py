@@ -100,6 +100,21 @@ def live_voucher_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElemen
     return (Redemption.status == RedemptionStatus.PENDING, Redemption.expires_at > now)
 
 
+def active_reward_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
+    """A reward the marketplace still shows: live, not archived, campaign not over.
+
+    The same three conditions `list_rewards` below already filters the driver
+    catalog on (CAR-131 added the campaign-expiry leg) — factored out so a
+    business's CASHIER view (CAR-74) can never define "active" differently
+    than the marketplace does.
+    """
+    return (
+        Reward.is_active.is_(True),
+        Reward.archived_at.is_(None),
+        or_(Reward.expires_at.is_(None), Reward.expires_at > now),
+    )
+
+
 async def reserved_points(db: AsyncSession, user_id: str) -> int:
     """Points a driver's live vouchers are holding — CAR-73.
 
@@ -232,11 +247,7 @@ async def expire_overdue(db: AsyncSession, *where: ColumnElement[bool]) -> None:
 
 
 async def list_rewards(db: AsyncSession, user_id: str, category_str: str | None) -> dict[str, object]:
-    where: list[ColumnElement[bool]] = [
-        Reward.is_active.is_(True),
-        Reward.archived_at.is_(None),
-        or_(Reward.expires_at.is_(None), Reward.expires_at > datetime.now(UTC)),
-    ]
+    where: list[ColumnElement[bool]] = list(active_reward_where(datetime.now(UTC)))
     if category_str and category_str.lower() in _CATEGORY_BY_STR:
         where.append(Reward.category == _CATEGORY_BY_STR[category_str.lower()])
 

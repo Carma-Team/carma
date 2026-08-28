@@ -30,6 +30,7 @@ from app.models import (
     UserFriend,
     UserRole,
 )
+from app.services.business import ensure_owner_membership
 from app.services.rewards import VOUCHER_TTL_DAYS
 
 # ---------------------------------------------------------------------------
@@ -625,6 +626,9 @@ async def run() -> None:
             await db.flush()
         if aroma is not None:
             aroma.owner_user_id = biz_owner.id
+            # CAR-74: authorization for /api/business/* comes from this row now,
+            # not from owner_user_id alone — without it the seeded owner 403s.
+            await ensure_owner_membership(db, aroma.id, biz_owner.id)
 
         # --- Yoni follows friends (Friends leaderboard) ---
         for friend_email in YONI_FRIENDS:

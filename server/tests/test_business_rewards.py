@@ -22,7 +22,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
 from app.main import app
-from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
+from app.models import (
+    Business,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    Redemption,
+    RedemptionStatus,
+    Reward,
+    User,
+    UserRole,
+)
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn
 from app.services import business as business_service
 from app.services import rewards as rewards_service
@@ -70,6 +80,8 @@ async def _make_business(db: AsyncSession, *, category: BusinessCategory = Busin
         location_lng=34.78,
     )
     db.add(business)
+    await db.flush()
+    db.add(BusinessMembership(user_id=owner.id, business_id=business.id, role=BusinessMembershipRole.OWNER))
     await db.commit()
     await db.refresh(business)
     return business
@@ -120,7 +132,7 @@ async def test_list_includes_inactive_rewards(db_session: AsyncSession) -> None:
         await business_service.create_reward(db_session, business, _reward_payload(isActive=True))
         await business_service.create_reward(db_session, business, _reward_payload(isActive=False))
 
-        result = await business_service.list_rewards(db_session, business)
+        result = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         rewards = result["rewards"]
         assert isinstance(rewards, list)
         # The driver-facing list filters is_active; the owner's dashboard must not.
@@ -170,7 +182,7 @@ async def test_another_business_cannot_see_or_touch_the_reward(db_session: Async
     try:
         created = await business_service.create_reward(db_session, owner_biz, _reward_payload())
 
-        listed = await business_service.list_rewards(db_session, other_biz)
+        listed = await business_service.list_rewards(db_session, other_biz, BusinessMembershipRole.OWNER)
         assert listed["rewards"] == [], "another business's catalog must not appear in this one's list"
 
         # 404 rather than 403 on both — a 403 would confirm the id exists.
@@ -257,6 +269,8 @@ async def test_archived_reward_voucher_still_loads_and_can_be_consumed(db_sessio
     driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
     db_session.add(driver)
     await db_session.commit()
+    member_id = business.owner_user_id
+    assert member_id is not None
     try:
         created = await business_service.create_reward(db_session, business, _reward_payload())
         voucher = _voucher(created.id, driver.id, business.id)
@@ -271,7 +285,9 @@ async def test_archived_reward_voucher_still_loads_and_can_be_consumed(db_sessio
         assert peeked.reward.id == created.id
 
         # …and consuming it works exactly as it would for a non-archived reward.
-        consumed = await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        consumed = await business_service.consume_voucher(
+            db_session, business, voucher.qr_code, consumed_by_user_id=member_id
+        )
         assert consumed.status == "used"
     finally:
         await db_session.delete(driver)
@@ -350,7 +366,7 @@ async def test_business_reward_list_still_includes_an_archived_reward(db_session
         created = await business_service.create_reward(db_session, business, _reward_payload())
         await business_service.archive_reward(db_session, business, created.id)
 
-        listed = await business_service.list_rewards(db_session, business)
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         assert created.id in {r.id for r in listed["rewards"]}
     finally:
         await _cleanup(db_session, business)
@@ -448,7 +464,7 @@ async def test_expired_reward_still_in_the_business_list(db_session: AsyncSessio
             db_session, business, _reward_payload(expiresAt=datetime.now(UTC) - timedelta(days=1))
         )
 
-        listed = await business_service.list_rewards(db_session, business)
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
         assert created.id in {r.id for r in listed["rewards"]}
     finally:
         await _cleanup(db_session, business)
@@ -617,6 +633,25 @@ async def test_profile_out_carries_business_fields(db_session: AsyncSession) -> 
         # RewardFormScreen categorises new rewards from businessCategory.
         assert out.business_id == business.id
         assert out.business_category == "entertainment"
+        assert out.business_name == business.name
+        # _make_business never sets name_he — the web shell falls back to
+        # businessName itself, so a null here is the real, expected value.
+        assert out.business_name_he is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_profile_out_carries_the_hebrew_business_name_when_set(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    business.name_he = "שם בעברית"
+    await db_session.commit()
+    assert business.owner_user_id
+    owner = await db_session.get(User, business.owner_user_id)
+    assert owner is not None
+    try:
+        out = await users_service.profile_out(db_session, owner)
+        assert out.business_name_he == "שם בעברית"
     finally:
         await _cleanup(db_session, business)
 
@@ -629,6 +664,7 @@ async def test_profile_out_leaves_business_fields_empty_for_a_driver(db_session:
     try:
         out = await users_service.profile_out(db_session, driver)
         assert out.business_id is None and out.business_category is None
+        assert out.business_name is None and out.business_name_he is None
     finally:
         await db_session.delete(driver)
         await db_session.commit()

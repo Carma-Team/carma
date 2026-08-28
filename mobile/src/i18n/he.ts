@@ -87,6 +87,10 @@ const he = {
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
     openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
+    phoneUsage: 'שימוש בטלפון',
+    routeStart: 'התחלת הנסיעה', routeEnd: 'סיום הנסיעה',
+    kmh: 'קמ"ש',
+    openLocationInMaps: 'פתיחת המיקום במפות',
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',
@@ -126,11 +130,13 @@ const he = {
   },
   marketplace: {
     title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
-    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים', points: 'נקודות',
+    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים',
     redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
-    notEnoughPoints: 'אין מספיק נקודות', missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי', expires: 'תפוגה',
+    // The two reasons the server refuses a redemption that looked available a moment ago.
+    redeemOutOfStock: 'הפרס אזל מהמלאי הרגע', redeemCampaignEnded: 'מבצע הפרס הסתיים',
+    missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
-    voucher: { title: 'השובר שלך', code: 'קוד', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
+    voucher: { title: 'השובר שלך', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
     bonusDilemma: {
       title: 'בחר את הפרס שלך!', invest: 'השקע בנקודות', investDesc: 'שמור נקודות לפרס גדול יותר',
       redeem: 'ממש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',
@@ -192,12 +198,13 @@ const he = {
     driveModeDesc: 'האפליקציה תתחיל ותסיים נסיעה אוטומטית בעת חיבור למכשיר Bluetooth המוגדר.',
     active: 'פעיל',
     inactive: 'כבוי',
-    enable: 'הפעל',
-    disable: 'בטל',
-    selectDevice: 'בחר מכשיר Bluetooth',
+    enable: 'הפעלה',
+    disable: 'ביטול',
+    driveModeFailed: 'לא הצלחנו לעדכן את מצב הנסיעה. נסו שוב.',
+    selectDevice: 'בחירת מכשיר Bluetooth',
     dataManagement: 'ניהול נתונים',
     clearHistory: 'איפוס היסטוריית נסיעות',
-    clearHistoryConfirm: 'האם אתה בטוח שברצונך למחוק את כל היסטוריית הנסיעות המקומית?',
+    clearHistoryConfirm: 'למחוק את כל היסטוריית הנסיעות המקומית?',
     version: 'גרסה',
   },
   stats: {
@@ -270,9 +277,7 @@ const he = {
     capabilityMessage: 'המכשיר או גרסת מערכת ההפעלה שלך אינם עומדים בדרישות המינימליות של CARMA.',
   },
   time: {
-    now: 'עכשיו', ago: 'לפני',
     secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",
-    hoursWord: 'שעות', daysWord: 'ימים',
   },
 } as const
 

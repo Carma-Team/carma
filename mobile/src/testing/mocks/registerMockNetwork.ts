@@ -95,6 +95,13 @@ export function registerMockNetwork() {
       if (method === 'GET' && cleanPath.endsWith('/api/auth/me')) {
         return mockResponse(200, account.user);
       }
+      // Profile writes — the drive mode toggle is one. Left to fall through, the
+      // synthetic token 401s and the toggle can never move in a mock session.
+      // Mutates the account so /api/auth/me above keeps agreeing with it.
+      if (method === 'PATCH' && cleanPath.endsWith('/api/users/me')) {
+        Object.assign(account.user, parseBody(init) ?? {});
+        return mockResponse(200, account.user);
+      }
       if (method === 'GET' && cleanPath.endsWith('/api/trips')) {
         return mockResponse(200, { trips: [] });
       }

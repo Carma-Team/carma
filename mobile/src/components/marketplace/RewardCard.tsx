@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS } from '@/constants/theme'
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons'
 import { localize } from '@/lib/utils'
+import { isSoldOut } from '@/lib/rewardStock'
 import type { Reward, Voucher } from '@/types'
 
 // ─── RewardCard ───────────────────────────────────────────────────────────────
@@ -21,9 +22,7 @@ interface RewardCardProps {
 export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
   const { t, lang } = useTranslation()
   const canAfford = userPoints >= reward.costPoints
-  // null is unlimited, so it has to be tested before the comparison: `null > 0`
-  // is false, which would render every uncapped reward as sold out.
-  const inStock   = reward.available === null || reward.available > 0
+  const inStock   = !isSoldOut(reward.available)
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
   return (

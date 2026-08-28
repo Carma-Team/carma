@@ -38,7 +38,7 @@
  */
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
-import { DrivingEventType, DrivingEvent, MotionThresholds } from '@/lib/driving-sdk/types';
+import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
 import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
@@ -78,14 +78,15 @@ const IMU_CONFIRM_MS2 = 1.0;
 // near-duplicate fixes <0.5s apart, which imply physically impossible
 // accelerations if processed as real samples. The server already dedups on
 // its side; this stops the duplicate from ever reaching distance/motion math
-// on the client too.
+// on the client too. Forward gaps only — see handleLocation for why a backwards
+// one is a different animal.
 const MIN_TICK_INTERVAL_MS = 500;
 
 // If no valid GPS speed reading arrives for this long, stop reporting the last known
 // value for currentSpeed and fall back to 0 instead. Without this, a sustained
 // speed-unavailable stretch (weak fix, urban canyon, parking garage) pins currentSpeed
-// above TripValidationManager's Rule 2 "stopped" threshold forever, and a trip that
-// should end after 3 min below 10 km/h never does. Momentary dropouts (a few seconds)
+// above whatever "stopped" threshold the host's validator uses forever, and a trip that
+// should end after a sustained stop never does. Momentary dropouts (a few seconds)
 // still carry the last reading through; only a sustained one decays.
 const STALE_SPEED_MS = 10000;
 
@@ -113,14 +114,9 @@ const MS2_PER_G = 9.81;
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
 const SENSOR_STALE_MS = 5000;
 
-// EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
-// /** EVT_SWERVE — GPS Heading change rate
-//  *  Spec: > 15 °/s sustained for ≥ 3 s
-//  *  Recommended for less sensitivity: 20 °/s (eliminates gradual curve noise)
-//  */
-// const SWERVE_HEADING_RATE_DEG_S = 15;
-// const SWERVE_MIN_DURATION_MS    = 3000;
-// const SWERVE_SEVERITY_RANGE     = 25;   // 15°/s → 0.0 ; 40°/s → 1.0
+// SWERVE is in the event enum but nothing here detects it. The detector that was
+// written for it was never verified on a drive and is not scheduled — it lives in
+// docs/disabled-swerve-detection.md, with what restoring it would take.
 
 export class SensorManager {
   private accelSub: any = null;
@@ -166,11 +162,6 @@ export class SensorManager {
   // Duration (ms) of that streak — reported as DrivingEvent.durationMs.
   private peakDurationMs = 0;
 
-  // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
-  // private prevHeading:      number | null = null;
-  // private prevLocTimestamp: number | null = null;
-  // private swerveStartTime:  number | null = null;
-
   private onEvent: (event: DrivingEvent) => void;
   // Raw 10 Hz gyroscope tap. Exists so a second consumer can read rotation without
   // opening its own Gyroscope subscription — the sensor is already powered here, and
@@ -181,34 +172,11 @@ export class SensorManager {
   // class already owns the subscription, so a second consumer (RawSampleRecorder)
   // taps it instead of opening its own.
   private onAccelSample?: (sample: { x: number; y: number; z: number }) => void;
-  private onUpdate: (data: {
-    distanceKm: number; currentSpeed: number; timeDeltaS: number;
-    accelX: number; gyroZ: number;
-    // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
-    // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
-    accelAvailable: boolean; gyroAvailable: boolean;
-    // Whether accelerometer *registration* itself threw — distinct from
-    // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
-    // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
-    // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
-    accelInitFailed: boolean;
-    // Whether "Always"/background location permission was granted — false means
-    // automatic (background) tracking cannot run, distinct from it just not
-    // having happened yet.
-    backgroundLocationAvailable: boolean;
-    lat?: number; lng?: number; accuracy?: number;
-  }) => void;
+  private onUpdate: (data: SensorUpdate) => void;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
-    onUpdate: (data: {
-      distanceKm: number; currentSpeed: number; timeDeltaS: number;
-      accelX: number; gyroZ: number;
-      accelAvailable: boolean; gyroAvailable: boolean;
-      accelInitFailed: boolean;
-      backgroundLocationAvailable: boolean;
-      lat?: number; lng?: number; accuracy?: number;
-    }) => void,
+    onUpdate: (data: SensorUpdate) => void,
     thresholds?: Partial<MotionThresholds>,
     onGyroSample?: (sample: { x: number; y: number; z: number }) => void,
     onAccelSample?: (sample: { x: number; y: number; z: number }) => void,
@@ -241,9 +209,6 @@ export class SensorManager {
     this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
     this.accelInitFailed = false;
-    // this.prevHeading      = null;   // EVT_SWERVE disabled
-    // this.prevLocTimestamp = null;
-    // this.swerveStartTime  = null;
 
     // Deliberately outside the try below: the tick is what keeps speed honest when the
     // location stream is unavailable, which includes the case where starting it failed.
@@ -366,8 +331,25 @@ export class SensorManager {
     // GPS ticks <0.5s apart under certain background/throttling conditions. Treating
     // these as independent samples would understate timeDeltaS and can imply
     // impossible accelerations; simplest and safest is to ignore the repeat entirely.
-    if (this.lastLocation && (loc.timestamp - this.lastLocation.timestamp) < MIN_TICK_INTERVAL_MS) {
-      return;
+    //
+    // A backwards gap is a clock step (NTP correction, manual time change), not a
+    // repeat, and dropping it costs the rest of the trip rather than one fix:
+    // lastLocation keeps the pre-step stamp, so every fix after it reads as a
+    // duplicate until wall clock catches up, and detectMotionEvents stalls on that
+    // same stamp. Nothing measured across the step means anything, so re-anchor.
+    if (this.lastLocation) {
+      const gapMs = loc.timestamp - this.lastLocation.timestamp;
+      if (gapMs < 0) {
+        this.lastLocation = null; // distance 0 and the nominal timeDeltaS below
+        this.motionPrevMs = 0;    // re-seeds the detection window on the next fix
+        // Every anchor stamped on the old clock has to move, this one included: left
+        // in the future, STALE_SPEED_MS never elapses, so a held speed never decays to
+        // 0 and handleSpeedTick — which only emits at 0 — goes silent for the length
+        // of the step. A stop after the step would then never be reported as one.
+        this.lastValidSpeedAtMs = loc.timestamp;
+      } else if (gapMs < MIN_TICK_INTERVAL_MS) {
+        return;
+      }
     }
 
     let distance = 0;
@@ -382,7 +364,6 @@ export class SensorManager {
         loc.coords.longitude
       );
       timeDeltaS = Math.max(0.5, (loc.timestamp - this.lastLocation.timestamp) / 1000);
-      // this.detectSwerve(loc);  // EVT_SWERVE disabled — uncomment to re-enable
     }
     // expo returns -1 (not 0) for "speed unavailable" — e.g. a momentary loss of
     // speed lock at highway speed. Clamping that to 0 reads as a real deceleration
@@ -408,6 +389,7 @@ export class SensorManager {
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
       accuracy:     loc.coords.accuracy ?? undefined,
+      fixTs:        loc.timestamp,
     });
     // Fire events after onUpdate so the SDK's speed/location is current when stamped.
     this.detectMotionEvents(loc, rawSpeed !== null && rawSpeed >= 0 ? rawSpeed : null);
@@ -515,38 +497,6 @@ export class SensorManager {
     this.peakDurationMs = 0;
   }
 
-  // EVT_SWERVE detection — disabled (not yet in UI/scoring; re-enable when ready)
-  // private detectSwerve(loc: Location.LocationObject) {
-  //   const now = loc.timestamp;
-  //   const currentHeading = this.computeBearing(
-  //     this.lastLocation.coords.latitude, this.lastLocation.coords.longitude,
-  //     loc.coords.latitude, loc.coords.longitude
-  //   );
-  //   if (this.prevHeading !== null && this.prevLocTimestamp !== null) {
-  //     const timeDeltaS = (now - this.prevLocTimestamp) / 1000;
-  //     if (timeDeltaS > 0) {
-  //       let delta = currentHeading - this.prevHeading;
-  //       delta = ((delta + 540) % 360) - 180;
-  //       const headingRate = Math.abs(delta) / timeDeltaS;
-  //       if (headingRate > SWERVE_HEADING_RATE_DEG_S) {
-  //         if (this.swerveStartTime === null) {
-  //           this.swerveStartTime = now;
-  //         } else if (now - this.swerveStartTime >= SWERVE_MIN_DURATION_MS) {
-  //           const severity = Math.min(1, Math.max(0,
-  //             (headingRate - SWERVE_HEADING_RATE_DEG_S) / SWERVE_SEVERITY_RANGE
-  //           ));
-  //           this.onEvent({ type: DrivingEventType.SWERVE, timestamp: new Date(), severity });
-  //           this.swerveStartTime = null;
-  //         }
-  //       } else {
-  //         this.swerveStartTime = null;
-  //       }
-  //     }
-  //   }
-  //   this.prevHeading      = currentHeading;
-  //   this.prevLocTimestamp = now;
-  // }
-
   // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──
 
   private handleAccel(data: { x: number; y: number; z: number }) {
@@ -595,16 +545,6 @@ export class SensorManager {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-  /** Compass bearing from point 1 to point 2, in degrees [0, 360). */
-  private computeBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const lat1r = lat1 * Math.PI / 180;
-    const lat2r = lat2 * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2r);
-    const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
-    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-  }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371;

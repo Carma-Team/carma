@@ -84,6 +84,10 @@ const en: TranslationMap = {
     mapUnavailable: 'Route not available',
     openInMaps: 'Open in Maps',
     eventsLabel: 'Safety events',
+    phoneUsage: 'Phone Use',
+    routeStart: 'Trip start', routeEnd: 'Trip end',
+    kmh: 'km/h',
+    openLocationInMaps: 'Open location in Maps',
   },
   driving: {
     debugTitle: 'Admin tools (demo mode)',
@@ -123,11 +127,13 @@ const en: TranslationMap = {
   },
   marketplace: {
     title: 'Rewards Store', subtitle: 'Redeem your points',
-    myVouchers: 'My Vouchers', allRewards: 'All Rewards', points: 'points',
+    myVouchers: 'My Vouchers', allRewards: 'All Rewards',
     redeem: 'Redeem', redeemSuccess: 'Reward redeemed successfully!',
-    notEnoughPoints: 'Not enough points', missingPoints: 'Missing', outOfStock: 'Out of stock', expires: 'Expires',
+    // The two reasons the server refuses a redemption that looked available a moment ago.
+    redeemOutOfStock: 'This reward just ran out', redeemCampaignEnded: 'This reward\'s campaign has ended',
+    missingPoints: 'Missing', outOfStock: 'Out of stock',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
-    voucher: { title: 'Your Voucher', code: 'Code', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active' },
+    voucher: { title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active' },
     bonusDilemma: {
       title: 'Choose your reward!', invest: 'Save points', investDesc: 'Save for a bigger reward',
       redeem: 'Redeem now', redeemDesc: 'Get an instant reward', cancel: 'Cancel',
@@ -190,6 +196,7 @@ const en: TranslationMap = {
     inactive: 'Inactive',
     enable: 'Enable',
     disable: 'Disable',
+    driveModeFailed: 'Could not update drive mode. Please try again.',
     selectDevice: 'Select Bluetooth Device...',
     dataManagement: 'Data Management',
     clearHistory: 'Reset Trip History',
@@ -266,9 +273,7 @@ const en: TranslationMap = {
     capabilityMessage: 'Your device or OS version does not meet CARMA\'s minimum requirements.',
   },
   time: {
-    now: 'just now', ago: 'ago',
     secondsShort: 's', minutesShort: 'm', hoursShort: 'h',
-    hoursWord: 'h', daysWord: 'd',
   },
 }
 

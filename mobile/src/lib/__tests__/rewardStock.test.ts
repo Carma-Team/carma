@@ -1,4 +1,4 @@
-import { formatStockLabel, parseStockInput } from '@/lib/rewardStock'
+import { formatStockLabel, isSoldOut, parseStockInput, sortByAvailability } from '@/lib/rewardStock'
 
 // The dashboard used to render `stock` on its own. Because CAR-47 made stock an
 // allocation the server never decrements, that number could not move: a business
@@ -58,5 +58,58 @@ describe('parseStockInput', () => {
     expect(parseStockInput('abc')).toEqual({ valid: false })
     expect(parseStockInput('2.5')).toEqual({ valid: false })
     expect(parseStockInput('-1')).toEqual({ valid: false })
+  })
+})
+
+// The card disables what this returns true for, and the list sorts it to the end.
+// Asserted directly so a change to the rule names itself instead of failing seven
+// tests that are all about something else.
+describe('isSoldOut', () => {
+  it('is sold out only at zero', () => {
+    expect(isSoldOut(0)).toBe(true)
+  })
+
+  it('is not sold out while units remain', () => {
+    expect(isSoldOut(3)).toBe(false)
+  })
+
+  it('is not sold out when there is no cap at all', () => {
+    expect(isSoldOut(null)).toBe(false)
+  })
+})
+
+describe('sortByAvailability', () => {
+  // Named by id so the assertions read as an order, not as a set.
+  const list = [
+    { id: 'a', available: 2 },
+    { id: 'b', available: 0 },
+    { id: 'c', available: null },
+    { id: 'd', available: 0 },
+    { id: 'e', available: 7 },
+  ]
+
+  it('puts every sold-out reward after every available one', () => {
+    expect(sortByAvailability(list).map(r => r.id)).toEqual(['a', 'c', 'e', 'b', 'd'])
+  })
+
+  it('leaves the order inside each group alone', () => {
+    // The server sorts by cost, so anything the sort reshuffles here loses that order.
+    const byCost = [
+      { id: 'cheap', available: 0 },
+      { id: 'mid', available: 4 },
+      { id: 'dear', available: 0 },
+    ]
+    expect(sortByAvailability(byCost).map(r => r.id)).toEqual(['mid', 'cheap', 'dear'])
+  })
+
+  it('treats an uncapped reward as available', () => {
+    const only = [{ id: 'sold', available: 0 }, { id: 'unlimited', available: null }]
+    expect(sortByAvailability(only).map(r => r.id)).toEqual(['unlimited', 'sold'])
+  })
+
+  it('does not touch the array it was given — the caller holds React state', () => {
+    const before = list.map(r => r.id)
+    sortByAvailability(list)
+    expect(list.map(r => r.id)).toEqual(before)
   })
 })
