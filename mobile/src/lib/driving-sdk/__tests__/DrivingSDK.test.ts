@@ -577,6 +577,9 @@ describe('DrivingSDK', () => {
     expect(tripData()?.waypoints.map(w => w.ts)).toEqual([t0, t0 + 2000, t0 + 4000, t0 + 6000]);
   });
 
+  // Scope: the waypoint anchor only. SensorManager is mocked here, so a stepped fix
+  // reaches this handler by construction — that it reaches it in the app is pinned by
+  // the re-anchor test in SensorManager's own suite, which drives the real GPS path.
   it('re-anchors instead of stalling when the fix clock steps forward', async () => {
     await startTripReady();
     const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
@@ -717,6 +720,19 @@ describe('DrivingSDK', () => {
     });
     expect(instance.getStatus().isActive).toBe(false);
     expect(instance.getStatus().tripData).toBeNull();
+  });
+
+  // The abort arrives from inside the validator, which cannot know the session is over.
+  // Every other end route stops it; a validator left running holds whatever state it
+  // reached, and the next session starts from there instead of from scratch.
+  it('stops the validator on a fraud abort, like every other end route', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    await startTripReady(instance);
+
+    validator.onFraudSuspected?.(FRAUD);
+
+    expect(validator.stopped).toBe(1);
   });
 
   it('reports the peak speed seen during validation on the fraud payload', async () => {
