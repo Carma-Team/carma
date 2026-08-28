@@ -24,10 +24,16 @@ import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
   SensorEventCondition, SensorEventHandler, ListenerToken,
-  TripValidator, SuspiciousActivityEvaluation,
+  TripValidator, SuspiciousActivityEvaluation, SensorUpdate,
 } from '@/lib/driving-sdk/types';
 
-const WAYPOINT_INTERVAL_MS = 5000;
+// The server re-detects a brake as the average deceleration between two consecutive
+// waypoints, so the sampling interval cannot exceed the event it has to catch: a hard
+// brake lasts ~2 s. At 5 s it needs a 54 km/h drop between two points to register one,
+// where a real hard brake is ~25 km/h (CAR-179 derives this from the 3.0 m/s² threshold).
+// Costs no battery — the location stream is already requested at 2 s and thinning only
+// discards fixes already paid for.
+const WAYPOINT_INTERVAL_MS = 2000;
 
 export class DrivingSDK {
   private config: SDKConfig;
@@ -118,8 +124,6 @@ export class DrivingSDK {
   constructor(config: SDKConfig = {}) {
     this.config = {
       autoStartOnBluetooth: true,
-      sensorUpdateInterval: 1000,
-      scoringEnabled: true,
       ...config
     };
 
@@ -171,7 +175,7 @@ export class DrivingSDK {
     this.validationStartTime = Date.now();
     this.validationMaxSpeed  = 0;
 
-    // Sensors must run during validation so TripValidationManager receives speed data.
+    // Sensors must run during validation so the configured TripValidator receives speed data.
     // SensorManager.start() is idempotent — safe to call again when startTrip() fires.
     await this.sensorManager.start();
     this.validationManager.start();
@@ -239,7 +243,6 @@ export class DrivingSDK {
       waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      phoneSeconds: 0,           // deprecated v1.7
       touchEpochs: 0,
       screenInteractionSeconds: 0,
       // Latched over the trip: `accelAvailable` on each tick is "live right now"
@@ -298,16 +301,16 @@ export class DrivingSDK {
 
   private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
+    // Same reason stopTrip() stops it, and this path is where it matters most: the
+    // call arrives from inside the validator, which has no way to know the session is
+    // over. Left running, its ticker survives the abort and start() early-returns on
+    // a live ticker, so the next session inherits this one's state.
+    this.validationManager.stop();
     this.isValidating = false;
 
     // Read before the abort clears it below — undefined here means the pre-trip gate
     // caught the session, and stays undefined all the way to the server.
     const distanceKm = this.currentTripData?.distanceKm;
-
-    // Same reason stopTrip() stops it: the validator outlives the session unless it is
-    // stopped here, and its ticker keeps evaluating the last speed it saw — which no
-    // longer updates, because the sensors are stopped a few lines down.
-    this.validationManager.stop();
 
     // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
     this.isTripActive = false;
@@ -345,7 +348,6 @@ export class DrivingSDK {
 
     // Per-type cooldown — spec §א Table 1: minimum time between events = 0.5 s.
     // Recommended for less sensitivity: raise IMU cooldowns to 2–3 s.
-    // EVT_SWERVE had a 3 s cooldown but is currently disabled.
     if (event.type !== DrivingEventType.PHONE_USAGE) {
       const cooldownMs = 500;
       const last = this.lastEventTime[event.type] ?? 0;
@@ -392,7 +394,7 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
-  private handleSensorUpdate(update: { distanceKm: number; currentSpeed: number; timeDeltaS: number; accelX: number; gyroZ: number; accelAvailable: boolean; gyroAvailable: boolean; accelInitFailed: boolean; backgroundLocationAvailable: boolean; lat?: number; lng?: number; accuracy?: number }) {
+  private handleSensorUpdate(update: SensorUpdate) {
     // Track peak speed across the whole session (validation + scoring) for fraud payload
     this.validationMaxSpeed = Math.max(this.validationMaxSpeed, update.currentSpeed);
     this.currentSpeedKmh = update.currentSpeed;
@@ -407,7 +409,7 @@ export class DrivingSDK {
       this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
     }
 
-    // Always feed sensor data to TripValidationManager (works in both phases)
+    // Always feed sensor data to the validator (works in both phases)
     this.validationManager.updateSample({
       speedKmh: update.currentSpeed,
       timestamp: Date.now(),
@@ -438,18 +440,24 @@ export class DrivingSDK {
       const maxDistKm = (update.currentSpeed / 3600) * update.timeDeltaS * 1.5;
       this.currentTripData.distanceKm += Math.min(update.distanceKm, maxDistKm);
 
-      // Waypoint collection: append one point every WAYPOINT_INTERVAL_MS of wall-clock time
-      // while moving, not GPS tick count — real tick cadence drifts from the nominal 2s
-      // (OS throttling, background suspension), same class of bug as D-SDK-5.
-      const now = Date.now();
-      if (this.lastKnownLocation && (this.lastWaypointTs === null || now - this.lastWaypointTs >= WAYPOINT_INTERVAL_MS)) {
+      // Waypoint collection: one point per WAYPOINT_INTERVAL_MS, measured between the GPS
+      // fixes themselves. Android defers location updates under Doze and releases them as a
+      // batch in one JS turn, where arrival time barely moves — thinning against it collapses
+      // the whole deferred window into a single point and stamps every point in the batch
+      // with the same instant (CAR-178). A monotonic clock shares that flaw for the same
+      // reason: it measures arrival. What fix time costs instead is exposure to a clock step,
+      // so a negative gap re-anchors rather than stalling collection for the rest of the trip.
+      // Ticks with no fix behind them carry no position and cannot seed a waypoint anyway.
+      const fixTs = update.fixTs ?? Date.now();
+      const sinceLastMs = this.lastWaypointTs === null ? Infinity : fixTs - this.lastWaypointTs;
+      if (this.lastKnownLocation && (sinceLastMs >= WAYPOINT_INTERVAL_MS || sinceLastMs < 0)) {
         this.currentTripData.waypoints.push({
           lat: this.lastKnownLocation.lat,
           lng: this.lastKnownLocation.lng,
-          ts: now,
+          ts: fixTs,
           speedKmh: update.currentSpeed,
         });
-        this.lastWaypointTs = now;
+        this.lastWaypointTs = fixTs;
       }
     }
     this.currentTripData.maxSpeed = Math.max(this.currentTripData.maxSpeed, update.currentSpeed);

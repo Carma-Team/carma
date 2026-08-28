@@ -49,3 +49,15 @@ class FriendStatus(str, enum.Enum):
     PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     BLOCKED = "BLOCKED"
+
+
+class BusinessJoinRequestStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class BusinessMembershipRole(str, enum.Enum):
+    OWNER = "OWNER"
+    MANAGER = "MANAGER"
+    CASHIER = "CASHIER"

@@ -1,0 +1,40 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.mapWrapper {
+  height: 240px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.mapContainer {
+  height: 100%;
+  width: 100%;
+}
+
+.marker {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  border: 3px solid var(--color-primary-contrast);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.4);
+}
+
+.coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+/* A number input's intrinsic content width (spinner arrows included) is wider
+   than a narrow grid track, and a grid item's default `min-width: auto`
+   refuses to shrink it below that — the classic grid/input overflow trap,
+   visible only at phone widths where the track is genuinely narrow. */
+.coords > * {
+  min-width: 0;
+}

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.logging import user_id_ctx
 from app.core.security import decode_access_token
 from app.database import get_db
-from app.models import Business, User, UserRole
+from app.models import BusinessMembership, BusinessMembershipRole, User, UserRole
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -48,26 +50,97 @@ async def current_user(
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
-async def current_business(request: Request, user: CurrentUser, db: DbSession) -> Business:
-    """The Business owned by the authenticated user — the scope of every /api/business route.
+# A caller with memberships in more than one business (CAR-76 eventually makes
+# this possible) fails closed with this code rather than an arbitrary pick — no
+# route today takes a business id from the client, so there is nothing to
+# disambiguate on. Picking one silently would risk applying a manager's action
+# to the wrong business the day they hold two memberships.
+AMBIGUOUS_BUSINESS_CONTEXT = "AMBIGUOUS_BUSINESS_CONTEXT"
 
-    Handlers never take a business id from the client: they operate on whatever
-    this returns, which is what keeps one business out of another's rewards.
+
+async def current_business(request: Request, user: CurrentUser, db: DbSession) -> BusinessMembership:
+    """The caller's business membership — the scope *and role* of every
+    /api/business route.
+
+    Resolved from `business_memberships` on every request, never from `User.role`
+    or the JWT's `role` claim (CAR-74): a revoked or role-changed membership
+    takes effect on the very next request instead of waiting out the token's
+    week-long TTL. Handlers never take a business id from the client: they
+    operate on whatever this returns, which is what keeps one business out of
+    another's rewards.
     """
-    if user.role != UserRole.BUSINESS:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Business account required")
+    memberships = (
+        await db.scalars(
+            select(BusinessMembership)
+            .where(BusinessMembership.user_id == user.id)
+            .options(selectinload(BusinessMembership.business))
+        )
+    ).all()
+    if not memberships:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No business membership for this account")
+    if len(memberships) > 1:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": AMBIGUOUS_BUSINESS_CONTEXT,
+                "message": "This account has memberships in more than one business",
+            },
+        )
 
-    business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
-    if business is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "No business is linked to this account")
+    membership = memberships[0]
     # Read back by `limiter.business_key`, which rate-limits the voucher routes
     # per business rather than per address. Delete this and the limit silently
     # falls back to counting addresses — every till in a mall shares one budget.
-    request.state.business_id = business.id
-    return business
+    request.state.business_id = membership.business_id
+    return membership
 
 
-CurrentBusiness = Annotated[Business, Depends(current_business)]
+CurrentBusinessMembership = Annotated[BusinessMembership, Depends(current_business)]
+
+_ROLE_RANK = {
+    BusinessMembershipRole.CASHIER: 0,
+    BusinessMembershipRole.MANAGER: 1,
+    BusinessMembershipRole.OWNER: 2,
+}
+
+
+def require_business_role(
+    minimum: BusinessMembershipRole,
+) -> Callable[[BusinessMembership], Awaitable[BusinessMembership]]:
+    """A route dependency asserting at least `minimum` role in the resolved membership.
+
+    Layered on `current_business` rather than duplicating its lookup — FastAPI
+    caches a dependency per request, so a route combining this with
+    `CurrentBusinessMembership` still reads `business_memberships` once.
+    """
+
+    async def _dependency(membership: CurrentBusinessMembership) -> BusinessMembership:
+        if _ROLE_RANK[membership.role] < _ROLE_RANK[minimum]:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "This role cannot perform this action")
+        return membership
+
+    return _dependency
+
+
+CurrentBusinessManager = Annotated[BusinessMembership, Depends(require_business_role(BusinessMembershipRole.MANAGER))]
+
+# CAR-76: creating and cancelling an invitation is OWNER-only — a MANAGER
+# managing rewards is not the same trust level as one handing out access to
+# the business itself.
+CurrentBusinessOwner = Annotated[BusinessMembership, Depends(require_business_role(BusinessMembershipRole.OWNER))]
+
+
+async def current_admin(user: CurrentUser) -> User:
+    """An ADMIN, resolved from the DB row `CurrentUser` already re-reads on every
+    request — never from the JWT's `role` claim. That is what makes a role
+    change (grant or revoke) effective on the very next request instead of
+    waiting out a week-long token TTL (CAR-77)."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin account required")
+    return user
+
+
+CurrentAdmin = Annotated[User, Depends(current_admin)]
 
 
 def is_browser_request(request: Request) -> bool:

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, ScrollView, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
@@ -10,11 +10,20 @@ import { VoucherList } from '@/components/marketplace/VoucherList'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
+import { ApiError } from '@/services/api/client'
+import { sortByAvailability } from '@/lib/rewardStock'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import { REWARD_CATEGORIES, type IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
 
 type Tab = 'rewards' | 'vouchers'
+
+// The redemption codes the server sends inside a 409 detail. Branching on the code
+// and not on the message is the server's own contract — the message is English prose.
+const REDEEM_ERROR_KEYS: Record<string, string> = {
+  REWARD_OUT_OF_STOCK: 'marketplace.redeemOutOfStock',
+  REWARD_CAMPAIGN_ENDED: 'marketplace.redeemCampaignEnded',
+}
 
 /**
  * Rewards store screen.
@@ -23,7 +32,7 @@ type Tab = 'rewards' | 'vouchers'
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
-  const { user, setUser, addToast } = useApp()
+  const { user, patchUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
   const [tab, setTab] = useState<Tab>('rewards')
@@ -42,6 +51,11 @@ export default function MarketplaceScreen() {
     ...REWARD_CATEGORIES.map(c => ({ ...c, icon: c.icon as IoniconName })),
   ]
 
+  // Which load is the current one. Two things call loadCatalog — the category
+  // effect and the 409 refresh — so a slow earlier response can land after a
+  // newer one and repaint the screen with the wrong category's rewards.
+  const latestLoad = useRef(0)
+
   /**
    * Loads rewards and vouchers from the server on every category change.
    *
@@ -49,15 +63,26 @@ export default function MarketplaceScreen() {
    *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_REWARDS + MOCK_VOUCHERS
    *   - USE_REAL_SERVER=true  → GET /api/rewards on the real server
    */
-  useEffect(() => {
+  const loadCatalog = useCallback(() => {
+    const load = ++latestLoad.current
     setLoading(true)
-    rewardsApi.list(category)
+    return rewardsApi.list(category)
       .then(data => {
+        if (load !== latestLoad.current) return
         setRewards(data.rewards)
         setVouchers(data.vouchers)
       })
-      .finally(() => setLoading(false))
-  }, [category])
+      .catch(() => {
+        // Without this the screen sits on an empty list with no explanation —
+        // and the 409 refresh below would reject inside a catch block.
+        if (load === latestLoad.current) addToast({ type: 'error', message: t('common.error') })
+      })
+      .finally(() => {
+        if (load === latestLoad.current) setLoading(false)
+      })
+  }, [category, addToast, t])
+
+  useEffect(() => { loadCatalog() }, [loadCatalog])
 
   /**
    * Redeems a reward: deducts the user's points and creates a voucher.
@@ -76,12 +101,21 @@ export default function MarketplaceScreen() {
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      await setUser({ ...user, points: (user.points || 0) - selectedReward.costPoints })
+      patchUser(prev => ({ points: (prev.points || 0) - selectedReward.costPoints }))
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
       setTab('vouchers')
-    } catch {
-      addToast({ type: 'error', message: t('common.error') })
+    } catch (e) {
+      const key = e instanceof ApiError ? REDEEM_ERROR_KEYS[e.code ?? ''] : undefined
+      addToast({ type: 'error', message: t(key ?? 'common.error') })
+      // A 409 means the catalog moved on while the sheet was open: the card was drawn
+      // from a stock count that is no longer true. Close it and re-read, so a second
+      // attempt is not on offer — sold out comes back disabled, and an ended campaign
+      // does not come back at all (`list_rewards` filters on expires_at).
+      if (e instanceof ApiError && e.status === 409) {
+        setSelectedReward(null)
+        loadCatalog()
+      }
     } finally {
       setRedeeming(false)
     }
@@ -116,8 +150,9 @@ export default function MarketplaceScreen() {
               <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
             ) : (
               <View style={{ gap: 10 }}>
-                {rewards
-                  .filter(r => category === 'all' || r.category === category)
+                {sortByAvailability(
+                  rewards.filter(r => category === 'all' || r.category === category)
+                )
                   .map(r => (
                     <RewardCard
                       key={r.id}

@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-20**
+**Last updated: 2026-08-28**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -60,14 +60,21 @@ npx expo install expo-file-system expo-sharing
 
 ## What belongs in this directory
 
+Every file in the library, each row copied from that file's own `@brief` header. The
+header is the current one and is written by whoever changes the file; this table follows
+it, never the other way round.
+
 | File | Responsibility |
 |---|---|
-| `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
-| `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
-| `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer + gyroscope variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
-| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS stream to an NDJSON file for a staged calibration session (scenario/platform-tagged); exports via `expo-sharing` |
-| `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
+| `index.ts` | The SDK's public entry point and orchestrator, `DrivingSDK`. Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream, and emits driving events to whatever host app is consuming the library. |
+| `types.ts` | Every type and interface the library exposes to its host app. Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract through which an app injects its own trip-start, trip-end and suspicion rules. |
+| `BluetoothManager.ts` | Classic Bluetooth device monitoring, Android only. Lists OS-bonded devices and emits connect/disconnect for the chosen target device, which is how a trip can start and end without the driver touching the phone. |
+| `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
+| `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
+| `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also streams speed, distance and raw IMU values to the SDK on every fix. |
+| `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy. Reports tap count and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
+| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
+| `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
 
 ---
 
@@ -252,8 +259,6 @@ new DrivingSDK(config?: SDKConfig)
 |---|---|---|---|
 | `autoStartOnBluetooth` | `boolean` | `true` | Start trip automatically when target BT device connects |
 | `targetBluetoothId` | `string \| null` | — | MAC address of the BT device to monitor |
-| `sensorUpdateInterval` | `number` (ms) | `1000` | How often `onUpdate` fires (wall-clock) |
-| `scoringEnabled` | `boolean` | `true` | Reserved — passed through to application callbacks |
 | `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
 | `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md). |
 
@@ -262,7 +267,7 @@ new DrivingSDK(config?: SDKConfig)
 | Method | Returns | Description |
 |---|---|---|
 | `startTrip()` | `Promise<string>` | Manually start a trip; returns trip ID |
-| `stopTrip()` | `Promise<TripData \| null>` | Stop recording; returns final trip data |
+| `stopTrip()` | `Promise<TripData \| null>` | Stop recording and stop the validator; returns final trip data |
 | `on(type, condition, handler)` | `ListenerToken` | Subscribe to a sensor event with conditions |
 | `off(token)` | `void` | Unsubscribe a registered listener |
 | `updateTargetDevice(id)` | `void` | Change the BT device to monitor at runtime |
@@ -320,7 +325,7 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, one point every ~5s of wall-clock time while moving
+  waypoints:              RouteWaypoint[];  // GPS track, one point every 2s of elapsed GPS-fix time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
@@ -368,6 +373,15 @@ class MyTripValidator implements TripValidator {
 
 const sdk = new DrivingSDK({ tripValidator: new MyTripValidator() });
 ```
+
+### Lifecycle contract
+
+The SDK calls `start()` when a session begins, and `stop()` on **every** route out of
+one — a manual `stopTrip()`, a Bluetooth disconnect, and an abort after
+`onFraudSuspected`. There is no fourth way for a session to end, so `stop()` is the
+single place an implementation tears down whatever it holds — a ticker, a sliding
+window, accumulated state — and every trip is guaranteed to start against a clean
+validator.
 
 Full interface, timing details, and the trip state-machine diagram are in
 [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md).

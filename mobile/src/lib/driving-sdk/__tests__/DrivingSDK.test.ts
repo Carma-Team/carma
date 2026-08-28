@@ -22,6 +22,7 @@ import {
   ValidationSample,
   SuspiciousActivityEvaluation,
   TransportMode,
+  SensorUpdate,
 } from '@/lib/driving-sdk/types';
 import { DrivingSDK } from '@/lib/driving-sdk';
 
@@ -115,21 +116,6 @@ jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
 }));
 
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
-
-type SensorUpdate = {
-  distanceKm: number;
-  currentSpeed: number;
-  timeDeltaS: number;
-  accelX: number;
-  gyroZ: number;
-  accelAvailable: boolean;
-  gyroAvailable: boolean;
-  accelInitFailed: boolean;
-  backgroundLocationAvailable: boolean;
-  lat?: number;
-  lng?: number;
-  accuracy?: number;
-};
 
 /** The 3-second window after startTrip() where events are deliberately dropped. */
 const WARMUP_MS = 3000;
@@ -560,20 +546,51 @@ describe('DrivingSDK', () => {
 
   // ── Waypoint downsampling ──────────────────────────────────────────────────
 
-  it('appends a waypoint only once ~5 GPS seconds have elapsed', async () => {
+  it('appends a waypoint only once 2 GPS seconds have elapsed', async () => {
     await startTripReady();
     const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
 
     sendSensorUpdate(moving);
     expect(tripData()?.waypoints).toHaveLength(1); // anchor point, recorded immediately
 
-    jest.advanceTimersByTime(4000);
+    jest.advanceTimersByTime(1000);
     sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(1); // only 4s since anchor — not yet
+    expect(tripData()?.waypoints).toHaveLength(1); // only 1s since anchor — not yet
 
     jest.advanceTimersByTime(1000);
     sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(2); // 5s since anchor — lands
+    expect(tripData()?.waypoints).toHaveLength(2); // 2s since anchor — lands
+  });
+
+  // The Android case the cadence exists for: fixes deferred under Doze arrive as a batch
+  // in one JS turn, so arrival time barely moves across the whole window (CAR-178).
+  it('thins a deferred batch on fix time, not on arrival time', async () => {
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
+    const t0 = Date.now();
+
+    [0, 2000, 4000, 6000].forEach(offset =>
+      sendSensorUpdate({ ...moving, fixTs: t0 + offset }),
+    );
+
+    expect(tripData()?.waypoints).toHaveLength(4);
+    expect(tripData()?.waypoints.map(w => w.ts)).toEqual([t0, t0 + 2000, t0 + 4000, t0 + 6000]);
+  });
+
+  // Scope: the waypoint anchor only. SensorManager is mocked here, so a stepped fix
+  // reaches this handler by construction — that it reaches it in the app is pinned by
+  // the re-anchor test in SensorManager's own suite, which drives the real GPS path.
+  it('re-anchors instead of stalling when the fix clock steps forward', async () => {
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
+    const t0 = Date.now();
+
+    sendSensorUpdate({ ...moving, fixTs: t0 });
+    sendSensorUpdate({ ...moving, fixTs: t0 + 3_600_000 }); // NTP step: an hour forward
+    sendSensorUpdate({ ...moving, fixTs: t0 + 2000 });      // back on the real clock
+
+    // Without the negative-gap branch the anchor stays an hour ahead and this is 2.
+    expect(tripData()?.waypoints).toHaveLength(3);
   });
 
   it('collects no waypoints while stationary', async () => {
@@ -703,8 +720,18 @@ describe('DrivingSDK', () => {
     });
     expect(instance.getStatus().isActive).toBe(false);
     expect(instance.getStatus().tripData).toBeNull();
-    // The validator is torn down with the rest of the session. Left running, its ticker
-    // keeps evaluating the last speed it saw after the sensors feeding it have stopped.
+  });
+
+  // The abort arrives from inside the validator, which cannot know the session is over.
+  // Every other end route stops it; a validator left running holds whatever state it
+  // reached, and the next session starts from there instead of from scratch.
+  it('stops the validator on a fraud abort, like every other end route', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    await startTripReady(instance);
+
+    validator.onFraudSuspected?.(FRAUD);
+
     expect(validator.stopped).toBe(1);
   });
 

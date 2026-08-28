@@ -79,7 +79,12 @@ class User(Base, TimestampMixin):
     last_logged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     trips: Mapped[list[Trip]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    redemptions: Mapped[list[Redemption]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    # `foreign_keys` disambiguates against `Redemption.consumed_by_user_id`
+    # (CAR-75), the table's second FK to `users.id` — a plain string because
+    # `Redemption` is only imported under TYPE_CHECKING here.
+    redemptions: Mapped[list[Redemption]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", foreign_keys="Redemption.user_id"
+    )
     fraud_reports: Mapped[list[FraudReport]] = relationship(back_populates="user", cascade="all, delete-orphan")
     business: Mapped[Business | None] = relationship(back_populates="owner", uselist=False)
 
