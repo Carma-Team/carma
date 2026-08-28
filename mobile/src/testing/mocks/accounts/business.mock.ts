@@ -27,6 +27,8 @@ const user: AppUser = {
   driveModeEnabled: false,
   businessId: BUSINESS_ID,
   businessCategory: 'other',
+  businessMembershipRole: 'OWNER',
+  businessMembershipAmbiguous: false,
   createdAt: new Date().toISOString(),
 };
 

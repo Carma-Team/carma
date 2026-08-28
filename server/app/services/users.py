@@ -7,9 +7,10 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
-from app.models import Business, Trip, TripStatus, User, UserRole
+from app.models import BusinessMembership, Trip, TripStatus, User, UserRole
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import (
     ContactMatchOut,
@@ -22,7 +23,7 @@ from app.services import friends, rewards, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
-    """UserOut plus the business fields, which only a BUSINESS account has.
+    """UserOut plus the business membership context (CAR-258).
 
     Looked up on demand rather than eager-loaded in `current_user`: this costs one
     indexed query on the handful of business requests instead of a join on every
@@ -34,14 +35,45 @@ async def profile_out(db: AsyncSession, user: User) -> UserOut:
     reserved = await rewards.reserved_points(db, user.id)
     out.reserved_points = reserved
     out.available_points = user.points - reserved
-    if user.role == UserRole.BUSINESS:
-        business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
-        if business is not None:
-            out.business_id = business.id
-            out.business_category = business.category.value.lower()
-            out.business_name = business.name
-            out.business_name_he = business.name_he
+    await _apply_business_context(db, user, out)
     return out
+
+
+async def _apply_business_context(db: AsyncSession, user: User, out: UserOut) -> None:
+    """Fill the business identity + role from `business_memberships`, never from
+    the legacy `Business.owner_user_id` lookup or `User.role` (CAR-258).
+
+    Resolved for every account, not gated on `role == BUSINESS`: CAR-74 lets a
+    DRIVER hold a membership too (e.g. a CASHIER), and that membership must
+    surface here the same as an OWNER's. Same table `core.deps.current_business`
+    reads for `/api/business/*` authorization, so a revoked or role-changed
+    membership takes effect on the very next profile read — but this is the
+    read-only counterpart: it never raises, so a driver session with zero or
+    several memberships still resolves normally.
+    """
+    memberships = (
+        await db.scalars(
+            select(BusinessMembership)
+            .where(BusinessMembership.user_id == user.id)
+            .options(selectinload(BusinessMembership.business))
+        )
+    ).all()
+    if not memberships:
+        return
+    if len(memberships) > 1:
+        # Never pick one arbitrarily — same fail-closed rule as
+        # `core.deps.current_business`, just surfaced as a flag instead of a
+        # 409, since this path also serves an otherwise-valid driver session.
+        out.business_membership_ambiguous = True
+        return
+
+    membership = memberships[0]
+    business = membership.business
+    out.business_id = business.id
+    out.business_category = business.category.value.lower()
+    out.business_name = business.name
+    out.business_name_he = business.name_he
+    out.business_membership_role = membership.role
 
 
 async def update_profile(db: AsyncSession, user: User, dto: UpdateProfileIn) -> User:
