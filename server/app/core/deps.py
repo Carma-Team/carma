@@ -124,6 +124,11 @@ def require_business_role(
 
 CurrentBusinessManager = Annotated[BusinessMembership, Depends(require_business_role(BusinessMembershipRole.MANAGER))]
 
+# CAR-76: creating and cancelling an invitation is OWNER-only — a MANAGER
+# managing rewards is not the same trust level as one handing out access to
+# the business itself.
+CurrentBusinessOwner = Annotated[BusinessMembership, Depends(require_business_role(BusinessMembershipRole.OWNER))]
+
 
 async def current_admin(user: CurrentUser) -> User:
     """An ADMIN, resolved from the DB row `CurrentUser` already re-reads on every
