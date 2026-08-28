@@ -118,12 +118,24 @@ describe('BusinessRegistrationPage', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'אישור המיקום' })).toBeInTheDocument());
     expect(screen.getByText("לא הצלחנו לאתר את הכתובת הזו אוטומטית. סמנו מיקום על המפה.")).toBeInTheDocument();
+    // No pin shown at the fallback center — it must never look chosen.
+    expect(document.querySelector('.leaflet-marker-icon')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('קו רוחב')).toHaveValue(null);
+    expect(screen.getByLabelText('קו אורך')).toHaveValue(null);
     expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
 
-    // Dragging/clicking the map (simulated here via the fine-tune coordinate
-    // input, which the same onChange handler backs) unblocks continuing.
+    // Only one of the two coordinates typed — still incomplete, still blocked.
     fireEvent.change(screen.getByLabelText('קו רוחב'), { target: { value: '32.1' } });
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
+
+    // An out-of-range longitude must not unblock it either.
+    fireEvent.change(screen.getByLabelText('קו אורך'), { target: { value: '999' } });
+    expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
+
+    // A complete, in-range pair is what finally unblocks continuing.
+    fireEvent.change(screen.getByLabelText('קו אורך'), { target: { value: '34.78' } });
     expect(screen.getByRole('button', { name: 'אישור והמשך' })).not.toBeDisabled();
+    expect(document.querySelector('.leaflet-marker-icon')).toBeInTheDocument();
   });
 
   it('shows OpenStreetMap attribution wherever the map or geocoded location is displayed', async () => {
@@ -304,18 +316,29 @@ describe('BusinessRegistrationPage', () => {
     expect(geocodeAddress).not.toHaveBeenCalled();
   });
 
-  it('shows "already pending" rather than a generic error on a duplicate submission', async () => {
+  it('shows an honest, generic conflict message on a 409 — never claims it is specifically the applicant\'s own pending request', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
     vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
     vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
-    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'already_pending' });
+    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'conflict' });
 
     renderPage();
     await fillContinueAndConfirmLocation();
     fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
     fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'כבר יש בקשה ממתינה' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'לא הצלחנו לשלוח את הבקשה' })).toBeInTheDocument());
+    // The server cannot say which of its three 409 reasons this was — the
+    // page must not fabricate certainty it doesn't have (see the CAR-203
+    // backend contract note in lib/api/businessRegistration.ts).
+    expect(screen.queryByText(/כבר יש (לכם )?בקשה/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+  });
+
+  it('does not claim the phone number is also the sign-in number — the web sign-in only accepts email + password', () => {
+    renderPage();
+
+    expect(screen.queryByText(/מספר ההתחברות|sign-in number/)).not.toBeInTheDocument();
   });
 
   it('renders in Hebrew RTL by default', () => {

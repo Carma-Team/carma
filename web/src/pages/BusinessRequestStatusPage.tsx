@@ -76,9 +76,13 @@ export function BusinessRequestStatusPage() {
   }
 
   if (step.kind === 'sendingOtp' || step.kind === 'verifying') {
+    // Distinct copy per phase — this page only ever looks a status up, so
+    // "verifying" must never borrow BusinessRegistrationPage's
+    // submission-flavoured label.
+    const label = step.kind === 'sendingOtp' ? t('businessRegistration.sendingOtpLabel') : t('requestStatus.verifyingLabel');
     return (
       <main className={styles.page}>
-        <LoadingState label={t('businessRegistration.sendingOtpLabel')} />
+        <LoadingState label={label} />
       </main>
     );
   }
@@ -143,7 +147,7 @@ export function BusinessRequestStatusPage() {
           </Text>
           <form onSubmit={handleVerify}>
             <Input
-              label={t('businessRegistration.codeLabel')}
+              label={t('requestStatus.codeLabel')}
               inputMode="numeric"
               dir="ltr"
               required
@@ -152,9 +156,9 @@ export function BusinessRequestStatusPage() {
               error={otpError ?? undefined}
             />
             <div className={styles.actions}>
-              <Button type="submit">{t('businessRegistration.verifyButton')}</Button>
+              <Button type="submit">{t('requestStatus.verifyButton')}</Button>
               <Button type="button" variant="secondary" onClick={sendOtp}>
-                {t('businessRegistration.resendButton')}
+                {t('requestStatus.resendButton')}
               </Button>
             </div>
           </form>

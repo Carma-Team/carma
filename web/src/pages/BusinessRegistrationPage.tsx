@@ -19,18 +19,16 @@ import styles from './BusinessRegistrationPage.module.css';
 // reaches the network only to bounce back as a 422.
 const PHONE_PATTERN = '^\\+[1-9]\\d{6,14}$';
 
-// Only ever used as a starting point for the applicant to correct when
-// geocoding finds nothing — never a guess at their real location. See
-// `LocationConfirmMap`'s own `hasMatch` handling for the same rule.
-const ISRAEL_CENTER = { lat: 31.5, lng: 34.75 };
-
 type FormState = {
   name: string;
   nameHe: string;
   category: BusinessCategory;
   address: string;
-  lat: number;
-  lng: number;
+  // `null` until a complete, valid, deliberately-chosen pair exists — never
+  // a fallback center standing in for a real answer. See
+  // `LocationConfirmMap`, which is the only thing allowed to fill these in.
+  lat: number | null;
+  lng: number | null;
   registrationNumber: string;
   contactPerson: string;
   phone: string;
@@ -41,8 +39,8 @@ const EMPTY_FORM: FormState = {
   nameHe: '',
   category: 'other',
   address: '',
-  lat: ISRAEL_CENTER.lat,
-  lng: ISRAEL_CENTER.lng,
+  lat: null,
+  lng: null,
   registrationNumber: '',
   contactPerson: '',
   phone: '',
@@ -58,7 +56,11 @@ type Step =
   | { kind: 'verifying' }
   | { kind: 'submitting' }
   | { kind: 'success' }
-  | { kind: 'alreadyPending' }
+  // The server's 409s on submission cannot be told apart without relying on
+  // its free-text `detail` (unstable — see the CAR-203 hand-off's backend
+  // contract note), so this covers every conflict honestly instead of
+  // claiming it is specifically the applicant's own pending request.
+  | { kind: 'submitConflict' }
   | { kind: 'error'; messageKey: 'rateLimitedMessage' | 'networkErrorMessage' | 'submitErrorMessage' };
 
 export function BusinessRegistrationPage() {
@@ -67,11 +69,6 @@ export function BusinessRegistrationPage() {
   const [step, setStep] = useState<Step>({ kind: 'form' });
   const [code, setCode] = useState('');
   const [otpError, setOtpError] = useState<string | null>(null);
-  // Only meaningful while `step.kind === 'confirmLocation'` and geocoding
-  // found nothing — the applicant must actively place a pin before
-  // continuing, so the map's harmless-looking default center can never be
-  // submitted as though it were their real answer.
-  const [locationTouched, setLocationTouched] = useState(false);
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -105,11 +102,11 @@ export function BusinessRegistrationPage() {
     const result = await geocodeAddress(form.address);
     if (result.outcome === 'found') {
       setForm((prev) => ({ ...prev, lat: result.lat, lng: result.lng }));
-      setLocationTouched(true);
       setStep({ kind: 'confirmLocation', hasMatch: true });
     } else if (result.outcome === 'not_found') {
-      setForm((prev) => ({ ...prev, lat: ISRAEL_CENTER.lat, lng: ISRAEL_CENTER.lng }));
-      setLocationTouched(false);
+      // Left `null` deliberately — the map must open with no pin, not one
+      // sitting on a meaningless fallback point that looks like an answer.
+      setForm((prev) => ({ ...prev, lat: null, lng: null }));
       setStep({ kind: 'confirmLocation', hasMatch: false });
     } else {
       setStep({ kind: 'geocodeError', reason: result.outcome });
@@ -117,8 +114,7 @@ export function BusinessRegistrationPage() {
   }
 
   function useManualLocation() {
-    setForm((prev) => ({ ...prev, lat: ISRAEL_CENTER.lat, lng: ISRAEL_CENTER.lng }));
-    setLocationTouched(false);
+    setForm((prev) => ({ ...prev, lat: null, lng: null }));
     setStep({ kind: 'confirmLocation', hasMatch: false });
   }
 
@@ -129,6 +125,12 @@ export function BusinessRegistrationPage() {
 
   async function handleVerify(event: FormEvent) {
     event.preventDefault();
+    // Unreachable via the UI — the confirm-location step's "Continue" is
+    // disabled until both are set — but this is what makes the compiler,
+    // not just the disabled button, the reason a submission can never carry
+    // a missing coordinate.
+    if (form.lat === null || form.lng === null) return;
+
     setStep({ kind: 'verifying' });
     const result = await verifyOtp(form.phone, code);
     if (result.outcome !== 'ok') {
@@ -157,8 +159,8 @@ export function BusinessRegistrationPage() {
     const submitResult = await submitJoinRequest(payload, result.accessToken);
     if (submitResult.outcome === 'ok') {
       setStep({ kind: 'success' });
-    } else if (submitResult.outcome === 'already_pending') {
-      setStep({ kind: 'alreadyPending' });
+    } else if (submitResult.outcome === 'conflict') {
+      setStep({ kind: 'submitConflict' });
     } else if (submitResult.outcome === 'rate_limited') {
       setStep({ kind: 'error', messageKey: 'rateLimitedMessage' });
     } else if (submitResult.outcome === 'network_error') {
@@ -197,12 +199,12 @@ export function BusinessRegistrationPage() {
     );
   }
 
-  if (step.kind === 'alreadyPending') {
+  if (step.kind === 'submitConflict') {
     return (
       <main className={styles.page}>
         <Card className={styles.centered}>
-          <Heading level={1}>{t('businessRegistration.alreadyPendingTitle')}</Heading>
-          <Text variant="body">{t('businessRegistration.alreadyPendingMessage')}</Text>
+          <Heading level={1}>{t('businessRegistration.submitConflictTitle')}</Heading>
+          <Text variant="body">{t('businessRegistration.submitConflictMessage')}</Text>
           <Link to="/register/status" className={styles.statusLink}>
             {t('businessRegistration.checkStatusLink')}
           </Link>
@@ -246,7 +248,7 @@ export function BusinessRegistrationPage() {
   }
 
   if (step.kind === 'confirmLocation') {
-    const canContinue = step.hasMatch || locationTouched;
+    const canContinue = form.lat !== null && form.lng !== null;
     return (
       <main className={styles.page}>
         <Card className={styles.formCard}>
@@ -257,11 +259,9 @@ export function BusinessRegistrationPage() {
           <LocationConfirmMap
             latitude={form.lat}
             longitude={form.lng}
-            hasMatch={step.hasMatch}
             onChange={(lat, lng) => {
               updateField('lat', lat);
               updateField('lng', lng);
-              setLocationTouched(true);
             }}
             latLabel={t('businessRegistration.latLabel')}
             lngLabel={t('businessRegistration.lngLabel')}

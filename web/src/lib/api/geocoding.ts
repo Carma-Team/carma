@@ -21,7 +21,13 @@
  * not the same as bounding the app's aggregate traffic, which nothing
  * client-side can do.
  */
+import { isValidLatitude, isValidLongitude } from '@/lib/geo/coordinates';
+
 const BASE_URL = import.meta.env.VITE_GEOCODING_URL ?? 'https://nominatim.openstreetmap.org';
+
+// Same convention as `lib/auth/authApi.ts::REQUEST_TIMEOUT_MS` — a hung
+// geocode must not leave the applicant on the loading screen forever.
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export type GeocodeOutcome =
   | { outcome: 'found'; lat: number; lng: number }
@@ -30,18 +36,23 @@ export type GeocodeOutcome =
   // service just refused this one call. Conflating the two would tell an
   // applicant their real address doesn't exist.
   | { outcome: 'rate_limited' }
-  // Any other non-2xx, a malformed body, or the request never reaching the
-  // server at all (offline, DNS, CORS) — the caller's recovery is the same
-  // for all three: offer a retry, never guess a coordinate.
+  // Any other non-2xx, a malformed body, an out-of-range or non-finite
+  // coordinate in an otherwise "successful" response, a timeout, or the
+  // request never reaching the server at all (offline, DNS, CORS) — the
+  // caller's recovery is the same for all of these: offer a retry, never
+  // guess or accept a coordinate that cannot be a real place on Earth.
   | { outcome: 'unavailable' };
 
 export async function geocodeAddress(address: string): Promise<GeocodeOutcome> {
   const trimmed = address.trim();
   if (!trimmed) return { outcome: 'not_found' };
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const url = `${BASE_URL}/search?format=jsonv2&limit=1&q=${encodeURIComponent(trimmed)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: controller.signal });
     if (res.status === 429) return { outcome: 'rate_limited' };
     if (!res.ok) return { outcome: 'unavailable' };
 
@@ -52,10 +63,19 @@ export async function geocodeAddress(address: string): Promise<GeocodeOutcome> {
     const [first] = results as Array<{ lat?: unknown; lon?: unknown }>;
     const lat = Number(first.lat);
     const lng = Number(first.lon);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return { outcome: 'unavailable' };
+    // A provider result outside real-world bounds (or not a number at all)
+    // is not a usable coordinate, whatever the reason — never forwarded as
+    // though it were a successful match.
+    if (!isValidLatitude(lat) || !isValidLongitude(lng)) return { outcome: 'unavailable' };
 
     return { outcome: 'found', lat, lng };
   } catch {
+    // AbortError is this function's own timeout firing, not the caller's
+    // — see REQUEST_TIMEOUT_MS above. Both this and a genuine network
+    // failure land on the same recovery path (retry or set manually), so
+    // they are not distinguished any further than `unavailable`.
     return { outcome: 'unavailable' };
+  } finally {
+    clearTimeout(timeout);
   }
 }

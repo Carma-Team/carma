@@ -49,10 +49,16 @@ describe('submitJoinRequest', () => {
     expect(body.address).toBe('Rothschild 1, Tel Aviv');
   });
 
-  it('reports a duplicate submission as already_pending, not a generic error', async () => {
+  it('reports every 409 as a generic conflict — the server gives no structured signal to tell "your own pending request" apart from "this registration number belongs to someone else"', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'You already have a pending business request' }, 409));
 
-    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'already_pending' });
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'conflict' });
+  });
+
+  it('reports a 409 for a different reason (registration number already approved) the same honest way — never claims it is the caller\'s own request', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'This business is already registered' }, 409));
+
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'conflict' });
   });
 
   it('reports a network failure distinctly', async () => {

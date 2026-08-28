@@ -150,8 +150,8 @@ export type TranslationMap = {
     pendingTitle: string;
     pendingMessage: string;
     pendingNotApprovalNote: string;
-    alreadyPendingTitle: string;
-    alreadyPendingMessage: string;
+    submitConflictTitle: string;
+    submitConflictMessage: string;
     checkStatusPrompt: string;
     checkStatusLink: string;
     rateLimitedMessage: string;
@@ -164,6 +164,10 @@ export type TranslationMap = {
     subtitle: string;
     phoneLabel: string;
     sendCodeButton: string;
+    codeLabel: string;
+    verifyButton: string;
+    verifyingLabel: string;
+    resendButton: string;
     backToRegisterLink: string;
     statusNoneTitle: string;
     statusNoneMessage: string;

@@ -80,10 +80,19 @@ export type JoinRequestStatusOut = {
 
 export type SubmitResult =
   | { outcome: 'ok'; id: string; createdAt: string }
-  // Both `submit()`'s own pre-check and its IntegrityError fallback answer
-  // 409 for this — the applicant already has a pending request, which is
-  // the "submitting twice" acceptance criterion, not a failure to report.
-  | { outcome: 'already_pending' }
+  // `submit()` in server/app/services/business_join_requests.py answers 409
+  // for three different reasons — the caller's own pending request, this
+  // registration number pending under a *different* applicant, or it
+  // already belonging to an approved business — all as a plain-text
+  // `detail` string with no structured `code` (unlike e.g. VOUCHER_* on the
+  // redemption endpoints). Distinguishing them here would mean matching on
+  // that text, which the backend makes no promise to keep stable. Collapsed
+  // into one honest "could not submit, here's why it might be" outcome
+  // instead of guessing which one happened — see the CAR-203 hand-off for
+  // the backend contract gap this leaves (a structured code per reason,
+  // mirroring `approve()`'s own ALREADY_OWNS_BUSINESS / etc. pattern in the
+  // same file, would resolve it).
+  | { outcome: 'conflict' }
   | { outcome: 'rate_limited'; retryAfterSeconds: number | null }
   | { outcome: 'network_error' }
   | { outcome: 'unexpected_error' };
@@ -98,7 +107,7 @@ export async function submitJoinRequest(payload: JoinRequestPayload, accessToken
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 0) return { outcome: 'network_error' };
-      if (err.status === 409) return { outcome: 'already_pending' };
+      if (err.status === 409) return { outcome: 'conflict' };
       if (err.status === 429) return { outcome: 'rate_limited', retryAfterSeconds: err.retryAfterSeconds ?? null };
       return { outcome: 'unexpected_error' };
     }

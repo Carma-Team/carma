@@ -69,7 +69,7 @@ describe('BusinessRequestStatusPage', () => {
     renderPage();
     await requestCodeFor('+972501234567');
     fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
-    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ובדיקת הסטטוס' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'ממתין לבדיקה' })).toBeInTheDocument());
     expect(screen.getByText('הבקשה שלכם עדיין בבדיקה. זה עדיין לא אישור.')).toBeInTheDocument();
@@ -85,8 +85,32 @@ describe('BusinessRequestStatusPage', () => {
     renderPage();
     await requestCodeFor('+972501234567');
     fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
-    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ובדיקת הסטטוס' }));
 
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'לא נמצאה בקשה' })).toBeInTheDocument());
+  });
+
+  it('uses its own accurate verify button and loading copy — this page never submits a request', async () => {
+    vi.mocked(requestStatusCheckOtp).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+    vi.mocked(getJoinRequestStatus).mockResolvedValue({ outcome: 'ok', status: { status: 'none', createdAt: null, reviewerNote: null } });
+
+    renderPage();
+    await requestCodeFor('+972501234567');
+
+    // Not "Verify and submit request" — that copy belongs to
+    // BusinessRegistrationPage, which actually submits something.
+    expect(screen.getByRole('button', { name: 'אימות ובדיקת הסטטוס' })).toBeInTheDocument();
+    expect(screen.queryByText('אימות ושליחת הבקשה')).not.toBeInTheDocument();
+
+    let resolveVerify!: (result: { outcome: 'ok'; accessToken: string; user: AuthUser }) => void;
+    vi.mocked(verifyOtp).mockReturnValue(new Promise((resolve) => (resolveVerify = resolve)));
+    fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ובדיקת הסטטוס' }));
+
+    await waitFor(() => expect(screen.getByText('בודקים את הסטטוס…')).toBeInTheDocument());
+    expect(screen.queryByText('שולחים את הבקשה שלכם…')).not.toBeInTheDocument();
+
+    resolveVerify({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
     await waitFor(() => expect(screen.getByRole('heading', { name: 'לא נמצאה בקשה' })).toBeInTheDocument());
   });
 
