@@ -124,8 +124,6 @@ export class DrivingSDK {
   constructor(config: SDKConfig = {}) {
     this.config = {
       autoStartOnBluetooth: true,
-      sensorUpdateInterval: 1000,
-      scoringEnabled: true,
       ...config
     };
 
@@ -177,7 +175,7 @@ export class DrivingSDK {
     this.validationStartTime = Date.now();
     this.validationMaxSpeed  = 0;
 
-    // Sensors must run during validation so TripValidationManager receives speed data.
+    // Sensors must run during validation so the configured TripValidator receives speed data.
     // SensorManager.start() is idempotent — safe to call again when startTrip() fires.
     await this.sensorManager.start();
     this.validationManager.start();
@@ -245,7 +243,6 @@ export class DrivingSDK {
       waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      phoneSeconds: 0,           // deprecated v1.7
       touchEpochs: 0,
       screenInteractionSeconds: 0,
       // Latched over the trip: `accelAvailable` on each tick is "live right now"
@@ -346,7 +343,6 @@ export class DrivingSDK {
 
     // Per-type cooldown — spec §א Table 1: minimum time between events = 0.5 s.
     // Recommended for less sensitivity: raise IMU cooldowns to 2–3 s.
-    // EVT_SWERVE had a 3 s cooldown but is currently disabled.
     if (event.type !== DrivingEventType.PHONE_USAGE) {
       const cooldownMs = 500;
       const last = this.lastEventTime[event.type] ?? 0;
@@ -408,7 +404,7 @@ export class DrivingSDK {
       this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
     }
 
-    // Always feed sensor data to TripValidationManager (works in both phases)
+    // Always feed sensor data to the validator (works in both phases)
     this.validationManager.updateSample({
       speedKmh: update.currentSpeed,
       timestamp: Date.now(),
