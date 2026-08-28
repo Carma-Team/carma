@@ -211,6 +211,7 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
+  patchUser: (fields: UserPatch | ((prev: AppUser) => UserPatch)) => void
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -238,6 +239,8 @@ interface AppContextValue {
   userLevelState: GamificationLevel
 }
 
+type UserPatch = Partial<AppUser>
+
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -250,6 +253,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastTripSummary, setLastTripSummary] = useState<TripSummary | null>(null)
   const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
   const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
+
+  /**
+   * Applies a partial change to the user against whatever the state holds now.
+   *
+   * The alternative — building `{ ...user, field }` from the `user` a screen or a
+   * callback closed over — reverts anything that landed while its request was in
+   * flight, and a trip finishing mid-request is exactly that. Callers whose new
+   * value depends on the old one (points arithmetic) pass a function and get the
+   * same guarantee for the read.
+   *
+   * Declared here, above its consumers: several of them are effects and callbacks
+   * defined further down.
+   */
+  const patchUser = useCallback((fields: UserPatch | ((prev: AppUser) => UserPatch)) => {
+    setUserState(prev => {
+      if (!prev) return prev;
+      const merged = { ...prev, ...(typeof fields === 'function' ? fields(prev) : fields) };
+      // Written from inside the updater because this is the only place the latest
+      // user is visible. Non-blocking, like the other writes here — a storage
+      // failure must not take the state change down with it.
+      AsyncStorage.setItem('carma_user', JSON.stringify(merged)).catch(e =>
+        console.error('[AppContext] Failed to persist user patch', e)
+      );
+      return merged;
+    });
+  }, []);
 
   // Filtered trips based on lastClearedHistory
   const filteredTrips = useMemo(() => {
@@ -433,18 +462,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setUserLevelState(levelDisplay(newLevel));
 
-      const updatedUser = {
-        ...user,
-        points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
-        totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
-        totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
-        level: newLevel
-      };
-      setUserState(updatedUser);
-      // Non-blocking — a storage failure must never leave the trip stuck in "active" state (D-CTX-2).
-      AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser)).catch(e =>
-        console.error('[AppContext] Failed to persist user after trip end', e)
-      );
+      // Totals are re-derived from the state at write time, not from the `user` this
+      // callback closed over: saving the trip is a round trip to the server, and a
+      // settings change made while it ran would otherwise be rolled back here.
+      patchUser(prev => {
+        const earnedFrom = prev.totalPoints ?? prev.points ?? 0;
+        return {
+          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1) + Marketplace reads this
+          totalPoints: earnedFrom + earnedPoints,  // Dashboard/Profile UI reads this
+          totalDistance: (prev.totalDistance || 0) + finalState.distanceKm,
+          level: newLevel,
+        };
+      });
     }
 
     setLastTripSummary(fromLocalTrip(newTrip.id, savedTrip, finalState, lastTripDataRef.current));
@@ -471,12 +500,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
-        setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
+        patchUser(freshUser);
         setUserLevelState(levelDisplay(freshUser.level ?? 1));
-        AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
       }).catch(() => {});
     };
-  }, []);
+  }, [patchUser]);
 
   // ─── AppState: flush queued trips when app returns to foreground ──────────────
   useEffect(() => {
@@ -582,22 +610,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
-
-      // Load trips immediately on login to sync with the new user context
-      try {
-        const serverData = await tripsApi.list();
-        setRecentTrips(serverData.trips);
-        await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
-      } catch {
-        const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached) setRecentTrips(JSON.parse(cached));
-      }
     }
   }, []);
 
   const loginUser = useCallback(async (data: AuthResponse) => {
     await AsyncStorage.setItem('carma_token', data.token);
     await setUser(data.user);
+
+    // Trips are fetched here and not in setUser: every partial write to the user
+    // (points after a redeem, the drive mode toggle) goes through setUser too, and
+    // used to drag a full trip list refetch along with it.
+    try {
+      const serverData = await tripsApi.list();
+      setRecentTrips(serverData.trips);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+    } catch {
+      const cached = await AsyncStorage.getItem('carma_trips');
+      if (cached) setRecentTrips(JSON.parse(cached));
+    }
   }, [setUser]);
 
   const setLang = useCallback(async (l: Language) => {
@@ -642,7 +672,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      user, setUser, patchUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,
