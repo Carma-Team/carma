@@ -506,6 +506,38 @@ async def test_revoking_an_already_revoked_invitation_is_idempotent(
         await _cleanup(db_session, users=(owner,), businesses=(business,))
 
 
+@pytest.mark.asyncio
+async def test_revoking_an_expired_invitation_does_not_mutate_it(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """An expired invitation is already unusable — the same reason an
+    already-revoked one is a no-op. Revoke must not set `revoked_at` on it
+    (that would fabricate a revocation event for an invitation nobody could
+    ever have accepted anyway) and must not emit a second audit event."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        invitation_id = created.json()["invitation"]["id"]
+
+        await db_session.execute(
+            update(BusinessInvitation)
+            .where(BusinessInvitation.id == invitation_id)
+            .values(expires_at=datetime.now(UTC) - timedelta(hours=1))
+        )
+        await db_session.commit()
+
+        revoked = await db_api_client.delete(f"{INVITATIONS_URL}/{invitation_id}", headers=_auth(owner_token))
+        assert revoked.status_code == 204, revoked.text
+
+        invitation = await db_session.get(BusinessInvitation, invitation_id)
+        assert invitation is not None
+        assert invitation.revoked_at is None, "an expired invitation must not be marked revoked by a revoke attempt"
+    finally:
+        await db_session.refresh(business)
+        await db_session.refresh(owner)
+        await _cleanup(db_session, users=(owner,), businesses=(business,))
+
+
 # ─── `_unknown_invitation()` never reuses a single exception instance ────────
 
 

@@ -93,7 +93,7 @@ async def create_invitation(
     issue one already holds."""
     role = _INVITABLE_ROLES[dto.role]
 
-    # Collisions are vanishingly unlikely (32^10) but cheap to survive, the same
+    # Collisions are vanishingly unlikely (31^10) but cheap to survive, the same
     # retry `services.invites.get_or_create_link` uses for its own code space.
     for _ in range(5):
         token = _new_token()
@@ -133,13 +133,14 @@ async def revoke_invitation(db: AsyncSession, business: Business, invitation_id:
     """Immediate, and safe against a concurrent `accept_invitation`.
 
     Both act through a conditional UPDATE on the same
-    `redeemed_at IS NULL AND revoked_at IS NULL` predicate, so whichever
-    transaction's UPDATE reaches Postgres first is the only one that can still
-    change the row — the loser's own WHERE clause matches nothing once the
-    winner commits, the same competition `consume_voucher` runs against a
-    racing peek. That is also what stops an already-redeemed invitation from
-    being mutated here: its `redeemed_at` is no longer NULL, so this UPDATE
-    cannot touch it regardless of timing.
+    `redeemed_at IS NULL AND revoked_at IS NULL AND expires_at > now` predicate,
+    so whichever transaction's UPDATE reaches Postgres first is the only one
+    that can still change the row — the loser's own WHERE clause matches
+    nothing once the winner commits, the same competition `consume_voucher`
+    runs against a racing peek. The same predicate is also what keeps this a
+    no-op against an invitation that is already redeemed, already revoked, or
+    simply expired: none of those is "pending," so there is nothing left here
+    for a revoke to do.
     """
     # Captured before any rollback below: `rollback()` expires every attribute
     # on every object in the session, and re-reading `business.id` afterwards
@@ -154,6 +155,7 @@ async def revoke_invitation(db: AsyncSession, business: Business, invitation_id:
             BusinessInvitation.business_id == business_id,
             BusinessInvitation.redeemed_at.is_(None),
             BusinessInvitation.revoked_at.is_(None),
+            BusinessInvitation.expires_at > now,
         )
         .values(revoked_at=now)
     )
@@ -165,8 +167,9 @@ async def revoke_invitation(db: AsyncSession, business: Business, invitation_id:
     await db.rollback()
     # The UPDATE's rowcount alone can't tell "no such invitation" (404) apart
     # from "already redeemed" (a real conflict — nothing left to revoke) or
-    # "already revoked" (the same terminal state the caller asked for, so a
-    # silent no-op rather than a second audit event for the same fact).
+    # "already revoked or expired" (the caller's goal — an unusable invitation
+    # — already holds, so a silent no-op rather than a second audit event for
+    # a fact that is already true).
     current = await db.scalar(
         select(BusinessInvitation).where(
             BusinessInvitation.id == invitation_id, BusinessInvitation.business_id == business_id
