@@ -5,18 +5,15 @@ import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
 import { CategoryFilter } from '@/components/marketplace/CategoryFilter'
 import { RedeemConfirmSheet } from '@/components/marketplace/RedeemConfirmSheet'
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader'
-import { MarketplaceTabs } from '@/components/marketplace/MarketplaceTabs'
-import { VoucherList } from '@/components/marketplace/VoucherList'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { ApiError } from '@/services/api/client'
 import { sortByAvailability } from '@/lib/rewardStock'
+import { availableBalance } from '@/lib/utils'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import { REWARD_CATEGORIES, type IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
-
-type Tab = 'rewards' | 'vouchers'
 
 // The redemption codes the server sends inside a 409 detail. Branching on the code
 // and not on the message is the server's own contract — the message is English prose.
@@ -27,15 +24,14 @@ const REDEEM_ERROR_KEYS: Record<string, string> = {
 
 /**
  * Rewards store screen.
- * Shows a list of redeemable rewards and the user's already-redeemed vouchers.
- * Rewards can be filtered by category.
+ * Shows a list of redeemable rewards, each card carrying the live vouchers already
+ * issued against it. Rewards can be filtered by category.
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
   const { user, setUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
-  const [tab, setTab] = useState<Tab>('rewards')
   const [category, setCategory] = useState('all')
   const [rewards, setRewards] = useState<Reward[]>([])
   const [vouchers, setVouchers] = useState<Voucher[]>([])
@@ -43,6 +39,7 @@ export default function MarketplaceScreen() {
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null)
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null)
   const [redeeming, setRedeeming] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   const categories = [
     // Bilingual data-record pattern (labelHe/labelEn), same as REWARD_CATEGORIES below — not a hardcoded-copy violation. See docs/i18n.md.
@@ -85,15 +82,15 @@ export default function MarketplaceScreen() {
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   /**
-   * Redeems a reward: deducts the user's points and creates a voucher.
+   * Redeems a reward: reserves the user's points and creates a voucher.
    * Called only after the user confirms in RedeemConfirmSheet.
    *
    * [server] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
    *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock voucher
    *   - USE_REAL_SERVER=true  → POST to the real server
    *
-   * On success: adds the voucher to the list, updates points in AppContext,
-   * shows a success toast, and switches to the vouchers tab.
+   * On success: adds the voucher to the list, updates points in AppContext and
+   * shows a success toast. The new voucher appears on the reward's own card.
    */
   async function confirmRedeem() {
     if (!selectedReward || !user) return
@@ -101,10 +98,15 @@ export default function MarketplaceScreen() {
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      await setUser({ ...user, points: (user.points || 0) - selectedReward.costPoints })
+      // Issuing a voucher no longer spends the points, it holds them (CAR-73).
+      // The total stays put; only the split between available and reserved moves.
+      await setUser({
+        ...user,
+        availablePoints: availableBalance(user) - selectedReward.costPoints,
+        reservedPoints: (user.reservedPoints || 0) + selectedReward.costPoints,
+      })
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
-      setTab('vouchers')
     } catch (e) {
       const key = e instanceof ApiError ? REDEEM_ERROR_KEYS[e.code ?? ''] : undefined
       addToast({ type: 'error', message: t(key ?? 'common.error') })
@@ -121,58 +123,76 @@ export default function MarketplaceScreen() {
     }
   }
 
+  /**
+   * Cancels a voucher the driver no longer wants.
+   *
+   * [server] rewardsApi.cancel(id) → POST /api/vouchers/:id/cancel
+   */
+  async function cancelVoucher(voucher: Voucher) {
+    if (!user) return
+    setCancelling(true)
+    try {
+      await rewardsApi.cancel(voucher.id)
+      setVouchers(prev => prev.filter(v => v.id !== voucher.id))
+      // Mirror of the redemption: the points the voucher held go back to spendable.
+      await setUser({
+        ...user,
+        availablePoints: availableBalance(user) + voucher.pointsCost,
+        reservedPoints: Math.max(0, (user.reservedPoints || 0) - voucher.pointsCost),
+      })
+      setSelectedVoucher(null)
+      addToast({ type: 'success', message: t('marketplace.voucher.cancelSuccess') })
+    } catch {
+      addToast({ type: 'error', message: t('common.error') })
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (!user) return null
+
+  const available = availableBalance(user)
+
+  // Only a pending voucher is live. Used, expired and cancelled ones are history:
+  // they hold no points and the card has no room for them.
+  const liveVouchers = vouchers.reduce<Record<string, Voucher[]>>((acc, v) => {
+    if (v.status === 'pending') (acc[v.rewardId] ??= []).push(v)
+    return acc
+  }, {})
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <MarketplaceHeader points={user.points || 0} />
+        <MarketplaceHeader available={available} reserved={user.reservedPoints || 0} />
 
-        {/* Navigation Tabs */}
-        <MarketplaceTabs
-          activeTab={tab}
-          onTabChange={setTab}
-          vouchersCount={vouchers.length}
+        <CategoryFilter
+          categories={categories}
+          selectedCategory={category}
+          onSelectCategory={setCategory}
+          lang={lang}
         />
 
-        {tab === 'rewards' && (
-          <>
-            <CategoryFilter
-              categories={categories}
-              selectedCategory={category}
-              onSelectCategory={setCategory}
-              lang={lang}
-            />
-
-            {loading ? (
-              <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
-            ) : (
-              <View style={{ gap: 10 }}>
-                {sortByAvailability(
-                  rewards.filter(r => category === 'all' || r.category === category)
-                )
-                  .map(r => (
-                    <RewardCard
-                      key={r.id}
-                      reward={r}
-                      userPoints={user.points || 0}
-                      onRedeem={setSelectedReward}
-                    />
-                  ))
-                }
-              </View>
-            )}
-          </>
-        )}
-
-        {tab === 'vouchers' && (
-          <VoucherList
-            vouchers={vouchers}
-            onVoucherPress={setSelectedVoucher}
-            lang={lang}
-          />
+        {loading ? (
+          <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
+        ) : (
+          <View style={{ gap: 10 }}>
+            {sortByAvailability(
+              rewards.filter(r => category === 'all' || r.category === category)
+            )
+              .map(r => (
+                <RewardCard
+                  key={r.id}
+                  reward={r}
+                  userPoints={available}
+                  vouchers={liveVouchers[r.id] ?? []}
+                  onRedeem={setSelectedReward}
+                  onVoucherPress={setSelectedVoucher}
+                />
+              ))
+            }
+          </View>
         )}
       </ScrollView>
 
@@ -180,6 +200,7 @@ export default function MarketplaceScreen() {
       {selectedReward && (
         <RedeemConfirmSheet
           reward={selectedReward}
+          availableAfter={available - selectedReward.costPoints}
           onConfirm={confirmRedeem}
           onCancel={() => setSelectedReward(null)}
           loading={redeeming}
@@ -191,6 +212,8 @@ export default function MarketplaceScreen() {
         open={!!selectedVoucher}
         voucher={selectedVoucher}
         onClose={() => setSelectedVoucher(null)}
+        onCancelVoucher={cancelVoucher}
+        cancelling={cancelling}
       />
     </View>
   )

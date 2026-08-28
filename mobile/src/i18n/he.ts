@@ -128,14 +128,21 @@ const he = {
     pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
   },
   marketplace: {
-    title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
-    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים',
-    redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
+    title: 'חנות הפרסים', subtitle: 'מימוש הנקודות שלך',
+    redeem: 'מימוש', redeemSuccess: 'הפרס מומש בהצלחה!',
     // The two reasons the server refuses a redemption that looked available a moment ago.
     redeemOutOfStock: 'הפרס אזל מהמלאי הרגע', redeemCampaignEnded: 'מבצע הפרס הסתיים',
     missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי',
+    voucherCap: 'יש לך כבר שני שוברים פעילים לפרס הזה',
+    availablePoints: 'נקודות זמינות', reservedPoints: 'נקודות שמורות לשוברים פעילים',
+    balanceAfter: 'יישארו לך',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
-    voucher: { title: 'השובר שלך', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
+    voucher: {
+      title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      cancel: 'ביטול השובר',
+      cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
+      cancelSuccess: 'השובר בוטל והנקודות שוחררו',
+    },
     bonusDilemma: {
       title: 'בחר את הפרס שלך!', invest: 'השקע בנקודות', investDesc: 'שמור נקודות לפרס גדול יותר',
       redeem: 'ממש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',

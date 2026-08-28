@@ -31,6 +31,7 @@ import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import { availableBalance } from '@/lib/utils'
 import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
@@ -435,8 +436,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const updatedUser = {
         ...user,
-        points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
+        points: newTotalPoints,       // spec field (5.3.1.1)
         totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
+        // What the trip earned is spendable immediately. Without this the store's
+        // balance stays on the pre-trip number until the next full user refresh,
+        // since reserved points are the only other thing that moves it.
+        availablePoints: availableBalance(user) + earnedPoints,
         totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
         level: newLevel
       };
