@@ -94,4 +94,23 @@ describe('routes', () => {
     expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
     expect(screen.getAllByRole('main')).toHaveLength(1);
   });
+
+  // CAR-203: /register and /register/status must be reachable with no
+  // account and no session — unlike every other route above, neither sits
+  // under ProtectedRoute, so this must not wait on `authApi.refresh` at all.
+  it('renders the public registration form at /register without waiting on the auth bootstrap', () => {
+    vi.mocked(authApi.refresh).mockReturnValue(new Promise(() => {})); // never resolves
+
+    renderAt('/register');
+
+    expect(screen.getByRole('heading', { name: 'רישום העסק שלכם' })).toBeInTheDocument();
+  });
+
+  it('renders the public status-check page at /register/status without waiting on the auth bootstrap', () => {
+    vi.mocked(authApi.refresh).mockReturnValue(new Promise(() => {})); // never resolves
+
+    renderAt('/register/status');
+
+    expect(screen.getByRole('heading', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+  });
 });
