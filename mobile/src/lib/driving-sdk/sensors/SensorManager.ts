@@ -78,7 +78,8 @@ const IMU_CONFIRM_MS2 = 1.0;
 // near-duplicate fixes <0.5s apart, which imply physically impossible
 // accelerations if processed as real samples. The server already dedups on
 // its side; this stops the duplicate from ever reaching distance/motion math
-// on the client too.
+// on the client too. Forward gaps only — see handleLocation for why a backwards
+// one is a different animal.
 const MIN_TICK_INTERVAL_MS = 500;
 
 // If no valid GPS speed reading arrives for this long, stop reporting the last known
@@ -330,8 +331,25 @@ export class SensorManager {
     // GPS ticks <0.5s apart under certain background/throttling conditions. Treating
     // these as independent samples would understate timeDeltaS and can imply
     // impossible accelerations; simplest and safest is to ignore the repeat entirely.
-    if (this.lastLocation && (loc.timestamp - this.lastLocation.timestamp) < MIN_TICK_INTERVAL_MS) {
-      return;
+    //
+    // A backwards gap is a clock step (NTP correction, manual time change), not a
+    // repeat, and dropping it costs the rest of the trip rather than one fix:
+    // lastLocation keeps the pre-step stamp, so every fix after it reads as a
+    // duplicate until wall clock catches up, and detectMotionEvents stalls on that
+    // same stamp. Nothing measured across the step means anything, so re-anchor.
+    if (this.lastLocation) {
+      const gapMs = loc.timestamp - this.lastLocation.timestamp;
+      if (gapMs < 0) {
+        this.lastLocation = null; // distance 0 and the nominal timeDeltaS below
+        this.motionPrevMs = 0;    // re-seeds the detection window on the next fix
+        // Every anchor stamped on the old clock has to move, this one included: left
+        // in the future, STALE_SPEED_MS never elapses, so a held speed never decays to
+        // 0 and handleSpeedTick — which only emits at 0 — goes silent for the length
+        // of the step. A stop after the step would then never be reported as one.
+        this.lastValidSpeedAtMs = loc.timestamp;
+      } else if (gapMs < MIN_TICK_INTERVAL_MS) {
+        return;
+      }
     }
 
     let distance = 0;

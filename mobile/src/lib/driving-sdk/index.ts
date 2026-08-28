@@ -301,6 +301,11 @@ export class DrivingSDK {
 
   private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
+    // Same reason stopTrip() stops it, and this path is where it matters most: the
+    // call arrives from inside the validator, which has no way to know the session is
+    // over. Left running, its ticker survives the abort and start() early-returns on
+    // a live ticker, so the next session inherits this one's state.
+    this.validationManager.stop();
     this.isValidating = false;
 
     // Read before the abort clears it below — undefined here means the pre-trip gate
