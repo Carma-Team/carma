@@ -251,6 +251,9 @@ export class TripValidationManager implements TripValidator {
     this.latestGyroZ         = 0;
     this.lastSampleAtMs      = 0;
     this.fraudDetector.reset();
-    this.fraudClassificationSuppressed = false;
+    // fraudClassificationSuppressed is deliberately not cleared here. A fraud abort stops
+    // the validator from inside the tick that raised the verdict, so clearing it on reset
+    // would undo the suppression in the same call that set it, and the next session would
+    // classify the same journey again. Only the re-arm branch clears it.
   }
 }
