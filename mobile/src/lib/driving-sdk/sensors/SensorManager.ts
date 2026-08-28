@@ -84,8 +84,8 @@ const MIN_TICK_INTERVAL_MS = 500;
 // If no valid GPS speed reading arrives for this long, stop reporting the last known
 // value for currentSpeed and fall back to 0 instead. Without this, a sustained
 // speed-unavailable stretch (weak fix, urban canyon, parking garage) pins currentSpeed
-// above TripValidationManager's Rule 2 "stopped" threshold forever, and a trip that
-// should end after 3 min below 10 km/h never does. Momentary dropouts (a few seconds)
+// above whatever "stopped" threshold the host's validator uses forever, and a trip that
+// should end after a sustained stop never does. Momentary dropouts (a few seconds)
 // still carry the last reading through; only a sustained one decays.
 const STALE_SPEED_MS = 10000;
 
@@ -113,14 +113,9 @@ const MS2_PER_G = 9.81;
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
 const SENSOR_STALE_MS = 5000;
 
-// EVT_SWERVE — disabled (not yet supported in UI/scoring; re-enable when ready)
-// /** EVT_SWERVE — GPS Heading change rate
-//  *  Spec: > 15 °/s sustained for ≥ 3 s
-//  *  Recommended for less sensitivity: 20 °/s (eliminates gradual curve noise)
-//  */
-// const SWERVE_HEADING_RATE_DEG_S = 15;
-// const SWERVE_MIN_DURATION_MS    = 3000;
-// const SWERVE_SEVERITY_RANGE     = 25;   // 15°/s → 0.0 ; 40°/s → 1.0
+// SWERVE is in the event enum but nothing here detects it. The detector that was
+// written for it was never verified on a drive and is not scheduled — it lives in
+// docs/disabled-swerve-detection.md, with what restoring it would take.
 
 export class SensorManager {
   private accelSub: any = null;
@@ -165,11 +160,6 @@ export class SensorManager {
   private peakStreakStartMs: number | null = null;
   // Duration (ms) of that streak — reported as DrivingEvent.durationMs.
   private peakDurationMs = 0;
-
-  // GPS heading state for EVT_SWERVE (disabled — uncomment when re-enabling)
-  // private prevHeading:      number | null = null;
-  // private prevLocTimestamp: number | null = null;
-  // private swerveStartTime:  number | null = null;
 
   private onEvent: (event: DrivingEvent) => void;
   // Raw 10 Hz gyroscope tap. Exists so a second consumer can read rotation without
@@ -218,9 +208,6 @@ export class SensorManager {
     this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
     this.accelInitFailed = false;
-    // this.prevHeading      = null;   // EVT_SWERVE disabled
-    // this.prevLocTimestamp = null;
-    // this.swerveStartTime  = null;
 
     // Deliberately outside the try below: the tick is what keeps speed honest when the
     // location stream is unavailable, which includes the case where starting it failed.
@@ -359,7 +346,6 @@ export class SensorManager {
         loc.coords.longitude
       );
       timeDeltaS = Math.max(0.5, (loc.timestamp - this.lastLocation.timestamp) / 1000);
-      // this.detectSwerve(loc);  // EVT_SWERVE disabled — uncomment to re-enable
     }
     // expo returns -1 (not 0) for "speed unavailable" — e.g. a momentary loss of
     // speed lock at highway speed. Clamping that to 0 reads as a real deceleration
@@ -493,38 +479,6 @@ export class SensorManager {
     this.peakDurationMs = 0;
   }
 
-  // EVT_SWERVE detection — disabled (not yet in UI/scoring; re-enable when ready)
-  // private detectSwerve(loc: Location.LocationObject) {
-  //   const now = loc.timestamp;
-  //   const currentHeading = this.computeBearing(
-  //     this.lastLocation.coords.latitude, this.lastLocation.coords.longitude,
-  //     loc.coords.latitude, loc.coords.longitude
-  //   );
-  //   if (this.prevHeading !== null && this.prevLocTimestamp !== null) {
-  //     const timeDeltaS = (now - this.prevLocTimestamp) / 1000;
-  //     if (timeDeltaS > 0) {
-  //       let delta = currentHeading - this.prevHeading;
-  //       delta = ((delta + 540) % 360) - 180;
-  //       const headingRate = Math.abs(delta) / timeDeltaS;
-  //       if (headingRate > SWERVE_HEADING_RATE_DEG_S) {
-  //         if (this.swerveStartTime === null) {
-  //           this.swerveStartTime = now;
-  //         } else if (now - this.swerveStartTime >= SWERVE_MIN_DURATION_MS) {
-  //           const severity = Math.min(1, Math.max(0,
-  //             (headingRate - SWERVE_HEADING_RATE_DEG_S) / SWERVE_SEVERITY_RANGE
-  //           ));
-  //           this.onEvent({ type: DrivingEventType.SWERVE, timestamp: new Date(), severity });
-  //           this.swerveStartTime = null;
-  //         }
-  //       } else {
-  //         this.swerveStartTime = null;
-  //       }
-  //     }
-  //   }
-  //   this.prevHeading      = currentHeading;
-  //   this.prevLocTimestamp = now;
-  // }
-
   // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──
 
   private handleAccel(data: { x: number; y: number; z: number }) {
@@ -573,16 +527,6 @@ export class SensorManager {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-  /** Compass bearing from point 1 to point 2, in degrees [0, 360). */
-  private computeBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const lat1r = lat1 * Math.PI / 180;
-    const lat2r = lat2 * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2r);
-    const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
-    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-  }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371;

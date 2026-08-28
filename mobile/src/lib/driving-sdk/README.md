@@ -252,8 +252,6 @@ new DrivingSDK(config?: SDKConfig)
 |---|---|---|---|
 | `autoStartOnBluetooth` | `boolean` | `true` | Start trip automatically when target BT device connects |
 | `targetBluetoothId` | `string \| null` | — | MAC address of the BT device to monitor |
-| `sensorUpdateInterval` | `number` (ms) | `1000` | How often `onUpdate` fires (wall-clock) |
-| `scoringEnabled` | `boolean` | `true` | Reserved — passed through to application callbacks |
 | `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
 | `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md). |
 

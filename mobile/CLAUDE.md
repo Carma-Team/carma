@@ -101,15 +101,15 @@ variables are documented in `server/.env.example`.
 
 ## Disabled features — pattern
 
-Features that are implemented but not yet active in the UI are wrapped in comments marked `// EVT_<NAME> disabled — uncomment when re-enabling`. Do not delete these blocks.
+A feature that is implemented but not active is kept as a document, not as commented-out code. The implementation moves into a markdown file next to the code it came from, and the code file is left with a single line saying where it went. Commented-out code is invisible to the type checker, the linter and the tests, so it rots while still costing every reader who scrolls past it.
 
 Current disabled features:
 
-| Feature | Marker | Files affected |
+| Feature | Where the implementation is kept | Call sites that would need re-wiring |
 |---|---|---|
-| Swerve detection (`SWERVE`) | `// EVT_SWERVE disabled` | `SensorManager.ts`, `index.ts` (SDK), `AppContext.tsx`, `ActiveTripMonitor.tsx`, `TripSummaryModal.tsx`, `TripDetailScreen.tsx`, `he.ts`/`en.ts` |
+| Swerve detection (`SWERVE`) | `src/lib/driving-sdk/docs/disabled-swerve-detection.md` | `SensorManager.ts` (detection), `scoringEvents.ts` (listener), `AppContext.tsx` (digest and saved payload), `ActiveTripMonitor.tsx` (live trip row) |
 
-When re-enabling: search for the marker across the repo and uncomment all matching blocks. Also make `swerves` required again in `TelemetryDigest`, `ValidTripPayload`, and `ScoringInput`.
+The event type stays in `DrivingEventType` and its translations stay in `he.ts`/`en.ts`, so nothing about re-enabling is blocked by them. `swerves` is optional in `TelemetryDigest`, `ValidTripPayload` and `ScoringInput` and would become required again. Whether swerve detection comes back at all is CAR-150.
 
 ## Commands
 

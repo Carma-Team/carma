@@ -179,7 +179,6 @@ function buildTelemetryDigest(
     hardBrakes:               state.eventCounts.HARD_BRAKE,
     aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
     sharpTurns:               state.eventCounts.SHARP_TURN,
-    // swerves:               state.eventCounts.SWERVE,  // EVT_SWERVE disabled
     touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
     startTime,
@@ -350,7 +349,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
       penalties: 0,         // server computes — placeholder only
@@ -425,7 +423,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
           touchEpochs: finalState.touchEpochs,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
