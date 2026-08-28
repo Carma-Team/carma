@@ -6,7 +6,8 @@
  * A 1 Hz state machine that decides when a trip starts (Rule 1), when it ends (Rule 2),
  * and runs the fraud check before confirming it and again while it runs (Rule 3).
  */
-import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
+import { ValidationState, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────

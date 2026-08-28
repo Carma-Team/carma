@@ -100,6 +100,13 @@ what was asked for; neither the accuracy tier nor the interval settings
 override this. The only reliable lever is the user exempting the app from
 battery optimisation. See `PowerManagement.ts`.
 
+**Bluetooth connection state is observable only as ACL connect/disconnect.**
+`react-native-bluetooth-classic` reports that *a* device attached or detached, never
+which profile it bound. Per-profile state (A2DP, hands-free) needs the Android profile
+proxy, which the library does not expose — so "is the car stereo connected right now"
+cannot be answered on demand, only observed as it happens. Anything that needs profile
+discrimination needs a native module first.
+
 ---
 
 ## What follows for handheld detection

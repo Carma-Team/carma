@@ -121,7 +121,7 @@ The server's OpenAPI schema is the contract of record. `mobile/src/types/index.t
 
 ## `mobile/src/lib/driving-sdk/` — hard boundary
 
-A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (`index.ts`), `types.ts`.
+A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `SensorManager`, `PhoneUsageManager`, `auto-trip-detection/`, `DrivingSDK` (`index.ts`), `types.ts`.
 
 **Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`.
 

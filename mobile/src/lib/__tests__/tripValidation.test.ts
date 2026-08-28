@@ -1,5 +1,6 @@
 import { TripValidationManager } from '@/lib/TripValidationManager';
-import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
+import { ValidationState } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

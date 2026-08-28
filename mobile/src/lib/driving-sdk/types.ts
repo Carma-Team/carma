@@ -15,13 +15,6 @@ export enum ValidationState {
   ENDED     = 'ENDED',     // validator closed the trip
 }
 
-export enum TransportMode {
-  UNKNOWN = 'UNKNOWN',  // not yet classified (Phase 2 populates this)
-  CAR     = 'CAR',
-  TRAIN   = 'TRAIN',
-  BUS     = 'BUS',      // Phase 2 classifier (reserved — FraudDetector emits UNKNOWN until implemented)
-}
-
 // Snapshot fed into the configured TripValidator each tick.
 // speed is always populated; the sensor fields are optional and only some validators read them.
 export interface ValidationSample {
@@ -91,6 +84,14 @@ export interface MotionThresholds {
   turnThresholdMs2: number;  // lateral accel that triggers SHARP_TURN
 }
 
+// ─── Automatic trip detection ─────────────────────────────────────────────────
+
+/** A device the handset is already paired with, as offered to the user to pick as the trigger. */
+export interface BluetoothDevice {
+  id: string;   // MAC address on Android (e.g. "AA:BB:CC:DD:EE:FF")
+  name: string;
+}
+
 // ─── Pluggable trip validation ─────────────────────────────────────────────────
 // DrivingSDK ships with a trivial default (confirms/ends trips immediately, never
 // flags anything as suspicious). Apps that need "wait N seconds of sustained
@@ -104,7 +105,11 @@ export interface MotionThresholds {
  */
 export interface SuspiciousActivityEvaluation {
   score: number;
-  mode: TransportMode;
+  // The validator's own label for what it thinks it saw. Opaque on purpose, for the same
+  // reason `signals` below is: a list of modes here would be one consumer's classifier
+  // vocabulary — "TRAIN", "BUS" — sitting inside a sensor library that has no opinion on
+  // public transport. The SDK carries the string to onFraudDetected without reading it.
+  mode: string;
   telemetry: {
     avgSpeedKmh: number;
     maxLateralAccelG: number;
@@ -210,7 +215,7 @@ export type StateChangeCallback = (isActive: boolean) => void;
 // it upstream. The SDK itself takes no action beyond emitting this.
 export interface FraudDetectedEvent {
   fraudScore: number;       // 0–1 weighted rule score — not a calibrated confidence
-  detectedMode: TransportMode; // classified transport mode
+  detectedMode: string;     // the validator's own label — see SuspiciousActivityEvaluation.mode
   telemetry: {
     avgSpeedKmh: number;    // average speed over the detection window
     maxLateralAccelG: number; // peak gravity-removed lateral force (g-units)

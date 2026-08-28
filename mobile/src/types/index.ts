@@ -129,8 +129,9 @@ export type Notification =
 export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
-// String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts
-// to avoid a circular import between @/types and the SDK layer.
+// String literals mirror the ValidationState enum in driving-sdk/types.ts and the
+// TransportMode enum in lib/transportMode.ts, to avoid a circular import between
+// @/types and the SDK layer.
 export interface TripValidationResult {
   isValid: boolean;
   state: 'IDLE' | 'PRE_TRIP' | 'SCORING' | 'ENDED';
