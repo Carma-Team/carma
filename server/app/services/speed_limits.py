@@ -57,16 +57,28 @@ _KNN_CANDIDATES = 6
 # emitting hundreds of near-identical fixes.
 _DEDUPE_DECIMALS = 4
 
-# EPSG:2039's area of use. Outside it `ST_Transform` does not fail, it returns a
-# plausible-looking coordinate that is metres or kilometres wrong, so a driver in
-# another country would be scored against distances that mean nothing. The guard
-# turns that silent wrongness into an honest "limit unknown", which the coverage
-# gate then reads as "do not score speeding on this trip".
+# Where a coordinate may be and still be projected into EPSG:2039. Outside its
+# grid `ST_Transform` does not fail, it returns a plausible-looking coordinate
+# that is metres or kilometres wrong, so a driver abroad would be scored against
+# distances that mean nothing. The guard turns that silent wrongness into an
+# honest "limit unknown", which the coverage gate reads as "do not score
+# speeding on this trip".
+#
+# **These four numbers mirror `mobile/src/lib/regionCheck.ts` and must move with
+# it.** That box is what the app lets a driver record a trip inside; this one is
+# what the server can resolve a limit inside. A server box narrower than the
+# client's is a dead zone: the app happily records a drive in Metula or on the
+# Golan, and every waypoint of it comes back with no limit, so the trip quietly
+# loses its speeding component. Both boxes are Israel-only by team decision
+# (CAR-23), so they describe the same country and there is no reason for them to
+# differ. EPSG:2039's own published extent stops slightly short of the eastern
+# and northern edges here; the projection degrades smoothly rather than
+# breaking, and tens of parts per million over a 25 m search radius is nothing.
 #
 # This is the one place the whole component is pinned to Israel. Widening the
 # product means a projection per region, not a wider box here.
-_ITM_LNG_MIN, _ITM_LNG_MAX = 34.17, 35.69
-_ITM_LAT_MIN, _ITM_LAT_MAX = 29.45, 33.28
+_ITM_LNG_MIN, _ITM_LNG_MAX = 34.25, 35.90
+_ITM_LAT_MIN, _ITM_LAT_MAX = 29.45, 33.35
 
 
 def _inside_grid(lat: float, lng: float) -> bool:

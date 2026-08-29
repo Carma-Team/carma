@@ -9,7 +9,7 @@ OpenStreetMap extract, and an empty table scores exactly like no map data at all
 speeding drops out of the trip score. So a database that has never run the loader
 is correct, only less precise - it is never wrong in the driver's disfavour.
 
-Revision ID: 0027_road_segments
+Revision ID: 0028_road_segments
 Revises: 0026_business_invitations
 Create Date: 2026-08-29 00:00:00.000000
 """
@@ -21,7 +21,13 @@ from geoalchemy2 import Geometry
 
 from alembic import op
 
-revision: str = "0027_road_segments"
+revision: str = "0028_road_segments"
+# Numbered 0028 because PR #178 already holds 0027_city_reference, but still
+# chained to 0026: pointing at a revision that lives only in an unmerged branch
+# makes `alembic upgrade` unresolvable here and now. Whichever of the two lands
+# on develop SECOND must re-point its own down_revision at the other, or the
+# branch gains two heads - the failure that reads as ~78 missing-column errors
+# in unrelated tests and never mentions migrations.
 down_revision: str | None = "0026_business_invitations"
 branch_labels: str | None = None
 depends_on: str | None = None

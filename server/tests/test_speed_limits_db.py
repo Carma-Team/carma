@@ -33,10 +33,11 @@ from app.services import speed_limits
 # after the damage, on the already-truncated table.
 _TEST_OSM_ID_BASE = -990_000_000
 
-# ~45 km off the Tel Aviv coast: inside the EPSG:2039 grid's usable extent, and
-# the nearest real road is tens of kilometres away, so a loaded map cannot
-# interfere with any assertion here.
-_LNG = 34.30
+# Open sea off the Tel Aviv coast, whose shoreline is near 34.75. Far enough out
+# that a loaded map cannot interfere with any assertion, and far enough inside
+# the grid's western edge (34.25) that the -0.1 offsets below stay resolvable -
+# an earlier version sat at 34.30 and put two of its own roads outside the guard.
+_LNG = 34.40
 _LAT = 32.08
 
 # Five north-south roads. At Israel's latitude 0.00005 deg of longitude is about
@@ -88,6 +89,29 @@ async def seeded(db_session: AsyncSession) -> AsyncIterator[AsyncSession]:
     finally:
         await db_session.execute(clean)
         await db_session.commit()
+
+
+class TestGridCoversWhatTheAppAllows:
+    """The server must be able to resolve a limit anywhere the app records a trip.
+
+    These are the corners of the box in `mobile/src/lib/regionCheck.ts`, which is
+    what decides whether a driver may record at all (CAR-23). Copied rather than
+    imported because one side is TypeScript, which is exactly why they can drift:
+    the first version of the server guard stopped at 33.28 N and 35.69 E, leaving
+    Metula and the Golan as places the app records a drive and the server then
+    silently scores it without speeding.
+    """
+
+    CLIENT_CORNERS = [(29.45, 34.25), (29.45, 35.90), (33.35, 34.25), (33.35, 35.90)]
+
+    def test_every_corner_the_app_allows_is_projectable(self) -> None:
+        for lat, lng in self.CLIENT_CORNERS:
+            assert speed_limits._inside_grid(lat, lng), f"{lat},{lng} is recordable but not resolvable"
+
+    def test_outside_the_country_is_still_refused(self) -> None:
+        assert not speed_limits._inside_grid(37.98, 23.72)  # Athens
+        assert not speed_limits._inside_grid(30.04, 31.23)  # Cairo
+        assert not speed_limits._inside_grid(33.89, 35.50)  # Beirut
 
 
 class TestResolve:
