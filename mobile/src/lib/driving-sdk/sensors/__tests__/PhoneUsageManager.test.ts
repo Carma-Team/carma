@@ -285,6 +285,101 @@ describe('PhoneUsageManager', () => {
     });
   });
 
+  // ─── Paired-peak tap signature (CAR-260) ───────────────────────────────────
+  // The accelerometer tap proxy thresholds one axis-blind magnitude, so a pothole over
+  // 1.8 g reads exactly like a finger. The patent's signature is a paired *rotational*
+  // kick, twice in quick succession, which is what these cases pin.
+  describe('gyroscope tap signature', () => {
+    /** One qualifying pair: both in-plane axes inside the band, then back out of it. */
+    function kick(atMs = 0) {
+      if (atMs) jest.advanceTimersByTime(atMs);
+      manager.pushGyroSample(0.4, 0.4, 0);
+      manager.pushGyroSample(0.01, 0.01, 0); // falls out, so the next kick is a new edge
+    }
+
+    it('reports no taps until two pairs land close together', () => {
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+
+      kick();
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0); // one pair is not a tap
+
+      kick(100);
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(1);
+    });
+
+    it('does not pair two kicks further apart than the repeat gap', () => {
+      kick();
+      kick(500); // past TAP_REPEAT_GAP_MS
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+    });
+
+    // The whole point of the signature: a jolt through the suspension drives the
+    // accelerometer hard and rotates the phone either far too much or barely at all.
+    it('ignores rotation outside the band, however strong', () => {
+      manager.pushGyroSample(3.0, 3.0, 0); // a real tumble, well above the band
+      manager.pushGyroSample(0.01, 0.01, 0);
+      manager.pushGyroSample(3.0, 3.0, 0);
+      manager.pushGyroSample(0.01, 0.01, 0);
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+    });
+
+    it('requires both in-plane axes, not one', () => {
+      manager.pushGyroSample(0.4, 0.01, 0); // X only
+      manager.pushGyroSample(0.01, 0.01, 0);
+      manager.pushGyroSample(0.4, 0.01, 0);
+      manager.pushGyroSample(0.01, 0.01, 0);
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+    });
+
+    // Z is the vehicle's own yaw in a flat mounting. Counting it would let a turn of the
+    // whole car qualify as somebody typing.
+    it('does not read the vehicle turning as a tap', () => {
+      manager.pushGyroSample(0.01, 0.01, 0.4);
+      manager.pushGyroSample(0.01, 0.01, 0.01);
+      manager.pushGyroSample(0.01, 0.01, 0.4);
+      manager.pushGyroSample(0.01, 0.01, 0.01);
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+    });
+
+    it('counts one kick once, however many samples it spans', () => {
+      // A single kick held across four samples is one pair, not four.
+      for (let i = 0; i < 4; i++) manager.pushGyroSample(0.4, 0.4, 0);
+      manager.pushGyroSample(0.01, 0.01, 0);
+      kick(100);
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(1);
+    });
+
+    it('ages a tap out of the analysis window', () => {
+      kick();
+      kick(100);
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(1);
+
+      // Keep the feed alive past the window so staleness is not what clears it.
+      for (let i = 0; i < 12; i++) {
+        jest.advanceTimersByTime(100);
+        manager.pushGyroSample(0.01, 0.01, 0);
+      }
+
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(0);
+    });
+
+    it('leaves the hand-held counter alone', () => {
+      feedAccel(HANDHELD_SAMPLES);
+      kick();
+      kick(100);
+
+      // A tap is a raw feature. What it is worth is the consumer's call, and the
+      // hand-held veto is a different question entirely (CAR-174/CAR-183).
+      expect(manager.getMotionFeatures().gyroTapPairs).toBe(1);
+      expect(manager.getSnapshot().screenInteractionSeconds).toBe(0);
+    });
+  });
+
   // ─── Rotation veto (CAR-174) ────────────────────────────────────────────────
   // High acceleration variance alone is ambiguous — both a hand and a phone loose
   // on the seat bounce. Only rotation variance tells them apart.
