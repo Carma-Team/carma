@@ -5,3 +5,6 @@ httpx==0.28.1
 ruff==0.6.9
 mypy==1.11.2
 types-passlib==1.7.7.20260211
+# Reads the Geofabrik road shapefile in scripts/load_speed_limits.py. Pure
+# Python, and offline-only - the server never imports it.
+pyshp==2.3.1

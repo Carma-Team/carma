@@ -39,7 +39,7 @@ class TestParsingAndCleaning:
     def test_implausible_speeds_dropped(self) -> None:
         trace = _cruise(60, 40.0) + [_wp(120.0, 900.0)]
         analysis = telemetry.analyze(trace, 120)
-        assert analysis.speeding_weight == 0.0
+        assert analysis.speeding_ratio == 0.0
 
 
 class TestKinematicDetection:
@@ -105,29 +105,92 @@ class TestKinematicDetection:
 
 
 class TestSpeeding:
-    def test_below_conservative_threshold_is_free(self) -> None:
-        # 125 km/h may be legal (120 roads) — inside the noise buffer, no weight.
-        assert telemetry.analyze(_cruise(120, 125.0), 120).speeding_weight == 0.0
+    """Speeding is a share of distance measured against the road's posted limit."""
 
-    def test_sustained_speeding_accumulates_weighted_minutes(self) -> None:
-        # 2 minutes at 135 km/h → minor band (w=1) → ≈2.0 weighted minutes.
-        analysis = telemetry.analyze(_cruise(120, 135.0), 120)
-        assert 1.5 <= analysis.speeding_weight <= 2.1
-        assert any(e.type == "SPEEDING" for e in analysis.events)
+    def test_no_map_falls_back_to_the_national_maximum(self) -> None:
+        # Off the map, only speed beyond 120 + the 10 km/h buffer is charged.
+        assert telemetry.analyze(_cruise(120, 125.0), 120).speeding_ratio == 0.0
+        assert telemetry.analyze(_cruise(120, 135.0), 120).speeding_ratio == 1.0
 
-    def test_extreme_band_weighs_8x(self) -> None:
-        minor = telemetry.analyze(_cruise(60, 135.0), 60).speeding_weight
-        extreme = telemetry.analyze(_cruise(60, 155.0), 60).speeding_weight
-        assert extreme > minor * 6
+    def test_posted_limit_charges_urban_speeding_the_flat_limit_missed(self) -> None:
+        # 90 in a 50 zone: invisible to the old flat 130 threshold, all of it
+        # over the limit once the map answers. This is the bug CAR-222 names.
+        trace = _cruise(300, 90.0)
+        limits = [50.0] * len(trace)
+        assert telemetry.analyze(trace, 300).speeding_ratio == 0.0
+        assert telemetry.analyze(trace, 300, speed_limits=limits).speeding_ratio == 1.0
 
-    def test_one_run_yields_one_speeding_event(self) -> None:
-        analysis = telemetry.analyze(_cruise(120, 140.0), 120)
-        assert sum(1 for e in analysis.events if e.type == "SPEEDING") == 1
+    def test_buffer_protects_a_driver_at_the_limit(self) -> None:
+        trace = _cruise(300, 58.0)
+        assert telemetry.analyze(trace, 300, speed_limits=[50.0] * len(trace)).speeding_ratio == 0.0
+
+    def test_ratio_is_the_share_of_distance_not_of_time(self) -> None:
+        # Half the trip at 100 in a 50 zone, half at 40. The fast half covers
+        # more ground, so the distance share is well above the time share.
+        fast, slow = _cruise(150, 100.0), _cruise(150, 40.0)
+        trace = fast + [_wp(150.0 + w["ts"] / 1000.0, w["speedKmh"]) for w in slow]
+        ratio = telemetry.analyze(trace, 300, speed_limits=[50.0] * len(trace)).speeding_ratio
+        assert 0.65 < ratio < 0.80
+
+    def test_a_segment_straddling_two_limits_is_judged_by_the_higher(self) -> None:
+        # 85 km/h across a 90-to-50 boundary must not be charged: the driver is
+        # still on the fast road for part of it, and a wrong charge is the one
+        # mistake this component may not make.
+        trace = _cruise(120, 85.0)
+        limits = [90.0] * (len(trace) // 2) + [50.0] * (len(trace) - len(trace) // 2)
+        analysis = telemetry.analyze(trace, 120, speed_limits=limits)
+        assert analysis.speeding_ratio < 0.55
+
+    def test_unmapped_trip_loses_the_component_instead_of_banking_it(self) -> None:
+        # The CAR-233 failure: a clean dense trace with no map behind it used to
+        # score a perfect speeding component. It must now stand down entirely.
+        analysis = telemetry.analyze(_cruise(600, 50.0), 600)
+        assert analysis.limit_coverage == 0.0
+        assert not analysis.has_speed_data
+
+    def test_mapped_trip_keeps_the_component(self) -> None:
+        trace = _cruise(600, 50.0)
+        analysis = telemetry.analyze(trace, 600, speed_limits=[50.0] * len(trace))
+        assert analysis.limit_coverage == 1.0
+        assert analysis.has_speed_data
+
+    def test_partial_coverage_below_half_stands_down(self) -> None:
+        trace = _cruise(600, 50.0)
+        limits: list[float | None] = [50.0] * (len(trace) // 4) + [None] * (len(trace) - len(trace) // 4)
+        analysis = telemetry.analyze(trace, 600, speed_limits=limits)
+        assert analysis.limit_coverage < telemetry._LIMIT_COVERAGE_MIN
+        assert not analysis.has_speed_data
+
+    def test_one_run_yields_one_speeding_event_carrying_its_limit(self) -> None:
+        trace = _cruise(120, 90.0)
+        analysis = telemetry.analyze(trace, 120, speed_limits=[50.0] * len(trace))
+        speeding = [e for e in analysis.events if e.type == "SPEEDING"]
+        assert len(speeding) == 1
+        assert speeding[0].detail["limitKmh"] == 50
+
+    def test_severity_rises_with_how_far_over_the_posted_limit(self) -> None:
+        trace = _cruise(120, 90.0)
+        mild = telemetry.analyze(trace, 120, speed_limits=[70.0] * len(trace)).events
+        gross = telemetry.analyze(trace, 120, speed_limits=[50.0] * len(trace)).events
+        assert (
+            next(e for e in gross if e.type == "SPEEDING").severity
+            > next(e for e in mild if e.type == "SPEEDING").severity
+        )
+
+    def test_limits_survive_sorting_and_dedup(self) -> None:
+        # A near-duplicate timestamp is dropped during cleaning. If limits were
+        # zipped on after cleaning rather than carried on the point, every limit
+        # after the dropped index would shift onto the wrong waypoint.
+        trace = _cruise(120, 90.0)
+        trace.insert(10, _wp(10 * 3.0 + 0.01, 90.0))
+        limits = [50.0] * len(trace)
+        assert telemetry.analyze(trace, 120, speed_limits=limits).speeding_ratio == 1.0
 
 
 class TestConfidence:
     def test_dense_clean_trace_is_high_confidence(self) -> None:
-        analysis = telemetry.analyze(_cruise(600, 50.0), 600)
+        trace = _cruise(600, 50.0)
+        analysis = telemetry.analyze(trace, 600, speed_limits=[50.0] * len(trace))
         assert analysis.confidence > 0.85
         assert analysis.has_speed_data
 
