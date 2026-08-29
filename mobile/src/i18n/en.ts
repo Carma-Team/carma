@@ -129,8 +129,18 @@ const en: TranslationMap = {
     redeem: 'Redeem', redeemSuccess: 'Reward redeemed successfully!',
     // The two reasons the server refuses a redemption that looked available a moment ago.
     redeemOutOfStock: 'This reward just ran out', redeemCampaignEnded: 'This reward\'s campaign has ended',
+    // A refusal from the server and a server never reached are different situations,
+    // and in both of them nothing moved
+    redeemRefused: 'The server refused the redemption. The reward was not redeemed and no points were taken.',
+    redeemUnreachable: 'The redemption did not go through — the server cannot be reached. The reward was not redeemed.',
+    loadFailed: 'The rewards store could not be loaded. Please try again later.',
     missingPoints: 'Missing', outOfStock: 'Out of stock',
     voucherCap: 'You already hold two active vouchers for this reward',
+    // Two wordings each: the server sends a wait, but does not always have one
+    redeemCooldown: 'You cannot issue another voucher for this reward yet.',
+    redeemCooldownWait: 'You cannot issue another voucher for this reward yet. Try again in {wait}.',
+    redeemAtCap: 'You already hold the maximum number of live vouchers for this reward.',
+    redeemAtCapWait: 'You already hold the maximum number of live vouchers for this reward. A slot frees up in {wait}.',
     availablePoints: 'available points', reservedPoints: 'points reserved for active vouchers',
     balanceAfter: 'You will be left with',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
@@ -139,6 +149,8 @@ const en: TranslationMap = {
       cancel: 'Cancel voucher',
       cancelConfirm: 'Cancel this voucher? The points go back to your available balance.',
       cancelSuccess: 'Voucher cancelled, points released',
+      cancelRefused: 'The server refused to cancel the voucher. It is still active.',
+      cancelUnreachable: 'The cancellation did not go through — the server cannot be reached. The voucher is still active.',
     },
     bonusDilemma: {
       title: 'Choose your reward!', invest: 'Save points', investDesc: 'Save for a bigger reward',

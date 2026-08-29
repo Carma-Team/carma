@@ -144,7 +144,9 @@ export function VoucherModal({ open, voucher, onClose, onCancelVoucher, cancelli
             color={COLORS.text}
           />
           <Text style={styles.qrNote}>{t('marketplace.voucher.scanQR')}</Text>
-          <Text style={styles.qrCodeText}>{voucher.code}</Text>
+          {/* The same code also sits on the reward card behind this modal; the id is
+              what lets a test say which of the two it is looking at. */}
+          <Text testID="voucher-modal-code" style={styles.qrCodeText}>{voucher.code}</Text>
         </View>
 
         <Text style={styles.voucherExpiry}>

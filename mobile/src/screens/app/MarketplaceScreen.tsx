@@ -10,16 +10,21 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { ApiError } from '@/services/api/client'
 import { sortByAvailability } from '@/lib/rewardStock'
-import { availableBalance } from '@/lib/utils'
+import { availableBalance, formatDuration } from '@/lib/utils'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import { REWARD_CATEGORIES, type IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
 
 // The redemption codes the server sends inside a 409 detail. Branching on the code
 // and not on the message is the server's own contract — the message is English prose.
-const REDEEM_ERROR_KEYS: Record<string, string> = {
-  REWARD_OUT_OF_STOCK: 'marketplace.redeemOutOfStock',
-  REWARD_CAMPAIGN_ENDED: 'marketplace.redeemCampaignEnded',
+// `withWait` is the phrasing for when the server also said how long — a separate
+// string and not an appended one, so the translator places the duration inside the
+// sentence. Only these two codes ever carry a wait, and even they can arrive without.
+const REDEEM_ERRORS: Record<string, { plain: string; withWait?: string }> = {
+  REWARD_OUT_OF_STOCK:      { plain: 'marketplace.redeemOutOfStock' },
+  REWARD_CAMPAIGN_ENDED:    { plain: 'marketplace.redeemCampaignEnded' },
+  VOUCHER_REISSUE_COOLDOWN: { plain: 'marketplace.redeemCooldown', withWait: 'marketplace.redeemCooldownWait' },
+  VOUCHER_LIMIT_REACHED:    { plain: 'marketplace.redeemAtCap',    withWait: 'marketplace.redeemAtCapWait' },
 }
 
 /**
@@ -72,7 +77,7 @@ export default function MarketplaceScreen() {
       .catch(() => {
         // Without this the screen sits on an empty list with no explanation —
         // and the 409 refresh below would reject inside a catch block.
-        if (load === latestLoad.current) addToast({ type: 'error', message: t('common.error') })
+        if (load === latestLoad.current) addToast({ type: 'error', message: t('marketplace.loadFailed') })
       })
       .finally(() => {
         if (load === latestLoad.current) setLoading(false)
@@ -92,6 +97,31 @@ export default function MarketplaceScreen() {
    * On success: adds the voucher to the list, updates points in AppContext and
    * shows a success toast. The new voucher appears on the reward's own card.
    */
+  /**
+   * Which of two things went wrong, in the driver's terms: the server answered and
+   * refused, or it was never reached at all. One means the action was considered and
+   * declined, the other that it did not happen — and both say what is true of the
+   * voucher and the points now, since neither leaves them half-moved.
+   */
+  function failureMessage(e: unknown, refusedKey: string, unreachableKey: string): string {
+    return t(e instanceof ApiError ? refusedKey : unreachableKey)
+  }
+
+  /**
+   * Toast text for a refused redemption. The named reasons win; two of them come with
+   * the wait the server itself computed, and the app never derives a duration of its
+   * own or says anything about timing when the server sent none.
+   */
+  function redeemErrorMessage(e: unknown): string {
+    const reason = e instanceof ApiError ? REDEEM_ERRORS[e.code ?? ''] : undefined
+    if (!reason || !(e instanceof ApiError)) {
+      return failureMessage(e, 'marketplace.redeemRefused', 'marketplace.redeemUnreachable')
+    }
+    return reason.withWait && e.retryAfterSeconds
+      ? t(reason.withWait).replace('{wait}', formatDuration(e.retryAfterSeconds, lang))
+      : t(reason.plain)
+  }
+
   async function confirmRedeem() {
     if (!selectedReward || !user) return
     setRedeeming(true)
@@ -106,9 +136,11 @@ export default function MarketplaceScreen() {
       }))
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
+      // Straight into the voucher: the code and the QR are the whole point of having
+      // redeemed, and leaving it closed asks the driver to go find what they just bought.
+      setSelectedVoucher(data.voucher)
     } catch (e) {
-      const key = e instanceof ApiError ? REDEEM_ERROR_KEYS[e.code ?? ''] : undefined
-      addToast({ type: 'error', message: t(key ?? 'common.error') })
+      addToast({ type: 'error', message: redeemErrorMessage(e) })
       // A 409 means the catalog moved on while the sheet was open: the card was drawn
       // from a stock count that is no longer true. Close it and re-read, so a second
       // attempt is not on offer — sold out comes back disabled, and an ended campaign
@@ -140,8 +172,11 @@ export default function MarketplaceScreen() {
       }))
       setSelectedVoucher(null)
       addToast({ type: 'success', message: t('marketplace.voucher.cancelSuccess') })
-    } catch {
-      addToast({ type: 'error', message: t('common.error') })
+    } catch (e) {
+      addToast({
+        type: 'error',
+        message: failureMessage(e, 'marketplace.voucher.cancelRefused', 'marketplace.voucher.cancelUnreachable'),
+      })
     } finally {
       setCancelling(false)
     }
