@@ -1,5 +1,11 @@
+let mockRegionAllowed = true;
+jest.mock('@/lib/regionCheck', () => ({
+  isRegionAllowed: jest.fn(() => mockRegionAllowed),
+}));
+
 import { TripValidationManager } from '@/lib/TripValidationManager';
 import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
+import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +40,8 @@ function advanceFraudTicks(
 
 beforeEach(() => {
   jest.useFakeTimers();
+  mockRegionAllowed = true;
+  (isRegionAllowed as jest.Mock).mockClear();
 });
 
 afterEach(() => {
@@ -329,6 +337,72 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
 
     advanceFraudTicks(m, 1, 80, 0.01, () => 0.001);
     expect(m.getDebugSnapshot().fraudEvaluation.isReady).toBe(true);
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+});
+
+// ─── Rule 4: Region (CAR-23) ──────────────────────────────────────────────────
+
+describe('Rule 4 — region check', () => {
+
+  test('a fix outside the box rejects the trip and fires onRegionRejected', () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+
+    expect(regionRejected).toHaveBeenCalledTimes(1);
+    expect(m.getState()).toBe(ValidationState.IDLE);
+    m.stop();
+  });
+
+  test('a fix inside the box does not reject the trip', () => {
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    advanceTicks(m, 30, 50); // reaches SCORING via Rule 1 — no lat/lng, region never checked
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+
+    expect(regionRejected).not.toHaveBeenCalled();
+    expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+
+  test('checks the region only once per trip, off the first fix', () => {
+    const m = new TripValidationManager();
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(1);
+    m.stop();
+  });
+
+  // Location permission denied: no sample ever carries a fix, so the gate never fires
+  // and the trip scores normally. This is current behaviour, not a settled decision —
+  // whether a fixless trip should instead be rejected is CAR-256.
+  test('a trip that never carries a fix is never region-checked, and still confirms', () => {
+    mockRegionAllowed = false; // would reject, if it were ever consulted
+    const m = new TripValidationManager();
+    const confirmed = jest.fn();
+    const regionRejected = jest.fn();
+    m.onTripConfirmed = confirmed;
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    advanceTicks(m, 30, 50);
+
+    expect(isRegionAllowed).not.toHaveBeenCalled();
+    expect(regionRejected).not.toHaveBeenCalled();
+    expect(confirmed).toHaveBeenCalledTimes(1);
     expect(m.getState()).toBe(ValidationState.SCORING);
     m.stop();
   });

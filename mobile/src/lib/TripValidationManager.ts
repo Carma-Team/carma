@@ -8,6 +8,7 @@
  */
 import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator } from '@/lib/driving-sdk/types';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD } from '@/lib/FraudDetector';
+import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -25,6 +26,9 @@ export class TripValidationManager implements TripValidator {
   private ticker: ReturnType<typeof setInterval> | null = null;
   private fraudDetector        = new FraudDetector();
   private fraudSuspectedFired  = false;
+  // Region is checked once per trip, off the first sample that carries a fix. The
+  // answer can't change mid-trip in a way CARMA needs to react to twice.
+  private regionChecked        = false;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
   public onTripConfirmed?: () => void;
@@ -34,6 +38,8 @@ export class TripValidationManager implements TripValidator {
   // driving-sdk's generic SuspiciousActivityEvaluation (TripValidator interface) —
   // the FraudEvaluation this class actually passes is a superset, so it satisfies it.
   public onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  // CAR-23: fires when the first GPS fix of a trip is outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -62,6 +68,17 @@ export class TripValidationManager implements TripValidator {
     }
     if (sample.gyroYaw !== undefined) {
       this.latestGyroZ = sample.gyroYaw;
+    }
+    // CAR-23: fired once, off the first fix. Synchronous, so there is no window in
+    // which the answer lands after the session it belongs to has already stopped.
+    if (!this.regionChecked && sample.lat !== undefined && sample.lng !== undefined) {
+      this.regionChecked = true;
+      if (!isRegionAllowed(sample.lat, sample.lng)) {
+        console.log('[Validation] Region check failed — trip rejected');
+        this.reset();
+        this.setState(ValidationState.IDLE);
+        this.onRegionRejected?.();
+      }
     }
   }
 
@@ -189,5 +206,6 @@ export class TripValidationManager implements TripValidator {
     this.latestGyroZ         = 0;
     this.fraudDetector.reset();
     this.fraudSuspectedFired = false;
+    this.regionChecked = false;
   }
 }
