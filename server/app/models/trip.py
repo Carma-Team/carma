@@ -58,8 +58,7 @@ class Trip(Base):
     #
     # Nullable, and it has to stay nullable: a trip saved before this landed, or by
     # a client too old to send the fields, is *unknown*. Defaulting to false would
-    # assert "the accelerometer was never live" about trips nobody ever measured,
-    # and CAR-190 is going to weight trip confidence on exactly this.
+    # assert "the accelerometer was never live" about trips nobody ever measured.
     accel_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     accel_init_failed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 

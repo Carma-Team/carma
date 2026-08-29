@@ -51,7 +51,7 @@ def test_a_client_that_says_nothing_yields_none_not_false() -> None:
     """The bug this ticket fixes was silence being read as an answer.
 
     False is a claim: the accelerometer was never live. An old client saying
-    nothing has made no claim at all, and CAR-190 weights confidence on this.
+    nothing has made no claim at all.
     """
     dto = SaveTripIn()
     assert dto.accel_available is None
@@ -113,6 +113,57 @@ async def test_the_three_sensor_states_are_distinguishable_in_the_database(
     assert stored[init_threw.id] == (False, True)
     # Three distinct rows, not three copies of the same shrug.
     assert len(set(stored.values())) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_signed_digest_wins_over_the_top_level_copy(db_session: AsyncSession) -> None:
+    """The top-level fields are unsigned; the digest carries the same two signed.
+
+    Trusting the top-level copy would let a client sign an honest "the sensor was
+    dead" and assert healthy hardware beside it, which is the one claim anything
+    weighting a trip by sensor health must not accept from the client.
+    """
+    driver = await _driver(db_session)
+    dto = _trip(accelAvailable=True, accelInitFailed=False)
+    dto.telemetry_digest = {"accelAvailable": False, "accelInitFailed": True}
+
+    saved = await trips_service.save(db_session, driver, dto)
+    row = await db_session.scalar(select(Trip).where(Trip.id == saved.id))
+
+    assert row is not None
+    assert row.accel_available is False, "the signed digest is the only source"
+    assert row.accel_init_failed is True
+
+
+@pytest.mark.asyncio
+async def test_a_digest_predating_the_fields_leaves_them_unknown(db_session: AsyncSession) -> None:
+    """An older SDK signs a digest with neither key. That is unknown, not false."""
+    driver = await _driver(db_session)
+    dto = _trip(accelAvailable=True, accelInitFailed=False)
+    dto.telemetry_digest = {"hardBrakes": 0, "distanceKm": 4.0, "durationSeconds": 1800}
+
+    saved = await trips_service.save(db_session, driver, dto)
+    row = await db_session.scalar(select(Trip).where(Trip.id == saved.id))
+
+    assert row is not None
+    assert row.accel_available is None
+    assert row.accel_init_failed is None
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_field_is_logged_rather_than_dropped_in_silence(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The cause behind CAR-228, not just the two names it added.
+
+    CAR-227 puts a coverage fraction into this same payload; without this it
+    would arrive and vanish exactly as `accelAvailable` did.
+    """
+    with caplog.at_level("WARNING", logger="carma.trips"):
+        SaveTripIn.model_validate({"distanceKm": 4.0, "accelCoverage": 0.42})
+
+    assert "accelCoverage" in caplog.text
+    assert "ignored unknown field" in caplog.text
 
 
 @pytest.mark.asyncio

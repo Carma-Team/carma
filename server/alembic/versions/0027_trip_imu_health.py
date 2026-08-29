@@ -7,12 +7,12 @@ warning, or a log line.
 
 Both columns are nullable and have to stay that way. A trip saved before this
 landed, or by a client too old to send the fields, is *unknown* - which is a
-different claim from "the accelerometer was never live". CAR-190 is going to
-weight trip confidence on these, and defaulting them to false would quietly
-penalise every healthy trip already in the table.
+different claim from "the accelerometer was never live". Defaulting them to
+false would quietly relabel every healthy trip already in the table as one with
+a dead sensor.
 
-Revision ID: 0018_trip_imu_health
-Revises: 0017_redemption_points_cost
+Revision ID: 0027_trip_imu_health
+Revises: 0026_business_invitations
 Create Date: 2026-08-22 00:00:00.000000
 """
 
@@ -22,8 +22,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0018_trip_imu_health"
-down_revision: str | None = "0017_redemption_points_cost"
+revision: str = "0027_trip_imu_health"
+down_revision: str | None = "0026_business_invitations"
 branch_labels: str | None = None
 depends_on: str | None = None
 
