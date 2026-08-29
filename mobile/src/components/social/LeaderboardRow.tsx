@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { levelToIcon } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
-import { cityLabel } from '@/types'
+import { cityLabel } from '@/lib/cityLabel'
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme'
 import type { FollowStatus, LeaderboardEntry } from '@/types'
 

@@ -21,8 +21,8 @@ both. A value matching neither becomes NULL and the label is gone - accepted
 deliberately, since the alternative is keeping a column whose whole problem is
 that nothing can render it.
 
-Revision ID: 0018_city_reference
-Revises: 0017_redemption_points_cost
+Revision ID: 0027_city_reference
+Revises: 0026_business_invitations
 Create Date: 2026-08-22 00:00:00.000000
 """
 
@@ -35,8 +35,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0018_city_reference"
-down_revision: str | None = "0017_redemption_points_cost"
+revision: str = "0027_city_reference"
+down_revision: str | None = "0026_business_invitations"
 branch_labels: str | None = None
 depends_on: str | None = None
 

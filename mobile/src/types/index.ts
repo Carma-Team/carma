@@ -72,11 +72,6 @@ export interface Voucher extends Omit<Schemas['VoucherOut'], 'status'> {
 // A settlement is a reference row with a name per language, never a bare label.
 export type City = Schemas['CityOut'];
 
-/** The label for the user's language. Every screen shows city through this. */
-export function cityLabel(city: City | null | undefined, lang: 'HE' | 'EN'): string {
-  if (!city) return '';
-  return lang === 'HE' ? city.nameHe : city.nameEn;
-}
 
 // ─── Leaderboard ──────────────────────────────────────────────────────────────
 export type LeaderboardType = 'friends' | 'city' | 'national';

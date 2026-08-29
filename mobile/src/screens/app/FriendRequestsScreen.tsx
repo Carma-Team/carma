@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { levelToIcon } from '@/lib/utils'
 import { friendsApi } from '@/services/api/friends.api'
 import { useTranslation } from '@/hooks/useTranslation'
-import { cityLabel } from '@/types'
+import { cityLabel } from '@/lib/cityLabel'
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme'
 import type { FriendRequest } from '@/types'
 

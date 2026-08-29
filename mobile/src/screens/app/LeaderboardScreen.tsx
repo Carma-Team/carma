@@ -10,7 +10,7 @@ import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { LocationPicker } from '@/components/ui/LocationPicker'
 import { useTranslation } from '@/hooks/useTranslation'
-import { cityLabel } from '@/types'
+import { cityLabel } from '@/lib/cityLabel'
 import { leaderboardApi, type LocationsOut } from '@/services/api/leaderboard.api'
 import { userApi, type FoundUser } from '@/services/api/user.api'
 import { friendsApi } from '@/services/api/friends.api'
@@ -196,9 +196,18 @@ export default function LeaderboardScreen() {
 
   // The picker component works on strings, so it gets labels; these two maps
   // translate between what the screen shows and the code the filter sends.
-  const cityOptions = (locations?.cities ?? []).map(c => cityLabel(c, lang))
-  const codeByLabel = new Map((locations?.cities ?? []).map(c => [cityLabel(c, lang), c.code]))
-  const selectedCityLabel = cityLabel(locations?.cities.find(c => c.code === selectedCityCode), lang)
+  //
+  // The viewer's own city is folded in even when the board list does not carry
+  // it. /locations only returns cities that have a driver on the board, so a
+  // viewer who is the only one in theirs, or is private, would otherwise watch
+  // their own selection resolve to a blank label.
+  const pickable = [
+    ...(locations?.cities ?? []),
+    ...(user?.city && !(locations?.cities ?? []).some(c => c.code === user.city!.code) ? [user.city] : []),
+  ]
+  const cityOptions = pickable.map(c => cityLabel(c, lang))
+  const codeByLabel = new Map(pickable.map(c => [cityLabel(c, lang), c.code]))
+  const selectedCityLabel = cityLabel(pickable.find(c => c.code === selectedCityCode), lang)
 
   const tabs: { key: LeaderboardType; label: string }[] = [
     { key: 'friends',  label: t('leaderboard.friends') },

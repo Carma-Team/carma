@@ -12,7 +12,8 @@ import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
-import { cityLabel } from '@/types'
+import { cityLabel } from '@/lib/cityLabel'
+import type { City } from '@/types'
 import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
@@ -23,11 +24,12 @@ interface FormState {
   password:    string
   phone:       string
   city:        string
+  cityCode:    string
   age:         string
   licenseYear: string
 }
 
-const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
+const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', cityCode: '', age: '', licenseYear: '' }
 
 // Every bound below is `RegisterIn` in server/app/schemas/auth.py. They are checked
 // here so the driver is told which field is wrong: the server answers all of them
@@ -67,23 +69,35 @@ export default function RegisterScreen() {
   const [form,      setForm]      = useState<FormState>(INITIAL)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState('')
-  const [cities,    setCities]    = useState<string[]>([])
+  // The rows, not labels: the label depends on `lang`, which can change later.
+  const [cities,    setCities]    = useState<City[]>([])
   const [regionAck, setRegionAck] = useState(false)
 
   useEffect(() => {
-    leaderboardApi.getLocations()
-      .then(data => setCities(data.cities.map(c => cityLabel(c, lang))))
-      // Expected, not exceptional: /api/leaderboard/locations requires a bearer
-      // token and registration has none yet, so this 401s on every fresh install.
-      // An empty list is the signal to fall back to a free-text city field below.
-      // CAR-224 moves this to the public /api/cities list; the label the form
-      // submits keeps working either way, the server resolves it to a code.
+    // The public list, not the leaderboard's. That one needs a bearer token
+    // registration does not have yet, so it 401'd on every fresh install, and
+    // even when it answered it only held cities that already have a driver -
+    // the circularity CAR-218 exists to break.
+    leaderboardApi.getCities()
+      .then(data => setCities(data.cities))
+      // A network failure still leaves the free-text field below as a fallback.
       .catch(() => setCities([]))
   }, [])
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  // Derived here rather than stored: the labels depend on `lang`, and building
+  // them once when the list arrives left them in whatever language was active
+  // at mount.
+  const cityOptions = cities.map(c => cityLabel(c, lang))
+  const codeByLabel = new Map(cities.map(c => [cityLabel(c, lang), c.code]))
+
+  /** The picker deals in labels; the server is sent the code behind one. */
+  function pickCity(label: string) {
+    setForm(prev => ({ ...prev, city: label, cityCode: codeByLabel.get(label) ?? '' }))
   }
 
   /**
@@ -108,7 +122,12 @@ export default function RegisterScreen() {
         // City is optional — '' means the placeholder is still showing, i.e. no
         // pick was made, not "picked nothing." Send undefined so the server sees
         // an unanswered field, not an empty string.
-        city:        form.city    || undefined,
+        //
+        // A code when one was picked from the list. `city` stays as the fallback
+        // for the free-text branch below, where there is no code to send; the
+        // server resolves that label against the same list.
+        cityCode:    form.cityCode || undefined,
+        city:        form.cityCode ? undefined : form.city || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
       })
@@ -152,6 +171,8 @@ export default function RegisterScreen() {
       ? t('auth.errors.invalidPassword') : '',
     phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
     city:        form.city && form.city.trim().length > MAX_CITY     ? t('auth.errors.cityTooLong')      : '',
+    // Never typed, only set by picking from the list, so it has nothing to reject.
+    cityCode:    '',
     age:         form.age && (Number.isNaN(age) || age < MIN_AGE || age > MAX_AGE)
       ? t('auth.errors.invalidAge') : '',
     licenseYear: form.licenseYear && (Number.isNaN(licenseYear) || licenseYear < MIN_LICENSE_YEAR || licenseYear > CURRENT_YEAR)
@@ -208,15 +229,14 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            {/* No list to pick from — keep the free-text field rather than a picker
-                nobody can fill. Drop this branch once the city list is reachable
-                before login (CAR-218). */}
-            {field.key === 'city' && cities.length > 0 ? (
+            {/* The list is public now, so this normally renders. The free-text
+                branch stays for the case where fetching it failed outright. */}
+            {field.key === 'city' && cityOptions.length > 0 ? (
               <LocationPicker
                 value={form.city}
-                options={cities}
+                options={cityOptions}
                 placeholder={t('auth.citySelectPlaceholder')}
-                onChange={v => update('city', v)}
+                onChange={pickCity}
                 style={styles.cityTrigger}
               />
             ) : (
