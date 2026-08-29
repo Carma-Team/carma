@@ -17,9 +17,17 @@ const MIN_SAMPLES_TO_EVALUATE = 30; // enough to evaluate at Rule 1 boundary (30
 const SPEED_VARIANCE_THRESHOLD = 8;  // km/h²
 const MIN_AVG_SPEED_KMH        = 60; // must be fast enough to rule out city driving
 
-// Signals 2 and 3 compare against vehicle-frame quantities the device cannot produce
-// today, so neither threshold is referenced here. Both stay in §3.3, the authority for
-// them, until the vehicle frame of §3.2 exists.
+// Signal 2: rails prevent sway; a road vehicle always corners. Vehicle-frame lateral
+// force, so it means the same thing whatever orientation the phone is sitting in.
+const MAX_LATERAL_ACCEL_G = 0.12;
+// Signal 3: track geometry is fixed; a driver micro-corrects continuously. Variance of
+// yaw rate about gravity — not about the device's Z axis (§3.2 step 4).
+const MAX_YAW_VARIANCE = 0.02; // rad²/s²
+
+// Samples with a resolvable vehicle frame that a signal needs before it says anything.
+// Below this the frame was unavailable for most of the window and the answer is UNKNOWN,
+// which is not the same claim as "no lateral force was felt".
+const MIN_FRAMED_SAMPLES = 30;
 
 // Weights (must sum to 1.0). Score and confidence are both sums over this table, so a
 // signal cannot be counted towards one and forgotten in the other.
@@ -92,8 +100,10 @@ export interface FraudEvaluation {
   // Raw computed values — passed through to the API payload for Sean's analytics
   telemetry: {
     avgSpeedKmh: number;
+    // Vehicle-frame peak, in g. 0 when no sample in the window could be framed —
+    // read `signals.noLateralForce === null` to tell that apart from a real 0.
     maxLateralAccelG: number;
-    yawVariance: number;        // rad²/s²
+    yawVariance: number;        // rad²/s², about gravity
   };
 }
 
@@ -106,16 +116,20 @@ export class FraudDetector {
 
   /**
    * @param speedKmh      GPS ground speed. Frame-free.
-   * @param lateralAccelG The phone's own X axis with gravity removed, in g. A device
-   *                      axis, not the vehicle's lateral one — see
-   *                      driving-sdk/sensors/SensorManager.ts, which never rotates it.
-   * @param gyroZ         The phone's own Z gyro, in rad/s. A device axis, not yaw about
-   *                      gravity — same file, same reason.
+   * @param lateralAccelG Lateral force **in the vehicle's frame**, in g, signed positive
+   *                      to the left of travel. `null` when the SDK could not resolve the
+   *                      frame — stored as NaN and excluded from the window, so Signal 2
+   *                      reads UNKNOWN rather than "no force".
+   * @param yawRateRadS   Angular rate **about gravity**, in rad/s, signed. `null` under
+   *                      the same conditions, with the same meaning for Signal 3.
    */
-  addSample(speedKmh: number, lateralAccelG: number, gyroZ: number): void {
+  addSample(speedKmh: number, lateralAccelG: number | null, yawRateRadS: number | null): void {
     this.speedBuffer.push(speedKmh);
-    this.accelBuffer.push(Math.abs(lateralAccelG)); // peak magnitude is what matters
-    this.gyroBuffer.push(gyroZ);
+    // NaN is the in-band "not measured" marker: the buffers are Float32Array for the
+    // fixed memory, and every comparison against NaN is false, so an unresolved sample
+    // cannot accidentally satisfy a threshold. `framed` below is what filters them out.
+    this.accelBuffer.push(lateralAccelG === null ? NaN : Math.abs(lateralAccelG));
+    this.gyroBuffer.push(yawRateRadS === null ? NaN : yawRateRadS);
   }
 
   evaluate(): FraudEvaluation {
@@ -130,23 +144,31 @@ export class FraudDetector {
     }
 
     const speeds = this.speedBuffer.values;
-    const accels = this.accelBuffer.values;
-    const gyros  = this.gyroBuffer.values;
+    // Samples the SDK could place in the vehicle frame. A phone that moved mid-window,
+    // or a stretch with no GPS heading, leaves gaps here — and a gappy window is a
+    // window that has not shown us anything, which is UNKNOWN and not FALSE.
+    const accels = this.accelBuffer.values.filter((v) => !Number.isNaN(v));
+    const gyros  = this.gyroBuffer.values.filter((v) => !Number.isNaN(v));
 
     const avgSpeedKmh      = speeds.reduce((s, v) => s + v, 0) / speeds.length;
     const speedVariance    = this.calcVariance(speeds);
-    const maxLateralAccelG = Math.max(...accels);
+    const maxLateralAccelG = accels.length > 0 ? Math.max(...accels) : 0;
     const yawVariance      = this.calcVariance(gyros);
 
     const signals: FraudSignals = {
       // Signal 1: constant speed, fast enough to rule out city stop-go
       constantHighSpeed: speedVariance < SPEED_VARIANCE_THRESHOLD && avgSpeedKmh > MIN_AVG_SPEED_KMH,
-      // UNKNOWN because their inputs are device axes, not because a sample is missing.
-      // A phone upright in a vent clip turns a car's cornering force off X and its yaw
-      // off Z at the same time, so the pair is one mounting error, not two votes
-      // (CAR-167). Restored once §3.2's vehicle frame exists.
-      noLateralForce: null,
-      noHeadingChange: null,
+      // Signals 2 and 3 read vehicle-frame quantities now, so they measure the vehicle
+      // rather than the phone's mounting. They were forced to UNKNOWN while the inputs
+      // were device axes: a phone upright in a vent clip turns a car's cornering force
+      // off X and its yaw off Z at the same time, which is one mounting error reading as
+      // two votes for rail (CAR-167). They still go UNKNOWN when the frame is unresolved.
+      noLateralForce: accels.length >= MIN_FRAMED_SAMPLES
+        ? maxLateralAccelG < MAX_LATERAL_ACCEL_G
+        : null,
+      noHeadingChange: gyros.length >= MIN_FRAMED_SAMPLES
+        ? yawVariance < MAX_YAW_VARIANCE
+        : null,
     };
 
     const score      = sumWeights(signals, (value) => value === true);

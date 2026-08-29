@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-28**
+**Last updated: 2026-08-29**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -71,7 +71,8 @@ it, never the other way round.
 | `BluetoothManager.ts` | Classic Bluetooth device monitoring, Android only. Lists OS-bonded devices and emits connect/disconnect for the chosen target device, which is how a trip can start and end without the driver touching the phone. |
 | `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
 | `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
-| `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also streams speed, distance and raw IMU values to the SDK on every fix. |
+| `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also resolves the IMU into the vehicle's own frame and streams speed, distance and those vehicle-frame values to the SDK on every fix. |
+| `sensors/vehicleFrame.ts` | Resolves phone-frame IMU readings into the vehicle's frame: horizontal force split into signed longitudinal and lateral components, and angular rate about gravity. |
 | `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy. Reports tap count and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
 | `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
 | `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
@@ -211,16 +212,15 @@ This fires for every event that passes the SDK's internal cooldown guard, **rega
 interface DrivingEvent {
   type:      DrivingEventType;
   timestamp: Date;
-  // PHONE_USAGE only — motion events omit it (CAR-156, scoring.md §3.4: the IMU
-  // magnitude below isn't a vehicle-frame axis, so there is no severity to report
-  // until a phone→vehicle rotation stage exists).
+  // PHONE_USAGE only — motion events carry physical measurements instead, below.
   severity?: number;            // PHONE_USAGE only — currently a hardcoded 0.5, see below
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
-  // Motion events only — absent on PHONE_USAGE:
-  peakG?:      number;          // reserved for a single vehicle-frame axis once a phone→vehicle
-                                 // rotation stage exists; not populated until then
-  durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
+  // Motion events only — absent on PHONE_USAGE, and absent when the vehicle frame
+  // could not be resolved:
+  peakLongitudinalG?: number;   // g, signed — positive forward, so a brake is negative
+  peakLateralG?:      number;   // g, signed — positive to the left of travel
+  durationMs?:        number;   // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
 
@@ -228,12 +228,17 @@ interface DrivingEvent {
 has no effect on it, since that config only tunes the motion-event thresholds
 (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN), not PHONE_USAGE.
 
-`peakG` is reserved, not populated. The value it would carry — an orientation-invariant,
-gravity-relative horizontal magnitude — cannot be mapped onto `scoring.md`'s severity curve,
-which is anchored on a single vehicle-frame axis (longitudinal for braking/accel, lateral for
-turns): folding both into one unsigned scalar makes a brake and a turn indistinguishable at
-the point of measurement. It stays reserved until a phone→vehicle rotation stage exists to
-resolve it onto the right axis.
+`peakLongitudinalG` and `peakLateralG` are **physical measurements, not a score**. They are
+the peak force of the event resolved onto the vehicle's own axes, which is what makes a brake
+distinguishable from a turn at the point of measurement — an unsigned horizontal magnitude
+folds the two together and cannot be mapped onto any per-axis severity curve. Turning them
+into a severity is the consuming application's job; a scoring curve does not belong in a
+sensor library.
+
+Both are **absent, not zero**, when the frame could not be resolved. The forward direction is
+learned from ordinary driving — agreement between GPS speed changes and the force felt over
+them — so it takes a few real accelerations or brakes at the start of a trip, and it is
+relearned from scratch if the phone is picked up or re-mounted mid-trip.
 
 `durationMs` is the length of the continuous stretch, at or above the IMU cross-confirm
 threshold, that contains the event's peak horizontal force — not simply the longest such

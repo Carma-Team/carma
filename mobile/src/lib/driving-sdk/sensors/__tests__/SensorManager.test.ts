@@ -55,9 +55,6 @@ import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 const MS2_PER_G = 9.81;
-// Mirrors SensorManager's own LPF_ALPHA — not imported, same reasoning as MS2_PER_G above.
-const LPF_ALPHA = 0.9;
-
 // Deliberately not DEFAULT_MOTION_THRESHOLDS — see file header.
 const THRESHOLDS = {
   brakeThresholdMs2: 2.7,
@@ -255,13 +252,13 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
-    // code this event still fires (imuConfirms fails open when accelAvailable is
-    // false), and feedStrongForce() never reaching a real subscription would leave
-    // onUpdate's accelX at 0. A nonzero accelX is what only the fix makes possible.
+    // code this event still fires, because imuConfirms fails open when accelAvailable
+    // is false. The flag is what separates the two: it can only be true if the
+    // subscription was established and feedStrongForce() reached it.
     const [event] = events();
     expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-    expect(lastUpdate.accelX).toBeGreaterThan(0);
+    expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
   it('fails closed — not open — when accelerometer registration itself throws', async () => {
@@ -346,13 +343,14 @@ describe('SensorManager', () => {
 
       expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
 
-      // An event firing here doesn't prove gravity was removed — since CAR-156
-      // dropped peakG, nothing on the event does. onUpdate's accelX still carries
-      // the gravity-removed dynamic X (this.latestAccelX): if removal broke, it
-      // would report c.gravity.x + c.force.x instead of just c.force.x, scaled
-      // down by one sample of the LPF_ALPHA gravity EMA settling toward the force.
+      // The event fires from the same applied magnitude in all four mountings, which
+      // is the invariance being pinned. That gravity was actually removed, and that
+      // the surviving force lands on the right vehicle axis, is checked directly
+      // against the geometry in sensors/__tests__/vehicleFrame.test.ts — the update
+      // here carries vehicle-frame values, which are deliberately null until enough
+      // GPS evidence has resolved the forward direction.
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-      expect(lastUpdate.accelX).toBeCloseTo(c.force.x * LPF_ALPHA, 5);
+      expect(lastUpdate.lateralAccelG).toBeNull();
     }
   });
 

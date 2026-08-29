@@ -363,7 +363,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         severity: e.severity,
         speedKmh: e.speedKmh,
         location: e.location,
-        peakG: e.peakG,
+        peakLongitudinalG: e.peakLongitudinalG,
+        peakLateralG: e.peakLateralG,
         durationMs: e.durationMs,
       })),
     };

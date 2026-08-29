@@ -55,14 +55,16 @@ export interface ValidTripPayload {
   routeWaypoints?:    Array<{ lat: number; lng: number; ts: number; speedKmh: number }>;
   // Per-event array — forensic/unsigned; does not affect the score (score is sourced
   // from the signed telemetryDigest). Retained server-side for route-map markers and
-  // to unblock v2 continuous-severity scoring once peakG/durationMs are populated.
+  // to unblock v2 continuous-severity scoring, which reads the signed vehicle-frame
+  // peaks below. Absent on an event whose frame could not be resolved.
   events?: Array<{
     type: string;            // DrivingEventType — server bridges PHONE_USAGE → PHONE_USE
     timestamp: string;       // ISO 8601
     severity?: number;       // 0..1. PHONE_USAGE only — motion events don't send it
     speedKmh?: number;
     location?: { latitude: number; longitude: number };
-    peakG?: number;
+    peakLongitudinalG?: number; // g, signed, positive forward — a brake is negative
+    peakLateralG?: number;      // g, signed, positive to the left of travel
     durationMs?: number;
   }>;
 }
