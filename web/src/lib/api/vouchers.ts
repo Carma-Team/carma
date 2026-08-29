@@ -12,25 +12,13 @@
  * never need to catch an exception to find out a voucher was already used.
  */
 import { ApiError, request } from './client';
+// `Reward` is defined in `./rewards` (CAR-202 owns the reward catalog; a
+// voucher only ever embeds a snapshot of one) and re-used here rather than
+// redefined, so there is exactly one TypeScript mirror of the server's
+// `RewardOut` to keep in sync.
+import type { Reward } from './rewards';
 
-export type Reward = {
-  id: string;
-  businessId: string;
-  business: string;
-  businessHe: string | null;
-  titleHe: string;
-  titleEn: string | null;
-  descriptionHe: string;
-  descriptionEn: string | null;
-  category: string;
-  costPoints: number;
-  imageIcon: string;
-  isActive: boolean;
-  archivedAt: string | null;
-  stock: number | null;
-  available: number | null;
-  expiresAt: string | null;
-};
+export type { Reward };
 
 // CAR-78: no driver identifier of any kind — the server's BusinessVoucherOut
 // deliberately drops `userId` so the business side never sees who the driver is.

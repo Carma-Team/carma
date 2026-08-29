@@ -167,8 +167,8 @@ sdk.onUpdate    = (data) => { /* update live trip screen */ };
 //    or speed constitutes a "scored" event.
 const listeners = [
   sdk.on(DrivingEventType.HARD_BRAKE,       { minSpeedKmh: 15 }, () => { hardBrakes++; }),
-  sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5  }, () => { aggressiveAccels++; }),
-  sdk.on(DrivingEventType.SHARP_TURN,       { minSpeedKmh: 10 }, () => { sharpTurns++; }),
+  sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 15 }, () => { aggressiveAccels++; }),
+  sdk.on(DrivingEventType.SHARP_TURN,       { minSpeedKmh: 25 }, () => { sharpTurns++; }),
 ];
 
 // 4. Start and stop

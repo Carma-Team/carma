@@ -5,14 +5,13 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.logging import user_id_ctx
 from app.core.security import decode_access_token
 from app.database import get_db
 from app.models import BusinessMembership, BusinessMembershipRole, User, UserRole
+from app.services import business as business_service
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -69,13 +68,7 @@ async def current_business(request: Request, user: CurrentUser, db: DbSession) -
     operate on whatever this returns, which is what keeps one business out of
     another's rewards.
     """
-    memberships = (
-        await db.scalars(
-            select(BusinessMembership)
-            .where(BusinessMembership.user_id == user.id)
-            .options(selectinload(BusinessMembership.business))
-        )
-    ).all()
+    memberships = await business_service.list_memberships(db, user.id)
     if not memberships:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No business membership for this account")
     if len(memberships) > 1:

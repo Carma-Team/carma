@@ -1095,6 +1095,11 @@ export interface components {
             reviewerNote?: string | null;
         };
         /**
+         * BusinessMembershipRole
+         * @enum {string}
+         */
+        BusinessMembershipRole: "OWNER" | "MANAGER" | "CASHIER";
+        /**
          * BusinessRewardIn
          * @description Create payload for a business-owned reward.
          *
@@ -1977,6 +1982,12 @@ export interface components {
             businessName?: string | null;
             /** Businessnamehe */
             businessNameHe?: string | null;
+            businessMembershipRole?: components["schemas"]["BusinessMembershipRole"] | null;
+            /**
+             * Businessmembershipambiguous
+             * @default false
+             */
+            businessMembershipAmbiguous: boolean;
             /**
              * Createdat
              * Format: date-time

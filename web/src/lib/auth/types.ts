@@ -13,6 +13,15 @@ export type AuthUser = {
   // businessName themselves (see AppShell), same as the server's UserOut.
   businessName: string | null;
   businessNameHe: string | null;
+  // DB-resolved from `business_memberships` (CAR-258), never from `role`
+  // above or decoded from the JWT — set alongside the business fields when
+  // the account has exactly one membership.
+  businessMembershipRole: 'OWNER' | 'MANAGER' | 'CASHIER' | null;
+  // True when the account holds more than one membership. CAR-258 fails
+  // closed rather than picking one arbitrarily: every business field above
+  // is null in that case too, same as no membership at all, so this is what
+  // tells the two apart.
+  businessMembershipAmbiguous: boolean;
 };
 
 // 'error' is distinct from 'unauthenticated': it means the one-time bootstrap

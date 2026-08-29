@@ -6,7 +6,6 @@
 
 - [ ] `server/` (Python backend)
 - [ ] `mobile/` (Expo app)
-- [ ] `mock-server/` (deprecated; usually skip)
 - [ ] CI/CD, docs, scripts
 
 ## Contract change?

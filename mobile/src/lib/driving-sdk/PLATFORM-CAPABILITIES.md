@@ -109,6 +109,22 @@ discrimination needs a native module first.
 
 ---
 
+## Minimum OS version (#141)
+
+No app-level policy sets this — it is the floor the pinned `expo` version itself
+imposes. Bump alongside an Expo SDK upgrade, not independently.
+
+| Platform | Minimum | Source |
+|---|---|---|
+| iOS | 15.1+ | Expo SDK 54 docs — https://docs.expo.dev/versions/v54.0.0/ |
+| Android | 7+ / API 24+ | Same |
+
+Distinct from Apple's separate iOS 18 SDK / Xcode 16 **build-time** requirement for
+App Store submission (https://expo.dev/blog/apple-sdk-minimum-requirements) — that
+governs what the app is compiled with, not what a device needs to run it.
+
+`lib/driving-sdk/DeviceCapabilities.ts` checks this alongside sensor availability.
+
 ## What follows for handheld detection
 
 The capability matrix removes several designs from consideration before they

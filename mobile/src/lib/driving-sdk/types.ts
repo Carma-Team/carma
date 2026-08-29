@@ -15,6 +15,12 @@ export enum ValidationState {
   ENDED     = 'ENDED',     // validator closed the trip
 }
 
+// How long a sample stays usable after it arrives (docs/fraud-detection.md §3.1, §7).
+// Lives here rather than in SensorManager because a TripValidator needs it too, and
+// SensorManager pulls expo-location/expo-sensors in at module scope — importing it for
+// one number drags those into every consumer, jest included.
+export const SENSOR_STALE_MS = 5000;
+
 // Snapshot fed into the configured TripValidator each tick.
 // speed is always populated; the sensor fields are optional and only some validators read them.
 export interface ValidationSample {
@@ -22,6 +28,10 @@ export interface ValidationSample {
   timestamp: number;          // Date.now()
   accel?: { x: number; y: number; z: number };  // read only by validators that classify motion
   gyroYaw?: number;
+  // Present only on ticks that carried a GPS fix. A validator that gates on where the
+  // journey is happening reads these; one that does not simply ignores them.
+  lat?: number;
+  lng?: number;
   // accel/gyroYaw are 0 when their sensor was never registered — these say whether
   // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
   accelAvailable?: boolean;
@@ -135,6 +145,7 @@ export interface TripValidator {
   onTripConfirmed?: () => void;
   onTripEnded?: () => void;
   onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  onRegionRejected?: () => void;
 }
 
 export interface SDKConfig {

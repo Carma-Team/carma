@@ -90,7 +90,7 @@ React Context providers — global state accessible from anywhere in the compone
 | `sdkBindings.ts` | Trip lifecycle callbacks — `onTripStart`, `onUpdate`, `onTripEnd` → React state. Sensor plumbing only. | May |
 | `scoringEvents.ts` | `sdk.on()` listeners and CARMA's speed thresholds; maintains the per-trip event counters. | Dan |
 | `fraudBinding.ts` | `onFraudDetected` → state reset + `fraudApi.syncInvalidTrip()`. | Dan |
-
+| `regionBinding.ts` | `onRegionRejected` → state reset + toast. No server call — the trip never happened as far as CARMA is concerned. | May |
 **Rules:**
 - Context is the bridge between the SDK/lib layer and the UI layer.
 - Server calls triggered by SDK events (e.g. `tripsApi.save()` after `onTripEnd`, `fraudApi.syncInvalidTrip()` after `onFraudDetected`) live here.
@@ -160,6 +160,7 @@ documented in `mobile/CLAUDE.md`.
 | `transportMode.ts` | Dan | The transport modes `FraudDetector` classifies a session into. Lives in CARMA rather than in `driving-sdk` because "was this a train" is this product's question, not a sensor library's. |
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
 | `tripSummary.ts` | May | One shape for the end-of-trip summary, built either from the device's own trip data or from a trip the server returned. Both summary surfaces render this shape, so neither can show a field the other does not. |
+| `regionCheck.ts` | May | Israel-only region check (team decision). Tests a fix the SDK already holds against an offline bounding box — no network, no permission request of its own, and no dependency on a geocoder's answer. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
 | `__tests__/` | — | Unit tests for the files directly under `lib/` |
 
@@ -207,7 +208,7 @@ Full-screen React Native views. Routed via `app/`.
 | Subfolder | Contents |
 |---|---|
 | `app/` | Authenticated screens: Dashboard, Active Trip, Trip Detail, Profile, Roadmap, Leaderboard, Marketplace, Settings |
-| `auth/` | Unauthenticated screens: Login, Register, Onboarding |
+| `auth/` | Unauthenticated screens: Login, Register, Onboarding, Unsupported Device |
 
 **Rules:**
 - Screens compose components, use hooks, and read from context.

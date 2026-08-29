@@ -13,6 +13,7 @@
  * calling page's own state, for the one call it authenticates.
  */
 import { ApiError } from './client';
+import type { BusinessCategory } from '@/lib/businessCategory';
 
 const BASE_URL = import.meta.env.VITE_API_URL;
 
@@ -45,12 +46,6 @@ async function authedRequest<T>(path: string, accessToken: string, init: Request
   if (res.status === 204) return undefined as T;
   return res.json();
 }
-
-export type BusinessCategory = 'fuel' | 'food' | 'eco' | 'entertainment' | 'shopping' | 'other';
-
-// Mirrors `server/app/models/enums.py::BusinessCategory` — there is no list
-// endpoint to fetch these from (CAR-203 research), so this is hand-enumerated.
-export const BUSINESS_CATEGORIES: BusinessCategory[] = ['fuel', 'food', 'eco', 'entertainment', 'shopping', 'other'];
 
 // CAR-203 (revised): address text is the primary input; `locationLat/Lng`
 // are derived from it via `lib/api/geocoding.ts`, with a map shown only to
