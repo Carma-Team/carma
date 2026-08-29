@@ -14,7 +14,8 @@
 import { DrivingSDK } from '@/lib/driving-sdk';
 import { TripValidationManager } from '@/lib/TripValidationManager';
 import { FraudDetector, FraudEvaluation } from '@/lib/FraudDetector';
-import { TransportMode, SensorUpdate } from '@/lib/driving-sdk/types';
+import { SensorUpdate } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 
 let sendUpdate: (u: SensorUpdate) => void;
 
@@ -40,10 +41,10 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
   },
 }));
 
-jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
-  BluetoothManager: class {
-    constructor(_onConnect: any, _onDisconnect: any) {}
-    setTargetDevice() {} startMonitoring() {} stopMonitoring() {}
+jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
+  AutoDriveModeManager: class {
+    constructor(_onDetected: any, _onLost: any) {}
+    enable() {}
   },
 }));
 

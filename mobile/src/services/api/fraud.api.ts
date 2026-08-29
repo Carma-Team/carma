@@ -14,7 +14,6 @@
  */
 import { request } from './client';
 import { USE_REAL_SERVER } from '@/constants/serverConfig';
-import { TransportMode } from '@/lib/driving-sdk/types';
 import type { FraudSignals } from '@/lib/FraudDetector';
 
 // ─── Mobile SDK event shape (emitted by DrivingSDK.onFraudDetected) ──────────
@@ -22,7 +21,11 @@ import type { FraudSignals } from '@/lib/FraudDetector';
 export interface FraudEventPayload {
   userId: string;
   timestamp: string;
-  detectedMode: TransportMode;
+  // A string, not the TransportMode enum: the SDK hands the mode over as an opaque label
+  // (it holds no transport vocabulary of its own), and the wire contract underneath is
+  // already `str | None` — see FraudReportIn.detected_mode. Narrowing it here would only
+  // pretend to an enforcement neither side performs.
+  detectedMode: string;
   fraudScore: number;
   telemetry: {
     avgSpeedKmh: number;

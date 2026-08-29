@@ -8,7 +8,8 @@
  * Rule 3 reports a journey once: after a verdict, classification stays suppressed until
  * movement genuinely stops, and a stale GPS sample suspends it entirely.
  */
-import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
+import { ValidationState, ValidationSample, SuspiciousActivityEvaluation, TripValidator, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD, FraudEvaluation } from '@/lib/FraudDetector';
 import { isRegionAllowed } from '@/lib/regionCheck';
 

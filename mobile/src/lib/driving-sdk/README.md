@@ -68,7 +68,11 @@ it, never the other way round.
 |---|---|
 | `index.ts` | The SDK's public entry point and orchestrator, `DrivingSDK`. Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream, and emits driving events to whatever host app is consuming the library. |
 | `types.ts` | Every type and interface the library exposes to its host app. Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract through which an app injects its own trip-start, trip-end and suspicion rules. |
-| `BluetoothManager.ts` | Classic Bluetooth device monitoring, Android only. Lists OS-bonded devices and emits connect/disconnect for the chosen target device, which is how a trip can start and end without the driver touching the phone. |
+| `auto-trip-detection/types.ts` | The contract every automatic trip-detection method implements. One strategy is active at a time, picked per platform, and `DrivingSDK` never learns which. |
+| `auto-trip-detection/AutoDriveModeManager.ts` | Owns the one active trip-detection strategy and picks it per platform. Turns whatever that strategy noticed into the two calls `DrivingSDK` cares about. |
+| `auto-trip-detection/BluetoothDriveModeStrategy.ts` | Detects vehicle travel from a paired Bluetooth device connecting. Android only. Subscribes to the OS-level connect/disconnect broadcasts for one target device, which is how a trip can start and end without the driver touching the phone. |
+| `auto-trip-detection/bluetoothDevices.ts` | Android Bluetooth device listing and permissions, holding no monitoring state. Answers which devices can be picked, and — when none can — why the list is empty. |
+| `auto-trip-detection/IosDriveModeStrategy.ts` | Placeholder for iOS automatic trip detection. Detects nothing yet: an iPhone still starts trips from the manual button. |
 | `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
 | `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
 | `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also streams speed, distance and raw IMU values to the SDK on every fix. |
@@ -109,8 +113,8 @@ Any file that encodes a decision specific to the consuming application.
 │                   ↓ registers  ↑ events                      │
 ├──────────────────────────────────────────────────────────────┤
 │                      driving-sdk/                            │
-│  DrivingSDK · BluetoothManager · SensorManager               │
-│  PhoneUsageManager · DefaultTripValidator                    │
+│  DrivingSDK · SensorManager · PhoneUsageManager              │
+│  DefaultTripValidator · auto-trip-detection/                 │
 │                                                              │
 │  Detects physical events via GPS+IMU fusion (tunable via     │
 │  SDKConfig.motionThresholds)                                 │
@@ -258,8 +262,8 @@ new DrivingSDK(config?: SDKConfig)
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `autoStartOnBluetooth` | `boolean` | `true` | Start trip automatically when target BT device connects |
-| `targetBluetoothId` | `string \| null` | — | MAC address of the BT device to monitor |
+| `autoStartOnBluetooth` | `boolean` | `true` | Start a trip automatically when detection fires. Named for the Android mechanism, but it gates every platform's. |
+| `targetBluetoothId` | `string \| null` | — | What detection watches for — a MAC address on Android. |
 | `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
 | `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md). |
 
@@ -271,7 +275,7 @@ new DrivingSDK(config?: SDKConfig)
 | `stopTrip()` | `Promise<TripData \| null>` | Stop recording and stop the validator; returns final trip data |
 | `on(type, condition, handler)` | `ListenerToken` | Subscribe to a sensor event with conditions |
 | `off(token)` | `void` | Unsubscribe a registered listener |
-| `updateTargetDevice(id)` | `void` | Change the BT device to monitor at runtime |
+| `updateTargetDevice(id)` | `void` | Change the device automatic detection watches for, at runtime. `null` disarms it. |
 | `getAvailableDevices()` | `Promise<BluetoothDevice[]>` | Returns OS-bonded BT devices (Android only) |
 | `getStatus()` | `object` | Returns `{ isActive, isValidating, tripData }` |
 
@@ -296,8 +300,8 @@ than read the total.
 
 | Method | Description |
 |---|---|
-| `simulateBluetoothConnection()` | Fires the BT connect callback without a physical device |
-| `simulateBluetoothDisconnection()` | Fires the BT disconnect callback without a physical device |
+| `simulateBluetoothConnection()` | Runs the auto-start path without a physical device |
+| `simulateBluetoothDisconnection()` | Runs the auto-end path without a physical device |
 | `debugAddDistance(km)` | Injects distance into the active trip (dev only) |
 
 #### Calibration recording

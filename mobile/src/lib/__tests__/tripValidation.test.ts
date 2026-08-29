@@ -5,7 +5,8 @@ jest.mock('@/lib/regionCheck', () => ({
 
 import { TripValidationManager } from '@/lib/TripValidationManager';
 import { FraudDetector, FraudEvaluation } from '@/lib/FraudDetector';
-import { ValidationState, TransportMode } from '@/lib/driving-sdk/types';
+import { ValidationState } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
