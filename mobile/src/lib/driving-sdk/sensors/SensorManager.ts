@@ -440,6 +440,14 @@ export class SensorManager {
    * expo-location exports the native timestamp as `timeIntervalSince1970 * 1000`.
    */
   private decayedSpeedMs(atMs: number): number {
+    // An anchor ahead of `atMs` can only be a backwards clock step. handleLocation
+    // re-anchors on one, but only when a fix arrives to carry the new clock — and iOS
+    // sends nothing at all while stationary, so a step with no fix behind it leaves the
+    // anchor in the future indefinitely. Treating that as stale is the worse of the two
+    // fixes: it emits a 0 mid-drive, which is a stop that never happened. Re-anchoring
+    // restarts the countdown from the step instead, so the held speed survives and a
+    // real stop after the step is still reported one STALE_SPEED_MS later.
+    if (this.lastValidSpeedAtMs > atMs) this.lastValidSpeedAtMs = atMs;
     return (atMs - this.lastValidSpeedAtMs) < STALE_SPEED_MS ? this.lastValidSpeedMs : 0;
   }
 

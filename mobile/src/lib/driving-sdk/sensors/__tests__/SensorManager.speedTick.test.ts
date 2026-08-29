@@ -129,6 +129,42 @@ describe('SensorManager — speed tick', () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
+  // A backwards clock step (NTP correction, manual time change) with no fix behind it —
+  // the case handleLocation's re-anchor cannot reach, because it needs a fix to run.
+  describe('after a backwards clock step with no fix', () => {
+    const STEP_BACK_MS = 30_000;
+
+    /** Deliver a fix at speed, then move the system clock back behind its timestamp. */
+    function stepClockBack(speedMs = 20) {
+      locationHandler?.(fixAt(speedMs));
+      onUpdate.mockClear();
+      jest.setSystemTime(Date.now() - STEP_BACK_MS);
+    }
+
+    it('does not report a stop that never happened', () => {
+      stepClockBack();
+
+      jest.advanceTimersByTime(STALE_SPEED_MS - TICK_MS);
+
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+
+    // The decay restarts at the first tick that observes the step, not at the step —
+    // nothing can notice a clock move before something reads the clock. So the stop
+    // lands one tick later than a decay that was never interrupted, and no later.
+    it('still reports the stop, one tick after a full decay window', () => {
+      stepClockBack();
+
+      jest.advanceTimersByTime(STALE_SPEED_MS);
+      expect(onUpdate).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(TICK_MS);
+
+      expect(onUpdate).toHaveBeenCalled();
+      expect(onUpdate.mock.calls[0][0]).toMatchObject({ currentSpeed: 0 });
+    });
+  });
+
   it('stops ticking after stop()', () => {
     manager.stop();
     onUpdate.mockClear();
