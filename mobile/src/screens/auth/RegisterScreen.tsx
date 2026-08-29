@@ -63,10 +63,11 @@ export default function RegisterScreen() {
   const insets = useSafeAreaInsets()
   const { loginUser, addToast } = useApp()
   const { t } = useTranslation()
-  const [form,    setForm]    = useState<FormState>(INITIAL)
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
-  const [cities,  setCities]  = useState<string[]>([])
+  const [form,      setForm]      = useState<FormState>(INITIAL)
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState('')
+  const [cities,    setCities]    = useState<string[]>([])
+  const [regionAck, setRegionAck] = useState(false)
 
   useEffect(() => {
     leaderboardApi.getLocations()
@@ -163,7 +164,9 @@ export default function RegisterScreen() {
     EMAIL_RE.test(form.email.trim()) &&
     form.password.length >= MIN_PASSWORD
 
-  const canSubmit = requiredFilled && Object.values(fieldErrors).every(m => !m)
+  // CAR-23: the region acknowledgement is a submit condition like any required field —
+  // the checkbox says why it is unchecked, so it needs no error string of its own.
+  const canSubmit = requiredFilled && regionAck && Object.values(fieldErrors).every(m => !m)
 
   const fields: { key: keyof FormState; label: string; placeholder: string; keyboard?: any; secure?: boolean; required?: boolean }[] = [
     { key: 'name',        label: t('auth.name'),        placeholder: t('auth.namePlaceholder'),  required: true },
@@ -232,6 +235,20 @@ export default function RegisterScreen() {
           </View>
         ))}
 
+        <TouchableOpacity
+          style={styles.ackRow}
+          onPress={() => setRegionAck(prev => !prev)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: regionAck }}
+        >
+          <Ionicons
+            name={regionAck ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={regionAck ? COLORS.brand : COLORS.textMuted}
+          />
+          <Text style={styles.ackText}>{t('auth.regionAck')}</Text>
+        </TouchableOpacity>
+
         <Button fullWidth size="lg" onPress={handleRegister} loading={loading} disabled={!canSubmit} style={styles.btn}>
           {t('auth.registerBtn')}
         </Button>
@@ -257,6 +274,8 @@ const styles = StyleSheet.create({
   cityTrigger: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
   label:    { ...TYPOGRAPHY.label, marginBottom: 6 },
   required: { color: COLORS.danger },
+  ackRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: 4, marginBottom: 4 },
+  ackText:  { ...TYPOGRAPHY.caption, flex: 1 },
   requiredHint: { ...TYPOGRAPHY.caption, fontSize: 13, marginBottom: 16, textAlign: 'center' },
   fieldError: { ...TYPOGRAPHY.caption, fontSize: 13, color: COLORS.danger, marginTop: 4 },
   btn:      { marginTop: 8 },

@@ -48,7 +48,9 @@ trip should start, not just judge one already in progress. Call
 your validator also does suspicious-activity detection; when it fires, the
 SDK aborts the session **silently** — no `onTripEnd`, so nothing gets
 persisted as a completed trip — and calls `onFraudDetected` instead (see
-[usage-patterns.md](./usage-patterns.md)).
+[usage-patterns.md](./usage-patterns.md)). The abort also calls your
+validator's `stop()`: the session is over, and a validator left running keeps
+judging the last sample it received after the sensors feeding it have stopped.
 
 ```mermaid
 stateDiagram-v2

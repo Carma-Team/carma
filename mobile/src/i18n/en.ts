@@ -16,6 +16,7 @@ const en: TranslationMap = {
     namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
     citySelectPlaceholder: 'Select city',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
+    regionAck: "I've read and understand: CARMA may only be used within the State of Israel",
     requiredHint: 'Fields marked with * are required',
     forgot: {
       link: 'Forgot password',
@@ -264,6 +265,12 @@ const en: TranslationMap = {
     historyCleared: 'History Cleared',
     historyClearedDesc: 'Trip history has been hidden',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
+  },
+  deviceGate: {
+    regionTitle: 'Not available in your region',
+    regionMessage: 'CARMA is currently available only in Israel.',
+    capabilityTitle: 'Device not supported',
+    capabilityMessage: 'Your device or OS version does not meet CARMA\'s minimum requirements.',
   },
   time: {
     secondsShort: 's', minutesShort: 'm', hoursShort: 'h',
