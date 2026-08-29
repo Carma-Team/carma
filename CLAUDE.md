@@ -1,6 +1,6 @@
 # CARMA — Monorepo Instructions
 
-CARMA is a mobile platform that rates driving behavior in real time to improve road safety through gamification. An npm-workspaces monorepo: a React Native (Expo) client, a FastAPI + PostgreSQL server, and a local mock server for development.
+CARMA is a mobile platform that rates driving behavior in real time to improve road safety through gamification. An npm-workspaces monorepo: a React Native (Expo) client and a FastAPI + PostgreSQL server.
 
 **Guiding principle — keep it simple.** Build what is needed now, never for hypothetical requirements. Before adding a layer, a config flag, or a file, ask whether removing something solves it instead. Readable beats clever. Genuine complexity — sensor fusion, fraud detection, scoring — stays visible and well-named rather than hidden behind indirection. When in doubt, choose the simpler solution.
 
