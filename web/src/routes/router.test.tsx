@@ -5,11 +5,17 @@ import { LanguageProvider } from '@/i18n/LanguageContext';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
 import { authApi, AuthApiError } from '@/lib/auth/authApi';
 import { setSession } from '@/lib/auth/session';
+import { listRewards } from '@/lib/api/rewards';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth/authApi')>();
   return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn() } };
+});
+
+vi.mock('@/lib/api/rewards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/rewards')>();
+  return { ...actual, listRewards: vi.fn() };
 });
 
 const businessUser = {
@@ -24,6 +30,9 @@ const businessUser = {
   businessMembershipRole: null,
   businessMembershipAmbiguous: false,
 };
+
+const ownerUser = { ...businessUser, businessMembershipRole: 'OWNER' as const };
+const cashierUser = { ...businessUser, businessMembershipRole: 'CASHIER' as const };
 
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -40,6 +49,7 @@ describe('routes', () => {
   beforeEach(() => {
     setSession(null);
     vi.mocked(authApi.refresh).mockReset();
+    vi.mocked(listRewards).mockReset();
   });
 
   it('renders the home page inside the shell at / once a restored session bootstraps (default language: Hebrew)', async () => {
@@ -79,11 +89,32 @@ describe('routes', () => {
   it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
 
-    renderAt('/rewards');
+    renderAt('/business-profile');
 
     // Not `getByText` — the sidebar's own disabled nav items carry the same
     // "coming soon" badge copy. The heading is the page-level marker.
     await waitFor(() => expect(screen.getByRole('heading', { name: 'בקרוב' })).toBeInTheDocument());
+  });
+
+  it('renders the real rewards page inside the shell at /rewards for an OWNER (CAR-202)', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+
+    renderAt('/rewards');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הטבות' })).toBeInTheDocument());
+    // Still inside the shell.
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  it('renders an access-restricted state at /rewards for a CASHIER, and never calls the rewards API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/rewards');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'הטבות' })).not.toBeInTheDocument();
+    expect(listRewards).not.toHaveBeenCalled();
   });
 
   it('renders the real redemption page inside the shell at /redemption (CAR-68)', async () => {
