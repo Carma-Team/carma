@@ -25,20 +25,21 @@ reload it or widen `speed_limits._MATCH_RADIUS_M` before touching k.
 from __future__ import annotations
 
 import asyncio
-import os
 import math
+import os
 import sys
 from pathlib import Path
 
-# Settings reads `.env` relative to the working directory, so these scripts run
-# from server/ whatever directory they were invoked from.
-_SERVER = Path(__file__).resolve().parents[1] / "server"
+# Settings reads `.env` relative to the working directory, so this runs from
+# server/ whatever directory it was invoked from.
+_SERVER = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SERVER))
 os.chdir(_SERVER)
 
+from sqlalchemy import text  # noqa: E402
+
 from app.database import SessionLocal  # noqa: E402
 from app.services import speed_limits, telemetry  # noqa: E402
-from sqlalchemy import text  # noqa: E402
 
 _CANDIDATE_K = (0.02, 0.035, 0.05, 0.08, 0.12)
 
@@ -79,7 +80,7 @@ async def main() -> None:
         print(
             "no trips with a usable trace yet - nothing to calibrate against"
             if not trips
-            else "no trip cleared the coverage bar - check the map is loaded (scripts/load_speed_limits.py)"
+            else "no trip cleared the coverage bar - check the map is loaded (server/scripts/load_speed_limits.py)"
         )
         return
 

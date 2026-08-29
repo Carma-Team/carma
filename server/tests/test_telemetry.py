@@ -105,10 +105,11 @@ class TestKinematicDetection:
 
 
 class TestSpeeding:
-    """Speeding is a share of distance measured against the road's posted limit."""
+    """Speeding is a severity-weighted share of distance above the posted limit."""
 
     def test_no_map_falls_back_to_the_national_maximum(self) -> None:
-        # Off the map, only speed beyond 120 + the 10 km/h buffer is charged.
+        # Off the map the limit is 120, and 10% of that is a 12 km/h buffer, so
+        # nothing under 132 is charged.
         assert telemetry.analyze(_cruise(120, 125.0), 120).speeding_ratio == 0.0
         assert telemetry.analyze(_cruise(120, 135.0), 120).speeding_ratio == 1.0
 
@@ -118,11 +119,28 @@ class TestSpeeding:
         trace = _cruise(300, 90.0)
         limits = [50.0] * len(trace)
         assert telemetry.analyze(trace, 300).speeding_ratio == 0.0
-        assert telemetry.analyze(trace, 300, speed_limits=limits).speeding_ratio == 1.0
+        # 40 km/h over is the heaviest band, so the whole trip is charged at 8x.
+        assert telemetry.analyze(trace, 300, speed_limits=limits).speeding_ratio == 8.0
 
     def test_buffer_protects_a_driver_at_the_limit(self) -> None:
-        trace = _cruise(300, 58.0)
-        assert telemetry.analyze(trace, 300, speed_limits=[50.0] * len(trace)).speeding_ratio == 0.0
+        # 10% of 50 is 5, so 54 is inside the buffer and 58 is not. The old flat
+        # 10 km/h buffer let a driver sit at 59 in a 50 zone for free.
+        assert telemetry.analyze(_cruise(300, 54.0), 300, speed_limits=[50.0] * 100).speeding_ratio == 0.0
+        assert telemetry.analyze(_cruise(300, 58.0), 300, speed_limits=[50.0] * 100).speeding_ratio > 0.0
+
+    def test_buffer_scales_with_the_limit(self) -> None:
+        # 8 km/h over is inside the buffer on a 110 road and outside it in town.
+        assert telemetry.analyze(_cruise(300, 118.0), 300, speed_limits=[110.0] * 100).speeding_ratio == 0.0
+        assert telemetry.analyze(_cruise(300, 58.0), 300, speed_limits=[50.0] * 100).speeding_ratio > 0.0
+
+    def test_bands_charge_far_over_more_than_just_over(self) -> None:
+        # Same distance, same road, three depths past the limit.
+        def ratio(speed: float) -> float:
+            return telemetry.analyze(_cruise(300, speed), 300, speed_limits=[80.0] * 100).speeding_ratio
+
+        assert ratio(90.0) == 1.0  # 10 over
+        assert ratio(105.0) == 3.0  # 25 over
+        assert ratio(115.0) == 8.0  # 35 over
 
     def test_ratio_is_the_share_of_distance_not_of_time(self) -> None:
         # Half the trip at 100 in a 50 zone, half at 40. The fast half covers
@@ -130,7 +148,9 @@ class TestSpeeding:
         fast, slow = _cruise(150, 100.0), _cruise(150, 40.0)
         trace = fast + [_wp(150.0 + w["ts"] / 1000.0, w["speedKmh"]) for w in slow]
         ratio = telemetry.analyze(trace, 300, speed_limits=[50.0] * len(trace)).speeding_ratio
-        assert 0.65 < ratio < 0.80
+        # The fast half is 50 over, so it is charged at 8x, and it covers about
+        # 71% of the distance while being only half the time.
+        assert 8 * 0.65 < ratio < 8 * 0.80
 
     def test_a_segment_straddling_two_limits_is_judged_by_the_higher(self) -> None:
         # 85 km/h across a 90-to-50 boundary must not be charged: the driver is
@@ -139,7 +159,8 @@ class TestSpeeding:
         trace = _cruise(120, 85.0)
         limits = [90.0] * (len(trace) // 2) + [50.0] * (len(trace) - len(trace) // 2)
         analysis = telemetry.analyze(trace, 120, speed_limits=limits)
-        assert analysis.speeding_ratio < 0.55
+        # Only the stretch that is unambiguously in the 50 zone may be charged.
+        assert analysis.speeding_ratio < 8 * 0.55
 
     def test_unmapped_trip_loses_the_component_instead_of_banking_it(self) -> None:
         # The CAR-233 failure: a clean dense trace with no map behind it used to
@@ -184,7 +205,7 @@ class TestSpeeding:
         trace = _cruise(120, 90.0)
         trace.insert(10, _wp(10 * 3.0 + 0.01, 90.0))
         limits = [50.0] * len(trace)
-        assert telemetry.analyze(trace, 120, speed_limits=limits).speeding_ratio == 1.0
+        assert telemetry.analyze(trace, 120, speed_limits=limits).speeding_ratio == 8.0
 
 
 class TestConfidence:

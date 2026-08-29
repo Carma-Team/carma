@@ -28,17 +28,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Settings reads `.env` relative to the working directory, so these scripts run
-# from server/ whatever directory they were invoked from. The shapefile argument
-# is resolved against where the user actually stood, not against server/.
+# Settings reads `.env` relative to the working directory, so this runs from
+# server/ whatever directory it was invoked from. The shapefile argument is
+# resolved against where the user actually stood, not against server/.
 _INVOKED_FROM = Path.cwd()
-_SERVER = Path(__file__).resolve().parents[1] / "server"
+_SERVER = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SERVER))
 os.chdir(_SERVER)
 
-from app.database import SessionLocal  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+
+from app.database import SessionLocal  # noqa: E402
 
 # Israel's statutory defaults, mapped onto the road classes Geofabrik emits.
 # Israeli law sets the limit by road category rather than by sign - 50 built-up,
@@ -82,6 +83,15 @@ _CLASS_LIMITS: dict[str, int] = {
 # would invent offences on the road types where speed is legitimately highest.
 _URBAN_DEMOTED = ("secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified")
 _URBAN_LIMIT_KMH = 50
+
+# How much of a road's length must lie inside a built-up area before it counts as
+# an urban road. Mere intersection is too generous: a bypass that clips the
+# corner of a town polygon would be demoted to 50 and then charge a driver doing
+# 75 on it, which is exactly the invented offence this component must not
+# produce. Measured on the Israel extract, intersection demoted 36,317 roads of
+# which 3,616 were not fully inside one. Requiring a majority keeps the roads
+# that genuinely cross a suburb boundary and drops the ones that only graze it.
+_URBAN_MIN_INSIDE = 0.5
 
 # OSM place classes that mean "built-up area" for that rule.
 _BUILT_UP_FCLASS = ("city", "town", "village", "suburb", "neighbourhood", "hamlet")
@@ -158,9 +168,7 @@ async def _apply_urban_limits(db: AsyncSession, areas: list[dict[str, Any]]) -> 
     """Demote the ambiguous road classes to 50 km/h inside a built-up area."""
     if not areas:
         return
-    await db.execute(
-        text("CREATE TEMP TABLE built_up (geom geometry(Geometry, 2039)) ON COMMIT DROP")
-    )
+    await db.execute(text("CREATE TEMP TABLE built_up (geom geometry(Geometry, 2039)) ON COMMIT DROP"))
     await db.execute(
         # ST_SetSRID because GeoJSON without a crs member parses as SRID 0, and
         # ST_Transform on an unknown SRID errors rather than assuming lat/lng.
@@ -176,30 +184,58 @@ async def _apply_urban_limits(db: AsyncSession, areas: list[dict[str, Any]]) -> 
                SET limit_kmh = :urban, limit_source = 'urban'
              WHERE r.limit_source = 'class'
                AND r.fclass = ANY(:classes)
-               AND EXISTS (SELECT 1 FROM built_up b WHERE ST_Intersects(r.geom, b.geom))
+               AND (
+                   SELECT COALESCE(sum(ST_Length(ST_Intersection(r.geom, b.geom))), 0)
+                     FROM built_up b
+                    WHERE ST_Intersects(r.geom, b.geom)
+               ) > ST_Length(r.geom) * :inside_fraction
             """
         ),
-        {"urban": _URBAN_LIMIT_KMH, "classes": list(_URBAN_DEMOTED)},
+        {"urban": _URBAN_LIMIT_KMH, "classes": list(_URBAN_DEMOTED), "inside_fraction": _URBAN_MIN_INSIDE},
     )
     print(f"demoted {result.rowcount:,} roads to {_URBAN_LIMIT_KMH} km/h inside built-up areas")
 
 
-async def _load(rows: list[dict[str, Any]], areas: list[dict[str, Any]]) -> None:
-    insert = text(
-        """
-        INSERT INTO road_segments (osm_id, geom, limit_kmh, limit_source, fclass)
-        VALUES (:osm_id,
-                ST_Transform(ST_GeomFromText(:wkt, 4326), 2039),
-                :limit_kmh, :limit_source, :fclass)
-        """
+async def _copy_rows(db: AsyncSession, rows: list[dict[str, Any]]) -> None:
+    """Stream the roads in with COPY rather than 160 batched INSERTs.
+
+    Over a LAN the difference is minutes; against Azure over the public internet
+    it is the difference between a job that finishes and one that times out,
+    because every INSERT batch pays a full round trip and COPY pays one.
+
+    Geometry goes in as EWKT and is converted by a BEFORE INSERT-free path: the
+    staging table holds text, and the single INSERT..SELECT afterwards does all
+    the projection work server-side, where the coordinates already are.
+    """
+    raw = await db.connection()
+    asyncpg_conn = (await raw.get_raw_connection()).driver_connection
+
+    await db.execute(
+        text("CREATE TEMP TABLE road_import (osm_id bigint, wkt text, limit_kmh int, limit_source text, fclass text)")
     )
+    await asyncpg_conn.copy_records_to_table(
+        "road_import",
+        records=[(r["osm_id"], r["wkt"], r["limit_kmh"], r["limit_source"], r["fclass"]) for r in rows],
+        columns=["osm_id", "wkt", "limit_kmh", "limit_source", "fclass"],
+    )
+    await db.execute(
+        text(
+            """
+            INSERT INTO road_segments (osm_id, geom, limit_kmh, limit_source, fclass)
+            SELECT osm_id, ST_Transform(ST_GeomFromText(wkt, 4326), 2039), limit_kmh, limit_source, fclass
+              FROM road_import
+            """
+        )
+    )
+    await db.execute(text("DROP TABLE road_import"))
+
+
+async def _load(rows: list[dict[str, Any]], areas: list[dict[str, Any]]) -> None:
     async with SessionLocal() as db:
         async with db.begin():
             await db.execute(text("DELETE FROM road_segments"))
-            for start in range(0, len(rows), 2000):
-                await db.execute(insert, rows[start : start + 2000])
-                print(f"  inserted {min(start + 2000, len(rows)):,}/{len(rows):,}", end="\r")
-            print(f"\ninserted {len(rows):,} road segments")
+            await _copy_rows(db, rows)
+            print(f"inserted {len(rows):,} road segments")
             # Inside the same transaction: a half-applied map, where a road's
             # limit depends on whether the loader reached it, is worse than none.
             await _apply_urban_limits(db, areas)

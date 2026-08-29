@@ -120,6 +120,13 @@ class TestResolve:
         # change the answer for any of them.
         assert await speed_limits.resolve(seeded, [_wp(*_ALONE)] * 5) == [50.0] * 5
 
+    async def test_coordinates_outside_israel_resolve_to_unknown(self, seeded: AsyncSession) -> None:
+        # EPSG:2039 does not fail outside its grid, it returns a wrong number.
+        # Athens, Cairo and the North Pole must all come back as "no limit"
+        # rather than as a confident distance to an Israeli road.
+        outside = [_wp(37.98, 23.72), _wp(30.04, 31.23), _wp(90.0, 0.0)]
+        assert await speed_limits.resolve(seeded, outside) == [None, None, None]
+
     async def test_no_trace_is_no_lookup(self, seeded: AsyncSession) -> None:
         assert await speed_limits.resolve(seeded, None) == []
         assert await speed_limits.resolve(seeded, []) == []

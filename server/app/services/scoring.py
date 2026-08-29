@@ -57,13 +57,15 @@ class ScoringConfig:
     # constant has nothing to do with the 0.012 that preceded it - that one
     # priced severity-weighted minutes per 100 km against a flat 130 km/h.
     #
-    # Anchored, not fitted (CAR-102 owns the fit): 1% of distance over the buffer
-    # scores 95, 10% scores 61. The reference point behind those is the UBI
+    # Anchored, not fitted (CAR-102 owns the fit): 1% of distance just over the
+    # buffer scores 95, 10% scores 61. The reference behind those is the UBI
     # literature's average driver, who spends 2.4% of distance above the posted
-    # limit with no buffer at all (Guillen et al., percentile charts for
-    # speeding) - a buffer of 10 km/h removes most of that, so an ordinary
-    # driver should sit in the 90s and the spread should come from the tail.
-    # `scripts/calibrate_speeding.py` is what replaces this with a real number.
+    # limit (Guillen et al., percentile charts for speeding), so an ordinary
+    # driver should land in the 90s and the spread should come from the tail.
+    # `scripts/calibrate_speeding.py` replaces this with a real number, and it
+    # matters more than when this constant was first written: severity bands
+    # multiply the rate by up to 8, so k is doing a far wider job than the two
+    # anchors alone describe.
     k_speed: float = 0.05
     # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
     # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
@@ -141,6 +143,10 @@ class ScoringConfig:
     rolling_month_points_cap: float = 3_000.0
     daily_distance_cap_km: float = 150.0
 
+
+# Ceiling on the severity-weighted speeding ratio, mirroring telemetry's own so
+# this module stays a complete description of the formula on its own.
+MAX_SPEEDING_RATIO = 8.0
 
 CONFIG = ScoringConfig()
 
@@ -228,8 +234,10 @@ def compute_trip_score(
     event contributes weight 1.0, so these equal raw counts. Distance and time
     are the exposure denominators. `driving_min_above_threshold` is distraction's
     own denominator — minutes spent actually driving — and falls back to wall-clock
-    duration when the GPS trace cannot supply it. `speeding_ratio` is the share
-    of judged distance driven above the posted limit plus the buffer, in [0, 1].
+    duration when the GPS trace cannot supply it. `speeding_ratio` is the
+    severity-weighted share of judged distance driven above the posted limit, in
+    [0, MAX_SPEEDING_RATIO]: 1.0 is a whole trip spent just over the buffer, and
+    anything above that is distance spent far over it.
     `has_speed_data` selects the weight set; `rolling_score` is the driver's
     current score, used only to dampen tiny trips.
     """
@@ -250,7 +258,7 @@ def compute_trip_score(
     # twice - and, because a car covers less ground per minute of speeding in a
     # 50 zone than on a motorway, the old per-100 km rate priced identical
     # urban and motorway offences differently.
-    r_speed = 100.0 * _clamp(speeding_ratio, 0.0, 1.0)
+    r_speed = 100.0 * _clamp(speeding_ratio, 0.0, MAX_SPEEDING_RATIO)
 
     sub_brake = _subscore(r_brake, config.k_brake)
     sub_accel = _subscore(r_accel, config.k_accel)

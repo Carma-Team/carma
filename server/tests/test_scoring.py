@@ -13,6 +13,7 @@ from datetime import date, timedelta
 
 from app.services.scoring import (
     CONFIG,
+    MAX_SPEEDING_RATIO,
     TripHistoryPoint,
     compute_driver_score,
     compute_points,
@@ -479,13 +480,21 @@ class TestSpeedingSubscore:
 
         assert sub(6.0, 20.0) == sub(60.0, 40.0)
 
-    def test_ratio_is_clamped_to_a_share(self) -> None:
-        # Whatever the caller does, the rate stays a percentage.
+    def test_ratio_is_clamped_to_the_heaviest_band(self) -> None:
+        # The weighted ratio tops out at the heaviest band's weight, so a caller
+        # cannot drive the subscore below what "every metre at 30+ over" means.
         args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
-        assert compute_trip_score(speeding_ratio=5.0, **args).sub_speeding == (  # type: ignore[arg-type]
-            compute_trip_score(speeding_ratio=1.0, **args).sub_speeding  # type: ignore[arg-type]
+        assert compute_trip_score(speeding_ratio=99.0, **args).sub_speeding == (  # type: ignore[arg-type]
+            compute_trip_score(speeding_ratio=MAX_SPEEDING_RATIO, **args).sub_speeding  # type: ignore[arg-type]
         )
         assert compute_trip_score(speeding_ratio=-1.0, **args).sub_speeding == 100.0  # type: ignore[arg-type]
+
+    def test_a_band_multiplies_what_the_same_distance_costs(self) -> None:
+        # 10% of distance at the mildest band against 10% at the heaviest.
+        args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        mild = compute_trip_score(speeding_ratio=0.10, **args).sub_speeding  # type: ignore[arg-type]
+        gross = compute_trip_score(speeding_ratio=0.80, **args).sub_speeding  # type: ignore[arg-type]
+        assert gross < mild / 2
 
     def test_speeding_moves_the_composite_by_its_weight(self) -> None:
         args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)

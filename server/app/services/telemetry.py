@@ -59,7 +59,25 @@ _DRIVING_MIN_SPEED_KMH = 15.0
 
 # ── Speeding (scoring.md "Speeding") - share of distance above the posted limit ─
 _ASSUMED_LIMIT_KMH = 120.0  # last resort where the map has no road: the national maximum
-_SPEED_BUFFER_KMH = 10.0  # spec's GPS-noise / flow-of-traffic buffer
+
+# The buffer scales with the limit instead of being a flat 10 km/h. Flat, it was
+# 20% of a 50 zone and 9% of a 110 one, so the same allowance meant "well over"
+# in town and "barely moving" on a motorway. The floor of 5 km/h is the margin
+# Israeli traffic cameras subtract from every measured speed, so below it we
+# would be charging for what the enforcement system itself treats as noise.
+_SPEED_BUFFER_MIN_KMH = 5.0
+_SPEED_BUFFER_FRACTION = 0.10
+
+# Severity bands, in km/h over the posted limit (scoring.md "Speeding"). Distance
+# driven in each band is multiplied by its weight, so a kilometre at 95 in a 50
+# zone costs eight times a kilometre at 62. Without them the component charged
+# both the same, which is not what a safety score should say.
+_SPEED_BANDS = ((30.0, 8.0), (20.0, 3.0), (0.0, 1.0))  # (km/h over the limit, weight), highest first
+
+# Ceiling on the severity-weighted ratio, which is otherwise unbounded upward at
+# the top band. Matches the heaviest band, so "every kilometre at 30+ over" is
+# the worst a trip can be, not a number that keeps growing.
+_MAX_SPEEDING_RATIO = 8.0
 # Below this share of judged distance carrying a mapped limit, speeding is not
 # scored at all and its weight is redistributed (scoring.md "Blending the five").
 # The alternative - scoring an unmapped trip against the 120 fallback - is what
@@ -95,7 +113,7 @@ class TelemetryAnalysis:
     hard_brakes: int
     aggressive_accels: int
     sharp_turns: int
-    speeding_ratio: float  # [0, 1] - share of judged distance above the limit + buffer
+    speeding_ratio: float  # [0, 8] - severity-weighted share of judged distance above the limit
     limit_coverage: float  # [0, 1] - share of judged distance with a mapped posted limit
     has_speed_data: bool
     confidence: float  # [0, 1] — how much the trace can prove
@@ -214,6 +232,16 @@ def _segment_limit(prev: _Point, cur: _Point) -> tuple[float, bool]:
     return (max(known), True) if known else (_ASSUMED_LIMIT_KMH, False)
 
 
+def _speed_buffer(limit_kmh: float) -> float:
+    """How far over the limit is not yet speeding, for this limit."""
+    return max(_SPEED_BUFFER_MIN_KMH, limit_kmh * _SPEED_BUFFER_FRACTION)
+
+
+def _band_weight(over_kmh: float) -> float:
+    """Severity weight for driving this far over the posted limit."""
+    return next(weight for floor, weight in _SPEED_BANDS if over_kmh >= floor)
+
+
 def analyze(
     raw_waypoints: list[dict[str, Any]] | None,
     duration_seconds: int,
@@ -275,8 +303,9 @@ def analyze(
         judged_km += seg_km
         if mapped:
             mapped_km += seg_km
-        if mean_kmh > limit + _SPEED_BUFFER_KMH:
-            speeding_km += seg_km
+        over_kmh = mean_kmh - limit
+        if over_kmh > _speed_buffer(limit):
+            speeding_km += seg_km * _band_weight(over_kmh)
 
         accel_ms2 = ((cur.speed_kmh - prev.speed_kmh) / 3.6) / dt
         if accel_ms2 <= -_BRAKE_DECEL_MS2 and prev.speed_kmh >= _KINEMATIC_MIN_SPEED_KMH:
@@ -306,7 +335,7 @@ def analyze(
         prev, cur = pts[i - 1], pts[i]
         dt = cur.ts - prev.ts
         limit, _mapped = _segment_limit(prev, cur)
-        if dt <= _MAX_KINEMATIC_GAP_S and cur.speed_kmh > limit + _SPEED_BUFFER_KMH:
+        if dt <= _MAX_KINEMATIC_GAP_S and cur.speed_kmh - limit > _speed_buffer(limit):
             run_seconds += dt
             # The limit reported on the event is the one at the peak, so the
             # readout a driver sees explains the speed beside it.
@@ -318,7 +347,9 @@ def analyze(
     if run_peak is not None:
         speeding_runs.append((run_peak, run_peak.speed_kmh, run_seconds, run_limit))
 
-    speeding_ratio = speeding_km / judged_km if judged_km > 0 else 0.0
+    # Severity-weighted, so this is a share of distance only when every metre of
+    # it sat in the mildest band; the ceiling is the heaviest band's weight.
+    speeding_ratio = min(speeding_km / judged_km, _MAX_SPEEDING_RATIO) if judged_km > 0 else 0.0
     limit_coverage = mapped_km / judged_km if judged_km > 0 else 0.0
 
     # ── Confidence: how much of the trip the trace covers, and how densely ───────
@@ -379,7 +410,7 @@ def analyze(
                 ts_ms=int(peak.ts * 1000),
                 lat=peak.lat,
                 lng=peak.lng,
-                severity=_severity(peak_speed, limit + _SPEED_BUFFER_KMH, 30.0),
+                severity=_severity(peak_speed, limit + _speed_buffer(limit), 30.0),
                 detail={
                     "peakSpeedKmh": round(peak_speed, 1),
                     "limitKmh": round(limit),

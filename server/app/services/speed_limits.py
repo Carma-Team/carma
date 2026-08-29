@@ -57,6 +57,22 @@ _KNN_CANDIDATES = 6
 # emitting hundreds of near-identical fixes.
 _DEDUPE_DECIMALS = 4
 
+# EPSG:2039's area of use. Outside it `ST_Transform` does not fail, it returns a
+# plausible-looking coordinate that is metres or kilometres wrong, so a driver in
+# another country would be scored against distances that mean nothing. The guard
+# turns that silent wrongness into an honest "limit unknown", which the coverage
+# gate then reads as "do not score speeding on this trip".
+#
+# This is the one place the whole component is pinned to Israel. Widening the
+# product means a projection per region, not a wider box here.
+_ITM_LNG_MIN, _ITM_LNG_MAX = 34.17, 35.69
+_ITM_LAT_MIN, _ITM_LAT_MAX = 29.45, 33.28
+
+
+def _inside_grid(lat: float, lng: float) -> bool:
+    return _ITM_LAT_MIN <= lat <= _ITM_LAT_MAX and _ITM_LNG_MIN <= lng <= _ITM_LNG_MAX
+
+
 _LOOKUP = sa.text(
     """
     SELECT p.idx, c.limit_kmh
@@ -100,8 +116,13 @@ def _coords(raw: list[dict[str, Any]] | None) -> list[tuple[float, float] | None
         except (KeyError, TypeError, ValueError):
             out.append(None)
             continue
-        out.append((lat, lng) if abs(lat) <= 90 and abs(lng) <= 180 else None)
+        out.append((lat, lng) if _inside_grid(lat, lng) else None)
     return out
+
+
+async def loaded_road_count(db: AsyncSession) -> int:
+    """How many roads the map holds. Zero means speeding is not being scored."""
+    return int((await db.execute(sa.text("SELECT count(*) FROM road_segments"))).scalar() or 0)
 
 
 async def resolve(db: AsyncSession, raw_waypoints: list[dict[str, Any]] | None) -> list[float | None]:
