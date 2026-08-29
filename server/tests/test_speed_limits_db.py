@@ -10,8 +10,9 @@ limit" rather than to a wrong one.
 global lookup table, not per-user state, and a real database has the whole
 country loaded into it. An earlier version of this file opened with
 `DELETE FROM road_segments`, which silently wiped a loaded map every time the
-suite ran. The fixtures below are keyed on a reserved `osm_id` range and sit in
-open sea, far from any real road, so they neither destroy nor collide with one.
+suite ran. The fixtures below use negative `osm_id`s, which OSM never issues,
+and sit in open sea far from any real road, so they neither destroy nor collide
+with one.
 """
 
 from __future__ import annotations
@@ -25,8 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import speed_limits
 
-# Reserved for this file. Real OSM way ids are nowhere near it.
-_TEST_OSM_ID_BASE = 990_000_000
+# Negative, because OSM only ever issues positive way ids. A "high" positive
+# base is not reserved at all: this file first used 990,000,000, which sits
+# below the real maximum of 1,553,269,894 and quietly deleted 108,706 real roads
+# on every run. The bug hid because the check for real ids in that range was run
+# after the damage, on the already-truncated table.
+_TEST_OSM_ID_BASE = -990_000_000
 
 # ~45 km off the Tel Aviv coast: inside the EPSG:2039 grid's usable extent, and
 # the nearest real road is tens of kilometres away, so a loaded map cannot
@@ -38,19 +43,19 @@ _LAT = 32.08
 # 4.7 m and 0.0002 deg is about 18.9 m, which straddles the 8 m tie window.
 _SEED = f"""
     INSERT INTO road_segments (osm_id, geom, limit_kmh, limit_source, fclass) VALUES
-    ({_TEST_OSM_ID_BASE + 1},
+    ({_TEST_OSM_ID_BASE - 1},
      ST_Transform(ST_GeomFromText('LINESTRING({_LNG} {_LAT}, {_LNG} {_LAT + 0.01})', 4326), 2039),
      50, 'urban', 'residential'),
-    ({_TEST_OSM_ID_BASE + 2},
+    ({_TEST_OSM_ID_BASE - 2},
      ST_Transform(ST_GeomFromText('LINESTRING({_LNG + 0.00005} {_LAT}, {_LNG + 0.00005} {_LAT + 0.01})', 4326), 2039),
      90, 'tagged', 'primary'),
-    ({_TEST_OSM_ID_BASE + 3},
+    ({_TEST_OSM_ID_BASE - 3},
      ST_Transform(ST_GeomFromText('LINESTRING({_LNG + 0.1} {_LAT}, {_LNG + 0.1} {_LAT + 0.01})', 4326), 2039),
      50, 'urban', 'residential'),
-    ({_TEST_OSM_ID_BASE + 4},
+    ({_TEST_OSM_ID_BASE - 4},
      ST_Transform(ST_GeomFromText('LINESTRING({_LNG - 0.1} {_LAT}, {_LNG - 0.1} {_LAT + 0.01})', 4326), 2039),
      50, 'urban', 'tertiary'),
-    ({_TEST_OSM_ID_BASE + 5},
+    ({_TEST_OSM_ID_BASE - 5},
      ST_Transform(ST_GeomFromText('LINESTRING({_LNG - 0.0998} {_LAT}, {_LNG - 0.0998} {_LAT + 0.01})', 4326), 2039),
      90, 'class', 'primary')
 """
@@ -70,8 +75,11 @@ def _wp(lat: float | None = None, lng: float | None = None) -> dict[str, Any]:
 
 @pytest.fixture
 async def seeded(db_session: AsyncSession) -> AsyncIterator[AsyncSession]:
-    """Five known roads in open water, removed again afterwards by id."""
-    clean = text("DELETE FROM road_segments WHERE osm_id >= :base").bindparams(base=_TEST_OSM_ID_BASE)
+    """Five known roads in open water, removed again afterwards by id.
+
+    Deletes only negative ids, so a loaded country is never touched.
+    """
+    clean = text("DELETE FROM road_segments WHERE osm_id < 0")
     await db_session.execute(clean)
     await db_session.execute(text(_SEED))
     await db_session.commit()
