@@ -2,17 +2,20 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
 import { HomePage } from '@/pages/HomePage';
 import { RedemptionPage } from '@/pages/RedemptionPage';
+import { RewardsPage } from '@/pages/RewardsPage';
 import { ComingSoonPage } from '@/pages/ComingSoonPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
 import { ProtectedRoute } from './ProtectedRoute';
+import { RequireBusinessRole } from './RequireBusinessRole';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
 // unknown path still renders inside the sidebar/header chrome, not a blank
-// page. /rewards and /business-profile render ComingSoonPage until their own
-// tickets (CAR-202, business profile) land; /redemption is CAR-68.
+// page. /business-profile renders ComingSoonPage until its own ticket lands;
+// /redemption is CAR-68, /rewards is CAR-202 (OWNER/MANAGER only — CASHIER
+// gets RequireBusinessRole's access-restricted state instead of the page).
 // /register and /register/status (CAR-203) sit outside ProtectedRoute like
 // /sign-in — the one part of this app that must work with no session at all.
 export const routes: RouteObject[] = [
@@ -27,7 +30,10 @@ export const routes: RouteObject[] = [
         children: [
           { path: '/', element: <HomePage /> },
           { path: '/redemption', element: <RedemptionPage /> },
-          { path: '/rewards', element: <ComingSoonPage /> },
+          {
+            element: <RequireBusinessRole allow={['OWNER', 'MANAGER']} />,
+            children: [{ path: '/rewards', element: <RewardsPage /> }],
+          },
           { path: '/business-profile', element: <ComingSoonPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],

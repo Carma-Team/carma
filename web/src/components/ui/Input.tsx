@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes } from 'react';
 import styles from './Input.module.css';
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
@@ -6,7 +6,13 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   error?: string;
 };
 
-export function Input({ label, error, id, className, ...props }: InputProps) {
+// forwardRef so a caller can move focus to the underlying <input> — e.g.
+// CAR-202's reward form, which focuses the first invalid field after a
+// failed submit (see RewardForm.tsx). Every other prop is unchanged.
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, error, id, className, ...props },
+  ref,
+) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const errorId = `${inputId}-error`;
@@ -19,6 +25,7 @@ export function Input({ label, error, id, className, ...props }: InputProps) {
         </label>
       )}
       <input
+        ref={ref}
         id={inputId}
         className={[styles.input, error && styles.inputError, className].filter(Boolean).join(' ')}
         aria-invalid={Boolean(error)}
@@ -32,4 +39,4 @@ export function Input({ label, error, id, className, ...props }: InputProps) {
       )}
     </div>
   );
-}
+});
