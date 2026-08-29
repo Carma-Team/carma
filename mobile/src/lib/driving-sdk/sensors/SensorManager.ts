@@ -126,6 +126,12 @@ export class SensorManager {
   private lastValidSpeedAtMs = 0; // GPS fix timestamp lastValidSpeedMs was captured at — decays it back to 0 if stale (STALE_SPEED_MS)
   private speedTicker: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
+  // Generation token for start(). isRunning is one boolean shared by every call, so it
+  // cannot tell "stopped" from "stopped and started again": a start() parked on an await
+  // would resume into a *newer* run and register a second set of listeners, which stop()
+  // never removes. Monotonic on purpose — resetting it would let an old run's token match
+  // a new run's and bring the leak straight back.
+  private runId = 0;
   private accelAvailable = false;
   private gyroAvailable = false;
   // Wall-clock timestamp of the last delivered sample per sensor — SENSOR_STALE_MS
@@ -191,6 +197,7 @@ export class SensorManager {
   public async start() {
     if (this.isRunning) return;
     this.isRunning = true;
+    const run = ++this.runId;
     this.gravity = { x: 0, y: 0, z: 1 };
     this.lastValidSpeedMs = 0;
     this.lastValidSpeedAtMs = 0;
@@ -216,6 +223,11 @@ export class SensorManager {
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      // CAR-177: stop() — or a stop() followed by a fresh start() — may have already
+      // run while we were awaiting the dialog above (e.g. a Bluetooth disconnect).
+      // Every await past this point re-checks that this run is still the current one
+      // before doing anything that leaves a subscription or background task running.
+      if (run !== this.runId) return;
       if (status === 'granted') {
         // Best-effort background permission so distance keeps counting when the
         // phone is locked / app is backgrounded. Foreground still works if denied —
@@ -227,6 +239,7 @@ export class SensorManager {
         } catch {
           this.backgroundLocationAvailable = false;
         }
+        if (run !== this.runId) return;
 
         // Feed every location (foreground AND background, via the TaskManager task)
         // through the same accumulation path. High accuracy = GPS only, avoiding
@@ -237,6 +250,13 @@ export class SensorManager {
           .catch(() => false);
         if (alreadyStarted) {
           await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+        }
+        if (run !== this.runId) {
+          // Detach only when nothing newer is live: if a fresh start() is already
+          // running, the handler on record is *its* handler, and clearing it here
+          // would blind the trip that is actually in progress.
+          if (!this.isRunning) setLocationHandler(null);
+          return;
         }
         // #17: cloud data shows some devices deliver these ticks at a ~6s median
         // with >15s gaps instead of the requested 2s — timeInterval/distanceInterval
@@ -263,18 +283,31 @@ export class SensorManager {
             notificationBody: 'Tracking your route and distance',
           },
         });
+        if (run !== this.runId) {
+          // Started after the fact. Undo it only when nothing newer is live: stop()
+          // already ran and won't come back to clean this up, so we do it ourselves —
+          // but a newer run shares this one background task, and stopping it here
+          // would kill location tracking for the trip that is actually in progress.
+          if (!this.isRunning) {
+            setLocationHandler(null);
+            await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+          }
+          return;
+        }
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
     } catch (err) {
       console.error('[SensorManager] Error starting location:', err);
     }
+    if (run !== this.runId) return;
 
     // Deliberately its own try: a location failure above must not skip IMU
     // registration, and a gyroscope failure below must not misattribute itself
     // to the accelerometer via a shared catch — each sensor fails independently.
     try {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
+      if (run !== this.runId) return;
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
         // Grace period: a sensor subscribed a moment ago isn't stale yet even
@@ -287,9 +320,11 @@ export class SensorManager {
       this.accelAvailable = false;
       this.accelInitFailed = true;
     }
+    if (run !== this.runId) return;
 
     try {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
+      if (run !== this.runId) return;
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
         this.lastGyroSampleAtMs = Date.now(); // grace period, see accel above
@@ -307,6 +342,9 @@ export class SensorManager {
   public stop() {
     if (!this.isRunning) return;
     this.isRunning = false;
+    // Retires the current run: any start() still parked on an await now holds a stale
+    // token and will bail at its next guard instead of resuming into this stopped state.
+    this.runId++;
     if (this.speedTicker) {
       clearInterval(this.speedTicker);
       this.speedTicker = null;
