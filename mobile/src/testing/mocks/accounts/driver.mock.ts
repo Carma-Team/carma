@@ -24,6 +24,7 @@ const user: AppUser = {
   level: 10,
   isPrivate: false,
   driveModeEnabled: false,
+  businessMembershipAmbiguous: false,
   createdAt: new Date().toISOString(),
 };
 

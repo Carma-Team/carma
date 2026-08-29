@@ -21,6 +21,8 @@ const USER: AuthUser = {
   businessCategory: 'FOOD',
   businessName: 'Aroma',
   businessNameHe: null,
+  businessMembershipRole: null,
+  businessMembershipAmbiguous: false,
 };
 
 function Probe() {
