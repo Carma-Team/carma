@@ -164,6 +164,12 @@ export interface SensorUpdate {
   // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
   accelAvailable: boolean;
   gyroAvailable: boolean;
+  // Fraction (0–1) of the measured window in which the accelerometer actually
+  // delivered samples. `accelAvailable` answers "right now" and latches over a trip,
+  // which cannot separate a sensor that quit halfway from one that never started —
+  // this can. 0 with accelAvailable false is "never delivered anything"; a value
+  // strictly between 0 and 1 is an outage the trip lived through.
+  accelCoverage: number;
   // Whether accelerometer *registration* itself threw — distinct from
   // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
   // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
@@ -196,6 +202,9 @@ export interface TripData {
                                     // (per-second samples arrive via onInteractionData)
   accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
                              // why — see accelInitFailed
+  accelCoverage: number;     // 0–1 share of the trip the accelerometer actually delivered
+                             // samples for. The three fields answer different questions:
+                             // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
 

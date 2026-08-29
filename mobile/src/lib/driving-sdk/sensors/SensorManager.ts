@@ -132,6 +132,11 @@ export class SensorManager {
   // turns "was available at start()" into "is available right now" (§3.1).
   private lastAccelSampleAtMs = 0;
   private lastGyroSampleAtMs = 0;
+  // Coverage accounting: wall-clock milliseconds the accelerometer actually delivered
+  // samples for, against the wall clock it was asked to. A single boolean cannot
+  // separate a sensor that died halfway from one that never started; the ratio can.
+  private coverageWindowStartMs = 0;
+  private accelLiveMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
@@ -200,6 +205,7 @@ export class SensorManager {
     this.gyroAvailable  = false;
     this.lastAccelSampleAtMs = 0;
     this.lastGyroSampleAtMs  = 0;
+    this.resetSensorCoverage();
     this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
@@ -384,6 +390,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
@@ -412,6 +419,29 @@ export class SensorManager {
   }
 
   /**
+   * Restarts the coverage window without touching the subscriptions. A consumer that
+   * keeps sensors running across a phase boundary — validation into a confirmed trip —
+   * calls this so the fraction it later reads describes that phase and not the wait
+   * before it. `start()` calls it too, so the common case needs nothing.
+   */
+  public resetSensorCoverage(): void {
+    this.coverageWindowStartMs = Date.now();
+    this.accelLiveMs = 0;
+  }
+
+  /**
+   * Fraction of the current window (0–1) during which the accelerometer was
+   * delivering samples. 0 means it never delivered one — the same value a device
+   * with no accelerometer reports, which `accelAvailable`/`accelInitFailed` are
+   * there to tell apart. Anything between 0 and 1 is a sensor that stopped partway.
+   */
+  private accelCoverage(): number {
+    const windowMs = Date.now() - this.coverageWindowStartMs;
+    if (windowMs <= 0) return 0;
+    return Math.min(1, this.accelLiveMs / windowMs);
+  }
+
+  /**
    * Speed-only update, emitted when the GPS stream has gone quiet long enough for the
    * held speed to expire. Not routed through handleLocation on purpose: there is no
    * new position, so there is no distance, no waypoint and no motion-event evaluation
@@ -427,6 +457,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
@@ -512,7 +543,15 @@ export class SensorManager {
 
     this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
     this.onAccelSample?.(data); // raw, pre-gravity-removal — see onAccelSample doc
-    this.lastAccelSampleAtMs = Date.now();
+
+    // Credit the span since the previous sample, but only if the sensor was still
+    // considered live across it. A gap wider than SENSOR_STALE_MS is exactly the
+    // stretch this metric exists to subtract — crediting it would erase the outage
+    // the moment the sensor came back.
+    const sampleAtMs = Date.now();
+    const gapMs = sampleAtMs - this.lastAccelSampleAtMs;
+    if (this.lastAccelSampleAtMs !== 0 && gapMs < SENSOR_STALE_MS) this.accelLiveMs += gapMs;
+    this.lastAccelSampleAtMs = sampleAtMs;
 
     // Step 3: orientation-invariant horizontal magnitude.
     // Project out the component along gravity (vertical); what remains is horizontal,

@@ -170,8 +170,15 @@ function buildTelemetryDigest(
   endTime: string,
   // Read from TripData (via lastTripDataRef at the call site), not TripState — accel
   // health is SDK trip data, not part of the reducer-shaped trip state (CAR-189).
-  accelAvailable: boolean,
-  accelInitFailed: boolean,
+  //
+  // Optional on purpose: a trip that ended with no SDK data at all knows nothing about
+  // the accelerometer, and `undefined` is that. Defaulting to `false` here turned that
+  // silence into the claim "the sensor was not live", which is the one thing the field
+  // must never say on its own — and it disagreed with the top-level payload, which
+  // sends the same values with no default at all.
+  accelAvailable: boolean | undefined,
+  accelInitFailed: boolean | undefined,
+  accelCoverage: number | undefined,
 ): TelemetryDigest {
   return {
     distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
@@ -186,6 +193,7 @@ function buildTelemetryDigest(
     timestamp:                Date.now(),
     accelAvailable,
     accelInitFailed,
+    accelCoverage,
   };
 }
 
@@ -330,8 +338,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       telemetryDigest  = buildTelemetryDigest(
         finalState, tripStartTime, endTime,
-        lastTripDataRef.current?.accelAvailable ?? false,
-        lastTripDataRef.current?.accelInitFailed ?? false,
+        lastTripDataRef.current?.accelAvailable,
+        lastTripDataRef.current?.accelInitFailed,
+        lastTripDataRef.current?.accelCoverage,
       );
       payloadSignature = signTelemetryDigest(telemetryDigest);
     } catch (sigErr) {
@@ -354,6 +363,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       penalties: 0,         // server computes — placeholder only
       accelAvailable: lastTripDataRef.current?.accelAvailable,
       accelInitFailed: lastTripDataRef.current?.accelInitFailed,
+      accelCoverage: lastTripDataRef.current?.accelCoverage,
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,

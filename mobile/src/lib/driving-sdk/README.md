@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-28**
+**Last updated: 2026-08-29**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -331,6 +331,7 @@ interface TripData {
   touchEpochs:            number;           // glass-tap proxy count (IMU)
   screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
   accelAvailable:         boolean;          // ever confirmed live this trip; false alone says nothing about why — see accelInitFailed
+  accelCoverage:          number;           // 0–1 share of the trip the accelerometer actually delivered samples for
   accelInitFailed:        boolean;          // true only if accelerometer registration itself threw
 }
 ```
