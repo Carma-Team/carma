@@ -278,16 +278,17 @@ def compute_trip_score(
     # the exact counterfactual the composite implies, since perfecting one
     # behaviour raises the score by precisely that amount. Candidate order
     # above is fixed, descending weight, so a tie resolves to the
-    # higher-weighted behaviour. A winner scoring above 90 (or every loss at
-    # zero) means there is nothing worth naming.
+    # higher-weighted behaviour. A trip where every candidate's subscore is
+    # above 90 (or every loss is zero) means there is nothing worth naming.
     weakest_factor: WeakestFactor | None = None
-    weakest_subscore = 0.0
     best_loss = 0.0
+    min_subscore = 100.0
     for name, subscore, weight in weighted_candidates:
+        min_subscore = min(min_subscore, subscore)
         loss = weight * (100.0 - subscore)
         if loss > best_loss:
-            weakest_factor, weakest_subscore, best_loss = name, subscore, loss
-    if weakest_factor is not None and weakest_subscore > 90.0:
+            weakest_factor, best_loss = name, loss
+    if weakest_factor is not None and min_subscore > 90.0:
         weakest_factor = None
 
     # Too little exposure to judge — blend 50/50 with the driver's standing.

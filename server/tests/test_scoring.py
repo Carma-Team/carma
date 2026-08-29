@@ -184,6 +184,40 @@ class TestWeakestFactor:
         assert r.sub_acceleration < r.sub_braking
         assert r.weakest_factor == "braking"
 
+    def test_winner_above_90_not_suppressed_when_loser_below_90(self) -> None:
+        # 5 sharp turns / 20km / 30min: cornering subscore ~74.1 (below 90, loss ~2.59).
+        # 14s phone handling / 30min: distraction subscore ~90.7 (above 90, loss ~2.79).
+        # Distraction's weighted loss is larger so it is the winner, but because
+        # cornering sits below 90, the trip is not clean and weakest_factor must
+        # not be suppressed to None.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=5,
+            w_distraction=14,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_distraction > 90.0
+        assert r.sub_cornering < 90.0
+        assert r.weakest_factor == "distraction"
+
+    def test_all_subscores_above_90_suppresses_weakest_factor(self) -> None:
+        # Minor handling: distraction subscore ~96.5 (> 90), all others 100.
+        # Every candidate is > 90, so naming is suppressed.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=5,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_distraction > 90.0
+        assert r.weakest_factor is None
+
 
 # ─── driver score ───────────────────────────────────────────────────────────────
 
