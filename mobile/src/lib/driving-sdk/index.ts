@@ -24,7 +24,7 @@ import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
   SensorEventCondition, SensorEventHandler, ListenerToken,
-  TripValidator, SuspiciousActivityEvaluation, SensorUpdate,
+  TripValidator, SuspiciousActivityEvaluation, SensorUpdate, RawExportFailure,
 } from '@/lib/driving-sdk/types';
 
 // The server re-detects a brake as the average deceleration between two consecutive
@@ -522,8 +522,13 @@ export class DrivingSDK {
   }
 
   /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
-  public async exportRawRecording(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
+  public async exportRawRecording(): Promise<string | RawExportFailure> {
     return this.rawRecorder.exportAsync();
+  }
+
+  /** Completed recordings on disk, newest first — including sessions from earlier app runs. */
+  public listRawRecordings(): string[] {
+    return this.rawRecorder.listRecordings();
   }
 }
 

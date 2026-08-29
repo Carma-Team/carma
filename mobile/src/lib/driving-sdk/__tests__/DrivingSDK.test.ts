@@ -83,6 +83,7 @@ jest.mock('@/lib/driving-sdk/sensors/RawSampleRecorder', () => ({
     pushGyroSample(...args: any[]) { return mockRawPushGyro(...args); }
     pushLocationSample(...args: any[]) { return mockRawPushLocation(...args); }
     exportAsync() { return mockRawExport(); }
+    listRecordings() { return []; }
   },
 }));
 

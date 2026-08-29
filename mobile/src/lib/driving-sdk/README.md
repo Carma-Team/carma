@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-28**
+**Last updated: 2026-08-29**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -308,9 +308,15 @@ need.
 
 | Method | Description |
 |---|---|
-| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/GPS stream, tagged with caller-supplied labels |
-| `stopRawRecording()` | Stops and flushes the session to an NDJSON file under app storage |
-| `exportRawRecording()` | Shares the last completed recording via the OS share sheet; `{ error: 'none-recorded' \| 'sharing-unavailable' }` on failure |
+| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/GPS stream, tagged with caller-supplied labels. Called while a session is already running, it leaves that session alone |
+| `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage |
+| `exportRawRecording()` | Shares the most recent recording via the OS share sheet, falling back to the newest file on disk when none was made in this app run; `RawExportFailure` on failure |
+| `listRawRecordings()` | Every recording on disk, newest first — including sessions from earlier app runs |
+
+Samples reach the file **while the session is still running**, roughly once a minute,
+so an app kill costs the last interval rather than the whole session. One session is
+capped at 200 000 samples (~2.7 h), and the five newest recordings are kept — starting
+a session deletes the rest.
 
 ---
 
