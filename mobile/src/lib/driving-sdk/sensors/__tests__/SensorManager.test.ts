@@ -365,6 +365,38 @@ describe('SensorManager', () => {
     expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 
+  // A backwards clock step (NTP correction mid-trip) is not the duplicate burst the
+  // 500 ms filter exists for. Dropping it would strand lastLocation on the pre-step
+  // stamp, so every later fix reads as a duplicate too — the cost is the rest of the
+  // trip, not one fix.
+  it('re-anchors on a backwards clock step and keeps collecting after it', () => {
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 20 });
+    onUpdate.mockClear();
+
+    sendFix({ t: -1000, speed: 20 }); // clock steps 3s back
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    // Re-anchored, so nothing is measured across the step itself.
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ distanceKm: 0 }));
+
+    sendFix({ t: 1000, speed: 20, lat: 32.0953 }); // ~1.1 km on from the fixture
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+    expect(onUpdate.mock.calls[1][0].distanceKm).toBeGreaterThan(0);
+  });
+
+  // The staleness anchor is stamped from fix time, so it has to move with the clock
+  // too — left in the future it never expires, and the speed decay stops working.
+  it('decays the held speed on the new clock after a backwards step', () => {
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: -3_600_000, speed: null }); // an hour back, speed lock lost with it
+    onUpdate.mockClear();
+
+    // 11s past the step on the clock the fixes now arrive on — past STALE_SPEED_MS.
+    sendFix({ t: -3_600_000 + 11_000, speed: null });
+
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ currentSpeed: 0 }));
+  });
+
   it('holds the last known speed through an unavailable reading instead of reporting 0', () => {
     sendFix({ t: 0, speed: 20 });
     onUpdate.mockClear();

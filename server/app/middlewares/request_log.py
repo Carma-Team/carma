@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.logging import user_id_ctx
+from app.core.logging import redact_path, user_id_ctx
 
 log = logging.getLogger("carma.http")
 
@@ -34,7 +34,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                 extra={
                     "event": "http.request",
                     "method": request.method,
-                    "path": path,
+                    "path": redact_path(path),
                     "status": status,
                     "duration_ms": duration_ms,
                     "user_id": user_id_ctx.get() or "-",

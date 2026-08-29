@@ -33,6 +33,26 @@ def _parse_category(value: str) -> BusinessCategory:
     return category
 
 
+async def list_memberships(db: AsyncSession, user_id: str) -> list[BusinessMembership]:
+    """Every `business_memberships` row for this user, business eager-loaded.
+
+    The one query definition for "what does this account belong to" — both
+    `core.deps.current_business` (authorization: fails closed on zero/many)
+    and `services.users.profile_out` (the read-only session/profile contract,
+    CAR-258: flags many rather than failing) resolve off this, so the two can
+    never read the table differently.
+    """
+    return list(
+        (
+            await db.scalars(
+                select(BusinessMembership)
+                .where(BusinessMembership.user_id == user_id)
+                .options(selectinload(BusinessMembership.business))
+            )
+        ).all()
+    )
+
+
 async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: str) -> None:
     """Grant OWNER access to a business's owner, if it does not already exist.
 

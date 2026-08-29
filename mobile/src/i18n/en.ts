@@ -202,6 +202,7 @@ const en: TranslationMap = {
     inactive: 'Inactive',
     enable: 'Enable',
     disable: 'Disable',
+    driveModeFailed: 'Could not update drive mode. Please try again.',
     selectDevice: 'Select Bluetooth Device...',
     dataManagement: 'Data Management',
     clearHistory: 'Reset Trip History',

@@ -29,7 +29,7 @@ const REDEEM_ERROR_KEYS: Record<string, string> = {
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
-  const { user, setUser, addToast } = useApp()
+  const { user, patchUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
   const [category, setCategory] = useState('all')
@@ -100,11 +100,10 @@ export default function MarketplaceScreen() {
       setVouchers(prev => [data.voucher, ...prev])
       // Issuing a voucher no longer spends the points, it holds them (CAR-73).
       // The total stays put; only the split between available and reserved moves.
-      await setUser({
-        ...user,
-        availablePoints: availableBalance(user) - selectedReward.costPoints,
-        reservedPoints: (user.reservedPoints || 0) + selectedReward.costPoints,
-      })
+      patchUser(prev => ({
+        availablePoints: availableBalance(prev) - selectedReward.costPoints,
+        reservedPoints: (prev.reservedPoints || 0) + selectedReward.costPoints,
+      }))
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
     } catch (e) {
@@ -135,11 +134,10 @@ export default function MarketplaceScreen() {
       await rewardsApi.cancel(voucher.id)
       setVouchers(prev => prev.filter(v => v.id !== voucher.id))
       // Mirror of the redemption: the points the voucher held go back to spendable.
-      await setUser({
-        ...user,
-        availablePoints: availableBalance(user) + voucher.pointsCost,
-        reservedPoints: Math.max(0, (user.reservedPoints || 0) - voucher.pointsCost),
-      })
+      patchUser(prev => ({
+        availablePoints: availableBalance(prev) + voucher.pointsCost,
+        reservedPoints: Math.max(0, (prev.reservedPoints || 0) - voucher.pointsCost),
+      }))
       setSelectedVoucher(null)
       addToast({ type: 'success', message: t('marketplace.voucher.cancelSuccess') })
     } catch {

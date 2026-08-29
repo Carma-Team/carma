@@ -53,13 +53,6 @@ export function useScoringEvents(
           eventCounts: { ...prev.eventCounts, SHARP_TURN: prev.eventCounts.SHARP_TURN + 1 },
         }));
       }),
-      // EVT_SWERVE disabled — uncomment when re-enabling detection + UI display
-      // sdk.on(DrivingEventType.SWERVE, { minSpeedKmh: 15 }, () => {
-      //   setTripState(prev => ({
-      //     ...prev,
-      //     eventCounts: { ...prev.eventCounts, SWERVE: prev.eventCounts.SWERVE + 1 },
-      //   }));
-      // }),
       // PHONE_USAGE has no listener here — "phone touches" for scoring/display comes
       // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
       // event count. See #43.

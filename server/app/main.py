@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core.limiter import limiter
+from app.core.logging import redact_path
 from app.middlewares.rate_limit import DefaultRateLimitMiddleware, rate_limit_handler
 from app.middlewares.request_id import RequestIdMiddleware
 from app.middlewares.request_log import RequestLogMiddleware
@@ -24,6 +25,7 @@ from app.routers import (
     admin_business_requests,
     auth,
     business,
+    business_invitations,
     business_join_requests,
     fraud,
     friends,
@@ -85,10 +87,14 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logging.getLogger(__name__).exception("%s %s", request.method, request.url.path)
+    # Redacted before it ever reaches the logger or the response — CAR-76's
+    # invitation token lives in the path itself, so logging or echoing the raw
+    # path back would leak it into logs and to whoever triggered the 500.
+    path = redact_path(request.url.path)
+    logging.getLogger(__name__).exception("%s %s", request.method, path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error", "path": request.url.path},
+        content={"detail": "Internal server error", "path": path},
     )
 
 
@@ -101,6 +107,8 @@ app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(business.router)
+app.include_router(business_invitations.router)
+app.include_router(business_invitations.redeem_router)
 app.include_router(business_join_requests.router)
 app.include_router(admin_business_requests.router)
 app.include_router(leaderboard.router)
