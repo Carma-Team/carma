@@ -94,6 +94,8 @@ describe('verifyOtp', () => {
     businessCategory: null,
     businessName: null,
     businessNameHe: null,
+    businessMembershipRole: null,
+    businessMembershipAmbiguous: false,
   };
 
   it('resolves with the access token and user on a correct code', async () => {

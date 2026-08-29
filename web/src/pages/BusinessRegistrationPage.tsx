@@ -3,12 +3,8 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { startPhoneVerification, verifyOtp } from '@/lib/auth/otpApi';
 import { geocodeAddress } from '@/lib/api/geocoding';
-import {
-  submitJoinRequest,
-  BUSINESS_CATEGORIES,
-  type BusinessCategory,
-  type JoinRequestPayload,
-} from '@/lib/api/businessRegistration';
+import { submitJoinRequest, type JoinRequestPayload } from '@/lib/api/businessRegistration';
+import { BUSINESS_CATEGORIES, type BusinessCategory } from '@/lib/businessCategory';
 import { LocationConfirmMap } from '@/components/business/LocationConfirmMap';
 import { Card, Heading, Text, Button, Input, ErrorState, LoadingState } from '@/components/ui';
 import inputStyles from '@/components/ui/Input.module.css';

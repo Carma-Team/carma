@@ -16,6 +16,8 @@ const USER: AuthUser = {
   businessCategory: null,
   businessName: null,
   businessNameHe: null,
+  businessMembershipRole: null,
+  businessMembershipAmbiguous: false,
 };
 
 const REWARD = {

@@ -75,6 +75,7 @@ it, never the other way round.
 | `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy. Reports tap count and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
 | `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
 | `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
+| `DeviceCapabilities.ts` | One-shot startup probe of what the device can actually do: which motion sensors it exposes, and whether its OS meets the floor recorded in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds and stops there — whether a missing sensor blocks the user is a host-app decision. |
 
 ---
 

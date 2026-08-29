@@ -88,6 +88,8 @@ export class DrivingSDK {
   public onInteractionData?: (data: InteractionData) => void;
   // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
+  // CAR-23: fires when a trip is silently rejected for starting outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Conditional sensor event subscription API ───────────────────────────────
 
@@ -158,6 +160,7 @@ export class DrivingSDK {
     this.validationManager.onTripEnded = () => this.stopTrip();
     this.validationManager.onFraudSuspected = (evaluation) =>
       this.handleFraud(evaluation);
+    this.validationManager.onRegionRejected = () => this.handleRegionRejected();
 
     if (this.config.targetBluetoothId) {
       this.btManager.setTargetDevice(this.config.targetBluetoothId);
@@ -299,26 +302,31 @@ export class DrivingSDK {
 
   // --- Fraud Handling ---
 
+  // Teardown shared by the two silent aborts (fraud, region): same shape as stopTrip()
+  // minus the trip payload, since neither fires onTripEnd and neither has anything to
+  // persist. Stopping the validator is the part that is easy to forget and expensive to
+  // miss — its 1 Hz ticker outlives the session otherwise, and start() early-returns
+  // while that ticker is alive, so the next trip inherits this one's state.
+  private abortSession(): void {
+    this.isValidating = false;
+    this.isTripActive = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.validationManager.stop();
+    this.currentTripData = null;
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopTrip().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
+    this.phoneManager.stop();
+  }
+
   private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
-    // Same reason stopTrip() stops it, and this path is where it matters most: the
-    // call arrives from inside the validator, which has no way to know the session is
-    // over. Left running, its ticker survives the abort and start() early-returns on
-    // a live ticker, so the next session inherits this one's state.
-    this.validationManager.stop();
-    this.isValidating = false;
 
     // Read before the abort clears it below — undefined here means the pre-trip gate
     // caught the session, and stays undefined all the way to the server.
     const distanceKm = this.currentTripData?.distanceKm;
 
-    // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
-    this.isTripActive = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    this.currentTripData = null;
-    // Same raw-recording guard as stopTrip() — a staged session may still be running.
-    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
-    this.phoneManager.stop();
+    this.abortSession();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
     const event: FraudDetectedEvent = {
@@ -331,6 +339,14 @@ export class DrivingSDK {
       distanceKm,
     };
     this.onFraudDetected?.(event);
+  }
+
+  // CAR-23: no event payload, since there's nothing to report and no server call for
+  // a region rejection.
+  private handleRegionRejected(): void {
+    console.log('[SDK] Region check failed — aborting session');
+    this.abortSession();
+    this.onRegionRejected?.();
   }
 
   // --- Internal Handlers ---
@@ -415,6 +431,8 @@ export class DrivingSDK {
       timestamp: Date.now(),
       accel: { x: update.accelX, y: 0, z: 0 },
       gyroYaw: update.gyroZ,
+      lat: update.lat,
+      lng: update.lng,
       accelAvailable: update.accelAvailable,
       gyroAvailable: update.gyroAvailable,
       backgroundLocationAvailable: update.backgroundLocationAvailable,

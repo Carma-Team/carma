@@ -10,6 +10,7 @@
  */
 import { ValidationState, TransportMode, ValidationSample, SuspiciousActivityEvaluation, TripValidator, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
 import { FraudDetector, FRAUD_SCORE_THRESHOLD, FraudEvaluation } from '@/lib/FraudDetector';
+import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
 const SPEED_THRESHOLD_KMH    = 10;
@@ -34,7 +35,13 @@ export class TripValidationManager implements TripValidator {
   // no new verdict may be reached — otherwise a rejection drops the state machine back to
   // IDLE while the train is still moving, the window refills, and the same journey files a
   // report every 30 s for its whole duration (§3.6). Cleared only by a genuine stop.
+  // It also replaces the older fraudSuspectedFired: suppression already blocks the
+  // mid-trip path through isClassifying(), so a second once-per-session flag had nothing
+  // left to guard.
   private fraudClassificationSuppressed = false;
+  // Region is checked once per trip, off the first sample that carries a fix. The
+  // answer can't change mid-trip in a way CARMA needs to react to twice.
+  private regionChecked        = false;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
   public onTripConfirmed?: () => void;
@@ -44,6 +51,8 @@ export class TripValidationManager implements TripValidator {
   // driving-sdk's generic SuspiciousActivityEvaluation (TripValidator interface) —
   // the FraudEvaluation this class actually passes is a superset, so it satisfies it.
   public onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  // CAR-23: fires when the first GPS fix of a trip is outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -75,6 +84,17 @@ export class TripValidationManager implements TripValidator {
     }
     if (sample.gyroYaw !== undefined) {
       this.latestGyroZ = sample.gyroYaw;
+    }
+    // CAR-23: fired once, off the first fix. Synchronous, so there is no window in
+    // which the answer lands after the session it belongs to has already stopped.
+    if (!this.regionChecked && sample.lat !== undefined && sample.lng !== undefined) {
+      this.regionChecked = true;
+      if (!isRegionAllowed(sample.lat, sample.lng)) {
+        console.log('[Validation] Region check failed — trip rejected');
+        this.reset();
+        this.setState(ValidationState.IDLE);
+        this.onRegionRejected?.();
+      }
     }
   }
 
@@ -200,8 +220,9 @@ export class TripValidationManager implements TripValidator {
           // Movement resumed — reset end-of-trip counter
           this.continuousBelowThresholdMs = 0;
 
-          // Continue sliding-window fraud monitoring during scoring.
-          // Fires onFraudSuspected at most once per session.
+          // Continue sliding-window fraud monitoring during scoring. One report per
+          // journey: the verdict below suppresses classification, and only a genuine
+          // stop re-arms it.
           if (this.isClassifying()) {
             this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
             const fraud = this.fraudDetector.evaluate();
@@ -251,6 +272,7 @@ export class TripValidationManager implements TripValidator {
     this.latestGyroZ         = 0;
     this.lastSampleAtMs      = 0;
     this.fraudDetector.reset();
+    this.regionChecked = false;
     // fraudClassificationSuppressed is deliberately not cleared here. A fraud abort stops
     // the validator from inside the tick that raised the verdict, so clearing it on reset
     // would undo the suppression in the same call that set it, and the next session would
