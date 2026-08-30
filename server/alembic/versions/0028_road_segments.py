@@ -17,7 +17,6 @@ Create Date: 2026-08-29 00:00:00.000000
 from __future__ import annotations
 
 import sqlalchemy as sa
-from geoalchemy2 import Geometry
 
 from alembic import op
 
@@ -39,6 +38,14 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
+    # Imported here, not at module level. The "One alembic head" job in
+    # ci-server.yml installs alembic and ruff alone and then imports every
+    # migration file to read the revision graph, so a module-level import of an
+    # app dependency fails the lint job with a ModuleNotFoundError that says
+    # nothing about heads. That job's own comment states the invariant: no
+    # migration may import app code at module level.
+    from geoalchemy2 import Geometry
+
     op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
     op.create_table(
         "road_segments",
