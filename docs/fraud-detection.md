@@ -284,6 +284,13 @@ long people sit on trains.
 **After a `TRAIN` verdict, classification is suppressed until movement genuinely stops** —
 speed below the trip-end threshold for the trip-end duration. One journey, one report.
 
+**Suppression lives for the running process only.** It is validator state, not stored state,
+and an app restart clears it. A validator that restarts before movement stops re-arms
+classification and can file a second report for the same journey — accepted, because the
+alternative is a stored suppression window that can outlive the journey it was meant to
+bound and silently mask a later, legitimate trip. Conformance rule 4 binds this at the
+session level, not the journey level, precisely to leave room for that restart case.
+
 ### 3.7 The driver must be told
 
 A trip that is silently declined is indistinguishable from a bug, and it is the failure a
