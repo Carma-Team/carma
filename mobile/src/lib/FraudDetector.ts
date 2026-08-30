@@ -202,6 +202,8 @@ export class FraudDetector {
     this.speedBuffer.reset();
     this.accelBuffer.reset();
     this.gyroBuffer.reset();
+    this.accelAvailable = false;
+    this.gyroAvailable = false;
   }
 
   // Var(X) = E[X²] − E[X]²  (single-pass, numerically stable for reasonable float ranges)
