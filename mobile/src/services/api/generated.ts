@@ -560,6 +560,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List everyone with voucher-redemption access to the authenticated business — OWNER only */
+        get: operations["list_members_api_business_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/members/{membership_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a member's access — OWNER only. 409 if it would leave no OWNER. */
+        delete: operations["revoke_access_api_business_members__membership_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a member's business-scoped role — OWNER only. 409 if it would leave no OWNER. */
+        patch: operations["change_role_api_business_members__membership_id__patch"];
+        trace?: never;
+    };
     "/api/business/join-requests": {
         parameters: {
             query?: never;
@@ -1093,6 +1128,40 @@ export interface components {
             createdAt?: string | null;
             /** Reviewernote */
             reviewerNote?: string | null;
+        };
+        /**
+         * BusinessMemberOut
+         * @description One row of `business_memberships`, joined with the user it names — the
+         *     only user fields this page needs (CAR-117), not a full `UserOut`.
+         */
+        BusinessMemberOut: {
+            /** Id */
+            id: string;
+            /** Userid */
+            userId: string;
+            /** Name */
+            name?: string | null;
+            /** Email */
+            email?: string | null;
+            role: components["schemas"]["BusinessMembershipRole"];
+            /**
+             * Joinedat
+             * Format: date-time
+             */
+            joinedAt: string;
+        };
+        /** BusinessMemberResponse */
+        BusinessMemberResponse: {
+            member: components["schemas"]["BusinessMemberOut"];
+        };
+        /** BusinessMemberRoleIn */
+        BusinessMemberRoleIn: {
+            role: components["schemas"]["BusinessMembershipRole"];
+        };
+        /** BusinessMembersOut */
+        BusinessMembersOut: {
+            /** Members */
+            members: components["schemas"]["BusinessMemberOut"][];
         };
         /**
          * BusinessMembershipRole
@@ -3118,6 +3187,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessInvitationAcceptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_business_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessMembersOut"];
+                };
+            };
+        };
+    };
+    revoke_access_api_business_members__membership_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_role_api_business_members__membership_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessMemberRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessMemberResponse"];
                 };
             };
             /** @description Validation Error */

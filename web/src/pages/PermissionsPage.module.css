@@ -1,0 +1,47 @@
+.header {
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: start;
+  padding: var(--space-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-sm);
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.memberCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.selfBadge {
+  display: inline-flex;
+  padding: 0 var(--space-xs);
+  border-radius: 999px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-label);
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
