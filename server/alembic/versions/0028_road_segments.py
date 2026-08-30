@@ -22,17 +22,17 @@ from geoalchemy2 import Geometry
 from alembic import op
 
 revision: str = "0028_road_segments"
-# Numbered 0028 only to keep the filename clear of the three open PRs that each
-# hold a 0027 (#231 occupancy, #178 city reference, #176 IMU health). All four,
-# this one included, still hang off 0026, because pointing at a revision that
-# lives in someone else's unmerged branch makes `alembic upgrade` unresolvable
-# here and now.
+# 0028 only keeps the filename clear of three open PRs that each hold a 0027
+# (#231 occupancy, #178 city reference, #176 IMU health). It is not a position in
+# the chain: all four still hang off 0026, because naming a revision that exists
+# only in someone else's branch makes `alembic upgrade` unresolvable here.
 #
-# So do not treat 0028 as "already sequenced". Whichever of the four merges
-# second gains a second head, and the fix is the one CI names and this repo has
-# used three times: `alembic merge`, not renumbering. The "One alembic head" job
-# in ci-server.yml catches it on the merge result (CAR-160), so this cannot
-# reach develop unnoticed.
+# Whichever merges second gains a second head. While a migration is still
+# unmerged, re-point its `down_revision` at the new head - the revision id does
+# not change, so no local `alembic_version` row breaks, and the chain stays
+# linear. `alembic merge`, which the CI error suggests and this repo has used
+# three times, is for the other case: two heads already on develop, where there
+# is no history left to rewrite.
 down_revision: str | None = "0026_business_invitations"
 branch_labels: str | None = None
 depends_on: str | None = None
