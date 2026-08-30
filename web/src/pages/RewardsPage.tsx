@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
-import { listRewards, retireReward, type Reward } from '@/lib/api/rewards';
+import { getLiveVoucherCount, listRewards, retireReward, type Reward } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { categoryTranslationKey, getRewardState, isArchived, localizedRewardText, type RewardState } from '@/lib/rewardState';
 import { RewardForm } from '@/components/business/RewardForm';
@@ -10,6 +10,11 @@ import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
+
+// The retire dialog must never let a business proceed on a guessed or stale
+// count (CAR-115) — 'loading' and 'error' both keep the confirm button
+// disabled, only 'ok' with a real server count unlocks it.
+type LiveVoucherCheck = { status: 'loading' } | { status: 'error' } | { status: 'ok'; count: number };
 
 const STATE_KEY: Record<RewardState, keyof TranslationMap['rewards']> = {
   active: 'stateActive',
@@ -27,9 +32,14 @@ export function RewardsPage() {
   const [retireTarget, setRetireTarget] = useState<Reward | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
   const [retireErrors, setRetireErrors] = useState<Record<string, string>>({});
+  const [liveVoucherCheck, setLiveVoucherCheck] = useState<LiveVoucherCheck>({ status: 'loading' });
   // Guards a second DELETE from firing before the confirm dialog's buttons
   // re-render disabled — same convention as RedemptionPage's redeemInFlight.
   const retireInFlight = useRef(false);
+  // Discards a stale live-voucher-count response — the dialog was closed and
+  // reopened, for the same or a different reward, before the earlier request
+  // resolved — so a slow first fetch can never overwrite a later one's result.
+  const liveVoucherRequestId = useRef(0);
 
   const defaultCategory = useMemo<BusinessCategory>(() => {
     const category = user?.businessCategory?.toLowerCase() ?? '';
@@ -67,6 +77,20 @@ export function RewardsPage() {
     listRewards().then(applyListResult);
   }
 
+  // Triggered from the retire button's click handler, not a `useEffect` keyed
+  // on `retireTarget` — the fetch must start the moment the dialog opens, and
+  // starting it here means `liveVoucherCheck` can reset to 'loading'
+  // synchronously in the same event instead of flashing a stale result.
+  function openRetireDialog(reward: Reward) {
+    setRetireTarget(reward);
+    setLiveVoucherCheck({ status: 'loading' });
+    const requestId = ++liveVoucherRequestId.current;
+    getLiveVoucherCount(reward.id).then((result) => {
+      if (liveVoucherRequestId.current !== requestId) return;
+      setLiveVoucherCheck(result.outcome === 'ok' ? { status: 'ok', count: result.liveVouchers } : { status: 'error' });
+    });
+  }
+
   // Archived rewards stay in the server's OWNER/MANAGER listing forever
   // (nothing is deleted — see services/business.py::archive_reward), but
   // this ticket builds no restore/archive-history view, so a retired reward
@@ -85,7 +109,7 @@ export function RewardsPage() {
   }
 
   async function handleConfirmRetire() {
-    if (!retireTarget || retireInFlight.current) return;
+    if (!retireTarget || retireInFlight.current || liveVoucherCheck.status !== 'ok') return;
     const target = retireTarget;
     retireInFlight.current = true;
     setRetiringId(target.id);
@@ -194,7 +218,7 @@ export function RewardsPage() {
                       request's completion silently clear the second reward's
                       still-unconfirmed dialog. One in-flight retirement at a
                       time removes the interleaving entirely. */}
-                  <Button variant="danger" disabled={retiringId !== null} onClick={() => setRetireTarget(reward)}>
+                  <Button variant="danger" disabled={retiringId !== null} onClick={() => openRetireDialog(reward)}>
                     {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
                   </Button>
                 </div>
@@ -222,9 +246,29 @@ export function RewardsPage() {
         title={t('rewards.retireConfirmTitle')}
         closeLabel={t('rewards.retireConfirmCloseLabel')}
       >
-        <Text variant="body">{t('rewards.retireConfirmBody')}</Text>
+        {liveVoucherCheck.status === 'loading' && <LoadingState label={t('rewards.retireCheckingVouchers')} />}
+        {liveVoucherCheck.status === 'error' && (
+          <Text variant="caption" role="alert">
+            {t('rewards.retireCheckErrorMessage')}
+          </Text>
+        )}
+        {liveVoucherCheck.status === 'ok' && (
+          <Text variant="body">
+            {liveVoucherCheck.count === 0
+              ? t('rewards.retireConfirmBody')
+              : liveVoucherCheck.count === 1
+                ? t('rewards.retireLiveVoucherWarningSingular')
+                : t('rewards.retireLiveVoucherWarningPlural').replace('{count}', String(liveVoucherCheck.count))}
+          </Text>
+        )}
         <div className={styles.actions}>
-          <Button variant="danger" disabled={retiringId !== null} onClick={handleConfirmRetire}>
+          {/* Only a confirmed, real server count unlocks this — never a guess
+              and never the still-loading or failed-fetch states (CAR-115). */}
+          <Button
+            variant="danger"
+            disabled={retiringId !== null || liveVoucherCheck.status !== 'ok'}
+            onClick={handleConfirmRetire}
+          >
             {t('rewards.retireConfirmYes')}
           </Button>
           <Button variant="secondary" disabled={retiringId !== null} onClick={() => setRetireTarget(null)}>
