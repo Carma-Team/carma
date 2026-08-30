@@ -164,6 +164,7 @@ export type TranslationMap = {
   rewards: {
     title: string;
     subtitle: string;
+    subtitleReadOnly: string;
     createButton: string;
     loadingLabel: string;
     loadErrorTitle: string;
@@ -173,6 +174,7 @@ export type TranslationMap = {
     forbiddenMessage: string;
     emptyTitle: string;
     emptyMessage: string;
+    emptyMessageReadOnly: string;
     stateActive: string;
     stateSoldOut: string;
     stateExpired: string;

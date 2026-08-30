@@ -152,6 +152,7 @@ const he: TranslationMap = {
   rewards: {
     title: 'הטבות',
     subtitle: 'נהלו את ההטבות שהעסק שלכם מציע לחברי כרמה.',
+    subtitleReadOnly: 'ההטבות שהעסק שלכם מציע כרגע לחברי CARMA.',
     createButton: 'הטבה חדשה',
     loadingLabel: 'טוען הטבות…',
     loadErrorTitle: 'משהו השתבש',
@@ -161,6 +162,7 @@ const he: TranslationMap = {
     forbiddenMessage: 'אין לכם הרשאה לנהל הטבות.',
     emptyTitle: 'עדיין אין הטבות',
     emptyMessage: 'צרו את ההטבה הראשונה שלכם כדי להציע אותה לחברי כרמה.',
+    emptyMessageReadOnly: 'אין כרגע הטבות זמינות.',
     stateActive: 'פעילה',
     stateSoldOut: 'אזל המלאי',
     stateExpired: 'פגה תוקף',

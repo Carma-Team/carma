@@ -32,7 +32,12 @@ const businessUser = {
 };
 
 const ownerUser = { ...businessUser, businessMembershipRole: 'OWNER' as const };
+const managerUser = { ...businessUser, businessMembershipRole: 'MANAGER' as const };
 const cashierUser = { ...businessUser, businessMembershipRole: 'CASHIER' as const };
+// No membership, or more than one (CAR-258 fails closed rather than
+// guessing which business/role applies) — both leave businessMembershipRole
+// null, and CAR-116 requires every business route to refuse both alike.
+const ambiguousUser = { ...businessUser, businessMembershipRole: null, businessMembershipAmbiguous: true };
 
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -52,8 +57,8 @@ describe('routes', () => {
     vi.mocked(listRewards).mockReset();
   });
 
-  it('renders the home page inside the shell at / once a restored session bootstraps (default language: Hebrew)', async () => {
-    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
+  it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
 
     renderAt('/');
 
@@ -61,6 +66,31 @@ describe('routes', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'מימוש הטבה' })).toBeInTheDocument());
     // Shell chrome: business identity from the session, not hardcoded.
     expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  // CAR-116: a CASHIER has no use for the dashboard — / sends it straight to
+  // the one screen its role actually needs.
+  it('sends a CASHIER landing at / straight to the redemption page, not the home page', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/');
+
+    // Home and Redemption share the same heading copy (see the sign-in-vs-
+    // heading comment below) — the voucher-code field is RedemptionPage's
+    // own unambiguous marker; HomePage never renders one.
+    await waitFor(() => expect(screen.getByLabelText('קוד שובר')).toBeInTheDocument());
+  });
+
+  // CAR-258 fails closed rather than guessing a business/role for a caller
+  // with no membership or more than one — CAR-116 must not render any
+  // business content for that state either, direct URL included.
+  it('fails closed at / when the membership role is null (no membership, or ambiguous)', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'מימוש הטבה' })).not.toBeInTheDocument();
   });
 
   it('sends / to sign-in when there is no session to restore', async () => {
@@ -73,7 +103,11 @@ describe('routes', () => {
     await waitFor(() => expect(screen.getByLabelText('אימייל')).toBeInTheDocument());
   });
 
-  it('renders the not-found page inside the shell at an unknown path (default language: Hebrew)', async () => {
+  // 404 sits outside the role gate on purpose (CAR-116) — an unknown path is
+  // not a permission question, so a null/ambiguous membership must not turn
+  // it into an access-restricted state either. `businessUser` here still
+  // carries no membership role at all.
+  it('renders the not-found page inside the shell at an unknown path regardless of membership role (default language: Hebrew)', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
 
     renderAt('/does-not-exist');
@@ -87,7 +121,7 @@ describe('routes', () => {
   });
 
   it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
-    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
 
     renderAt('/business-profile');
 
@@ -107,8 +141,30 @@ describe('routes', () => {
     expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
   });
 
-  it('renders an access-restricted state at /rewards for a CASHIER, and never calls the rewards API', async () => {
+  it('renders the real rewards page inside the shell at /rewards for a MANAGER too (CAR-202)', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: managerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+
+    renderAt('/rewards');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הטבות' })).toBeInTheDocument());
+  });
+
+  // CAR-116: CASHIER now gets the active-rewards view the matrix grants it —
+  // CAR-202's original all-or-nothing block only covered OWNER/MANAGER.
+  it('renders the rewards page for a CASHIER with the server-filtered list, but no manage controls', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+
+    renderAt('/rewards');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הטבות' })).toBeInTheDocument());
+    expect(listRewards).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('button', { name: 'הטבה חדשה' })).not.toBeInTheDocument();
+  });
+
+  it('fails closed at /rewards when the membership role is null (no membership, or ambiguous), and never calls the rewards API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
 
     renderAt('/rewards');
 
@@ -118,7 +174,7 @@ describe('routes', () => {
   });
 
   it('renders the real redemption page inside the shell at /redemption (CAR-68)', async () => {
-    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
 
     renderAt('/redemption');
 
