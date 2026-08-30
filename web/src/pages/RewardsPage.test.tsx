@@ -250,7 +250,7 @@ describe('RewardsPage', () => {
     fireEvent.click(confirmButton);
 
     // A's DELETE is now in flight. B's own retire button — the only one
-    // still carrying the plain "retire" label, A's now reads "retiring…" —
+    // still carrying the plain "remove" label, A's now reads "removing…" —
     // must already be disabled, so clicking it cannot reassign the
     // still-open confirm dialog away from A.
     const retireB = screen.getByRole('button', { name: 'הסרה' });
