@@ -25,20 +25,20 @@ from app.services.scoring import (
 
 
 class TestEventSeverity:
-    def test_at_threshold_is_one_times_factors(self) -> None:
-        # peak_g at g_min → g_factor=1.0; short duration → duration_factor=1.0
-        s = event_severity("brake", peak_g=0.30, duration_ms=0)
+    def test_at_threshold_is_one(self) -> None:
+        # peak_g at g_min → g_norm=0 → severity=1.0
+        s = event_severity("brake", peak_g=0.30)
         assert s == 1.0
 
-    def test_extreme_sustained_event_caps_at_three(self) -> None:
-        # g_norm=1 → g_factor=2; duration≥2000ms → ×1.5 ⇒ 3.0 cap
-        s = event_severity("brake", peak_g=0.80, duration_ms=5000)
+    def test_extreme_event_caps_at_three(self) -> None:
+        # g_norm=1 → severity=1 + 2 = 3.0 cap
+        s = event_severity("brake", peak_g=0.80)
         assert math.isclose(s, 3.0)
 
     def test_superlinear_in_g(self) -> None:
-        mid = event_severity("brake", peak_g=0.45, duration_ms=0)
-        # halfway in g (0.45 of 0.30–0.60): g_norm=0.5 → 0.5^1.5+1 ≈ 1.3536
-        assert math.isclose(mid, 0.5**1.5 + 1.0)
+        mid = event_severity("brake", peak_g=0.45)
+        # halfway in g (0.45 of 0.30–0.60): g_norm=0.5 → 0.5^1.5 * 2 + 1 ≈ 1.7071
+        assert math.isclose(mid, 0.5**1.5 * 2.0 + 1.0)
 
 
 # ─── trip score ─────────────────────────────────────────────────────────────────

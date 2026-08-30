@@ -195,15 +195,14 @@ The phone averages over a window of at least **1.5 seconds**. The two sides use 
 
 Events are **not** counted equally. An emergency stop costs more than a firm tap on the brakes, on a smooth curve, so there is no threshold to game.
 
-Every event carries its **peak acceleration** and **duration**. These produce a severity weight:
+Every event carries its **peak acceleration**. This produces a severity weight, force alone:
 
 ```
-g_norm          = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
-g_factor        = g_norm^1.5 + 1.0
-duration_factor = 1.0 + min(duration_ms / 2000, 0.5)
-
-severity = g_factor × duration_factor
+g_norm   = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
+severity = g_norm^1.5 × 2.0 + 1.0
 ```
+
+Duration is not a severity input. No comparable product weights harsh-event severity by duration: DriveQuant's event payload carries no duration field, Digital Matter uses duration only as a detection-level noise filter (a force spike must persist to count as an event, but does not scale the score), and CMT's published patents decompose severity into force components with no duration term. Event duration remains available in the SDK payload for that kind of noise-filtering at the detection layer — it is simply not a term in the severity curve.
 
 **Severity ranges by event type:**
 

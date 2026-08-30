@@ -146,11 +146,11 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # ─── Stage 1 — continuous severity weight (ready for the SDK) ──────────────────
 
 
-def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
-    """Continuous severity weight for one kinematic event.
+def event_severity(event_type: str, peak_g: float) -> float:
+    """Continuous severity weight for one kinematic event, force alone.
 
-    Ranges from 1.0 at the detection threshold to 3.0 for an extreme, sustained
-    event. Replaces tier counting so there is no threshold to game.
+    Ranges from 1.0 at the detection threshold to 3.0 for an extreme event.
+    Replaces tier counting so there is no threshold to game.
 
     Speed is deliberately not an input. It is already scored as its own component
     at weight 0.25, so scaling event severity by it charged a hard brake at
@@ -169,9 +169,7 @@ def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     """
     g_min, g_max = _SEVERITY_RANGES[event_type]
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
-    g_factor = g_norm**1.5 + 1.0
-    duration_factor = 1.0 + min(duration_ms / 2000.0, 0.5)
-    return float(g_factor * duration_factor)
+    return float(g_norm**1.5 * 2.0 + 1.0)
 
 
 # ─── Stages 3–5 — trip score ───────────────────────────────────────────────────
