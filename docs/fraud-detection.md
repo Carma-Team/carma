@@ -470,7 +470,7 @@ they are the ones Stages 3 and 4 of the maturity path exist to replace.
 |---|---|---|
 | `SPEED_THRESHOLD_KMH` | 10 km/h | Above walking pace, below any road speed |
 | `START_THRESHOLD_MS` | 30,000 ms | Sustained movement before a trip is real |
-| `END_THRESHOLD_MS` | 180,000 ms | Long enough to survive a traffic light |
+| `END_THRESHOLD_MS` | 180,000 ms | Long enough to survive a traffic light. Also the dwell that lifts report-once suppression after a `TRAIN` verdict (§3.6) — one constant, not a second one with the same value. |
 
 ### Server bounds
 
