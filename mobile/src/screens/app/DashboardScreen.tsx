@@ -23,7 +23,6 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
-  const [avgScore, setAvgScore] = useState<number | null>(null);
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
   const [pendingRequests, setPendingRequests] = useState(0);
@@ -93,16 +92,6 @@ export default function DashboardScreen() {
     });
   };
 
-  // Compute average score across recent trips
-  useEffect(() => {
-    if (recentTrips && recentTrips.length > 0) {
-      const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
-      setAvgScore(Math.round(sum / recentTrips.length));
-    } else {
-      setAvgScore(null);
-    }
-  }, [recentTrips]);
-
   if (!user || isLoading) {
     return (
       <View style={[COMMON_STYLES.screen, COMMON_STYLES.center]}>
@@ -132,7 +121,7 @@ export default function DashboardScreen() {
         {/* Level & Points Card */}
         <DashboardHero
           user={user}
-          avgScore={avgScore}
+          avgScore={Math.round(user.driverScore)}
           lang={lang}
         />
 

@@ -1949,6 +1949,8 @@ export interface components {
             points: number;
             /** Totalpoints */
             totalPoints: number;
+            /** Driverscore */
+            driverScore: number;
             /**
              * Availablepoints
              * @default 0

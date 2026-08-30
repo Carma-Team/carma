@@ -18,6 +18,7 @@ const user: AppUser = {
   language: 'HE',
   points: 999999,
   totalPoints: 999999,
+  driverScore: 92.5,
   availablePoints: 999999,
   reservedPoints: 0,
   totalDistance: 12345,
