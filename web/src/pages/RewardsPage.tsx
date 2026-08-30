@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasBusinessRole } from '@/lib/auth/businessRole';
 import { getLiveVoucherCount, listRewards, retireReward, type Reward } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { categoryTranslationKey, getRewardState, isArchived, localizedRewardText, type RewardState } from '@/lib/rewardState';
@@ -45,6 +46,13 @@ export function RewardsPage() {
     const category = user?.businessCategory?.toLowerCase() ?? '';
     return isBusinessCategory(category) ? category : BUSINESS_CATEGORIES[0];
   }, [user]);
+
+  // CAR-116: a CASHIER reaches this page for the active-rewards view the
+  // matrix grants it (the server already filters the list to active-only —
+  // see GET /api/business/rewards), but none of create/edit/retire. Hiding
+  // the controls, not disabling them, matches RequireBusinessRole's own
+  // "don't advertise what a role can't use" rule one level up.
+  const canManage = hasBusinessRole(user?.businessMembershipRole, ['OWNER', 'MANAGER']);
 
   function applyListResult(result: Awaited<ReturnType<typeof listRewards>>) {
     if (result.outcome === 'ok') {
@@ -155,15 +163,20 @@ export function RewardsPage() {
       <div className={styles.header}>
         <div>
           <Heading level={1}>{t('rewards.title')}</Heading>
-          <Text variant="body">{t('rewards.subtitle')}</Text>
+          <Text variant="body">{t(canManage ? 'rewards.subtitle' : 'rewards.subtitleReadOnly')}</Text>
         </div>
-        <Button variant="primary" onClick={() => setFormState({ mode: 'create' })}>
-          {t('rewards.createButton')}
-        </Button>
+        {canManage && (
+          <Button variant="primary" onClick={() => setFormState({ mode: 'create' })}>
+            {t('rewards.createButton')}
+          </Button>
+        )}
       </div>
 
       {visibleRewards.length === 0 ? (
-        <EmptyState title={t('rewards.emptyTitle')} message={t('rewards.emptyMessage')} />
+        <EmptyState
+          title={t('rewards.emptyTitle')}
+          message={t(canManage ? 'rewards.emptyMessage' : 'rewards.emptyMessageReadOnly')}
+        />
       ) : (
         <div className={styles.grid}>
           {visibleRewards.map((reward) => {
@@ -201,27 +214,29 @@ export function RewardsPage() {
                   </div>
                 )}
 
-                {retireErrors[reward.id] && (
+                {canManage && retireErrors[reward.id] && (
                   <Text variant="caption" role="alert">
                     {retireErrors[reward.id]}
                   </Text>
                 )}
 
-                <div className={styles.actions}>
-                  <Button variant="secondary" onClick={() => setFormState({ mode: 'edit', reward })}>
-                    {t('rewards.editButton')}
-                  </Button>
-                  {/* Disabled whenever *any* retirement is in flight, not just
-                      this card's — CAR-202's pre-commit review (B3) found that
-                      allowing a second card's confirm dialog to open while
-                      another reward's DELETE was in flight let the first
-                      request's completion silently clear the second reward's
-                      still-unconfirmed dialog. One in-flight retirement at a
-                      time removes the interleaving entirely. */}
-                  <Button variant="danger" disabled={retiringId !== null} onClick={() => openRetireDialog(reward)}>
-                    {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
-                  </Button>
-                </div>
+                {canManage && (
+                  <div className={styles.actions}>
+                    <Button variant="secondary" onClick={() => setFormState({ mode: 'edit', reward })}>
+                      {t('rewards.editButton')}
+                    </Button>
+                    {/* Disabled whenever *any* retirement is in flight, not just
+                        this card's — CAR-202's pre-commit review (B3) found that
+                        allowing a second card's confirm dialog to open while
+                        another reward's DELETE was in flight let the first
+                        request's completion silently clear the second reward's
+                        still-unconfirmed dialog. One in-flight retirement at a
+                        time removes the interleaving entirely. */}
+                    <Button variant="danger" disabled={retiringId !== null} onClick={() => openRetireDialog(reward)}>
+                      {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
+                    </Button>
+                  </div>
+                )}
               </Card>
             );
           })}

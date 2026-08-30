@@ -81,4 +81,12 @@ describe('RequireBusinessRole', () => {
     expect(screen.queryByText('protected content')).not.toBeInTheDocument();
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
+
+  // CAR-116: normalization must be a real uppercase check, not a lowercase
+  // literal reachable only by coincidence — the bug CAR-50 fixed on mobile.
+  it('still matches a role sent in a different case than the allow-list literal', () => {
+    mockAuth({ ...BASE_USER, businessMembershipRole: 'owner' as AuthUser['businessMembershipRole'] });
+    renderGuarded();
+    expect(screen.getByText('protected content')).toBeInTheDocument();
+  });
 });

@@ -1,13 +1,22 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { normalizeBusinessRole } from '@/lib/auth/businessRole';
 import styles from './AppShell.module.css';
 
-// CAR-204 owns this chrome only — every route it wraps is either a real page
-// (its own ticket) or the shared ComingSoonPage. No page-specific logic here.
+// CAR-204 owns this chrome; CAR-116 owns which nav items it renders for the
+// caller's role. Rewards and Redemption stay unconditional — every role in
+// the matrix can at least view them, and each page hides its own
+// manage-only controls. Team & Permissions (CAR-117) and Analytics
+// (redemption history/stats, CAR-119/CAR-80) are capabilities a CASHIER
+// (and, for Team, a MANAGER too) never gets — hidden here rather than shown
+// disabled, since a role that can't use a page shouldn't see it advertised.
 export function AppShell() {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useTranslation();
+  const role = normalizeBusinessRole(user?.businessMembershipRole);
+  const canManagePermissions = role === 'OWNER';
+  const canSeeAnalytics = role === 'OWNER' || role === 'MANAGER';
 
   // Raw businessName/businessNameHe, not a server-resolved fallback (see
   // AuthUser) — the fallback direction flips with the UI language, so the
@@ -39,10 +48,12 @@ export function AppShell() {
           <NavLink to="/business-profile" className={({ isActive }) => navClass(styles, isActive)}>
             {t('shell.navBusinessProfile')}
           </NavLink>
-          <span className={styles.navDisabled}>
-            {t('shell.navTeam')}
-            <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
-          </span>
+          {canManagePermissions && (
+            <span className={styles.navDisabled}>
+              {t('shell.navTeam')}
+              <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
+            </span>
+          )}
         </nav>
 
         {/* Not aria-disabled — these were never interactive controls to begin
@@ -53,10 +64,12 @@ export function AppShell() {
             {t('shell.navOverview')}
             <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
           </span>
-          <span className={styles.navDisabled}>
-            {t('shell.navAnalytics')}
-            <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
-          </span>
+          {canSeeAnalytics && (
+            <span className={styles.navDisabled}>
+              {t('shell.navAnalytics')}
+              <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
+            </span>
+          )}
         </div>
       </aside>
 

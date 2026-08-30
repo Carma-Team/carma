@@ -155,6 +155,7 @@ const en: TranslationMap = {
   rewards: {
     title: 'Rewards',
     subtitle: 'Manage the rewards your business offers to CARMA members.',
+    subtitleReadOnly: 'The rewards your business currently offers to CARMA members.',
     createButton: 'New reward',
     loadingLabel: 'Loading rewards…',
     loadErrorTitle: 'Something went wrong',
@@ -164,6 +165,7 @@ const en: TranslationMap = {
     forbiddenMessage: "You don't have permission to manage rewards.",
     emptyTitle: 'No rewards yet',
     emptyMessage: 'Create your first reward to offer it to CARMA members.',
+    emptyMessageReadOnly: 'No rewards are available right now.',
     stateActive: 'Active',
     stateSoldOut: 'Sold out',
     stateExpired: 'Expired',
