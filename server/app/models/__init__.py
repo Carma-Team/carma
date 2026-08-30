@@ -25,6 +25,7 @@ from app.models.notification import (
     NOTIFICATION_LEVEL_UP,
     Notification,
 )
+from app.models.occupancy import TripOccupancy
 from app.models.otp import OtpCode
 from app.models.redemption import Redemption
 from app.models.refresh_token import RefreshToken
@@ -58,6 +59,7 @@ __all__ = [
     "RefreshToken",
     "Reward",
     "Trip",
+    "TripOccupancy",
     "TripStatus",
     "User",
     "UserFriend",

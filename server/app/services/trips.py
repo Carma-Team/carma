@@ -22,6 +22,7 @@ from app.models import (
     Event,
     EventType,
     Trip,
+    TripOccupancy,
     TripStatus,
     User,
 )
@@ -516,6 +517,11 @@ async def _compute_score(
             select(Trip.score_v2, Trip.distance_km, Trip.start_time, Trip.points).where(
                 Trip.user_id == user.id,
                 Trip.start_time >= cutoff,
+                # Confirmed-passenger trips are excluded forward-only (driver-identification.md
+                # §4.4): the filter runs here, at save time, so past snapshots are never touched.
+                ~select(TripOccupancy.trip_id)
+                .where(TripOccupancy.trip_id == Trip.id, TripOccupancy.excluded_from_driver_score.is_(True))
+                .exists(),
             )
         )
     ).all()
