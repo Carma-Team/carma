@@ -57,7 +57,7 @@ export type { TripState } from './tripState'
 // The 'ph:' prefix marks the signature unverifiable. The server accepts it today;
 // CAR-13 is the switch to rejecting it.
 
-const SIGNING_KEY = 'CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION';
+const SIGNING_KEY = process.env.EXPO_PUBLIC_TRIP_SIGNING_KEY ?? '';
 
 // SHA-256 round constants: first 32 bits of the cube roots of the first 64 primes.
 const _SHA256_K = new Uint32Array([
@@ -196,6 +196,9 @@ function buildTelemetryDigest(
 // deterministic byte sequence regardless of JS engine key-insertion order.
 // 'ph:' prefix marks the signature unverifiable — accepted today, rejected under CAR-13.
 function signTelemetryDigest(digest: TelemetryDigest): string {
+  // Empty key would still produce a well-formed HMAC, so the trip would look signed
+  // while being unverifiable. Fail instead — the caller sends it unsigned.
+  if (!SIGNING_KEY) throw new Error('EXPO_PUBLIC_TRIP_SIGNING_KEY is not set');
   const canonical = JSON.stringify(digest, Object.keys(digest).sort() as (keyof TelemetryDigest)[]);
   const hmac = _hmacSha256Hex(SIGNING_KEY, canonical);
   return `ph:${hmac}`;
