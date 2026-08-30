@@ -320,6 +320,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trips/{trip_id}/occupancy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the occupancy verdict for a trip */
+        get: operations["get_occupancy_api_trips__trip_id__occupancy_get"];
+        put?: never;
+        /** Declare or answer whether the caller was driving this trip */
+        post: operations["declare_occupancy_api_trips__trip_id__occupancy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fraud": {
         parameters: {
             query?: never;
@@ -1595,6 +1613,42 @@ export interface components {
              */
             createdAt: string;
         };
+        /**
+         * OccupancyDeclarationIn
+         * @description User-submitted. `was_driving=False` is the passenger declaration.
+         */
+        OccupancyDeclarationIn: {
+            /** Wasdriving */
+            wasDriving: boolean;
+            /**
+             * Prompted
+             * @description True when answering a flag prompt, False when volunteered unprompted.
+             */
+            prompted: boolean;
+        };
+        /**
+         * OccupancyOut
+         * @description Deliberately narrower than the full OccupancyRecord (driver-identification.md §3.3) —
+         *     never exposes co_travel, likelihood, signals, or calibration_version to the client.
+         */
+        OccupancyOut: {
+            /** Tripid */
+            tripId: string;
+            verdict: components["schemas"]["OccupancyVerdict"];
+            /** Excludedfromdriverscore */
+            excludedFromDriverScore: boolean;
+            /** Pointsreversed */
+            pointsReversed: number;
+            /** Appealavailable */
+            appealAvailable: boolean;
+        };
+        /**
+         * OccupancyVerdict
+         * @description driver-identification.md §3.2. Only DRIVER and PASSENGER are reachable through the
+         *     declaration endpoint; UNKNOWN is the pre-declaration read (§4 of the plan on CAR-220).
+         * @enum {string}
+         */
+        OccupancyVerdict: "DRIVER" | "PASSENGER" | "UNKNOWN";
         /** OtpRegisterIn */
         OtpRegisterIn: {
             /** Phone */
@@ -2638,6 +2692,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripSingle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_occupancy_api_trips__trip_id__occupancy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OccupancyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    declare_occupancy_api_trips__trip_id__occupancy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OccupancyDeclarationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OccupancyOut"];
                 };
             };
             /** @description Validation Error */

@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 class TripOccupancy(Base):
     __tablename__ = "trip_occupancy"
 
-    trip_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("trips.id", ondelete="CASCADE"), primary_key=True
-    )
+    trip_id: Mapped[str] = mapped_column(String(32), ForeignKey("trips.id", ondelete="CASCADE"), primary_key=True)
     verdict: Mapped[str] = mapped_column(String(16), nullable=False)
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     excluded_from_driver_score: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

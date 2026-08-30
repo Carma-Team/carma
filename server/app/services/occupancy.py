@@ -21,7 +21,7 @@ async def declare(db: AsyncSession, user_id: str, trip_id: str, dto: OccupancyDe
     row.verdict = verdict.value
     row.source = source.value
     row.excluded_from_driver_score = excluded
-    await db.flush()
+    await db.commit()
 
     return OccupancyOut(
         trip_id=trip_id,

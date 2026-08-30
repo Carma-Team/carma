@@ -30,9 +30,7 @@ class OccupancyDeclarationIn(CamelModel):
     """User-submitted. `was_driving=False` is the passenger declaration."""
 
     was_driving: bool
-    prompted: bool = Field(
-        description="True when answering a flag prompt, False when volunteered unprompted."
-    )
+    prompted: bool = Field(description="True when answering a flag prompt, False when volunteered unprompted.")
 
 
 class OccupancyOut(CamelModel):
