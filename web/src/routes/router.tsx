@@ -2,6 +2,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
 import { RedemptionPage } from '@/pages/RedemptionPage';
 import { RewardsPage } from '@/pages/RewardsPage';
+import { PermissionsPage } from '@/pages/PermissionsPage';
 import { ComingSoonPage } from '@/pages/ComingSoonPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
@@ -23,6 +24,9 @@ import { LandingRoute } from './LandingRoute';
 // path is not a permission question, and stays reachable exactly as before.
 // /register and /register/status (CAR-203) sit outside ProtectedRoute like
 // /sign-in — the one part of this app that must work with no session at all.
+// /permissions (CAR-117) gets its own `RequireBusinessRole`, allowing OWNER
+// only — a narrower gate than the four routes above it, which every role in
+// the matrix can at least reach.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
   { path: '/register', element: <BusinessRegistrationPage /> },
@@ -41,6 +45,10 @@ export const routes: RouteObject[] = [
               { path: '/rewards', element: <RewardsPage /> },
               { path: '/business-profile', element: <ComingSoonPage /> },
             ],
+          },
+          {
+            element: <RequireBusinessRole allow={['OWNER']} />,
+            children: [{ path: '/permissions', element: <PermissionsPage /> }],
           },
           { path: '*', element: <NotFoundPage /> },
         ],

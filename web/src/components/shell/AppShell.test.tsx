@@ -65,26 +65,26 @@ describe('AppShell', () => {
     expect(screen.getByText('Dana Levi')).toBeInTheDocument();
   });
 
-  it('renders the routed core nav items as real links', () => {
+  it('renders the routed core nav items as real links, Team & Permissions included for an OWNER (CAR-117)', () => {
     renderShell();
 
     expect(screen.getByRole('link', { name: 'הטבות' })).toHaveAttribute('href', '/rewards');
     expect(screen.getByRole('link', { name: 'מימושים' })).toHaveAttribute('href', '/redemption');
     expect(screen.getByRole('link', { name: 'פרטי העסק' })).toHaveAttribute('href', '/business-profile');
+    expect(screen.getByRole('link', { name: 'צוות והרשאות' })).toHaveAttribute('href', '/permissions');
   });
 
-  it('renders nav items with no backing route as non-interactive text, not dead links (OWNER sees all three)', () => {
+  it('renders nav items with no backing route as non-interactive text, not dead links', () => {
     renderShell();
 
-    for (const label of ['צוות והרשאות', 'סקירה כללית', 'אנליטיקס']) {
+    for (const label of ['סקירה כללית', 'אנליטיקס']) {
       // Not a widget with a disabled state — these were never interactive,
       // so there's no link/button role and nothing for aria-disabled to
       // describe. The "coming soon" badge is what tells the reader why.
       const item = screen.getByText(label).closest('a, button');
       expect(item).toBeNull();
     }
-    expect(screen.getAllByText('בקרוב')).toHaveLength(3);
-    expect(screen.queryByRole('link', { name: /צוות והרשאות/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText('בקרוב')).toHaveLength(2);
   });
 
   // CAR-116: capabilities a role cannot use are hidden entirely, not shown

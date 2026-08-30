@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
 import { authApi, AuthApiError } from '@/lib/auth/authApi';
 import { setSession } from '@/lib/auth/session';
 import { listRewards } from '@/lib/api/rewards';
+import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/businessMembers';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -16,6 +17,11 @@ vi.mock('@/lib/auth/authApi', async (importOriginal) => {
 vi.mock('@/lib/api/rewards', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/rewards')>();
   return { ...actual, listRewards: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessMembers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessMembers')>();
+  return { ...actual, listMembers: vi.fn(), changeMemberRole: vi.fn(), revokeMemberAccess: vi.fn() };
 });
 
 const businessUser = {
@@ -55,6 +61,9 @@ describe('routes', () => {
     setSession(null);
     vi.mocked(authApi.refresh).mockReset();
     vi.mocked(listRewards).mockReset();
+    vi.mocked(listMembers).mockReset();
+    vi.mocked(changeMemberRole).mockReset();
+    vi.mocked(revokeMemberAccess).mockReset();
   });
 
   it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {
@@ -182,6 +191,94 @@ describe('routes', () => {
     // Still inside the shell.
     expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
     expect(screen.getAllByRole('main')).toHaveLength(1);
+  });
+
+  // CAR-117: /permissions has its own, narrower `RequireBusinessRole` — OWNER
+  // only, unlike the four routes above that every role in the matrix reaches.
+  // These four run before the /register tests below on purpose: those two
+  // leave `authApi.refresh` returning a promise that never resolves, and
+  // `lib/auth/refresh.ts`'s single-flight `inFlight` guard is module-scoped —
+  // once set from an unresolved call it never clears, so every later test in
+  // this file that (like these, via `AuthProvider`'s own bootstrap) calls
+  // `attemptRefresh()` would hang on the same stuck promise.
+  it('renders the real permissions page inside the shell at /permissions for an OWNER', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(listMembers).mockResolvedValue({ outcome: 'ok', members: [] });
+
+    renderAt('/permissions');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הרשאות מימוש הטבות' })).toBeInTheDocument());
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  it('fails closed at /permissions for a MANAGER, and never calls the members API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: managerUser });
+
+    renderAt('/permissions');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'הרשאות מימוש הטבות' })).not.toBeInTheDocument();
+    expect(listMembers).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at /permissions for a CASHIER, and never calls the members API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/permissions');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listMembers).not.toHaveBeenCalled();
+  });
+
+  it('a direct URL to /permissions is refused for a null/ambiguous membership too', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/permissions');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listMembers).not.toHaveBeenCalled();
+  });
+
+  // CAR-117 review finding: a self-demotion must update the *shared* session
+  // — not just the page's own local state — so both the page and AppShell's
+  // OWNER-only nav link transition together, even when the reconciling
+  // `attemptRefresh()` call settles to 'transient' (refresh.ts deliberately
+  // leaves session state untouched on that outcome). Real `AuthProvider` and
+  // the real session store here — only `authApi`/`listMembers`/
+  // `changeMemberRole` are mocked — so this exercises the actual shared-state
+  // path both AppShell and RequireBusinessRole read, not a stand-in for it.
+  it('self-demotion updates both the page and the OWNER-only nav link, even when the reconciling refresh is only transient', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValueOnce({ token: 'tok', user: ownerUser });
+    vi.mocked(listMembers).mockResolvedValue({
+      outcome: 'ok',
+      members: [
+        { id: 'mSelf', userId: ownerUser.id, name: 'Dana Levi', email: null, role: 'OWNER', joinedAt: '2026-01-01T00:00:00Z' },
+      ],
+    });
+    vi.mocked(changeMemberRole).mockResolvedValue({
+      outcome: 'ok',
+      member: { id: 'mSelf', userId: ownerUser.id, name: 'Dana Levi', email: null, role: 'MANAGER', joinedAt: '2026-01-01T00:00:00Z' },
+    });
+    // A non-401 failure on the *second* authApi.refresh call — the one
+    // `reconcileSelfSession` triggers after the mutation — maps to
+    // 'transient' in refresh.ts, which leaves session state untouched.
+    vi.mocked(authApi.refresh).mockRejectedValueOnce(new AuthApiError(500, 'Server error'));
+
+    renderAt('/permissions');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הרשאות מימוש הטבות' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'צוות והרשאות' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'MANAGER' } });
+
+    await waitFor(() => expect(changeMemberRole).toHaveBeenCalledExactlyOnceWith('mSelf', 'MANAGER'));
+    // AppShell reads the same shared session `patchOwnSessionRole` just
+    // updated — the nav link must disappear on this same update, not only
+    // once (or if) the background refresh call happens to succeed.
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'צוות והרשאות' })).not.toBeInTheDocument());
+    // RequireBusinessRole swaps this route's own Outlet for the
+    // access-restricted state for the same reason.
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 
   // CAR-203: /register and /register/status must be reachable with no
