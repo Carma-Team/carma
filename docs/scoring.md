@@ -212,7 +212,7 @@ Duration is not a severity input. No comparable product weights harsh-event seve
 | Acceleration | Longitudinal | 0.27 g | 0.55 g |
 | Cornering | Lateral | 0.35 g | 0.65 g |
 
-Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+Severity runs from **1.0** at the detection threshold to **3.0** for an extreme event. The engine sums severities instead of counting events.
 
 **One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
 
