@@ -190,6 +190,10 @@ export type TranslationMap = {
     retireConfirmYes: string;
     retireConfirmCancel: string;
     retireConfirmCloseLabel: string;
+    retireCheckingVouchers: string;
+    retireCheckErrorMessage: string;
+    retireLiveVoucherWarningSingular: string;
+    retireLiveVoucherWarningPlural: string;
     formCreateTitle: string;
     formEditTitle: string;
     formCloseLabel: string;
