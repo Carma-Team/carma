@@ -89,6 +89,15 @@ export interface FraudEvaluation {
   isReady: boolean;
   mode: TransportMode;
   signals: FraudSignals;
+  /** Per-sensor availability so a stored report explains its own unknowns (§3.4).
+   *  GPS is reported unconditionally true: TripValidationManager only samples above
+   *  SPEED_THRESHOLD_KMH, and SensorManager hard-zeros a stale fix rather than
+   *  freezing it, so a stale GPS reading never reaches this buffer. */
+  sensorAvailability: {
+    gps: boolean;
+    accelerometer: boolean;
+    gyroscope: boolean;
+  };
   // Raw computed values — passed through to the API payload for Sean's analytics
   telemetry: {
     avgSpeedKmh: number;
@@ -104,18 +113,38 @@ export class FraudDetector {
   private accelBuffer  = new CircularBuffer(WINDOW_SIZE);
   private gyroBuffer   = new CircularBuffer(WINDOW_SIZE);
 
+  // Latest-tick availability, mirroring the granularity SensorManager itself reports
+  // at — not a second circular buffer recording every sample in the window, since
+  // signals 2/3 stay null regardless of these until CAR-214 exists.
+  private accelAvailable = false;
+  private gyroAvailable  = false;
+
   /**
-   * @param speedKmh      GPS ground speed. Frame-free.
-   * @param lateralAccelG The phone's own X axis with gravity removed, in g. A device
-   *                      axis, not the vehicle's lateral one — see
-   *                      driving-sdk/sensors/SensorManager.ts, which never rotates it.
-   * @param gyroZ         The phone's own Z gyro, in rad/s. A device axis, not yaw about
-   *                      gravity — same file, same reason.
+   * @param speedKmh        GPS ground speed. Frame-free.
+   * @param lateralAccelG   The phone's own X axis with gravity removed, in g. A device
+   *                        axis, not the vehicle's lateral one — see
+   *                        driving-sdk/sensors/SensorManager.ts, which never rotates it.
+   * @param gyroZ           The phone's own Z gyro, in rad/s. A device axis, not yaw about
+   *                        gravity — same file, same reason.
+   * @param accelAvailable  Whether this tick's accelerometer reading came from a live
+   *                        sensor rather than SensorManager's absent-sensor default.
+   *                        Defaults false: TripValidationManager doesn't pass real
+   *                        availability yet (May's follow-on, CAR-162 plan), so an
+   *                        unwired caller reports "unavailable" rather than a guess.
+   * @param gyroAvailable   Same, for the gyroscope.
    */
-  addSample(speedKmh: number, lateralAccelG: number, gyroZ: number): void {
+  addSample(
+    speedKmh: number,
+    lateralAccelG: number,
+    gyroZ: number,
+    accelAvailable = false,
+    gyroAvailable = false,
+  ): void {
     this.speedBuffer.push(speedKmh);
     this.accelBuffer.push(Math.abs(lateralAccelG)); // peak magnitude is what matters
     this.gyroBuffer.push(gyroZ);
+    this.accelAvailable = accelAvailable;
+    this.gyroAvailable = gyroAvailable;
   }
 
   evaluate(): FraudEvaluation {
@@ -125,6 +154,7 @@ export class FraudDetector {
       return {
         score: 0, confidence: 0, isReady: false, mode: TransportMode.UNKNOWN,
         signals: { constantHighSpeed: null, noLateralForce: null, noHeadingChange: null },
+        sensorAvailability: { gps: false, accelerometer: false, gyroscope: false },
         telemetry: { avgSpeedKmh: 0, maxLateralAccelG: 0, yawVariance: 0 },
       };
     }
@@ -144,7 +174,9 @@ export class FraudDetector {
       // UNKNOWN because their inputs are device axes, not because a sample is missing.
       // A phone upright in a vent clip turns a car's cornering force off X and its yaw
       // off Z at the same time, so the pair is one mounting error, not two votes
-      // (CAR-167). Restored once §3.2's vehicle frame exists.
+      // (CAR-167). Restored once §3.2's vehicle frame exists — CAR-214's computation
+      // must read `accelAvailable ? computed : null` (gyro likewise), so an unavailable
+      // sensor still cannot masquerade as a measured false.
       noLateralForce: null,
       noHeadingChange: null,
     };
@@ -161,6 +193,7 @@ export class FraudDetector {
 
     return {
       score, confidence, isReady: true, mode, signals,
+      sensorAvailability: { gps: true, accelerometer: this.accelAvailable, gyroscope: this.gyroAvailable },
       telemetry: { avgSpeedKmh, maxLateralAccelG, yawVariance },
     };
   }

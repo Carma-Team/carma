@@ -34,6 +34,14 @@ export interface FraudEventPayload {
   };
   /** Which gates fired. Optional until the SDK carries it across its own boundary — CAR-134. */
   signals?: FraudSignals;
+  /** Weight of the evidence that could be evaluated at all (§3.4) — same optionality as `signals`. */
+  confidence?: number;
+  /** Per-sensor availability so a stored report explains its own unknowns. Same optionality as `signals`. */
+  sensorAvailability?: {
+    gps: boolean;
+    accelerometer: boolean;
+    gyroscope: boolean;
+  };
   durationMs: number;
   maxSpeedKmh: number;
   /** Absent for a pre-trip rejection — the trip was never confirmed, so no distance exists. */
@@ -95,6 +103,8 @@ export const fraudApi = {
         fraudScore: payload.fraudScore,
         detectedMode: payload.detectedMode,
         signals: payload.signals,
+        confidence: payload.confidence,
+        sensorAvailability: payload.sensorAvailability,
         telemetry: payload.telemetry,
         maxSpeedKmh: payload.maxSpeedKmh,
         detectedAt: payload.timestamp,
