@@ -1,0 +1,96 @@
+name: Deploy web to Azure Static Web Apps
+
+# Publishes web/dist to Azure Static Web Apps. Gated on a deployment token
+# secret, same pattern as deploy.yml, so this workflow is safe to merge
+# before the Static Web App resource exists.
+#
+# Required GitHub secret (Settings → Secrets and variables → Actions):
+#   AZURE_STATIC_WEB_APPS_API_TOKEN  - deployment token from the Static Web
+#                                      App resource (Overview → Manage
+#                                      deployment token)
+#
+# Required GitHub variable (Settings → Secrets and variables → Actions →
+# Variables) — public config, not a secret, per CAR-284:
+#   VITE_API_URL   - the live API origin, e.g.
+#                    https://carma-api.<region>.azurecontainerapps.io
+#                    Falls back to the current production API origin below
+#                    if unset, so the workflow still builds correctly.
+#
+# The app is built here (skip_app_build) rather than left to Oryx inside the
+# SWA action, because this is an npm-workspaces monorepo — `npm ci` has to
+# run at the repo root, same as ci-web.yml — and because VITE_API_URL must be
+# present as an env var at `vite build` time to end up in the bundle.
+#
+# staticwebapp.config.json lives in web/public/ so Vite copies it into
+# web/dist/ unchanged; Azure reads it from the output root to route every
+# unknown path back to index.html instead of a hosting 404.
+#
+# Trigger: pushed to main (path-filtered to web/ and the root files its
+# build depends on), or manually via "Run workflow".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - id: gate
+        env:
+          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AZURE_STATIC_WEB_APPS_API_TOKEN not set — deploy is skipped."
+          fi
+
+  deploy:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Production build
+        working-directory: ./web
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://carma-api.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io' }}
+        run: npm run build
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: web
+          output_location: dist
+          skip_app_build: true
