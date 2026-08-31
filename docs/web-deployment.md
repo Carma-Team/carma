@@ -5,8 +5,9 @@ Current behaviour.
 `web/` (the business web app) is published to Azure Static Web Apps and
 deploys automatically from `.github/workflows/deploy-web.yml` on every push
 to `main` that touches `web/**` or the root `package.json` /
-`package-lock.json`. It can also be run by hand from the Actions tab
-("Run workflow").
+`package-lock.json` / `tsconfig.json`. It can also be run by hand from the
+Actions tab ("Run workflow") — a manual run is refused unless it targets the
+`main` ref.
 
 ## Public URL
 
@@ -21,7 +22,9 @@ once the resource exists.
 2. `npm run build` inside `web/`, with `VITE_API_URL` set to the live API
    origin. This is public configuration baked into the client bundle at
    build time — not a secret — and is read from the `VITE_API_URL` repo
-   variable, falling back to the current production API origin if unset.
+   variable. There is no fallback: an unset or empty variable fails the
+   workflow before the build runs, rather than silently shipping a guessed
+   origin.
 3. Deploy `web/dist` with `Azure/static-web-apps-deploy@v1`
    (`skip_app_build: true`, since the build already happened in step 2).
 
@@ -61,6 +64,11 @@ Until the secret exists, `deploy-web.yml`'s `check-secrets` gate skips the
 deploy job and the workflow reports green — the same pattern `deploy.yml`
 uses for the server, so this file is safe to merge ahead of the Azure
 resource.
+
+A manual "Run workflow" dispatch is refused with a failed run, not a silent
+skip, if the selected ref isn't `main` — the workflow enforces this itself,
+so there's no reliance on whoever runs it remembering to pick the right
+branch.
 
 ## Browser-origin configuration (CAR-108, owned by Naveh)
 

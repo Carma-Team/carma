@@ -13,8 +13,9 @@ name: Deploy web to Azure Static Web Apps
 # Variables) — public config, not a secret, per CAR-284:
 #   VITE_API_URL   - the live API origin, e.g.
 #                    https://carma-api.<region>.azurecontainerapps.io
-#                    Falls back to the current production API origin below
-#                    if unset, so the workflow still builds correctly.
+#                    No fallback: an unset or empty variable fails the build
+#                    step before `vite build` runs, rather than silently
+#                    shipping a guessed origin.
 #
 # The app is built here (skip_app_build) rather than left to Oryx inside the
 # SWA action, because this is an npm-workspaces monorepo — `npm ci` has to
@@ -26,7 +27,10 @@ name: Deploy web to Azure Static Web Apps
 # unknown path back to index.html instead of a hosting 404.
 #
 # Trigger: pushed to main (path-filtered to web/ and the root files its
-# build depends on), or manually via "Run workflow".
+# build depends on), or manually via "Run workflow". A manual dispatch off
+# any ref but main is refused by the "Restrict to main" step below — the
+# deployed assets must always correspond to what's on main, not to whichever
+# branch happened to be selected in the Actions UI.
 
 on:
   push:
@@ -35,6 +39,7 @@ on:
       - 'web/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'tsconfig.json'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -51,6 +56,12 @@ jobs:
     outputs:
       ready: ${{ steps.gate.outputs.ready }}
     steps:
+      - name: Restrict to main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::deploy-web only deploys the main ref; refusing to run for ${{ github.ref }} (event: ${{ github.event_name }})."
+          exit 1
+
       - id: gate
         env:
           TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
@@ -79,10 +90,19 @@ jobs:
 
       - run: npm ci
 
+      - name: Require VITE_API_URL
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::VITE_API_URL repository variable is not set — refusing to build with a guessed API origin. Set it under Settings → Secrets and variables → Actions → Variables."
+            exit 1
+          fi
+
       - name: Production build
         working-directory: ./web
         env:
-          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://carma-api.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io' }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: npm run build
 
       - name: Deploy to Azure Static Web Apps
