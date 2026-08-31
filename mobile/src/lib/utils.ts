@@ -109,11 +109,6 @@ export function levelToIcon(level: number): string {
   return icons[Math.max(0, Math.min(level - 1, icons.length - 1))]
 }
 
-/** Case-normalized: the real server sends the role uppercase ("BUSINESS"), the mobile UserRole type is lowercase. */
-export function isBusiness(user: { role?: string } | null | undefined): boolean {
-  return user?.role?.toUpperCase() === 'BUSINESS'
-}
-
 /**
  * A phone number in E.164, or null if it is not one the server would accept.
  *

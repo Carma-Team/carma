@@ -30,7 +30,6 @@ Expo Router file-system routing. Each file here is a route.
 | Path | What goes here |
 |---|---|
 | `(tabs)/(home)/` | Tab-bar screens: dashboard, active trip, trip detail |
-| `(business)/` | Business-portal screens (rewards, reward form) |
 
 **Rules:**
 - Files here are route entry points only — keep them thin.
@@ -235,7 +234,6 @@ One file per backend resource.
 | `levels.api.ts` | `GET /api/levels` |
 | `leaderboard.api.ts` | `GET /api/leaderboard` |
 | `rewards.api.ts` | `GET /api/rewards`, `POST /api/rewards/redeem` |
-| `business.api.ts` | Business-portal endpoints |
 | `user.api.ts` | `GET /api/users/:id`, `PATCH /api/users/:id` |
 | `notifications.api.ts` | Push notification registration |
 | `friends.api.ts` | `GET /api/friend-requests`, `POST /api/friend-requests/:id/accept`, `DELETE /api/friend-requests/:id`, `DELETE /api/friends/:userId` |
