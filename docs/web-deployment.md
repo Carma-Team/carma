@@ -12,7 +12,7 @@ Actions tab ("Run workflow") — a manual run is refused unless it targets the
 ## Public URL
 
 `https://<static-web-app-name>.azurestaticapps.net` — the exact hostname is
-assigned by Azure when the resource is created and is recorded on CAR-284
+assigned by Azure when the resource is created and is recorded on CAR-285
 once the resource exists.
 
 ## What the workflow does
