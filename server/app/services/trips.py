@@ -301,13 +301,13 @@ def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
         raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
-def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
+def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str, enforced: bool) -> None:
     """Verify the telemetry digest's HMAC.
 
-    Three paths still accept an unverified payload (issue #24). Each is audited so
-    the rate of unsigned traffic can be measured before enforcement is switched on
-    — flipping any of these to a hard reject without that data would 403 every
-    client already in the field.
+    Three paths still accept an unverified payload (issue #24), audited so the rate
+    of unsigned traffic could be measured before enforcement switched on. `enforced`
+    (CAR-13 phase 2, `TRIP_SIGNATURE_ENFORCED`) turns each of those three into a 403
+    instead — default off, so merging this changes no request outcome.
 
     Note the ceiling on what enforcement buys: the mobile signing key is currently
     hardcoded in the app bundle, so a verified signature proves the payload came
@@ -316,12 +316,18 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     """
     if not signature:
         audit("trips.signature.absent", reason="no-signature-sent")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if not secret:
         audit("trips.signature.unenforced", reason="trip-signing-secret-unset")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
@@ -618,7 +624,12 @@ async def save(
     # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
     _check_timestamp_drift(dto.telemetry_digest)
-    _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
+    _verify_signature(
+        dto.telemetry_digest,
+        dto.payload_signature,
+        settings.trip_signing_secret,
+        settings.trip_signature_enforced,
+    )
 
     start = dto.start_time or datetime.now(UTC)
     if start.tzinfo is None:

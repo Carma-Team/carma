@@ -17,6 +17,7 @@ Run: python e2e_trip_pipeline.py
 import hashlib
 import hmac as _hmac
 import json
+import os
 import sys
 import time
 import uuid
@@ -27,7 +28,7 @@ import httpx
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = "http://localhost:3000"
-SIGNING_KEY = "CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION"
+SIGNING_KEY = os.environ.get("TRIP_SIGNING_SECRET", "")
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,9 +37,9 @@ def _hmac_hex(key: str, message: str) -> str:
     return _hmac.new(key.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
-def ph_sign(digest: dict) -> str:
+def sign(digest: dict) -> str:
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
-    return f"ph:{_hmac_hex(SIGNING_KEY, canonical)}"
+    return _hmac_hex(SIGNING_KEY, canonical)
 
 
 def make_digest(
@@ -86,7 +87,7 @@ def make_payload(
         "riskMultiplier": risk_multiplier,
         "penalties": penalties,
         "telemetryDigest": digest,
-        "payloadSignature": ph_sign(digest),
+        "payloadSignature": sign(digest),
     }
     return body, key
 
