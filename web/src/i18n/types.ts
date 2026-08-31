@@ -336,6 +336,9 @@ export type TranslationMap = {
     ambiguousTitle: string;
     ambiguousMessage: string;
     ambiguousSignOutButton: string;
+    incompatibleBusinessTitle: string;
+    incompatibleBusinessMessage: string;
+    incompatibleBusinessSignOutButton: string;
     reconcileRejectedTitle: string;
     reconcileRejectedMessage: string;
     reconcileTransientTitle: string;
@@ -346,12 +349,15 @@ export type TranslationMap = {
     previewRoleLabel: string;
     acceptButton: string;
     acceptingLabel: string;
-    acceptErrorMessage: string;
+    indeterminateTitle: string;
+    indeterminateMessage: string;
+    indeterminateRetryButton: string;
     goToBusinessButton: string;
     signInPrompt: string;
     signInLinkLabel: string;
     createAccountPrompt: string;
     createAccountLinkLabel: string;
+    haveCodeLinkLabel: string;
     manualEntryTitle: string;
     manualEntrySubtitle: string;
     codeInputLabel: string;

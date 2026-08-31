@@ -79,14 +79,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const status: AuthStatus =
-    bootstrapPhase === 'pending'
+  // A live `session` is checked before `bootstrapPhase` — not after — so a
+  // `login`/`register` call that lands after a *transient* bootstrap failure
+  // (an already-mounted app, `status: 'error'`, still showing the sign-in
+  // form) reaches 'authenticated' immediately. Neither of those sets
+  // `bootstrapPhase` themselves; without this ordering the stale 'error' from
+  // the earlier, unrelated bootstrap attempt would keep overriding a session
+  // that is genuinely live. `session` itself is never set from a stale
+  // response — `setSession`/`applyRefreshSuccess`/`applyRefreshRejection`
+  // already guard that (see `lib/auth/refresh.ts`'s captured lineage).
+  const status: AuthStatus = session
+    ? 'authenticated'
+    : bootstrapPhase === 'pending'
       ? 'loading'
       : bootstrapPhase === 'error'
         ? 'error'
-        : session
-          ? 'authenticated'
-          : 'unauthenticated';
+        : 'unauthenticated';
 
   const value = useMemo<AuthContextValue>(
     () => ({ status, user: session?.user ?? null, login, register, logout, retry }),

@@ -12,6 +12,7 @@ function renderSignIn() {
     [
       { path: '/sign-in', element: <SignInPage /> },
       { path: '/', element: <div>home</div> },
+      { path: '/accept-invite', element: <div>manual code entry page</div> },
     ],
     { initialEntries: ['/sign-in'] },
   );
@@ -76,5 +77,17 @@ describe('SignInPage', () => {
 
     expect(screen.queryByLabelText('אימייל')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  // CAR-118 review item 5: a recipient given only a code (read aloud, not a
+  // clicked link) has no production path to the manual-entry page without
+  // this — must be a real, visible, accessible navigation link.
+  it('offers a discoverable link to manual invitation-code entry', async () => {
+    vi.mocked(useAuth).mockReturnValue({ status: 'unauthenticated', user: null, login, register, logout, retry });
+
+    renderSignIn();
+    fireEvent.click(screen.getByRole('link', { name: 'יש לכם קוד הזמנה לעסק?' }));
+
+    await waitFor(() => expect(screen.getByText('manual code entry page')).toBeInTheDocument());
   });
 });

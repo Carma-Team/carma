@@ -89,6 +89,35 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('status')).not.toHaveTextContent('unauthenticated');
   });
 
+  // A transient bootstrap failure still renders the sign-in form (`status`
+  // is 'error', not 'loading'), so a login attempted right there must not be
+  // trapped behind the earlier, unrelated bootstrap outcome.
+  it('login succeeds into authenticated even though the bootstrap refresh failed transiently first', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(503, 'Service unavailable'));
+    vi.mocked(authApi.login).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+
+    fireEvent.click(screen.getByText('login'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('status')).not.toHaveTextContent('error');
+  });
+
+  it('register succeeds into authenticated even though the bootstrap refresh failed transiently first', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(503, 'Service unavailable'));
+    vi.mocked(authApi.register).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+
+    fireEvent.click(screen.getByText('register'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(screen.getByTestId('status')).not.toHaveTextContent('error');
+  });
+
   it('retry() re-runs the bootstrap check and can recover into authenticated', async () => {
     vi.mocked(authApi.refresh)
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))

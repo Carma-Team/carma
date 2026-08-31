@@ -327,7 +327,7 @@ describe('routes', () => {
   it('renders the invitation-acceptance page at /business-invite/:token with no session to restore, without redirecting to sign-in', async () => {
     vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
 
     await waitFor(() => expect(screen.getByText('כבר יש לכם חשבון?')).toBeInTheDocument());
     expect(previewInvitation).not.toHaveBeenCalled();
@@ -340,7 +340,7 @@ describe('routes', () => {
       invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'cashier', expiresAt: '2026-09-01T00:00:00Z' },
     });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
 
     await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
   });
@@ -381,7 +381,7 @@ describe('routes', () => {
     });
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -408,7 +408,7 @@ describe('routes', () => {
     });
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -447,7 +447,7 @@ describe('routes', () => {
     });
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));

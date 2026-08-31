@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { AcceptInvitationPage } from './AcceptInvitationPage';
 import { acceptInvitation, previewInvitation } from '@/lib/api/businessInvitations';
@@ -63,14 +63,31 @@ function resolvedAmbiguous(): Promise<'ok'> {
   return Promise.resolve('ok');
 }
 
+// A clean, successful refresh that shows the account genuinely holds no
+// membership in the invited business — what reconciliation looks like when
+// an accept attempt (of any kind) truly never took effect.
+function resolvedNoBusiness(): Promise<'ok'> {
+  setSession({ accessToken: 'tok', user: BASE_USER });
+  return Promise.resolve('ok');
+}
+
+// Echoes router state's `from`, proving the token actually round-trips
+// through a sign-in/sign-out detour rather than just landing on some page.
+function FromProbe() {
+  const location = useLocation();
+  return <div>from: {(location.state as { from?: string } | null)?.from}</div>;
+}
+
 function renderAt(path: string, extraRoutes: { path: string; element: React.ReactNode }[] = []) {
   const router = createMemoryRouter(
     [
-      { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
+      // Ahead of the fixed stubs below so a caller-supplied route for the
+      // same path (e.g. a `/sign-in` that echoes router state) wins the match.
+      ...extraRoutes,
+      { path: '/business-invite', element: <AcceptInvitationPage /> },
       { path: '/', element: <div>home</div> },
       { path: '/sign-in', element: <div>sign-in page</div> },
       { path: '/create-account', element: <div>create-account page</div> },
-      ...extraRoutes,
     ],
     { initialEntries: [path] },
   );
@@ -109,7 +126,7 @@ describe('AcceptInvitationPage', () => {
   it('offers a sign-in-or-register choice for an unauthenticated recipient, without previewing anything', async () => {
     mockAuth({ status: 'unauthenticated' });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
 
     await waitFor(() => expect(screen.getByText('כבר יש לכם חשבון?')).toBeInTheDocument());
     expect(screen.getByText('עדיין אין לכם חשבון?')).toBeInTheDocument();
@@ -119,7 +136,7 @@ describe('AcceptInvitationPage', () => {
   it('carries the invitation link forward through the sign-in detour, landing back on the same invitation', async () => {
     mockAuth({ status: 'unauthenticated' });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'התחברות' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'התחברות' }));
@@ -130,7 +147,7 @@ describe('AcceptInvitationPage', () => {
   it('carries the invitation link forward through the create-account detour', async () => {
     mockAuth({ status: 'unauthenticated' });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'יצירת חשבון' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'יצירת חשבון' }));
@@ -142,7 +159,7 @@ describe('AcceptInvitationPage', () => {
     mockAuth({ status: 'authenticated' });
     vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
 
     await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
     expect(screen.getByText('מנהל')).toBeInTheDocument();
@@ -157,7 +174,7 @@ describe('AcceptInvitationPage', () => {
     mockAuth({ status: 'authenticated' });
     vi.mocked(previewInvitation).mockResolvedValue({ outcome });
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
 
     await waitFor(() => expect(screen.getByText('ההזמנה אינה תקפה')).toBeInTheDocument());
   });
@@ -168,7 +185,7 @@ describe('AcceptInvitationPage', () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: MEMBERSHIP });
     vi.mocked(attemptRefresh).mockImplementation(resolvedSingleBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -191,7 +208,7 @@ describe('AcceptInvitationPage', () => {
     );
     vi.mocked(attemptRefresh).mockImplementation(resolvedSingleBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     const acceptButton = screen.getByRole('button', { name: /אישור ההזמנה|מאשר/ });
@@ -214,7 +231,7 @@ describe('AcceptInvitationPage', () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: MEMBERSHIP });
     vi.mocked(attemptRefresh).mockImplementation(resolvedAmbiguous);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -238,7 +255,7 @@ describe('AcceptInvitationPage', () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: MEMBERSHIP });
     vi.mocked(attemptRefresh).mockImplementation(resolvedAmbiguous);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'ההזמנה אושרה' })).toBeInTheDocument());
@@ -258,7 +275,7 @@ describe('AcceptInvitationPage', () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: MEMBERSHIP });
     vi.mocked(attemptRefresh).mockResolvedValue('rejected');
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -280,7 +297,7 @@ describe('AcceptInvitationPage', () => {
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: MEMBERSHIP });
     vi.mocked(attemptRefresh).mockResolvedValueOnce('transient').mockImplementationOnce(resolvedSingleBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
@@ -295,44 +312,160 @@ describe('AcceptInvitationPage', () => {
     expect(acceptInvitation).toHaveBeenCalledOnce();
   });
 
-  it('shows a plain already-a-member state without treating it as invalid, and does not reconcile the session', async () => {
+  // CAR-118 review item 3: `already_member` must not navigate off whatever
+  // `useAuth()` happened to hold before this click — it reconciles first,
+  // the same as a fresh 'ok' does.
+  it('reconciles the session before navigating on already_member, landing on the business interface', async () => {
     mockAuth({ status: 'authenticated' });
     vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'already_member' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedSingleBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
 
-    await waitFor(() => expect(screen.getByText('כבר יש לכם גישה')).toBeInTheDocument());
-    expect(attemptRefresh).not.toHaveBeenCalled();
+    await waitFor(() => expect(attemptRefresh).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText('home')).toBeInTheDocument());
   });
 
-  it('falls back to the same invalid state if the invitation was consumed between preview and accept', async () => {
+  it('shows the dedicated ambiguous state, not a plain already-a-member screen, when already_member reconciles to an account tied to another business too', async () => {
+    mockAuth({ status: 'authenticated' });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'already_member' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedAmbiguous);
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'ההזמנה אושרה' })).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'התנתקות' })).toBeInTheDocument();
+    expect(screen.queryByText('כבר יש לכם גישה')).not.toBeInTheDocument();
+  });
+
+  // CAR-118 review item 1: a lost response never proves the mutation didn't
+  // land. Both 'invalid' and the two indeterminate outcomes reconcile
+  // against the invitation's own preview businessId before deciding
+  // anything — a clean reconciliation showing that business is what "this
+  // account genuinely never redeemed this token" looks like.
+  it('renders the same invalid-invitation message when accept answers invalid and reconciliation confirms no matching membership', async () => {
     mockAuth({ status: 'authenticated' });
     vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
     vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'invalid' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedNoBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
 
     await waitFor(() => expect(screen.getByText('ההזמנה אינה תקפה')).toBeInTheDocument());
+    expect(attemptRefresh).toHaveBeenCalledOnce();
   });
 
-  it('shows a retryable error state without crashing when acceptance fails unexpectedly', async () => {
+  it('lands on the business interface, not an indeterminate or failure state, when a lost accept response actually committed on the server', async () => {
     mockAuth({ status: 'authenticated' });
     vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
-    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'unexpected_error' });
+    // The response never reached the client, but the mutation landed —
+    // reconciliation is how the client finds out, not the (missing) response.
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'network_error' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedSingleBusiness);
 
-    renderAt('/business-invite/TXQ947ZKPS');
+    renderAt('/business-invite#TXQ947ZKPS');
     await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
 
-    await waitFor(() => expect(screen.getByText('לא הצלחנו לאשר את ההזמנה. נסו שוב.')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByText('home')).toBeInTheDocument());
+    expect(screen.queryByText('לא הצלחנו לוודא את סטטוס ההזמנה')).not.toBeInTheDocument();
+    expect(acceptInvitation).toHaveBeenCalledOnce();
+  });
+
+  it('shows an indeterminate, safe-to-retry state — never a claim of failure — when accept fails unexpectedly and reconciliation confirms nothing was redeemed', async () => {
+    mockAuth({ status: 'authenticated' });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'unexpected_error' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedNoBusiness);
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByText('לא הצלחנו לוודא את סטטוס ההזמנה')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'לא הצלחנו לוודא את סטטוס ההזמנה' })).toBeInTheDocument();
+  });
+
+  it('retrying from the indeterminate state re-attempts accept exactly once more, landing on the business interface once it actually succeeds', async () => {
+    mockAuth({ status: 'authenticated' });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+    vi.mocked(acceptInvitation)
+      .mockResolvedValueOnce({ outcome: 'unexpected_error' })
+      .mockResolvedValueOnce({ outcome: 'ok', membership: MEMBERSHIP });
+    vi.mocked(attemptRefresh).mockImplementationOnce(resolvedNoBusiness).mockImplementationOnce(resolvedSingleBusiness);
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+    await waitFor(() => expect(screen.getByText('לא הצלחנו לוודא את סטטוס ההזמנה')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'ניסיון נוסף' }));
+
+    await waitFor(() => expect(screen.getByText('home')).toBeInTheDocument());
+    expect(acceptInvitation).toHaveBeenCalledTimes(2);
+  });
+
+  // CAR-118 review item 2: an account already resolved to a different
+  // business must never be allowed to consume the invitation at all — the
+  // mutation cannot be undone once it lands, and this portal cannot place
+  // the account into two businesses.
+  it('blocks acceptance and never calls acceptInvitation for an account already tied to a different business', async () => {
+    mockAuth({
+      status: 'authenticated',
+      user: { ...BASE_USER, businessId: 'other-business', businessMembershipRole: 'CASHIER', businessMembershipAmbiguous: false },
+    });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+
+    renderAt('/business-invite#TXQ947ZKPS');
+
+    await waitFor(() => expect(screen.getByText('ההזמנה הזו שייכת לעסק אחר')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'אישור ההזמנה' })).not.toBeInTheDocument();
+    expect(acceptInvitation).not.toHaveBeenCalled();
+  });
+
+  it('preserves a recoverable path to the invitation from the incompatible-business state — signing out returns to sign-in carrying the same token forward', async () => {
+    const logout = vi.fn().mockResolvedValue(undefined);
+    mockAuth({
+      status: 'authenticated',
+      logout,
+      user: { ...BASE_USER, businessMembershipAmbiguous: true },
+    });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+
+    renderAt('/business-invite#TXQ947ZKPS', [{ path: '/sign-in', element: <FromProbe /> }]);
+
+    await waitFor(() => expect(screen.getByText('ההזמנה הזו שייכת לעסק אחר')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'התנתקות' }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText('from: /business-invite#TXQ947ZKPS')).toBeInTheDocument());
+    expect(acceptInvitation).not.toHaveBeenCalled();
+  });
+
+  it('does not block acceptance for an account already a member of the same business the invitation names', async () => {
+    mockAuth({
+      status: 'authenticated',
+      user: { ...BASE_USER, businessId: 'b1', businessMembershipRole: 'CASHIER', businessMembershipAmbiguous: false },
+    });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+
+    renderAt('/business-invite#TXQ947ZKPS');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+    expect(screen.queryByText('ההזמנה הזו שייכת לעסק אחר')).not.toBeInTheDocument();
   });
 });

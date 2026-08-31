@@ -131,6 +131,28 @@ async def test_create_then_redeem_grants_exactly_that_role(
 
 
 @pytest.mark.asyncio
+async def test_the_created_link_carries_the_token_as_a_fragment_not_a_path_segment(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """CAR-118 review item 6: a fragment is never sent in the HTTP request —
+    to this server, or to any CDN/proxy in front of it — so it cannot land in
+    a web-host access log the way a path segment inevitably would. Asserting
+    on the URL's own shape, not just that a token string exists somewhere in
+    the response, is what actually proves this."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        assert created.status_code == 201, created.text
+        invitation = created.json()["invitation"]
+
+        assert invitation["url"].endswith(f"#{invitation['token']}")
+        path = invitation["url"].split("#", 1)[0]
+        assert invitation["token"] not in path
+    finally:
+        await _cleanup(db_session, users=(owner,), businesses=(business,))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("role", [BusinessMembershipRole.MANAGER, BusinessMembershipRole.CASHIER])
 async def test_manager_and_cashier_cannot_create_invitation(
     role: BusinessMembershipRole, db_session: AsyncSession, db_api_client: AsyncClient

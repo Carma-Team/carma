@@ -28,7 +28,10 @@ export function AcceptInvitationEntryPage() {
       setError(t('invitations.codeRequiredError'));
       return;
     }
-    navigate(`/business-invite/${encodeURIComponent(normalized)}`);
+    // A fragment, not a path segment — see `AcceptInvitationPage`'s own note
+    // on why, and `services/business_invitations.py::_link` for the matching
+    // link format a recipient who *was* sent a link ends up at.
+    navigate(`/business-invite#${encodeURIComponent(normalized)}`);
   }
 
   return (

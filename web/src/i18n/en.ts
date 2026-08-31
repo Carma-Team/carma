@@ -328,6 +328,10 @@ const en: TranslationMap = {
     ambiguousMessage:
       "The invitation was accepted and you now have access to this business. However, your account already belongs to another business too, and this web portal can't yet switch between multiple businesses on one account. Sign out and sign in with a dedicated account for this business to continue.",
     ambiguousSignOutButton: 'Sign out',
+    incompatibleBusinessTitle: 'This invitation is for a different business',
+    incompatibleBusinessMessage:
+      'Your account already has access to a different business, and this web portal does not yet support switching between businesses. To accept this invitation, sign out and sign in (or create an account) that is not already linked to a business — the invitation link will still work.',
+    incompatibleBusinessSignOutButton: 'Sign out',
     reconcileRejectedTitle: 'Invitation accepted — please sign in again',
     reconcileRejectedMessage:
       "The invitation was accepted, but your session has expired. Sign in again to continue — your access is already saved.",
@@ -340,12 +344,16 @@ const en: TranslationMap = {
     previewRoleLabel: 'Access level',
     acceptButton: 'Accept invitation',
     acceptingLabel: 'Accepting…',
-    acceptErrorMessage: 'Could not accept the invitation. Please try again.',
+    indeterminateTitle: "Couldn't confirm the invitation",
+    indeterminateMessage:
+      "We couldn't confirm whether the invitation went through — this can happen on a slow or interrupted connection. It's safe to try again: if it already succeeded, nothing will be redone.",
+    indeterminateRetryButton: 'Try again',
     goToBusinessButton: 'Go to the business',
     signInPrompt: 'Already have an account?',
     signInLinkLabel: 'Sign in',
     createAccountPrompt: "Don't have an account yet?",
     createAccountLinkLabel: 'Create an account',
+    haveCodeLinkLabel: 'Have a business invitation code?',
     manualEntryTitle: 'Enter an invitation code',
     manualEntrySubtitle: 'Type the code you were given to continue.',
     codeInputLabel: 'Invitation code',

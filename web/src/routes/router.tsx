@@ -41,7 +41,10 @@ export const routes: RouteObject[] = [
   // session at all, and the page itself decides what an unauthenticated
   // visitor sees (a sign-in/create-account choice) versus an authenticated
   // one (the business/role preview).
-  { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
+  // The token travels as a URL *fragment* (`#TOKEN`), not a path segment —
+  // see `services/business_invitations.py::_link`'s docstring. A single
+  // fixed path, read via `location.hash` inside the page, not `:token`.
+  { path: '/business-invite', element: <AcceptInvitationPage /> },
   { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
   {
     element: <ProtectedRoute />,

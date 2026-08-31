@@ -12,10 +12,10 @@ function renderAt(path: string) {
   const router = createMemoryRouter(
     [
       { path: '/create-account', element: <CreateAccountPage /> },
-      { path: '/business-invite/:token', element: <div>invitation page</div> },
+      { path: '/business-invite', element: <div>invitation page</div> },
       { path: '/', element: <div>home</div> },
     ],
-    { initialEntries: [{ pathname: path, state: { from: '/business-invite/TXQ947ZKPS' } }] },
+    { initialEntries: [{ pathname: path, state: { from: '/business-invite#TXQ947ZKPS' } }] },
   );
   return render(
     <LanguageProvider>

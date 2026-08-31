@@ -30,7 +30,7 @@ function isoDate(value: string): string {
 }
 
 export function InvitationsPage() {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const [listStatus, setListStatus] = useState<LoadStatus>('loading');
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [selectedRole, setSelectedRole] = useState<InvitationRole>('manager');
@@ -262,7 +262,7 @@ export function InvitationsPage() {
                         </td>
                         <td>
                           <Text variant="body" as="span">
-                            {new Date(invitation.expiresAt).toLocaleString()}
+                            {new Date(invitation.expiresAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
                           </Text>
                         </td>
                         <td>
@@ -301,24 +301,47 @@ export function InvitationsPage() {
             <Text variant="body">{t('invitations.validityNotice')}</Text>
 
             <div className={styles.field}>
-              <Text variant="label" as="span">
+              <Text variant="label" as="span" id="invitation-link-label">
                 {t('invitations.linkLabel')}
               </Text>
               <div className={styles.copyRow}>
-                <input className={inputStyles.input} dir="ltr" readOnly value={created.url} />
-                <Button variant="secondary" onClick={() => copyToClipboard('link', created.url)}>
+                <input
+                  className={inputStyles.input}
+                  dir="ltr"
+                  readOnly
+                  aria-labelledby="invitation-link-label"
+                  value={created.url}
+                />
+                {/* `aria-live` on the button itself — its own visible label is
+                    what changes ("Copy link" -> "Copied"), and that is also
+                    the confirmation a screen reader needs announced. */}
+                <Button
+                  variant="secondary"
+                  aria-live="polite"
+                  onClick={() => copyToClipboard('link', created.url)}
+                >
                   {copied === 'link' ? t('invitations.copiedLabel') : t('invitations.copyLinkButton')}
                 </Button>
               </div>
             </div>
 
             <div className={styles.field}>
-              <Text variant="label" as="span">
+              <Text variant="label" as="span" id="invitation-code-label">
                 {t('invitations.codeLabel')}
               </Text>
               <div className={styles.copyRow}>
-                <input className={inputStyles.input} dir="ltr" readOnly value={created.token} />
-                <Button variant="secondary" onClick={() => copyToClipboard('code', created.token)}>
+                <input
+                  className={inputStyles.input}
+                  dir="ltr"
+                  readOnly
+                  aria-labelledby="invitation-code-label"
+                  value={created.token}
+                />
+                <Button
+                  variant="secondary"
+                  aria-live="polite"
+                  onClick={() => copyToClipboard('code', created.token)}
+                >
                   {copied === 'code' ? t('invitations.copiedLabel') : t('invitations.copyCodeButton')}
                 </Button>
               </div>

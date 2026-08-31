@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Card, Heading, Input, Button, ErrorState, LoadingState } from '@/components/ui';
@@ -80,6 +80,12 @@ export function SignInPage() {
             {submitting ? t('auth.signingIn') : t('auth.signInButton')}
           </Button>
         </form>
+        {/* CAR-118 review item 5: a recipient who was only given a code (read
+            aloud, not clicked) has no production path to `/accept-invite`
+            without this — the entry form itself never appears in any nav. */}
+        <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
+          {t('invitations.haveCodeLinkLabel')}
+        </Link>
       </Card>
     </main>
   );

@@ -22,7 +22,7 @@ const CREATED: CreatedInvitation = {
   id: 'inv-2',
   role: 'cashier',
   token: 'TXQ947ZKPS',
-  url: 'https://business.carma.app/business-invite/TXQ947ZKPS',
+  url: 'https://business.carma.app/business-invite#TXQ947ZKPS',
   expiresAt: '2026-09-02T00:00:00Z',
 };
 
@@ -283,5 +283,53 @@ describe('InvitationsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Invitations')).toBeInTheDocument());
     expect(document.documentElement.dir).toBe('ltr');
+  });
+
+  // CAR-118 review item 7: the app's own selected UI language, not whatever
+  // the test runner's implicit browser locale happens to be — proven by
+  // switching the stored language and checking the rendered expiry text
+  // actually changes format, not just that some string appears.
+  it('formats the pending-list expiry using the selected UI language, not the browser default', async () => {
+    vi.mocked(listInvitations).mockResolvedValue({ outcome: 'ok', invitations: [PENDING_MANAGER] });
+
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument());
+    const hebrewExpiry = new Date(PENDING_MANAGER.expiresAt).toLocaleString('he-IL');
+    expect(within(screen.getByRole('table')).getByText(hebrewExpiry)).toBeInTheDocument();
+    unmount();
+
+    window.localStorage.setItem('carma_lang', 'EN');
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument());
+    const englishExpiry = new Date(PENDING_MANAGER.expiresAt).toLocaleString('en-US');
+    expect(within(screen.getByRole('table')).getByText(englishExpiry)).toBeInTheDocument();
+  });
+
+  it('associates the one-time link and code fields with their own accessible labels', async () => {
+    vi.mocked(listInvitations).mockResolvedValue({ outcome: 'ok', invitations: [] });
+    vi.mocked(createInvitation).mockResolvedValue({ outcome: 'ok', invitation: CREATED });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
+
+    await waitFor(() => expect(screen.getByLabelText('קישור להזמנה')).toHaveValue(CREATED.url));
+    expect(screen.getByLabelText('קוד ההזמנה')).toHaveValue(CREATED.token);
+  });
+
+  it('announces clipboard-copy confirmation through a live region', async () => {
+    vi.mocked(listInvitations).mockResolvedValue({ outcome: 'ok', invitations: [] });
+    vi.mocked(createInvitation).mockResolvedValue({ outcome: 'ok', invitation: CREATED });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+
+    const copyLinkButton = screen.getByRole('button', { name: 'העתקת הקישור' });
+    expect(copyLinkButton).toHaveAttribute('aria-live', 'polite');
+
+    fireEvent.click(copyLinkButton);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'הועתק' })).toBeInTheDocument());
   });
 });

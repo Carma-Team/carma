@@ -324,6 +324,10 @@ const he: TranslationMap = {
     ambiguousMessage:
       'ההזמנה אושרה ויש לכם כעת גישה לעסק הזה. עם זאת, החשבון שלכם שייך גם לעסק נוסף, ופורטל האינטרנט הזה עדיין לא תומך במעבר בין כמה עסקים מאותו חשבון. התנתקו והתחברו עם חשבון ייעודי לעסק הזה כדי להמשיך.',
     ambiguousSignOutButton: 'התנתקות',
+    incompatibleBusinessTitle: 'ההזמנה הזו שייכת לעסק אחר',
+    incompatibleBusinessMessage:
+      'לחשבון שלכם כבר יש גישה לעסק אחר, ופורטל האינטרנט הזה עדיין לא תומך במעבר בין עסקים. כדי לאשר את ההזמנה הזו, התנתקו והתחברו (או פתחו חשבון) שאינו מקושר כבר לעסק — קישור ההזמנה ימשיך לעבוד.',
+    incompatibleBusinessSignOutButton: 'התנתקות',
     reconcileRejectedTitle: 'ההזמנה אושרה — יש להתחבר מחדש',
     reconcileRejectedMessage: 'ההזמנה אושרה, אך תוקף החיבור שלכם פג. התחברו מחדש כדי להמשיך — הגישה שלכם כבר נשמרה.',
     reconcileTransientTitle: 'ההזמנה אושרה',
@@ -334,12 +338,16 @@ const he: TranslationMap = {
     previewRoleLabel: 'רמת גישה',
     acceptButton: 'אישור ההזמנה',
     acceptingLabel: 'מאשר…',
-    acceptErrorMessage: 'לא הצלחנו לאשר את ההזמנה. נסו שוב.',
+    indeterminateTitle: 'לא הצלחנו לוודא את סטטוס ההזמנה',
+    indeterminateMessage:
+      'לא הצלחנו לוודא אם ההזמנה אושרה בפועל — זה יכול לקרות בחיבור איטי או שנקטע. אפשר לנסות שוב בבטחה: אם היא כבר אושרה, שום דבר לא יתבצע שוב.',
+    indeterminateRetryButton: 'ניסיון נוסף',
     goToBusinessButton: 'מעבר לעסק',
     signInPrompt: 'כבר יש לכם חשבון?',
     signInLinkLabel: 'התחברות',
     createAccountPrompt: 'עדיין אין לכם חשבון?',
     createAccountLinkLabel: 'יצירת חשבון',
+    haveCodeLinkLabel: 'יש לכם קוד הזמנה לעסק?',
     manualEntryTitle: 'הזנת קוד הזמנה',
     manualEntrySubtitle: 'הזינו את הקוד שקיבלתם כדי להמשיך.',
     codeInputLabel: 'קוד ההזמנה',

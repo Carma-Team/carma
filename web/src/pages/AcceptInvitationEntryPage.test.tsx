@@ -1,22 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider, useParams } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { AcceptInvitationEntryPage } from './AcceptInvitationEntryPage';
 
-// Echoes the resolved `:token` param verbatim — a bare "accept page" stub
+// Echoes the resolved token verbatim from the URL *fragment* (the same place
+// `AcceptInvitationPage` itself reads it from) — a bare "accept page" stub
 // would still pass even if normalization silently stopped happening, since
 // any token value matches the route.
 function TokenProbe() {
-  const { token } = useParams<{ token: string }>();
-  return <div>accept page: {token}</div>;
+  const location = useLocation();
+  return <div>accept page: {decodeURIComponent(location.hash.slice(1))}</div>;
 }
 
 function renderPage() {
   const router = createMemoryRouter(
     [
       { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
-      { path: '/business-invite/:token', element: <TokenProbe /> },
+      { path: '/business-invite', element: <TokenProbe /> },
     ],
     { initialEntries: ['/accept-invite'] },
   );

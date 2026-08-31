@@ -69,7 +69,12 @@ def _new_token() -> str:
 
 
 def _link(token: str) -> str:
-    return f"{settings.invite_base_url.rstrip('/')}/business-invite/{token}"
+    """A URL fragment, not a path segment. `#{token}` never leaves the
+    browser — it is not sent in the HTTP request line at all, to this server
+    or to any CDN/proxy in front of it, so it cannot appear in a web-host
+    access log the way a path segment inevitably would. `AcceptInvitationPage`
+    reads it via `location.hash`, not `useParams`."""
+    return f"{settings.invite_base_url.rstrip('/')}/business-invite#{token}"
 
 
 def _unknown_invitation() -> HTTPException:
