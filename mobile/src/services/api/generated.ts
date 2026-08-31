@@ -499,7 +499,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List this business's pending invitations, with their expiry — OWNER only */
+        get: operations["list_invitations_api_business_invitations_get"];
         put?: never;
         /** Invite a colleague at MANAGER or CASHIER — OWNER only */
         post: operations["create_invitation_api_business_invitations_post"];
@@ -972,6 +973,38 @@ export interface components {
              * @enum {string}
              */
             role: "manager" | "cashier";
+        };
+        /**
+         * BusinessInvitationListItem
+         * @description A pending invitation as the OWNER's list sees it (CAR-118) — never the
+         *     token or the URL. Both were returned once, at creation, and are not
+         *     re-derivable from `token_hash`; a list endpoint that could show them again
+         *     would be a second way to read a credential that is supposed to exist only
+         *     in whatever channel the OWNER already sent it through.
+         */
+        BusinessInvitationListItem: {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+        };
+        /** BusinessInvitationListResponse */
+        BusinessInvitationListResponse: {
+            /** Invitations */
+            invitations: components["schemas"]["BusinessInvitationListItem"][];
         };
         /**
          * BusinessInvitationOut
@@ -3072,6 +3105,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invitations_api_business_invitations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessInvitationListResponse"];
                 };
             };
         };

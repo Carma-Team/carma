@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
+import pytest
 from httpx import AsyncClient, Response
 from jose import jwt
 from sqlalchemy import delete, select
@@ -150,6 +152,206 @@ async def test_a_browser_style_login_already_gets_the_short_web_ttl(
         payload = _decode(r.json()["token"])
         lifetime = payload["exp"] - payload["iat"]
         assert lifetime == settings.web_access_token_expires_minutes * 60
+    finally:
+        await _cleanup(db_session, email)
+
+
+# ─── register establishes the same browser session login does (CAR-118) ─────
+# A recipient who has to create an account mid-invitation-acceptance needs the
+# same durable, httpOnly-cookie session `/api/auth/login` grants — otherwise
+# their session is gone the moment the tab reloads, unlike everyone who signs
+# in with an existing password.
+
+
+async def test_register_sets_an_httponly_refresh_cookie_for_a_browser_caller(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    email = f"web-register-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        r = await db_api_client.post(
+            "/api/auth/register",
+            json={"name": "New Recipient", "email": email, "password": PASSWORD},
+            headers=BROWSER_HEADERS,
+        )
+        assert r.status_code == 201, r.text
+
+        set_cookie = r.headers.get("set-cookie", "")
+        assert REFRESH_COOKIE_NAME in set_cookie
+        assert "httponly" in set_cookie.lower()
+
+        row = await db_session.scalar(select(RefreshToken).where(RefreshToken.user_id == r.json()["user"]["id"]))
+        assert row is not None
+        assert row.revoked_at is None
+
+        payload = _decode(r.json()["token"])
+        lifetime = payload["exp"] - payload["iat"]
+        assert lifetime == settings.web_access_token_expires_minutes * 60
+    finally:
+        await _cleanup(db_session, email)
+
+
+async def test_a_mobile_style_register_keeps_the_long_lived_token(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    email = f"mobile-register-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        r = await db_api_client.post(
+            "/api/auth/register", json={"name": "Mobile Signup", "email": email, "password": PASSWORD}
+        )
+        assert r.status_code == 201, r.text
+        payload = _decode(r.json()["token"])
+        lifetime = payload["exp"] - payload["iat"]
+        assert lifetime == settings.jwt_expires_minutes * 60
+    finally:
+        await _cleanup(db_session, email)
+
+
+async def test_the_cookie_register_sets_can_be_refreshed_like_a_login_session(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    email = f"web-register-refresh-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        registered = await db_api_client.post(
+            "/api/auth/register",
+            json={"name": "New Recipient", "email": email, "password": PASSWORD},
+            headers=BROWSER_HEADERS,
+        )
+        assert registered.status_code == 201
+
+        r = await db_api_client.post("/api/auth/refresh", headers=BROWSER_HEADERS)
+        assert r.status_code == 200
+        assert r.json()["user"]["email"] == email
+    finally:
+        await _cleanup(db_session, email)
+
+
+async def test_a_failure_establishing_the_session_leaves_no_account_behind(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """Registration and its first browser session share one commit
+    (`services/auth.py::_establish_browser_session`) precisely so this can't
+    happen: a `User` row flushed but never committed is rolled back with the
+    rest of the request-scoped session the moment an unhandled exception
+    propagates out of the route (`app/database.py::get_db`'s `async with`
+    closes, and closing an uncommitted session rolls it back) — so a failure
+    minting the refresh token must not leave a registered account behind for
+    a request that itself reports failure."""
+    email = f"web-register-atomic-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        # The ASGI test transport re-raises an unhandled application exception
+        # rather than turning it into a response — a real deployment's
+        # exception-handling middleware would answer 500, but the exception
+        # itself is what this test actually needs to inject and observe.
+        with (
+            patch.object(auth_service, "_mint_refresh_token", side_effect=RuntimeError("simulated failure")),
+            pytest.raises(RuntimeError, match="simulated failure"),
+        ):
+            await db_api_client.post(
+                "/api/auth/register",
+                json={"name": "New Recipient", "email": email, "password": PASSWORD},
+                headers=BROWSER_HEADERS,
+            )
+
+        # `db_api_client` deliberately reuses this test's own `db_session`
+        # for every request (see its fixture docstring — a fresh session per
+        # request would break across event loops here), so the flushed User
+        # row is still visible to it, uncommitted, until something rolls it
+        # back. A real request has its own session and never shares one
+        # across requests (`app/database.py::get_db`), so closing it on this
+        # exception rolls back on its own — this rollback is standing in for
+        # that per-request close, not an extra step production gets for free.
+        await db_session.rollback()
+        orphaned = await db_session.scalar(select(User).where(User.email == email))
+        assert orphaned is None, "a session-establishment failure must not leave a committed, sessionless account"
+    finally:
+        await _cleanup(db_session, email)
+
+
+# ─── success audits describe a committed transaction, never a rolled-back one ─
+# `_establish_browser_session` emits `success_event` itself, once its own
+# commit has returned — a caller-side `audit(...)` before that call would log
+# success even when the commit is exactly what fails. These read the real
+# `carma.audit` logger `app/core/audit.py` writes to, not a mocked call.
+
+
+async def test_a_registration_commit_failure_emits_no_registered_audit(
+    db_session: AsyncSession, db_api_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    email = f"web-register-audit-fail-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        with (
+            patch.object(auth_service, "_mint_refresh_token", side_effect=RuntimeError("simulated failure")),
+            pytest.raises(RuntimeError, match="simulated failure"),
+            caplog.at_level("INFO", logger="carma.audit"),
+        ):
+            await db_api_client.post(
+                "/api/auth/register",
+                json={"name": "New Recipient", "email": email, "password": PASSWORD},
+                headers=BROWSER_HEADERS,
+            )
+
+        registered_events = [r for r in caplog.records if r.name == "carma.audit" and r.event == "auth.registered"]
+        assert registered_events == [], "a rolled-back registration must never be audited as successful"
+    finally:
+        await db_session.rollback()
+        await _cleanup(db_session, email)
+
+
+async def test_a_successful_registration_emits_exactly_one_registered_audit(
+    db_session: AsyncSession, db_api_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    email = f"web-register-audit-ok-{uuid.uuid4().hex[:8]}@carmatest.com"
+    try:
+        with caplog.at_level("INFO", logger="carma.audit"):
+            r = await db_api_client.post(
+                "/api/auth/register",
+                json={"name": "New Recipient", "email": email, "password": PASSWORD},
+                headers=BROWSER_HEADERS,
+            )
+        assert r.status_code == 201, r.text
+
+        registered_events = [r for r in caplog.records if r.name == "carma.audit" and r.event == "auth.registered"]
+        assert len(registered_events) == 1
+    finally:
+        await _cleanup(db_session, email)
+
+
+async def test_a_login_commit_failure_emits_no_login_success_audit(
+    db_session: AsyncSession, db_api_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    email = f"web-login-audit-fail-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _business_driver(db_session, email)
+    try:
+        with (
+            patch.object(auth_service, "_mint_refresh_token", side_effect=RuntimeError("simulated failure")),
+            pytest.raises(RuntimeError, match="simulated failure"),
+            caplog.at_level("INFO", logger="carma.audit"),
+        ):
+            await db_api_client.post(
+                "/api/auth/login", json={"email": email, "password": PASSWORD}, headers=BROWSER_HEADERS
+            )
+
+        success_events = [r for r in caplog.records if r.name == "carma.audit" and r.event == "auth.login.success"]
+        assert success_events == [], "a rolled-back login must never be audited as successful"
+    finally:
+        await db_session.rollback()
+        await _cleanup(db_session, email)
+
+
+async def test_a_successful_login_emits_exactly_one_login_success_audit(
+    db_session: AsyncSession, db_api_client: AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    email = f"web-login-audit-ok-{uuid.uuid4().hex[:8]}@carmatest.com"
+    await _business_driver(db_session, email)
+    try:
+        with caplog.at_level("INFO", logger="carma.audit"):
+            r = await db_api_client.post(
+                "/api/auth/login", json={"email": email, "password": PASSWORD}, headers=BROWSER_HEADERS
+            )
+        assert r.status_code == 200, r.text
+
+        success_events = [r for r in caplog.records if r.name == "carma.audit" and r.event == "auth.login.success"]
+        assert len(success_events) == 1
     finally:
         await _cleanup(db_session, email)
 

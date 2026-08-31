@@ -55,6 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession({ accessToken: res.token, user: res.user });
   }, []);
 
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    // Same short-lived-from-the-start reasoning as `login` above — `authApi`
+    // sends `X-Requested-With` uniformly, so `/api/auth/register` already
+    // recognizes this as a browser call (see
+    // `services/auth.py::register_with_password`) and mints the right TTL
+    // and refresh cookie without a follow-up refresh.
+    const res = await authApi.register(name, email, password);
+    setSession({ accessToken: res.token, user: res.user });
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
@@ -79,8 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : 'unauthenticated';
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user: session?.user ?? null, login, logout, retry }),
-    [status, session, login, logout, retry],
+    () => ({ status, user: session?.user ?? null, login, register, logout, retry }),
+    [status, session, login, register, logout, retry],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

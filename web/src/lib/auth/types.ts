@@ -35,6 +35,10 @@ export type AuthContextValue = {
   status: AuthStatus;
   user: AuthUser | null;
   login: (email: string, password: string) => Promise<void>;
+  // A recipient accepting a business invitation (CAR-118) who has no CARMA
+  // account yet needs the same durable browser session `login` grants, not
+  // just a created row — see `services/auth.py::register_with_password`.
+  register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   // Re-runs the bootstrap check from an 'error' status. A no-op from any
   // other status — there is nothing to retry once bootstrap has settled for

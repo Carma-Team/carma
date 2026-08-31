@@ -263,6 +263,85 @@ async def test_revoking_a_pending_invitation_makes_it_unusable_at_once(
         await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
 
 
+# ─── Listing pending invitations: OWNER only, pending state only (CAR-118) ───
+
+
+@pytest.mark.asyncio
+async def test_listing_returns_only_pending_invitations_with_their_expiry(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business, owner, owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        pending = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        pending_id = pending.json()["invitation"]["id"]
+
+        redeemed = await db_api_client.post(INVITATIONS_URL, json={"role": "cashier"}, headers=_auth(owner_token))
+        redeemed_token = redeemed.json()["invitation"]["token"]
+        redeemed_id = redeemed.json()["invitation"]["id"]
+        accept = await db_api_client.post(f"/api/invitations/{redeemed_token}/accept", headers=_auth(_token(recipient)))
+        assert accept.status_code == 200, accept.text
+
+        revoked = await db_api_client.post(INVITATIONS_URL, json={"role": "cashier"}, headers=_auth(owner_token))
+        revoked_id = revoked.json()["invitation"]["id"]
+        revoke = await db_api_client.delete(f"{INVITATIONS_URL}/{revoked_id}", headers=_auth(owner_token))
+        assert revoke.status_code == 204
+
+        listed = await db_api_client.get(INVITATIONS_URL, headers=_auth(owner_token))
+        assert listed.status_code == 200, listed.text
+        invitations = listed.json()["invitations"]
+
+        ids = {item["id"] for item in invitations}
+        assert ids == {pending_id}, "only the still-pending invitation belongs in the list"
+        assert redeemed_id not in ids
+        assert revoked_id not in ids
+
+        item = next(item for item in invitations if item["id"] == pending_id)
+        assert item["role"] == "manager"
+        assert "expiresAt" in item
+        assert "token" not in item and "url" not in item, "a listed invitation must never re-expose its credential"
+    finally:
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
+
+
+@pytest.mark.asyncio
+async def test_listing_is_scoped_to_the_caller_own_business(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business_a, owner_a, owner_a_token = await _setup_owner(db_session)
+    business_b, owner_b, owner_b_token = await _setup_owner(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_a_token))
+        assert created.status_code == 201
+
+        listed_b = await db_api_client.get(INVITATIONS_URL, headers=_auth(owner_b_token))
+        assert listed_b.status_code == 200
+        assert listed_b.json()["invitations"] == [], "another business's pending invitation must never be visible"
+    finally:
+        await _cleanup(db_session, users=(owner_a, owner_b), businesses=(business_a, business_b))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", [BusinessMembershipRole.MANAGER, BusinessMembershipRole.CASHIER])
+async def test_listing_is_refused_for_manager_and_cashier(
+    role: BusinessMembershipRole, db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business = await _make_business(db_session)
+    member = await _make_user(db_session)
+    await _add_membership(db_session, member, business, role)
+    try:
+        listed = await db_api_client.get(INVITATIONS_URL, headers=_auth(_token(member)))
+        assert listed.status_code == 403
+    finally:
+        await _cleanup(db_session, users=(member,), businesses=(business,))
+
+
+@pytest.mark.asyncio
+async def test_listing_is_refused_with_no_bearer_token(db_api_client: AsyncClient) -> None:
+    listed = await db_api_client.get(INVITATIONS_URL)
+    assert listed.status_code == 401
+
+
 # ─── Already a member: rejected without touching membership or invitation ────
 
 

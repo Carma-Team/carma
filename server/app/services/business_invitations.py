@@ -31,6 +31,7 @@ from app.models import Business, BusinessInvitation, BusinessMembership, Busines
 from app.schemas.business_invitation import (
     BusinessInvitationAcceptOut,
     BusinessInvitationIn,
+    BusinessInvitationListItem,
     BusinessInvitationOut,
     BusinessInvitationPreviewOut,
 )
@@ -127,6 +128,34 @@ async def create_invitation(
         )
 
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not allocate an invitation token")
+
+
+async def list_pending_invitations(db: AsyncSession, business: Business) -> list[BusinessInvitationListItem]:
+    """The OWNER-facing list (CAR-118) — same "pending" predicate
+    `revoke_invitation` and `accept_invitation` race against, so a row shown
+    here is exactly a row still capable of being redeemed or revoked."""
+    now = datetime.now(UTC)
+    rows = (
+        await db.scalars(
+            select(BusinessInvitation)
+            .where(
+                BusinessInvitation.business_id == business.id,
+                BusinessInvitation.redeemed_at.is_(None),
+                BusinessInvitation.revoked_at.is_(None),
+                BusinessInvitation.expires_at > now,
+            )
+            .order_by(BusinessInvitation.created_at.desc())
+        )
+    ).all()
+    return [
+        BusinessInvitationListItem(
+            id=row.id,
+            role="manager" if row.role == BusinessMembershipRole.MANAGER else "cashier",
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+        )
+        for row in rows
+    ]
 
 
 async def revoke_invitation(db: AsyncSession, business: Business, invitation_id: str) -> None:

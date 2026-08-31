@@ -26,6 +26,7 @@ function mockAuth(user: AuthUser | null) {
     status: 'authenticated',
     user,
     login: vi.fn(),
+    register: vi.fn(),
     logout: vi.fn(),
     retry: vi.fn(),
   } satisfies AuthContextValue);

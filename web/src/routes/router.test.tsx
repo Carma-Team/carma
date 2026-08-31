@@ -7,11 +7,12 @@ import { authApi, AuthApiError } from '@/lib/auth/authApi';
 import { setSession } from '@/lib/auth/session';
 import { listRewards } from '@/lib/api/rewards';
 import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/businessMembers';
+import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth/authApi')>();
-  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn() } };
+  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn(), register: vi.fn() } };
 });
 
 vi.mock('@/lib/api/rewards', async (importOriginal) => {
@@ -22,6 +23,11 @@ vi.mock('@/lib/api/rewards', async (importOriginal) => {
 vi.mock('@/lib/api/businessMembers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/businessMembers')>();
   return { ...actual, listMembers: vi.fn(), changeMemberRole: vi.fn(), revokeMemberAccess: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessInvitations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessInvitations')>();
+  return { ...actual, listInvitations: vi.fn(), previewInvitation: vi.fn(), acceptInvitation: vi.fn() };
 });
 
 const businessUser = {
@@ -64,6 +70,9 @@ describe('routes', () => {
     vi.mocked(listMembers).mockReset();
     vi.mocked(changeMemberRole).mockReset();
     vi.mocked(revokeMemberAccess).mockReset();
+    vi.mocked(listInvitations).mockReset();
+    vi.mocked(previewInvitation).mockReset();
+    vi.mocked(acceptInvitation).mockReset();
   });
 
   it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {
@@ -279,6 +288,174 @@ describe('routes', () => {
     // RequireBusinessRole swaps this route's own Outlet for the
     // access-restricted state for the same reason.
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+  });
+
+  // CAR-118: /permissions/invitations sits under the same OWNER-only
+  // RequireBusinessRole as /permissions, not a looser one. Run before the
+  // /register tests below on purpose — same reason as the CAR-117 block
+  // above: those leave `authApi.refresh` permanently stuck in flight.
+  it('renders the real invitations page inside the shell at /permissions/invitations for an OWNER', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(listInvitations).mockResolvedValue({ outcome: 'ok', invitations: [] });
+
+    renderAt('/permissions/invitations');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'הזמנות' })).toBeInTheDocument());
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  it('fails closed at /permissions/invitations for a MANAGER, and never calls the invitations API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: managerUser });
+
+    renderAt('/permissions/invitations');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listInvitations).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at /permissions/invitations for a CASHIER, and never calls the invitations API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/permissions/invitations');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listInvitations).not.toHaveBeenCalled();
+  });
+
+  // CAR-118: an invitation link must work with no session at all — this route
+  // sits outside ProtectedRoute, unlike every business route above.
+  it('renders the invitation-acceptance page at /business-invite/:token with no session to restore, without redirecting to sign-in', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
+
+    renderAt('/business-invite/TXQ947ZKPS');
+
+    await waitFor(() => expect(screen.getByText('כבר יש לכם חשבון?')).toBeInTheDocument());
+    expect(previewInvitation).not.toHaveBeenCalled();
+  });
+
+  it('previews the business and role for an authenticated recipient at /business-invite/:token', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: businessUser });
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'cashier', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+
+    renderAt('/business-invite/TXQ947ZKPS');
+
+    await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
+  });
+
+  // CAR-118: end-to-end through the real `routes` tree, the real
+  // `ProtectedRoute`/`RequireBusinessRole`, and the real `AuthProvider` +
+  // session store — not a stubbed home element and not a mocked `useAuth()`.
+  // Only `authApi.refresh` (what `attemptRefresh()` actually calls) and the
+  // `businessInvitations` API boundary are mocked; everything from the
+  // accept button click through to what the role guard decides is real.
+  const recipientUser = {
+    id: 'r1',
+    name: 'New Recipient',
+    email: 'recipient@example.com',
+    role: 'DRIVER' as const,
+    businessId: null,
+    businessCategory: null,
+    businessName: null,
+    businessNameHe: null,
+    businessMembershipRole: null,
+    businessMembershipAmbiguous: false,
+  };
+
+  it('accepts the invitation and reaches the real business route for a normal single-membership recipient, without an access-restricted state', async () => {
+    // First call is AuthProvider's bootstrap (the recipient signed in before
+    // ever landing on the invitation link); second is the post-accept
+    // reconciliation, resolving the membership CAR-258's own contract
+    // requires — a real, unambiguous role in the invited business.
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser })
+      .mockResolvedValueOnce({
+        token: 'tok-2',
+        user: { ...recipientUser, businessId: 'b1', businessName: 'Aroma Israel', businessMembershipRole: 'MANAGER' },
+      });
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'manager', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
+
+    renderAt('/business-invite/TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    // Landed inside the real protected/role-gated tree — the shell renders
+    // the newly-resolved business's name, and the role guard never swaps in
+    // its access-restricted state for a MANAGER, which `allow` includes.
+    await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(acceptInvitation).toHaveBeenCalledExactlyOnceWith('TXQ947ZKPS');
+    expect(authApi.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts the invitation but stays on the dedicated accepted-but-ambiguous state for a recipient whose account is ambiguous, never entering the protected route tree', async () => {
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser })
+      .mockResolvedValueOnce({
+        token: 'tok-2',
+        user: { ...recipientUser, businessMembershipRole: null, businessMembershipAmbiguous: true },
+      });
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'manager', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
+
+    renderAt('/business-invite/TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    // Still on AcceptInvitationPage's own dedicated state — never navigated
+    // into ProtectedRoute/RequireBusinessRole, so neither the shell nor its
+    // access-restricted alert ever mounts.
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'ההזמנה אושרה' })).toBeInTheDocument());
+    expect(screen.queryByText('Aroma Israel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(acceptInvitation).toHaveBeenCalledExactlyOnceWith('TXQ947ZKPS');
+    expect(authApi.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  // CAR-118 review: reconciliation can resolve to a real, unambiguous role in
+  // a *different* business than the one this invitation named — a stale
+  // invitation preview accepted after the account's membership picture
+  // changed elsewhere. Never navigable to the invited business, and never
+  // the fully-ambiguous flag either.
+  it('treats a reconciliation that resolves to a different business than the accepted invitation the same as ambiguous, and never navigates into the protected route tree', async () => {
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser })
+      .mockResolvedValueOnce({
+        token: 'tok-2',
+        user: {
+          ...recipientUser,
+          businessId: 'other-business',
+          businessName: 'Other Business',
+          businessMembershipRole: 'CASHIER',
+          businessMembershipAmbiguous: false,
+        },
+      });
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'manager', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
+
+    renderAt('/business-invite/TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'ההזמנה אושרה' })).toBeInTheDocument());
+    expect(screen.queryByText('Other Business')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(acceptInvitation).toHaveBeenCalledOnce();
   });
 
   // CAR-203: /register and /register/status must be reachable with no

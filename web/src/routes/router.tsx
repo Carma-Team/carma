@@ -3,6 +3,10 @@ import { AppShell } from '@/components/shell/AppShell';
 import { RedemptionPage } from '@/pages/RedemptionPage';
 import { RewardsPage } from '@/pages/RewardsPage';
 import { PermissionsPage } from '@/pages/PermissionsPage';
+import { InvitationsPage } from '@/pages/InvitationsPage';
+import { AcceptInvitationPage } from '@/pages/AcceptInvitationPage';
+import { AcceptInvitationEntryPage } from '@/pages/AcceptInvitationEntryPage';
+import { CreateAccountPage } from '@/pages/CreateAccountPage';
 import { ComingSoonPage } from '@/pages/ComingSoonPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
@@ -29,8 +33,16 @@ import { LandingRoute } from './LandingRoute';
 // the matrix can at least reach.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
+  { path: '/create-account', element: <CreateAccountPage /> },
   { path: '/register', element: <BusinessRegistrationPage /> },
   { path: '/register/status', element: <BusinessRequestStatusPage /> },
+  // CAR-118's recipient side sits outside ProtectedRoute like /sign-in and
+  // /create-account: an invitation link must work for someone with no
+  // session at all, and the page itself decides what an unauthenticated
+  // visitor sees (a sign-in/create-account choice) versus an authenticated
+  // one (the business/role preview).
+  { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
+  { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
   {
     element: <ProtectedRoute />,
     children: [
@@ -48,7 +60,10 @@ export const routes: RouteObject[] = [
           },
           {
             element: <RequireBusinessRole allow={['OWNER']} />,
-            children: [{ path: '/permissions', element: <PermissionsPage /> }],
+            children: [
+              { path: '/permissions', element: <PermissionsPage /> },
+              { path: '/permissions/invitations', element: <InvitationsPage /> },
+            ],
           },
           { path: '*', element: <NotFoundPage /> },
         ],

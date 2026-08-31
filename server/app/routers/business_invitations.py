@@ -18,6 +18,7 @@ from app.schemas.business_invitation import (
     BusinessInvitationAcceptResponse,
     BusinessInvitationCreateResponse,
     BusinessInvitationIn,
+    BusinessInvitationListResponse,
     BusinessInvitationPreviewResponse,
 )
 from app.services import business_invitations as svc
@@ -44,6 +45,16 @@ async def create_invitation(
 ) -> BusinessInvitationCreateResponse:
     invitation = await svc.create_invitation(db, membership.business, membership.user, dto)
     return BusinessInvitationCreateResponse(invitation=invitation)
+
+
+@router.get(
+    "",
+    response_model=BusinessInvitationListResponse,
+    response_model_by_alias=True,
+    summary="List this business's pending invitations, with their expiry — OWNER only",
+)
+async def list_invitations(membership: CurrentBusinessOwner, db: DbSession) -> BusinessInvitationListResponse:
+    return BusinessInvitationListResponse(invitations=await svc.list_pending_invitations(db, membership.business))
 
 
 @router.delete(

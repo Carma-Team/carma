@@ -9,7 +9,7 @@ import type { AuthUser } from './types';
 
 vi.mock('./authApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./authApi')>();
-  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), logout: vi.fn() } };
+  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn() } };
 });
 
 const USER: AuthUser = {
@@ -37,6 +37,12 @@ function Probe() {
           future test with a rejecting `authApi.login` surfaces as this
           component's own state rather than an unhandled rejection. */}
       <button onClick={() => ctx.login('biz@carma.app', 'CorrectHorse1').catch(() => {})}>login</button>
+      {/* Same swallow-and-surface-as-state convention as login above —
+          CreateAccountPage is the real consumer and already awaits + catches
+          a rejected register() in its own handleSubmit. */}
+      <button onClick={() => ctx.register('New Recipient', 'new@carma.app', 'CorrectHorse1').catch(() => {})}>
+        register
+      </button>
       <button onClick={() => ctx.logout()}>logout</button>
       <button onClick={() => ctx.retry()}>retry</button>
     </div>
@@ -56,6 +62,7 @@ describe('AuthProvider', () => {
     setSession(null);
     vi.mocked(authApi.refresh).mockReset();
     vi.mocked(authApi.login).mockReset();
+    vi.mocked(authApi.register).mockReset();
     vi.mocked(authApi.logout).mockReset();
   });
 
@@ -136,6 +143,58 @@ describe('AuthProvider', () => {
     expect(authApi.login).toHaveBeenCalledWith('biz@carma.app', 'CorrectHorse1');
     expect(authApi.refresh).toHaveBeenCalledTimes(1); // just the bootstrap attempt, nothing after login
     expect(getSession()?.accessToken).toBe('tok-web-short-lived');
+  });
+
+  // CAR-118: a recipient with no CARMA account yet registers mid-invitation-
+  // acceptance. `register()` must establish the same kind of session `login`
+  // does — proven here through the real provider and the real session store,
+  // not through a page that only asserts a mocked `register` was called.
+  it('register moves status to authenticated using the token register itself returned', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again')); // the bootstrap-on-mount call
+    vi.mocked(authApi.register).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+
+    fireEvent.click(screen.getByText('register'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(authApi.register).toHaveBeenCalledWith('New Recipient', 'new@carma.app', 'CorrectHorse1');
+    expect(authApi.refresh).toHaveBeenCalledTimes(1); // just the bootstrap attempt, nothing after register
+    expect(getSession()?.accessToken).toBe('tok-web-short-lived');
+    expect(getSession()?.user.email).toBe('biz@carma.app');
+    expect(screen.getByTestId('user')).toHaveTextContent('biz@carma.app');
+  });
+
+  it('a rejected registration leaves the session unauthenticated rather than half-set', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
+    vi.mocked(authApi.register).mockRejectedValue(new AuthApiError(409, 'Email already registered'));
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+
+    fireEvent.click(screen.getByText('register'));
+
+    // The rejection is caught by the Probe (same convention as login above),
+    // so the assertion is on what `register()` left behind in the store —
+    // nothing — not on an unhandled rejection.
+    await waitFor(() => expect(authApi.register).toHaveBeenCalledOnce());
+    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
+    expect(getSession()).toBeNull();
+  });
+
+  it('registering does not change how login itself behaves', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
+    vi.mocked(authApi.login).mockResolvedValue({ token: 'tok-from-login', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+
+    fireEvent.click(screen.getByText('login'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(authApi.register).not.toHaveBeenCalled();
+    expect(getSession()?.accessToken).toBe('tok-from-login');
   });
 
   it('logout ends the session even if the server call fails', async () => {
