@@ -5,9 +5,13 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Card, Heading, Input, Button, ErrorState, LoadingState } from '@/components/ui';
 
 // The page a caller was on before being sent here — e.g. an invitation-accept
-// link (CAR-118) for a signed-out recipient. Carried as router state, never a
-// query param: state lives only in memory/history, not the URL, so it never
-// reaches server logs, analytics, or a browser's address bar autocomplete.
+// link (CAR-118) for a signed-out recipient. Carried as router (history)
+// state, never a query param: it never reaches the URL, so it never reaches
+// server logs, analytics, or a browser's address-bar autocomplete the way a
+// query param would — but it is still browser-held state, part of this
+// session-history entry, not something that exists only in memory, and it
+// does not survive a hard reload or a fresh tab the way the invitation's own
+// URL fragment does (see `AcceptInvitationPage`).
 type LocationState = { from?: string } | null;
 
 export function SignInPage() {

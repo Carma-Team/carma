@@ -71,6 +71,24 @@ function resolvedNoBusiness(): Promise<'ok'> {
   return Promise.resolve('ok');
 }
 
+// Not ambiguous — a single, real, resolvable membership, just not in the
+// invited business (e.g. the invited membership was revoked and the account
+// reassigned elsewhere between the server's answer and this refresh).
+// CAR-118 review item 4: this must never read as "you already have access to
+// this business" the way a true ambiguous account's copy honestly can.
+function resolvedDifferentBusiness(): Promise<'ok'> {
+  setSession({
+    accessToken: 'tok',
+    user: {
+      ...BASE_USER,
+      businessId: 'other-business',
+      businessMembershipRole: 'CASHIER',
+      businessMembershipAmbiguous: false,
+    },
+  });
+  return Promise.resolve('ok');
+}
+
 // Echoes router state's `from`, proving the token actually round-trips
 // through a sign-in/sign-out detour rather than just landing on some page.
 function FromProbe() {
@@ -354,6 +372,27 @@ describe('AcceptInvitationPage', () => {
     expect(screen.queryByText('ההזמנה אושרה')).not.toBeInTheDocument();
   });
 
+  // CAR-118 review item 4: distinct from the true-ambiguous case above — the
+  // account resolves cleanly to exactly one *other* business (e.g. the
+  // invited membership was revoked and reassigned between the server's
+  // ALREADY_MEMBER answer and this refresh), so it must never be told
+  // "you already have access to this business", which would be false.
+  it('shows the incompatible-business state, never "already have access", when already_member reconciles to a different resolved business', async () => {
+    mockAuth({ status: 'authenticated' });
+    vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+    vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'already_member' });
+    vi.mocked(attemptRefresh).mockImplementation(resolvedDifferentBusiness);
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByText('ההזמנה הזו שייכת לעסק אחר')).toBeInTheDocument());
+    expect(screen.queryByText('כבר יש לכם גישה')).not.toBeInTheDocument();
+    expect(screen.queryByText('ההזמנה אושרה')).not.toBeInTheDocument();
+  });
+
   // The mirror case: if the invited membership was somehow removed between
   // the server's ALREADY_MEMBER answer and this reconciliation, the account
   // is cleanly not a member — never shown as accepted or already-accessible,
@@ -522,8 +561,11 @@ describe('AcceptInvitationPage', () => {
     expect(attemptRefresh).not.toHaveBeenCalled();
   });
 
-  // CAR-118 review item 6.
-  describe('malformed and legacy links', () => {
+  // CAR-118 review item 5: there is no legacy link shape to stay compatible
+  // with (CAR-118 has never been deployed) — only the canonical fragment
+  // route exists, so a malformed or unsupported fragment must reach the
+  // normal invalid state without ever asking the server or crashing render.
+  describe('malformed fragments', () => {
     it('reaches the normal invalid-invitation state for a malformed fragment, without crashing', async () => {
       mockAuth({ status: 'authenticated' });
 
@@ -550,17 +592,35 @@ describe('AcceptInvitationPage', () => {
       await waitFor(() => expect(screen.getByText('ההזמנה אינה תקפה')).toBeInTheDocument());
       expect(previewInvitation).not.toHaveBeenCalled();
     });
+  });
 
-    it('canonicalizes a legacy path-shaped link to the fragment form via history replacement, and previews normally from there', async () => {
+  // CAR-118 review item 1: a delayed preview response must never let one
+  // invitation's details render while a different invitation's token is what
+  // Accept would actually submit.
+  describe('a token change while a preview is in flight', () => {
+    it('clears the previous invitation immediately and never lets a stale preview bind to a later accept', async () => {
       mockAuth({ status: 'authenticated' });
-      vi.mocked(previewInvitation).mockResolvedValue({ outcome: 'ok', invitation: PREVIEW });
+      const previewB: InvitationPreview = {
+        businessId: 'b2',
+        businessName: 'Other Business',
+        role: 'cashier',
+        expiresAt: '2026-09-01T00:00:00Z',
+      };
+      let resolveA: (result: Awaited<ReturnType<typeof previewInvitation>>) => void = () => {};
+      let resolveB: (result: Awaited<ReturnType<typeof previewInvitation>>) => void = () => {};
+      vi.mocked(previewInvitation).mockImplementation((token) => {
+        if (token === 'TXQ947ZKPS') return new Promise((resolve) => (resolveA = resolve));
+        if (token === 'ZZZZZ22222') return new Promise((resolve) => (resolveB = resolve));
+        throw new Error(`unexpected token in test: ${token}`);
+      });
+      vi.mocked(acceptInvitation).mockResolvedValue({ outcome: 'ok', membership: { businessId: 'b2', role: 'cashier' } });
 
       const router = createMemoryRouter(
         [
           { path: '/business-invite', element: <AcceptInvitationPage /> },
-          { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
+          { path: '/', element: <div>home</div> },
         ],
-        { initialEntries: ['/business-invite/TXQ947ZKPS'] },
+        { initialEntries: ['/business-invite#TXQ947ZKPS'] },
       );
       render(
         <LanguageProvider>
@@ -568,35 +628,24 @@ describe('AcceptInvitationPage', () => {
         </LanguageProvider>,
       );
 
+      await waitFor(() => expect(previewInvitation).toHaveBeenCalledWith('TXQ947ZKPS'));
+      resolveA({ outcome: 'ok', invitation: PREVIEW });
       await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
-      expect(previewInvitation).toHaveBeenCalledExactlyOnceWith('TXQ947ZKPS');
-      // Replaced, not pushed — the legacy URL must not survive in history.
-      expect(router.state.location.pathname).toBe('/business-invite');
-      expect(router.state.location.hash).toBe('#TXQ947ZKPS');
-      expect(router.state.historyAction).toBe('REPLACE');
-    });
 
-    it('preserves the canonical fragment invitation through a sign-in detour reached from a legacy link', async () => {
-      mockAuth({ status: 'unauthenticated' });
+      // The fragment changes to a different invitation while B's preview is
+      // still pending — A's details must vanish at once, and the accept
+      // form (which would otherwise submit A's now-stale token) with it.
+      router.navigate('/business-invite#ZZZZZ22222');
 
-      const router = createMemoryRouter(
-        [
-          { path: '/business-invite', element: <AcceptInvitationPage /> },
-          { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
-          { path: '/sign-in', element: <FromProbe /> },
-        ],
-        { initialEntries: ['/business-invite/TXQ947ZKPS'] },
-      );
-      render(
-        <LanguageProvider>
-          <RouterProvider router={router} />
-        </LanguageProvider>,
-      );
+      await waitFor(() => expect(screen.queryByText('Aroma Israel')).not.toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'אישור ההזמנה' })).not.toBeInTheDocument();
 
-      await waitFor(() => expect(screen.getByRole('button', { name: 'התחברות' })).toBeInTheDocument());
-      fireEvent.click(screen.getByRole('button', { name: 'התחברות' }));
+      resolveB({ outcome: 'ok', invitation: previewB });
+      await waitFor(() => expect(screen.getByText('Other Business')).toBeInTheDocument());
 
-      await waitFor(() => expect(screen.getByText('from: /business-invite#TXQ947ZKPS')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+      await waitFor(() => expect(acceptInvitation).toHaveBeenCalledExactlyOnceWith('ZZZZZ22222'));
     });
   });
 });

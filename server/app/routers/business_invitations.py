@@ -76,9 +76,9 @@ async def revoke_invitation(invitation_id: str, membership: CurrentBusinessOwner
     summary="Inspect an invitation before accepting it. 404 unless it is still valid.",
 )
 async def preview_invitation(
-    dto: InvitationTokenIn, _user: CurrentUser, db: DbSession
+    dto: InvitationTokenIn, user: CurrentUser, db: DbSession
 ) -> BusinessInvitationPreviewResponse:
-    return BusinessInvitationPreviewResponse(invitation=await svc.preview_invitation(db, dto.token))
+    return BusinessInvitationPreviewResponse(invitation=await svc.preview_invitation(db, user.id, dto.token))
 
 
 @redeem_router.post(

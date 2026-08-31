@@ -45,12 +45,6 @@ export const routes: RouteObject[] = [
   // see `services/business_invitations.py::_link`'s docstring. A single
   // fixed path, read via `location.hash` inside the page, not `:token`.
   { path: '/business-invite', element: <AcceptInvitationPage /> },
-  // The pre-fragment link shape (CAR-118 review item 6) — kept only so an
-  // already-issued legacy link (still valid for its own 72h window) keeps
-  // working; `AcceptInvitationPage` canonicalizes it to the fragment form
-  // above on load, via history replacement, and never generates this shape
-  // for a new invitation.
-  { path: '/business-invite/:token', element: <AcceptInvitationPage /> },
   { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
   {
     element: <ProtectedRoute />,

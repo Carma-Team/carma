@@ -5,9 +5,9 @@ import { Card, Heading, Text, Input, Button } from '@/components/ui';
 
 // The manual-code fallback (CAR-118) to the link `AcceptInvitationPage`
 // serves — a recipient who was read the code aloud, rather than sent the
-// link, types it here and is routed to the exact same page: the token is
-// part of the URL path there, so a manual code and a clicked link both end
-// up validated by the same preview/accept flow.
+// link, types it here and is routed to the exact same page: the token
+// becomes the URL fragment there, so a manual code and a clicked link both
+// end up validated by the same preview/accept flow.
 export function AcceptInvitationEntryPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();

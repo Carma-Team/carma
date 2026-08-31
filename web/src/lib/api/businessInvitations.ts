@@ -4,10 +4,11 @@
  *
  * @description
  * Wraps `POST/GET /api/business/invitations`, `DELETE /api/business/invitations/{id}`
- * and the recipient-side `GET/POST /api/invitations/{token}[/accept]` on top of
- * `lib/api/client.ts`'s `request()`. Same never-throw-for-an-expected-failure
- * convention as `lib/api/businessMembers.ts` — every function resolves to a
- * closed result union the caller switches on.
+ * and the recipient-side `POST /api/invitations/preview` and
+ * `POST /api/invitations/accept` on top of `lib/api/client.ts`'s `request()`.
+ * Same never-throw-for-an-expected-failure convention as
+ * `lib/api/businessMembers.ts` — every function resolves to a closed result
+ * union the caller switches on.
  *
  * `invalid` collapses every one of CAR-76's indistinguishable 404 states
  * (unknown, used, revoked, expired token) into a single outcome — the server

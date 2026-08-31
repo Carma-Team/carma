@@ -31,7 +31,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.business_invitation import BusinessInvitationIn
+from app.schemas.business_invitation import BusinessInvitationAcceptOut, BusinessInvitationIn
 from app.services import business as business_service
 from app.services import business_invitations as svc
 
@@ -230,6 +230,124 @@ async def test_concurrent_redeems_of_one_token_produce_exactly_one_membership(db
         assert len(memberships) == 1, "exactly one membership must exist after the race, whoever won it"
     finally:
         await _cleanup(db_session, users=(owner, racer_a, racer_b), businesses=(business,))
+
+
+# ─── Durable, replay-safe recovery after a lost accept response ──────────────
+# (CAR-118 review's bounded-correction round, item 3)
+
+
+@pytest.mark.asyncio
+async def test_a_second_accept_call_by_the_same_recipient_after_the_first_committed_is_a_safe_idempotent_replay(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """What a lost response, a rejected refresh, a sign-in, a remount, or a
+    hard reload all look like from the client's side: the exact same
+    /api/invitations/accept call, sent again with no memory of what the
+    first one did. Must answer identically, and must not create a second
+    membership or touch the invitation a second time."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        token = created.json()["invitation"]["token"]
+        recipient_token = _token(recipient)
+
+        first = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(recipient_token)
+        )
+        assert first.status_code == 200, first.text
+
+        replay = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(recipient_token)
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json(), "a replay must answer exactly like the original commit"
+
+        memberships = (
+            await db_session.scalars(
+                select(BusinessMembership).where(
+                    BusinessMembership.user_id == recipient.id, BusinessMembership.business_id == business.id
+                )
+            )
+        ).all()
+        assert len(memberships) == 1, "the replay must not have created a second membership"
+    finally:
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
+
+
+@pytest.mark.asyncio
+async def test_preview_after_this_recipients_own_redemption_still_succeeds_instead_of_dead_ending(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The other half of durable recovery: a remounted or reloaded page calls
+    preview *before* accept. If preview 404s for an invitation this exact
+    recipient already redeemed, the recovery path never gets a chance to
+    reach the (safe, idempotent) accept call above at all."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        token = created.json()["invitation"]["token"]
+        recipient_token = _token(recipient)
+
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(recipient_token)
+        )
+        assert accepted.status_code == 200, accepted.text
+
+        preview = await db_api_client.post(
+            "/api/invitations/preview", json={"token": token}, headers=_auth(recipient_token)
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["invitation"]["businessId"] == business.id
+        assert preview.json()["invitation"]["role"] == "manager"
+    finally:
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
+
+
+@pytest.mark.asyncio
+async def test_preview_and_accept_by_a_different_account_after_redemption_stay_404_and_create_nothing(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The replay guarantee is scoped to the exact recipient who redeemed it
+    — a token already spent by one account must remain exactly as unknown to
+    everyone else as it always was, revealing neither who holds it nor what
+    it named."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    stranger = await _make_user(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        token = created.json()["invitation"]["token"]
+
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
+        assert accepted.status_code == 200, accepted.text
+
+        stranger_token = _token(stranger)
+        preview = await db_api_client.post(
+            "/api/invitations/preview", json={"token": token}, headers=_auth(stranger_token)
+        )
+        assert preview.status_code == 404, preview.text
+
+        stranger_accept = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(stranger_token)
+        )
+        assert stranger_accept.status_code == 404, stranger_accept.text
+
+        memberships = (
+            await db_session.scalars(
+                select(BusinessMembership).where(
+                    BusinessMembership.business_id == business.id,
+                    BusinessMembership.role == BusinessMembershipRole.MANAGER,
+                )
+            )
+        ).all()
+        assert len(memberships) == 1
+        assert memberships[0].user_id == recipient.id
+    finally:
+        await _cleanup(db_session, users=(owner, recipient, stranger), businesses=(business,))
 
 
 # ─── 72h expiry, indistinguishable from unknown ──────────────────────────────
@@ -432,6 +550,13 @@ async def test_accept_is_refused_and_the_invitation_stays_pending_for_an_account
     other_business, other_owner, _other_owner_token = await _setup_owner(db_session)
     recipient = await _make_user(db_session)
     await _add_membership(db_session, recipient, other_business, BusinessMembershipRole.CASHIER)
+    # Captured now: the refusal below rolls back the shared session inside
+    # the request (`business_service.assert_membership_allowed`), which
+    # expires every attribute on every object in it — reading an id off any
+    # of these afterwards would trigger a lazy load outside the async context
+    # that can service one (`MissingGreenlet`).
+    business_id, other_business_id, recipient_id = business.id, other_business.id, recipient.id
+    owner_id, other_owner_id = owner.id, other_owner.id
     try:
         created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
         invitation_id = created.json()["invitation"]["id"]
@@ -445,7 +570,7 @@ async def test_accept_is_refused_and_the_invitation_stays_pending_for_an_account
 
         membership = await db_session.scalar(
             select(BusinessMembership).where(
-                BusinessMembership.user_id == recipient.id, BusinessMembership.business_id == business.id
+                BusinessMembership.user_id == recipient_id, BusinessMembership.business_id == business_id
             )
         )
         assert membership is None, "the invitation must not have been consumed into a new membership"
@@ -454,11 +579,13 @@ async def test_accept_is_refused_and_the_invitation_stays_pending_for_an_account
         assert invitation is not None
         assert invitation.redeemed_at is None, "a refused acceptance must leave the invitation exactly as pending"
     finally:
-        await _cleanup(db_session, users=(owner, other_owner, recipient), businesses=(business, other_business))
+        await db_session.execute(delete(Business).where(Business.id.in_([business_id, other_business_id])))
+        await db_session.execute(delete(User).where(User.id.in_([owner_id, other_owner_id, recipient_id])))
+        await db_session.commit()
 
 
 @pytest.mark.asyncio
-async def test_concurrent_membership_creation_elsewhere_reliably_blocks_acceptance_whichever_way_the_race_lands(
+async def test_concurrent_membership_creation_elsewhere_reliably_blocks_both_sides_whichever_way_the_race_lands(
     db_session: AsyncSession,
 ) -> None:
     """The exact race `business_service.lock_user_for_membership_change`
@@ -467,12 +594,10 @@ async def test_concurrent_membership_creation_elsewhere_reliably_blocks_acceptan
     business, via `asyncio.gather` rather than a forced ordering — this must
     hold regardless of which happens to reach Postgres first.
 
-    CAR-118 owns only the accept side of this invariant: it must never
-    consume an invitation while the account already belongs elsewhere, and
-    must be correct no matter which of the two operations the lock lets
-    through first. Whether a *second* business can independently choose to
-    approve someone who already has one — the other direction — is that
-    flow's own rule, not something this ticket changes.
+    CAR-118 review's bounded-correction round, item 2: both directions now
+    share `business_service.assert_membership_allowed`, so whichever
+    operation loses the lock is refused, not just the accept side — the
+    account must end with exactly one membership no matter which one won.
     """
     business, owner, _owner_token = await _setup_owner(db_session)
     other_business = await _make_business(db_session)
@@ -500,11 +625,28 @@ async def test_concurrent_membership_creation_elsewhere_reliably_blocks_acceptan
         invitation = await db_session.get(BusinessInvitation, invitation_out.id)
         assert invitation is not None
 
+        memberships = (
+            await db_session.scalars(select(BusinessMembership).where(BusinessMembership.user_id == recipient_id))
+        ).all()
+        assert (
+            len(memberships) == 1
+        ), f"the account must end with exactly one business membership, whichever operation won, got {memberships}"
+
         if invited_membership is not None:
             # accept_invitation won the lock first — nothing existed yet for
-            # it to refuse against, so it correctly proceeded.
+            # it to refuse against, so it correctly proceeded, and the rival
+            # approval must have then seen that membership and refused.
             assert invitation.redeemed_at is not None
             assert not isinstance(results[0], BaseException)
+            assert isinstance(results[1], HTTPException)
+            assert results[1].status_code == 409
+            assert results[1].detail["code"] == business_service.INCOMPATIBLE_BUSINESS
+            other_business_membership = await db_session.scalar(
+                select(BusinessMembership).where(
+                    BusinessMembership.user_id == recipient_id, BusinessMembership.business_id == other_business.id
+                )
+            )
+            assert other_business_membership is None, "the losing approval must not have created its own membership"
         else:
             # The rival approval won the lock first — accept_invitation must
             # have seen the resulting membership and refused, leaving the
@@ -513,11 +655,95 @@ async def test_concurrent_membership_creation_elsewhere_reliably_blocks_acceptan
             assert invitation.redeemed_at is None
             assert isinstance(results[0], HTTPException)
             assert results[0].status_code == 409
-            assert results[0].detail["code"] == svc.INCOMPATIBLE_BUSINESS
+            assert results[0].detail["code"] == business_service.INCOMPATIBLE_BUSINESS
+            assert not isinstance(results[1], BaseException)
     finally:
         await db_session.refresh(business)
         await db_session.refresh(owner)
         await db_session.refresh(recipient)
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business, other_business))
+
+
+@pytest.mark.asyncio
+async def test_accepting_first_then_the_approval_second_is_refused_and_creates_no_second_membership(
+    db_session: AsyncSession,
+) -> None:
+    """The sequential mirror of the concurrent test above, forced accept-first
+    — CAR-118 review's bounded-correction round, item 2 explicitly asks for
+    both a concurrent proof and a sequential one in each ordering.
+
+    The refused second operation runs on its own `_rival_session()`, not
+    `db_session` — the same reason the concurrent test above does: the
+    refusal rolls back internally, and reusing `db_session` for it would
+    leave *this* test's own session mid-rollback for every assertion after,
+    not just the one race the two-session shape exists to prove.
+    """
+    business, owner, _owner_token = await _setup_owner(db_session)
+    other_business = await _make_business(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        invitation_out = await svc.create_invitation(db_session, business, owner, BusinessInvitationIn(role="cashier"))
+        await svc.accept_invitation(db_session, recipient, invitation_out.token)
+
+        async def _approve_elsewhere() -> None:
+            async with _rival_session() as rival_db:
+                await business_service.ensure_owner_membership(rival_db, other_business.id, recipient.id)
+                await rival_db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _approve_elsewhere()
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["code"] == business_service.INCOMPATIBLE_BUSINESS
+
+        memberships = (
+            await db_session.scalars(select(BusinessMembership).where(BusinessMembership.user_id == recipient.id))
+        ).all()
+        assert len(memberships) == 1
+        assert memberships[0].business_id == business.id
+    finally:
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business, other_business))
+
+
+@pytest.mark.asyncio
+async def test_the_approval_first_then_accepting_second_is_refused_and_the_invitation_stays_pending(
+    db_session: AsyncSession,
+) -> None:
+    """The other sequential ordering: the owner-membership path wins first,
+    and the invitation accept that follows must be refused without touching
+    the invitation — the direct-API-call test above already proves the server
+    is authoritative; this proves the invariant is symmetric. Same
+    two-session shape as the test above, for the same reason.
+    """
+    business, owner, _owner_token = await _setup_owner(db_session)
+    other_business = await _make_business(db_session)
+    recipient = await _make_user(db_session)
+    recipient_id = recipient.id
+    try:
+        invitation_out = await svc.create_invitation(db_session, business, owner, BusinessInvitationIn(role="cashier"))
+        await business_service.ensure_owner_membership(db_session, other_business.id, recipient.id)
+        await db_session.commit()
+
+        async def _accept_elsewhere() -> BusinessInvitationAcceptOut:
+            async with _rival_session() as rival_db:
+                rival_recipient = await rival_db.get(User, recipient_id)
+                assert rival_recipient is not None
+                return await svc.accept_invitation(rival_db, rival_recipient, invitation_out.token)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _accept_elsewhere()
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["code"] == business_service.INCOMPATIBLE_BUSINESS
+
+        memberships = (
+            await db_session.scalars(select(BusinessMembership).where(BusinessMembership.user_id == recipient_id))
+        ).all()
+        assert len(memberships) == 1
+        assert memberships[0].business_id == other_business.id
+
+        invitation = await db_session.get(BusinessInvitation, invitation_out.id)
+        assert invitation is not None
+        assert invitation.redeemed_at is None
+    finally:
         await _cleanup(db_session, users=(owner, recipient), businesses=(business, other_business))
 
 

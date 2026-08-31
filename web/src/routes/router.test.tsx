@@ -423,12 +423,16 @@ describe('routes', () => {
     expect(authApi.refresh).toHaveBeenCalledTimes(2);
   });
 
-  // CAR-118 review: reconciliation can resolve to a real, unambiguous role in
-  // a *different* business than the one this invitation named — a stale
-  // invitation preview accepted after the account's membership picture
-  // changed elsewhere. Never navigable to the invited business, and never
-  // the fully-ambiguous flag either.
-  it('treats a reconciliation that resolves to a different business than the accepted invitation the same as ambiguous, and never navigates into the protected route tree', async () => {
+  // CAR-118 review item 4: reconciliation can resolve to a real, unambiguous
+  // role in a *different* business than the one this invitation named — a
+  // stale invitation preview accepted after the account's membership picture
+  // changed elsewhere. This is not the same claim as a true ambiguous
+  // account (CAR-258, multiple memberships) — it must never say "accepted"
+  // or "you already have access to this business" when the resolved state
+  // proves the opposite; it lands on the same truthful incompatible-business
+  // state the pre-mutation guard shows, and never navigates into the
+  // protected route tree.
+  it('shows the truthful incompatible-business state, not the accepted-invitation wording, when reconciliation resolves to a different business than the accepted invitation', async () => {
     vi.mocked(authApi.refresh)
       .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser })
       .mockResolvedValueOnce({
@@ -452,10 +456,111 @@ describe('routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'ההזמנה אושרה' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('ההזמנה הזו שייכת לעסק אחר')).toBeInTheDocument());
+    expect(screen.queryByText('ההזמנה אושרה')).not.toBeInTheDocument();
     expect(screen.queryByText('Other Business')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(acceptInvitation).toHaveBeenCalledOnce();
+  });
+
+  // CAR-118 review's bounded-correction round, item 3: durable recovery
+  // after a committed accept response is lost — real route/session
+  // integration through the actual SignInPage form and AuthProvider, not a
+  // mocked useAuth(). The membership already exists server-side by the time
+  // the recipient signs back in; the recovery path must reach it, not
+  // dead-end into "invalid invitation".
+  it('recovers after a lost accept response once the recipient signs back in, replaying the accept safely', async () => {
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser }) // bootstrap
+      .mockRejectedValueOnce(new AuthApiError(401, 'Session expired — sign in again')); // post-accept reconciliation, rejected
+    vi.mocked(authApi.login).mockResolvedValue({
+      token: 'tok-2',
+      user: { ...recipientUser, businessId: 'b1', businessName: 'Aroma Israel', businessMembershipRole: 'MANAGER' },
+    });
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'manager', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+    vi.mocked(acceptInvitation)
+      .mockResolvedValueOnce({ outcome: 'network_error' }) // the lost response — committed server-side regardless
+      .mockResolvedValueOnce({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } }); // the replay
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'יש להתחבר מחדש' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'התחברות' }));
+
+    await waitFor(() => expect(screen.getByLabelText('אימייל')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('אימייל'), { target: { value: 'recipient@example.com' } });
+    fireEvent.change(screen.getByLabelText('סיסמה'), { target: { value: 'whatever' } });
+    fireEvent.click(screen.getByRole('button', { name: 'התחברות' }));
+
+    // Landed back on the same invitation — preview succeeds again for an
+    // invitation this exact recipient already redeemed (the server-side half
+    // of durable recovery), showing the ordinary accept form once more
+    // rather than a 404 dead end.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+    // The replay's own reconciliation refresh — a fresh call, distinct from
+    // login's own session-establishing response.
+    vi.mocked(authApi.refresh).mockResolvedValueOnce({
+      token: 'tok-3',
+      user: { ...recipientUser, businessId: 'b1', businessName: 'Aroma Israel', businessMembershipRole: 'MANAGER' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    // The replay reconciles and lands on the real business route, not a
+    // dead end and not a second, blind mutation.
+    await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(acceptInvitation).toHaveBeenCalledTimes(2);
+  });
+
+  // The same recovery, but simulating a hard reload rather than a sign-in
+  // detour: the in-memory session (never persisted — see `lib/auth/session.ts`)
+  // is gone, exactly as it would be after an actual page reload, and the
+  // whole tree remounts fresh at the same fragment URL, which does survive a
+  // reload unlike router state.
+  it('recovers after a lost accept response and a hard reload, at the same fragment URL', async () => {
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({ token: 'tok-1', user: recipientUser }) // bootstrap
+      // Reconciliation right after the failed accept also cannot reach the
+      // server — not just the one accept response, the connection itself is
+      // down for a moment — which is what actually forces a reload rather
+      // than an in-page retry.
+      .mockRejectedValueOnce(new AuthApiError(401, 'Session expired — sign in again'));
+    vi.mocked(previewInvitation).mockResolvedValue({
+      outcome: 'ok',
+      invitation: { businessId: 'b1', businessName: 'Aroma Israel', role: 'manager', expiresAt: '2026-09-01T00:00:00Z' },
+    });
+    vi.mocked(acceptInvitation).mockResolvedValueOnce({ outcome: 'network_error' });
+
+    const { unmount } = renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'יש להתחבר מחדש' })).toBeInTheDocument());
+    unmount();
+    setSession(null);
+
+    vi.mocked(authApi.refresh)
+      .mockResolvedValueOnce({
+        token: 'tok-2',
+        user: { ...recipientUser, businessId: 'b1', businessName: 'Aroma Israel', businessMembershipRole: 'MANAGER' },
+      }) // the fresh bootstrap after reload
+      .mockResolvedValueOnce({
+        token: 'tok-3',
+        user: { ...recipientUser, businessId: 'b1', businessName: 'Aroma Israel', businessMembershipRole: 'MANAGER' },
+      }); // the replay's own reconciliation refresh
+    vi.mocked(acceptInvitation).mockResolvedValueOnce({ outcome: 'ok', membership: { businessId: 'b1', role: 'manager' } });
+
+    renderAt('/business-invite#TXQ947ZKPS');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'אישור ההזמנה' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'אישור ההזמנה' }));
+
+    await waitFor(() => expect(screen.getByText('Aroma Israel')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   // CAR-203: /register and /register/status must be reachable with no

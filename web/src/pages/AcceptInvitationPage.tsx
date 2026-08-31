@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { attemptRefresh } from '@/lib/auth/refresh';
@@ -18,20 +18,27 @@ type PreviewStatus = 'loading' | 'ok' | 'invalid' | 'error';
 
 // Every one of these is reachable only once an accept attempt has actually
 // happened (or, for 'incompatible_business', can be reached either before
-// one — the pre-mutation guard — or after one, if the server itself refused
-// the exact same way):
+// one — the pre-mutation guard — or after one, whether the server itself
+// refused the exact same way, or reconciliation resolved to a single,
+// definite, different business — see 'incompatible_business' below):
 //   - 'checking'   — reconciling to find out what an accept response
 //                    actually means; never claims an outcome either way.
-//   - 'ambiguous'  — the account holds a real, confirmed membership in the
-//                    invited business, but cannot be placed there
-//                    unambiguously (CAR-258).
+//   - 'ambiguous'  — the account holds a real, confirmed membership, but the
+//                    server itself cannot resolve it to any one business
+//                    (CAR-258) — never used for an account that resolves
+//                    cleanly to a single, different business; that is
+//                    'incompatible_business' below, since claiming "you
+//                    already have access to this business" would be false.
 //   - 'auth_required' — reconciliation needs a live session to answer at
 //                    all; neutral copy, since this is reachable whether or
 //                    not the accept itself was ever confirmed.
 //   - 'transient'  — reconciliation itself failed transiently; retry
 //                    reconciliation only, never the accept mutation.
-//   - 'incompatible_business' — the account belongs to a different
-//                    business; the invitation was never consumed.
+//   - 'incompatible_business' — the account belongs to a single, definite,
+//                    different business — either confirmed before any
+//                    accept attempt (the pre-mutation guard), or resolved
+//                    that way by reconciliation afterward. Never phrased as
+//                    "accepted" or "already have access [to this one]".
 // Falling out of 'checking' with none of the above met returns to 'idle' —
 // the account provably does not hold the invited membership yet, so
 // attempting acceptance again is safe.
@@ -53,15 +60,16 @@ function roleKey(role: InvitationPreview['role']): 'Manager' | 'Cashier' {
 // The token lives in the URL *fragment*, not a `:token` path param — a
 // fragment is never sent in the HTTP request, to this server or to any
 // CDN/proxy in front of it, so it cannot land in a web-host access log the
-// way a path segment inevitably would (see `_link`'s own docstring). A
-// `/business-invite/:token` route still exists purely to canonicalize an
-// already-issued legacy link (72h validity) to the fragment form below.
+// way a path segment inevitably would (see `_link`'s own docstring). There
+// is no other route shape for this page: CAR-118 has never been deployed,
+// so there is no legacy link anywhere to stay compatible with (CAR-118
+// review item 5) — the only invitation URLs that exist are the ones this
+// page itself has ever generated.
 export function AcceptInvitationPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { status, logout, user } = useAuth();
-  const { token: legacyToken } = useParams<{ token?: string }>();
 
   // A malformed fragment (`#%`, invalid percent-encoding) must never crash
   // rendering — `decodeURIComponent` throws `URIError` on one, so this is
@@ -76,12 +84,28 @@ export function AcceptInvitationPage() {
   const token = decodedToken ?? '';
   const tokenLooksValid = decodedToken !== null && TOKEN_PATTERN.test(decodedToken);
 
-  const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading');
-  // A malformed/empty/unsupported-shape fragment is 'invalid' immediately —
-  // derived here, not written into `previewStatus` from an effect, so there
-  // is no state to synchronize and no render-time setState warning.
-  const effectivePreviewStatus: PreviewStatus = tokenLooksValid ? previewStatus : 'invalid';
-  const [preview, setPreview] = useState<InvitationPreview | null>(null);
+  // The token this preview answers for is part of the state itself, not a
+  // separate variable — CAR-118 review item 1: if the fragment changes to a
+  // different invitation while a request is still in flight (or right after
+  // one resolves), a `status`/`data` pair alone cannot prove which token it
+  // describes. Comparing `.token` against the live `token` below is what
+  // makes a stale answer for a token that is no longer current impossible to
+  // read as though it were — no effect-body reset needed: the moment `token`
+  // changes, every derived value below stops matching on its own, before the
+  // new request has even started, let alone resolved.
+  const [previewState, setPreviewState] = useState<{
+    token: string;
+    status: PreviewStatus;
+    data: InvitationPreview | null;
+  }>({ token: '', status: 'loading', data: null });
+  const previewIsCurrent = previewState.token === token;
+  // A malformed/empty/unsupported-shape fragment is 'invalid' immediately,
+  // and a token this preview doesn't (yet) answer for is 'loading' — both
+  // derived here, never written from the effect, so there is no state to
+  // synchronize and no render-time setState warning.
+  const effectivePreviewStatus: PreviewStatus = !tokenLooksValid ? 'invalid' : previewIsCurrent ? previewState.status : 'loading';
+  const preview = previewIsCurrent ? previewState.data : null;
+  const previewReady = effectivePreviewStatus === 'ok' && preview !== null;
   const [acceptPhase, setAcceptPhase] = useState<AcceptPhase>('idle');
   const [retryCount, setRetryCount] = useState(0);
   const acceptInFlight = useRef(false);
@@ -113,51 +137,46 @@ export function AcceptInvitationPage() {
     notAcceptedFallback: 'idle' | 'invalid';
   }>({ confirmed: false, origin: 'accepted', notAcceptedFallback: 'idle' });
 
-  // Legacy path-shaped link (pre-fragment format, still valid for its own
-  // 72h window) — canonicalize once, with history *replacement* so the old
-  // URL never survives in back-button history, before anything else in this
-  // component reads the token from anywhere.
-  useEffect(() => {
-    if (legacyToken) {
-      navigate(`/business-invite#${encodeURIComponent(legacyToken)}`, { replace: true });
-    }
-  }, [legacyToken, navigate]);
-
   useEffect(() => {
     // Malformed, empty, or unsupported-shape — never worth a round trip; the
     // server would answer identically to any other invalid token, but there
-    // is no reason to ask it. Handled below as a derived render value
-    // (`effectivePreviewStatus`), not a state write here, so there is
-    // nothing to synchronize and nothing to crash on.
-    if (legacyToken || status !== 'authenticated' || !tokenLooksValid) return;
+    // is no reason to ask it. Nothing is written here for this case: the
+    // 'invalid' fragment shape is already handled by `effectivePreviewStatus`
+    // above, purely from `tokenLooksValid`.
+    if (status !== 'authenticated' || !tokenLooksValid) return;
     let cancelled = false;
-    previewInvitation(token).then((result) => {
+    const requestedToken = token;
+    previewInvitation(requestedToken).then((result) => {
       if (cancelled) return;
       if (result.outcome === 'ok') {
-        setPreview(result.invitation);
-        setPreviewStatus('ok');
+        setPreviewState({ token: requestedToken, status: 'ok', data: result.invitation });
       } else if (result.outcome === 'invalid') {
-        setPreviewStatus('invalid');
+        setPreviewState({ token: requestedToken, status: 'invalid', data: null });
       } else {
-        setPreviewStatus('error');
+        setPreviewState({ token: requestedToken, status: 'error', data: null });
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [legacyToken, status, token, tokenLooksValid, retryCount]);
+  }, [status, token, tokenLooksValid, retryCount]);
 
   function retryPreview() {
-    setPreviewStatus('loading');
     setRetryCount((count) => count + 1);
   }
 
   async function handleAccept() {
-    if (acceptInFlight.current) return;
+    if (acceptInFlight.current || !previewReady) return;
+    // Bound to `previewState.token`, not the live `token` — the two are
+    // equal whenever `previewReady` holds, but naming the token this way
+    // makes the binding explicit rather than incidental (CAR-118 review item
+    // 1): this call can only ever operate on the exact token whose preview
+    // is currently on screen.
+    const acceptingToken = previewState.token;
     acceptInFlight.current = true;
     setAcceptPhase('accepting');
 
-    const result = await acceptInvitation(token);
+    const result = await acceptInvitation(acceptingToken);
     acceptInFlight.current = false;
 
     if (result.outcome === 'ok') {
@@ -242,18 +261,30 @@ export function AcceptInvitationPage() {
       return;
     }
 
-    const looksAmbiguous =
-      refreshedUser &&
-      (refreshedUser.businessMembershipAmbiguous ||
-        (refreshedUser.businessMembershipRole && refreshedUser.businessId !== acceptedBusinessId.current));
-    if (looksAmbiguous && confirmed) {
+    // Two genuinely different outcomes, never conflated (CAR-118 review item
+    // 4): a server-flagged ambiguous account (multiple memberships, CAR-258
+    // cannot resolve which is "current") is not the same claim as an account
+    // that resolves cleanly to one real membership in a business other than
+    // the one this invitation named — e.g. the invited membership was
+    // revoked, or reassigned, between the accept response and this refresh.
+    // The first can honestly say "you already have access [somewhere]"; the
+    // second cannot say that about *this* business, so it reuses
+    // 'incompatible_business' — the same truthful "this account belongs to a
+    // different business" state the pre-mutation guard below shows — rather
+    // than the ambiguous copy, which would otherwise claim access this
+    // account provably does not have.
+    const trueAmbiguous = refreshedUser?.businessMembershipAmbiguous === true;
+    const resolvedToADifferentBusiness =
+      !trueAmbiguous && !!refreshedUser?.businessMembershipRole && refreshedUser.businessId !== acceptedBusinessId.current;
+
+    if (confirmed && (trueAmbiguous || resolvedToADifferentBusiness)) {
       // Fails closed the same way CAR-258's own server contract does — but
       // only when this specific attempt was already server-confirmed. An
-      // *unconfirmed* attempt reconciling to an ambiguous account cannot
-      // safely be attributed to this click (the account may already have
-      // been ambiguous, unrelated to whether this token was ever redeemed),
-      // so that case falls through to "not a member yet" below instead.
-      setAcceptPhase('ambiguous');
+      // *unconfirmed* attempt reconciling this way cannot safely be
+      // attributed to this click (the account may already have been in this
+      // shape, unrelated to whether this token was ever redeemed), so that
+      // case falls through to "not a member yet" below instead.
+      setAcceptPhase(resolvedToADifferentBusiness ? 'incompatible_business' : 'ambiguous');
       return;
     }
 
@@ -262,7 +293,7 @@ export function AcceptInvitationPage() {
     // acceptance again, unless the server already gave a definitive verdict
     // on this exact token ('invalid').
     if (notAcceptedFallback === 'invalid') {
-      setPreviewStatus('invalid');
+      setPreviewState({ token, status: 'invalid', data: null });
     }
     setAcceptPhase('idle');
   }
@@ -291,28 +322,20 @@ export function AcceptInvitationPage() {
   //
   // Gated to `acceptPhase === 'idle'`: once an accept attempt has actually
   // run, `user` reflects *that attempt's own* reconciliation (e.g. an
-  // 'ambiguous' phase deliberately leaves the session showing an ambiguous
-  // profile) — re-evaluating this pre-check against that post-attempt state
-  // would override the correct, already-decided phase with this earlier,
-  // no-longer-relevant guard.
+  // 'incompatible_business' phase deliberately leaves the session showing
+  // that resolved profile) — re-evaluating this pre-check against that
+  // post-attempt state would override the correct, already-decided phase
+  // with this earlier, no-longer-relevant guard.
   const incompatibleBusiness =
     acceptPhase === 'idle' &&
-    preview !== null &&
+    previewReady &&
     user !== null &&
-    (user.businessMembershipAmbiguous || (user.businessMembershipRole !== null && user.businessId !== preview.businessId));
+    (user.businessMembershipAmbiguous || (user.businessMembershipRole !== null && user.businessId !== preview?.businessId));
 
   async function handleSignOutIncompatibleBusiness() {
     const from = location.pathname + location.hash;
     await logout();
     navigate('/sign-in', { state: { from }, replace: true });
-  }
-
-  if (legacyToken) {
-    return (
-      <main className={styles.page}>
-        <LoadingState label={t('common.loading')} />
-      </main>
-    );
   }
 
   if (acceptPhase === 'incompatible_business' || incompatibleBusiness) {
@@ -393,10 +416,17 @@ export function AcceptInvitationPage() {
 
   if (status === 'unauthenticated' || status === 'error') {
     // `pathname + hash`, not `pathname` alone — the token lives in the
-    // fragment now, and router *state* (never a query param or storage) is
-    // what actually carries it through the detour, so the recipient lands
-    // back here — and only here, with the token intact — once signed in or
-    // registered.
+    // fragment now, and router (history) state is what actually carries it
+    // through the detour: it never reaches the URL, so it never reaches
+    // server logs, analytics, or a browser's address-bar autocomplete the
+    // way a query param would — but it *is* still browser-held state, part
+    // of this session-history entry, not something that exists only in
+    // memory (CAR-118 review item 5). That's exactly why `AcceptInvitationPage`
+    // never treats it as the *only* way back to this invitation: the
+    // fragment itself, read straight from `location.hash` above, is what
+    // actually survives a hard reload or a fresh tab — history state riding
+    // along on top of it is a convenience for the common case, not the
+    // recovery path's foundation.
     const from = location.pathname + location.hash;
     return (
       <main className={styles.page}>
@@ -419,14 +449,6 @@ export function AcceptInvitationPage() {
     );
   }
 
-  if (effectivePreviewStatus === 'loading') {
-    return (
-      <main className={styles.page}>
-        <LoadingState label={t('invitations.loadingPreviewLabel')} />
-      </main>
-    );
-  }
-
   if (effectivePreviewStatus === 'invalid') {
     return (
       <main className={styles.page}>
@@ -435,7 +457,7 @@ export function AcceptInvitationPage() {
     );
   }
 
-  if (effectivePreviewStatus === 'error' || !preview) {
+  if (effectivePreviewStatus === 'error') {
     return (
       <main className={styles.page}>
         <ErrorState
@@ -444,6 +466,18 @@ export function AcceptInvitationPage() {
           onRetry={retryPreview}
           retryLabel={t('common.retry')}
         />
+      </main>
+    );
+  }
+
+  // 'loading', or 'ok' with `preview` somehow still null — the latter should
+  // be unreachable (the 'ok' branch above always sets `data` alongside it),
+  // but failing safe into the same loading state rather than the accept form
+  // is the correct default either way.
+  if (effectivePreviewStatus === 'loading' || !previewReady || !preview) {
+    return (
+      <main className={styles.page}>
+        <LoadingState label={t('invitations.loadingPreviewLabel')} />
       </main>
     );
   }

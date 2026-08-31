@@ -33,7 +33,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         {...props}
       />
       {error && (
-        <span id={errorId} className={styles.error}>
+        // `role="alert"` (not just `aria-describedby` above) so a
+        // submit-time validation failure is announced the moment it
+        // appears, not only when the field happens to already be focused
+        // — CAR-118's manual invitation-code form is the case that needed
+        // this, but the fix belongs on the shared field, not duplicated in
+        // every form that uses one.
+        <span id={errorId} role="alert" className={styles.error}>
           {error}
         </span>
       )}

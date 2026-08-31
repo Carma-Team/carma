@@ -35,7 +35,7 @@ from app.schemas.business_invitation import (
     BusinessInvitationOut,
     BusinessInvitationPreviewOut,
 )
-from app.services.business import lock_user_for_membership_change
+from app.services.business import assert_membership_allowed, lock_user_for_membership_change
 
 _TOKEN_LEN = 10
 _INVITABLE_ROLES = {"manager": BusinessMembershipRole.MANAGER, "cashier": BusinessMembershipRole.CASHIER}
@@ -43,10 +43,6 @@ _EXPIRES_AFTER = timedelta(hours=72)
 
 ALREADY_MEMBER = "ALREADY_MEMBER"
 ALREADY_REDEEMED = "ALREADY_REDEEMED"
-# CAR-118 review item 3: this portal cannot place an account into two
-# businesses (business switching is out of scope), so accepting into a
-# second one would create a membership the account has no way to use here.
-INCOMPATIBLE_BUSINESS = "INCOMPATIBLE_BUSINESS"
 
 # A dedicated, derived key rather than `settings.jwt_secret` used directly:
 # domain-separated so a JWT-signing compromise and an invitation-hash
@@ -223,27 +219,58 @@ async def revoke_invitation(db: AsyncSession, business: Business, invitation_id:
         )
 
 
-async def _valid_invitation(db: AsyncSession, token: str) -> BusinessInvitation:
-    invitation = await db.scalar(
+async def _lookup_invitation(db: AsyncSession, token: str) -> BusinessInvitation | None:
+    invitation: BusinessInvitation | None = await db.scalar(
         select(BusinessInvitation)
         .where(BusinessInvitation.token_hash == _hash(token))
         .options(selectinload(BusinessInvitation.business))
     )
+    return invitation
+
+
+async def _invitation_for(db: AsyncSession, token: str, current_user_id: str) -> BusinessInvitation:
+    """A pending invitation, *or* one this exact recipient already redeemed.
+
+    The second case is what makes both `preview_invitation` and
+    `accept_invitation` replay-safe (CAR-118 review's bounded-correction
+    round, item 3): a lost accept response, a rejected refresh, a sign-in, a
+    remount, or a hard reload all land back here with no client-side memory
+    of what happened, and `redeemed_by_user_id` — written in the same
+    transaction as the membership it names, so it is exactly as authoritative
+    as the membership itself — is what lets this recipient's *own* replay
+    recover instead of dead-ending into "unknown invitation." A token redeemed
+    by someone else stays unknown, revealing nothing about who holds it or
+    what it named.
+    """
+    invitation = await _lookup_invitation(db, token)
     if invitation is None:
         raise _unknown_invitation()
+    if invitation.redeemed_at is not None:
+        if invitation.redeemed_by_user_id == current_user_id:
+            return invitation
+        raise _unknown_invitation()
     now = datetime.now(UTC)
-    if invitation.redeemed_at is not None or invitation.revoked_at is not None or invitation.expires_at <= now:
+    if invitation.revoked_at is not None or invitation.expires_at <= now:
         raise _unknown_invitation()
     return invitation
 
 
-async def preview_invitation(db: AsyncSession, token: str) -> BusinessInvitationPreviewOut:
+def _accept_out(invitation: BusinessInvitation) -> BusinessInvitationAcceptOut:
+    role_str = "manager" if invitation.role == BusinessMembershipRole.MANAGER else "cashier"
+    return BusinessInvitationAcceptOut(business_id=invitation.business_id, role=role_str)
+
+
+async def preview_invitation(db: AsyncSession, current_user_id: str, token: str) -> BusinessInvitationPreviewOut:
     """What an authenticated recipient sees before deciding to accept.
 
     Requires only `CurrentUser` — the recipient has no membership yet, so this
-    must not sit behind `current_business`.
+    must not sit behind `current_business`. Answers just as well for an
+    invitation this exact recipient already redeemed (see `_invitation_for`)
+    — a remounted or reloaded page must be able to show the business and role
+    again, not dead-end into "invalid invitation" for a membership that
+    already exists.
     """
-    invitation = await _valid_invitation(db, token)
+    invitation = await _invitation_for(db, token, current_user_id)
     role_str = "manager" if invitation.role == BusinessMembershipRole.MANAGER else "cashier"
     return BusinessInvitationPreviewOut(
         business_id=invitation.business_id,
@@ -254,7 +281,13 @@ async def preview_invitation(db: AsyncSession, token: str) -> BusinessInvitation
 
 
 async def accept_invitation(db: AsyncSession, current: User, token: str) -> BusinessInvitationAcceptOut:
-    invitation = await _valid_invitation(db, token)
+    invitation = await _invitation_for(db, token, current.id)
+    if invitation.redeemed_at is not None:
+        # This exact recipient already redeemed this exact token — a safe,
+        # deterministic replay (see `_invitation_for`), not a second
+        # consumption: neither `BusinessInvitation` nor `BusinessMembership`
+        # is touched again.
+        return _accept_out(invitation)
 
     # Held for the rest of this transaction — serializes this check-then-write
     # against every other membership-creating path for the same user (see the
@@ -262,27 +295,13 @@ async def accept_invitation(db: AsyncSession, current: User, token: str) -> Busi
     # cannot change out from under them before the commit at the end.
     await lock_user_for_membership_change(db, current.id)
 
-    memberships = (await db.scalars(select(BusinessMembership).where(BusinessMembership.user_id == current.id))).all()
-    existing = next((m for m in memberships if m.business_id == invitation.business_id), None)
+    existing = await assert_membership_allowed(db, current.id, invitation.business_id)
     if existing is not None:
         # Neither the invitation nor the membership table is touched — the
         # ticket is explicit that this must change nothing.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {"code": ALREADY_MEMBER, "message": "You are already a member of this business"},
-        )
-    if memberships:
-        # A membership in some *other* business — accepting would create a
-        # second, real membership this portal has no way to enter (business
-        # switching is out of scope). Same "change nothing" contract as
-        # ALREADY_MEMBER above: the invitation stays exactly as valid as it
-        # was before this call.
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            {
-                "code": INCOMPATIBLE_BUSINESS,
-                "message": "This account already belongs to a different business",
-            },
         )
 
     # Conditional UPDATE, not a read-then-write: two recipients racing the same
@@ -307,6 +326,13 @@ async def accept_invitation(db: AsyncSession, current: User, token: str) -> Busi
     if redeemed.rowcount == 0:
         # Lost the race — someone else redeemed or revoked it a moment ago.
         # Indistinguishable from unknown, same as every other invalid state.
+        # (Two truly concurrent attempts from this *same* recipient racing
+        # this exact UPDATE is not this branch's problem to solve — the
+        # sequential replay `_invitation_for` already handles above, before
+        # this UPDATE is even attempted, is what CAR-118 review's durable-
+        # recovery requirement is actually about: a retried request reaching
+        # the server after the earlier one already committed, not two
+        # requests genuinely in flight at the same instant.)
         await db.rollback()
         raise _unknown_invitation()
 
