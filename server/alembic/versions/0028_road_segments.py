@@ -1,0 +1,70 @@
+"""road_segments - posted speed limits to score speeding against (CAR-222)
+
+Enables PostGIS. The extension has been in the local image (`postgis/postgis:16-3.4`)
+and allowlisted on Azure (`azure.extensions=POSTGIS`) since the beginning; this is
+the first migration that actually needs it.
+
+The table ships empty. `scripts/load_speed_limits.py` fills it from an
+OpenStreetMap extract, and an empty table scores exactly like no map data at all:
+speeding drops out of the trip score. So a database that has never run the loader
+is correct, only less precise - it is never wrong in the driver's disfavour.
+
+Revision ID: 0028_road_segments
+Revises: 0026_business_invitations
+Create Date: 2026-08-29 00:00:00.000000
+"""
+
+from __future__ import annotations
+
+import sqlalchemy as sa
+
+from alembic import op
+
+revision: str = "0028_road_segments"
+# 0028 only keeps the filename clear of three open PRs that each hold a 0027
+# (#231 occupancy, #178 city reference, #176 IMU health). It is not a position in
+# the chain: all four still hang off 0026, because naming a revision that exists
+# only in someone else's branch makes `alembic upgrade` unresolvable here.
+#
+# Whichever merges second gains a second head. While a migration is still
+# unmerged, re-point its `down_revision` at the new head - the revision id does
+# not change, so no local `alembic_version` row breaks, and the chain stays
+# linear. `alembic merge`, which the CI error suggests and this repo has used
+# three times, is for the other case: two heads already on develop, where there
+# is no history left to rewrite.
+down_revision: str | None = "0026_business_invitations"
+branch_labels: str | None = None
+depends_on: str | None = None
+
+
+def upgrade() -> None:
+    # Imported here, not at module level. The "One alembic head" job in
+    # ci-server.yml installs alembic and ruff alone and then imports every
+    # migration file to read the revision graph, so a module-level import of an
+    # app dependency fails the lint job with a ModuleNotFoundError that says
+    # nothing about heads. That job's own comment states the invariant: no
+    # migration may import app code at module level.
+    from geoalchemy2 import Geometry
+
+    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    op.create_table(
+        "road_segments",
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("osm_id", sa.BigInteger(), nullable=False),
+        sa.Column(
+            "geom",
+            Geometry(geometry_type="LINESTRING", srid=2039, spatial_index=False),
+            nullable=False,
+        ),
+        sa.Column("limit_kmh", sa.SmallInteger(), nullable=False),
+        sa.Column("limit_source", sa.String(8), nullable=False),
+        sa.Column("fclass", sa.String(32), nullable=False),
+    )
+    op.create_index("ix_road_segments_geom", "road_segments", ["geom"], postgresql_using="gist")
+
+
+def downgrade() -> None:
+    op.drop_index("ix_road_segments_geom", table_name="road_segments")
+    op.drop_table("road_segments")
+    # PostGIS itself is left installed. Dropping it would take out any other
+    # geography column added since, and an unused extension costs nothing.
