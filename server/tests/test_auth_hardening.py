@@ -17,14 +17,16 @@ over. Failures are counted per (account, address) now.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import Settings, settings
 from app.core.security import hash_code, hash_password
@@ -351,10 +353,10 @@ async def _seed_failures(db: AsyncSession, user_id: str, caller_ip: str, count: 
 
 
 # Enough requests to prove the gate engages — but note what it does *not* buy.
-# An attempt made while the caller is already backed off is refused before
-# `_record_failure`, so it is never counted: sending nine of these leaves the
-# tally at exactly `login_backoff_after` and the wait at one second, not the
-# sixteen the arithmetic suggests. Fine for a test that checks the very next
+# An attempt made while the caller is already backed off skips `_reserve_attempt`'s
+# insert, so it is never counted: sending nine of these leaves the tally at
+# exactly `login_backoff_after` and the wait at one second, not the sixteen
+# the arithmetic suggests. Fine for a test that checks the very next
 # request; any test with a bcrypt in between must seed the rows instead
 # (`_seed_failures`), or it passes or fails on how loaded the box is.
 _PAST_THE_THRESHOLD = settings.login_backoff_after + 4
@@ -583,6 +585,73 @@ def test_the_wait_doubles_and_stops_at_the_cap() -> None:
     assert auth_service._backoff_seconds(after + 3) == 8
     assert auth_service._backoff_seconds(after + 60) == settings.login_backoff_max_seconds
     assert auth_service._backoff_seconds(500) == settings.login_backoff_max_seconds, "no runaway exponent"
+
+
+@asynccontextmanager
+async def _concurrent_sessions(n: int) -> AsyncIterator[list[AsyncSession]]:
+    """`n` independent connections — real concurrency, not one connection queuing.
+
+    Modeled on `test_points_atomicity._rival_session`: each racer needs its own
+    engine, or overlapping coroutines on a shared connection just serialise on
+    the connection itself and prove nothing about the row lock.
+    """
+    engines = [create_async_engine(settings.database_url, pool_pre_ping=True) for _ in range(n)]
+    sessions = [async_sessionmaker(e, expire_on_commit=False, class_=AsyncSession)() for e in engines]
+    try:
+        yield sessions
+    finally:
+        for session in sessions:
+            await session.close()
+        for engine in engines:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_concurrent_pair_at_the_threshold_does_not_both_slip_through(db_session: AsyncSession) -> None:
+    """CAR-130: two guesses landing at once must cost what two guesses landing apart would.
+
+    Seeded one short of the threshold, so — sequentially — the next guess is the
+    one that first sees a wait (`_backoff_seconds(after) == 1`), and the one
+    after that is refused before it can add a row. The bug this guards: without
+    a lock serialising them, two concurrent guesses at that exact boundary both
+    read `failures == after - 1` before either commits, both compute the same
+    "no wait yet", and both insert — the burst grows the tally by two instead of
+    one, and both callers are told they may try again immediately. Deliberately
+    only two racers, not a longer burst: `_backoff_seconds` doubles per miss, so
+    a burst long enough to also test the second and third waits would need those
+    waits to still be pending by the time real round trips for every racer have
+    finished, which is exactly the kind of timing assumption `_seed_failures`
+    exists to avoid (see `_PAST_THE_THRESHOLD`).
+    """
+    after = settings.login_backoff_after
+    email = f"pair-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    caller_ip = "198.51.100.44"
+    try:
+        await _seed_failures(db_session, user.id, caller_ip, after - 1)
+
+        async with _concurrent_sessions(2) as sessions:
+            racer_users = [await session.get(User, user.id) for session in sessions]
+            for racer in racer_users:
+                assert racer is not None
+            results = await asyncio.gather(
+                *(
+                    auth_service._reserve_attempt(session, racer, caller_ip)
+                    for session, racer in zip(sessions, racer_users, strict=True)
+                )
+            )
+
+        reserved = sum(1 for backed_off in results if not backed_off)
+        assert reserved == 1, f"exactly one of the pair may cross the threshold and reserve, got {reserved}"
+
+        rows = await db_session.scalar(
+            select(func.count())
+            .select_from(LoginFailure)
+            .where(LoginFailure.user_id == user.id, LoginFailure.caller_ip == caller_ip)
+        )
+        assert rows == after, "the row lock must leave the same count two sequential guesses would"
+    finally:
+        await _cleanup_email(db_session, email)
 
 
 async def test_the_owner_can_still_log_in_while_a_guesser_is_backed_off(

@@ -34,7 +34,7 @@ SENSITIVE_LIMIT = "5/minute"
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
 # one address via CGNAT, so 5/minute there is a shared budget a household can
 # exhaust by accident. Brute force is held off per (account, address) instead
-# (`services.auth._backoff_active`), which makes a guesser wait without giving a
+# (`services.auth._reserve_attempt`), which makes a guesser wait without giving a
 # stranger a way to make the account's owner wait.
 # The OTP routes keep the tight limit: each one spends money on an SMS.
 CREDENTIAL_LIMIT = "20/minute"
