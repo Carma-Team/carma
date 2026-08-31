@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { applySelfMembershipChange } from '@/lib/auth/selfMembership';
@@ -20,6 +21,7 @@ const ROLES: BusinessMembershipRole[] = ['OWNER', 'MANAGER', 'CASHIER'];
 export function PermissionsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [members, setMembers] = useState<BusinessMember[]>([]);
   const [revokeTarget, setRevokeTarget] = useState<BusinessMember | null>(null);
@@ -158,6 +160,9 @@ export function PermissionsPage() {
       <div className={styles.header}>
         <Heading level={1}>{t('permissions.title')}</Heading>
         <Text variant="body">{t('permissions.subtitle')}</Text>
+        <Button variant="secondary" onClick={() => navigate('/permissions/invitations')}>
+          {t('invitations.inviteButton')}
+        </Button>
       </div>
 
       {members.length === 0 ? (

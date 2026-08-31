@@ -9,7 +9,7 @@ import type { AuthContextValue } from '@/lib/auth/types';
 vi.mock('@/hooks/useAuth');
 
 function mockAuth(status: AuthContextValue['status'], retry: () => void = vi.fn()) {
-  vi.mocked(useAuth).mockReturnValue({ status, user: null, login: vi.fn(), logout: vi.fn(), retry });
+  vi.mocked(useAuth).mockReturnValue({ status, user: null, login: vi.fn(), register: vi.fn(), logout: vi.fn(), retry });
 }
 
 function renderProtected() {
