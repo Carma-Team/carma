@@ -152,7 +152,7 @@ class TestWeakestFactor:
         assert r.weakest_factor is None
 
     def test_speeding_excluded_when_no_speed_data(self) -> None:
-        # A catastrophic speeding weight must never surface when the weight set
+        # A catastrophic speeding ratio must never surface when the weight set
         # that dropped it (has_speed_data=False) is the one in effect — the
         # candidate list omits it entirely rather than scoring it at weight 0.
         r = compute_trip_score(
@@ -160,7 +160,7 @@ class TestWeakestFactor:
             w_accel=0,
             w_corner=6,
             w_distraction=0,
-            w_speed=1000,
+            speeding_ratio=MAX_SPEEDING_RATIO,
             distance_km=20.0,
             duration_min=30.0,
             has_speed_data=False,
