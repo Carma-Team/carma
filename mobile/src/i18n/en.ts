@@ -63,7 +63,7 @@ const en: TranslationMap = {
     eventsDetected: 'Events Detected', safetyTip: 'Smooth driving without sudden braking improves your score!',
     duration: 'Time', distance: 'Distance', score: 'Score', events: 'Events',
     hardBrakes: 'Harsh Braking', aggressiveAccels: 'Aggressive Acceleration',
-    sharpTurns: 'Sharp Turn', swerve: 'Sudden Lane Swerve', phoneTouches: 'Phone Touches',
+    sharpTurns: 'Sharp Turn', swerve: 'Sudden Lane Swerve', screenSeconds: 'Screen seconds', phoneMotionSeconds: 'Handling seconds',
     trafficLight: { green: 'Great driving!', yellow: 'Pay attention', red: 'Dangerous driving' },
     riskHourBonus: 'Risk Hour Bonus', riskMultiplier: 'Risk Multiplier',
     aiInsight: 'AI Insight', summary: 'Trip Summary',

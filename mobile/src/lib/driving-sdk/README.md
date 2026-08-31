@@ -13,7 +13,7 @@ This directory is maintained as a self-contained unit and will be extracted into
 | Document | What it covers |
 |---|---|
 | [`docs/usage-patterns.md`](./docs/usage-patterns.md) | Copyable integration recipes — construction, listeners, lifecycle, cleanup, a full worked example |
-| [`docs/event-detection.md`](./docs/event-detection.md) | How motion-event and hand-held detection are actually computed, with diagrams |
+| [`docs/event-detection.md`](./docs/event-detection.md) | How motion-event and distraction detection are actually computed, with diagrams |
 | [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md) | The trip state machine, pluggable validation, and per-tick data flow, with a diagram |
 | [`docs/not-in-scope.md`](./docs/not-in-scope.md) | Native platform capabilities this SDK deliberately doesn't wrap, and why |
 
@@ -76,7 +76,7 @@ it, never the other way round.
 | `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
 | `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
 | `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also streams speed, distance and raw IMU values to the SDK on every fix. |
-| `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance, a glass-tap proxy and a paired gyroscope tap signature. Reports tap counts and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
+| `sensors/PhoneUsageManager.ts` | Measures phone distraction as two mutually exclusive per-second counters read from the gyroscope: seconds carrying a tap cadence, and seconds the phone was merely being moved. Deliberately does not count a mounted phone running a navigation app in the background. |
 | `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
 | `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
 | `DeviceCapabilities.ts` | One-shot startup probe of what the device can actually do: which motion sensors it exposes, and whether its OS meets the floor recorded in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds and stops there — whether a missing sensor blocks the user is a host-app decision. |
@@ -188,7 +188,7 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
 | `SWERVE` | — | **Defined but inert.** Its detection code is fully commented out; this type never fires. Re-enabling it is a deliberate future step, not a bug. |
-| `PHONE_USAGE` | Accelerometer + gyroscope variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second. See [`docs/event-detection.md`](./docs/event-detection.md) for the full detection logic. |
+| `PHONE_USAGE` | Gyroscope | Rotation indicates the phone is being worked or moved, whichever app is in front. Fires once per distracted stretch, not once per second. See [`docs/event-detection.md`](./docs/event-detection.md) for the full detection logic. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [`docs/event-detection.md`](./docs/event-detection.md).
 
@@ -333,8 +333,8 @@ interface TripData {
   waypoints:              RouteWaypoint[];  // GPS track, one point every 2s of elapsed GPS-fix time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
-  touchEpochs:            number;           // glass-tap proxy count (IMU)
-  screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
+  screenInteractionSeconds: number;         // seconds carrying a tap cadence
+  phoneMotionSeconds:     number;           // seconds the phone was moved without one
   accelAvailable:         boolean;          // ever confirmed live this trip; false alone says nothing about why — see accelInitFailed
   accelCoverage:          number;           // 0–1 share of the trip the accelerometer actually delivered samples for
   accelInitFailed:        boolean;          // true only if accelerometer registration itself threw
@@ -347,13 +347,13 @@ interface TripData {
 
 ## Sensor internals
 
-The full mechanism — GPS+IMU fusion for motion events, hand-held detection
-including the rotation-veto logic, waypoint downsampling, cooldowns, and the
-warm-up guard — is in [`docs/event-detection.md`](./docs/event-detection.md),
+The full mechanism — GPS+IMU fusion for motion events, the two gyroscope-based
+distraction counters, waypoint downsampling, cooldowns, and the warm-up guard —
+is in [`docs/event-detection.md`](./docs/event-detection.md),
 with flow diagrams for the two hardest-to-follow decisions.
 
 One caveat is load-bearing enough to keep here rather than one click away:
-**the hand-held-detection constants are IMU calibration values, not tuned
+**the distraction-detection constants are IMU calibration values, not tuned
 parameters.** They were chosen from expected separation margins and have
 never been validated against real drive data. Treat every metric this SDK
 emits about phone handling as indicative, not a measurement, until

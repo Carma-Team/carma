@@ -65,8 +65,8 @@ stateDiagram-v2
 
 ## `InteractionData` per-tick accounting, `(since #138)`
 
-Internal detail — a normal consumer reading `TripData.touchEpochs` /
-`.screenInteractionSeconds` sees no change from this. It matters if you're
+Internal detail — a normal consumer reading `TripData.screenInteractionSeconds` /
+`.phoneMotionSeconds` sees no change from this. It matters if you're
 reading the SDK's internals or building a similar accumulator pattern
 yourself.
 
@@ -76,12 +76,11 @@ overwrote (`=`) `TripData`'s counters with whatever it received. Since #138,
 the callback emits a **delta since the previous emission** — exactly once
 per second, unconditionally — and `DrivingSDK` **accumulates** (`+=`) those
 deltas onto the running totals instead. The externally-visible result is
-identical: `TripData.touchEpochs` / `.screenInteractionSeconds` are still
-running totals for the whole trip. What changed is where the running-total
-bookkeeping happens — inside `PhoneUsageManager` before, inside `DrivingSDK`
-now — and that the emission is no longer gated on being hand-held (every
-tick emits, `screenInteractionSeconds` delta is simply `0` on a not-hand-held
-tick).
+identical: both `TripData` counters are still running totals for the whole trip.
+What changed is where the running-total bookkeeping happens — inside
+`PhoneUsageManager` before, inside `DrivingSDK` now — and that the emission is no
+longer gated on the driver being distracted (every tick emits, and both deltas are
+simply `0` on a tick that counted neither).
 
 ---
 

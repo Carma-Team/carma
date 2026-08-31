@@ -245,8 +245,8 @@ export class DrivingSDK {
       waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      touchEpochs: 0,
       screenInteractionSeconds: 0,
+      phoneMotionSeconds: 0,
       // Latched over the trip: `accelAvailable` on each tick is "live right now"
       // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
       // false mid-trip. These default false and latch true once the accelerometer is
@@ -408,8 +408,8 @@ export class DrivingSDK {
 
   private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs += data.touchEpochs;
     this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
+    this.currentTripData.phoneMotionSeconds += data.phoneMotionSeconds;
     if (this.onInteractionData) this.onInteractionData({ ...data });
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }

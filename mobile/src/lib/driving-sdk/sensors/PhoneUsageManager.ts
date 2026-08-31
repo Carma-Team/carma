@@ -1,14 +1,13 @@
 /**
  * @file PhoneUsageManager.ts
  * @owner May Hajbi — driving-sdk maintainer
- * @brief Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy.
- * Reports tap count and hand-held seconds, and deliberately does not count a mounted phone
- * running a navigation app in the background.
+ * @brief Measures phone distraction as two mutually exclusive per-second counters read
+ * from the gyroscope: seconds carrying a tap cadence, and seconds the phone was merely
+ * being moved. Does not count a mounted phone running a navigation app behind the host.
  *
  * @description
- * IMU-based active interaction detector — v1.9.
- * Detects active phone handling via IMU accelerometer-variance analysis and
- * a glass-tap transient proxy. Replaces a v1.x AppState-only approach that
+ * IMU-based active interaction detector — v2.0.
+ * Detects active phone handling from gyroscope rotation. Replaces a v1.x AppState-only approach that
  * caused false positives when the host app ran in the background behind
  * navigation apps (Waze, Google Maps) with the phone mounted on the dashboard.
  *
@@ -21,22 +20,23 @@
  * a gate meant a driver holding the phone while looking at the host app's own screen
  * measured as zero. The IMU answers the only question this class asks.
  *
- * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
- * features are exposed through getMotionFeatures() alongside the acceleration variance.
- * A hand stabilises orientation, a phone loose on a seat tumbles — CAR-174 uses that to
- * veto the acceleration-only hand-held read when rotation says otherwise.
+ * v2.0: two counters instead of one, read from the gyroscope alone. Acceleration is no
+ * longer an input to either decision — a single-sample force threshold cannot tell a
+ * finger from a pothole, which is what the accelerometer tap proxy did and why its
+ * count is gone.
  *
- * Those samples also feed a paired-peak tap detector (US11932257B2): simultaneous
- * rotation on the two in-plane axes, twice in quick succession, is what a finger on
- * glass produces and what a pothole does not. Its count is reported as a raw feature,
- * never as a distraction decision.
+ * Gyroscope samples are pushed in via pushGyroSample(). They feed a paired-peak tap
+ * detector (US11932257B2): simultaneous rotation on the two in-plane axes, twice in
+ * quick succession, is what a finger on glass produces and what a chassis jolt does
+ * not. Repetition of that signature within a second is a typing cadence, which is what
+ * the screen-interaction counter now measures.
  *
  * Emitted once per second via onInteractionData, as a delta since the previous emission
  * (CAR-175) — never a running total:
- *   - touchEpochs              sharp single-sample acceleration transients this tick
- *                               (glass-tap proxy; also fires on foreground touch events)
- *   - screenInteractionSeconds  1 if this second was judged hand-held, else 0
- *                               (low variance = vehicle-mounted → not counted)
+ *   - screenInteractionSeconds  1 if this second carried a tap cadence, else 0
+ *   - phoneMotionSeconds        1 if the phone was being moved this second and no
+ *                               cadence was seen — the two are mutually exclusive and
+ *                               screen interaction wins, so a second is never both
  *   - speedKmh                  vehicle speed last reported via updateSpeed(), passed
  *                               through as-is so the host can relate handling to motion
  *
@@ -44,32 +44,21 @@
  * not app-specific scoring weights. They require empirical drive-test validation
  * before production launch.
  */
-import { Accelerometer } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 
 // ── IMU calibration constants ─────────────────────────────────────────────────
 //
-// HANDHELD_VARIANCE_THRESHOLD (g²):
-//   Phone on a vehicle mount → variance ~0.002–0.010 g² (road vibration only).
-//   Phone hand-held          → variance ~0.030–0.150 g² (micro hand-movements).
-//   0.025 g² gives a comfortable separation margin.
-//   Requires empirical calibration before Sprint+1 — see RFC-001 §4.3.
-const HANDHELD_VARIANCE_THRESHOLD = 0.025;
-
-// ROTATION_VARIANCE_MAX_THRESHOLD ((rad/s)²):
-//   A hand stabilises orientation; a phone loose on the seat tumbles. Below this,
-//   rotation confirms accelVariance's hand-held read; at/above it, the accel spike
-//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-183),
-//   same calibration caveat as the threshold above.
-const ROTATION_VARIANCE_MAX_THRESHOLD = 0.5;
-
-// GLASS_TAP_MAGNITUDE_THRESHOLD (g):
-//   A finger tap on glass/screen produces a sharp transient of 1.8–3.0 g total
-//   magnitude. Road bumps rarely reach 1.8 g with the same sharp onset profile.
-//   The 1 500 ms inter-epoch cooldown prevents one physical tap from registering
-//   multiple times across the 10 Hz sample stream.
-const GLASS_TAP_MAGNITUDE_THRESHOLD = 1.8;
-const EPOCH_COOLDOWN_MS = 1500;
+// ROTATION_VARIANCE_THRESHOLD ((rad/s)²):
+//   A phone at rest — mounted, pocketed, on a seat — turns only with the vehicle.
+//   A phone being handled turns independently of it, and the variance of angular
+//   speed over the window is what separates the two.
+//   Provisional, no drive-test data behind it yet (CAR-183 collects it).
+//
+//   ⚠️ This number was previously a ceiling, not a floor: it vetoed an
+//   acceleration-based hand-held read when rotation said the phone was tumbling.
+//   The value is carried over deliberately — CAR-183 fits it and the tap band from
+//   the same labelled set — but its meaning is now the opposite one.
+const ROTATION_VARIANCE_THRESHOLD = 0.5;
 
 // Rolling variance window: 10 samples at 10 Hz = 1-second analysis window.
 const VARIANCE_WINDOW_SIZE = 10;
@@ -79,15 +68,14 @@ const GYRO_STALE_MS = 1000;
 
 // ── Gyroscope tap signature (US11932257B2) ────────────────────────────────────
 //
-// The accelerometer tap proxy above thresholds one number — total magnitude over 1.8 g,
-// axis-blind — so a pothole crossing that magnitude reads exactly like a finger. The
-// patent measures something else entirely: a *paired* rotational kick. A chassis jolt
-// drives mostly the vertical accelerometer axis through the suspension, while a finger
-// tap rotates the phone slightly about both in-plane axes at once, because the hand's
-// grip resists it. Pairs, not force, is the distinction.
+// A *paired* rotational kick. A chassis jolt drives mostly the vertical accelerometer
+// axis through the suspension, while a finger tap rotates the phone slightly about both
+// in-plane axes at once, because the hand's grip resists it. Pairs, not force, is the
+// distinction — which is why a single-sample force threshold, the approach this
+// replaced, could not tell a finger from a pothole.
 //
 // The band is the patent's own worked example. Provisional, exactly like
-// ROTATION_VARIANCE_MAX_THRESHOLD above — no drive-test data yet (CAR-183 collects it).
+// ROTATION_VARIANCE_THRESHOLD above — no drive-test data yet (CAR-183 collects it).
 const TAP_PEAK_MIN_RAD_S = 0.2;
 const TAP_PEAK_MAX_RAD_S = 0.7;
 
@@ -101,10 +89,14 @@ const TAP_PEAK_MAX_RAD_S = 0.7;
 const TAP_REPEAT_GAP_MS = 400;
 
 export interface InteractionData {
-  /** Touch-epoch transients since the previous emission — a delta, not a running total. */
-  touchEpochs: number;
-  /** Whether this second was judged hand-held (0 or 1) — a delta, not a running total. */
+  /** Whether this second carried a tap cadence (0 or 1) — a delta, not a running total. */
   screenInteractionSeconds: number;
+  /**
+   * Whether the phone was being moved this second without a tap cadence (0 or 1) — a
+   * delta, not a running total. Mutually exclusive with the counter above: a second
+   * showing both is screen interaction, never phone motion.
+   */
+  phoneMotionSeconds: number;
   /**
    * Vehicle speed (km/h) as last reported by the host at the moment this data was
    * emitted, or 0 if the host never reported one. Reported, never interpreted —
@@ -118,15 +110,11 @@ export interface InteractionData {
 }
 
 /**
- * Raw motion features behind the hand-held decision, over the same 1-second window.
- * Exposed for calibration and for classifiers that need more than acceleration
- * variance — a hand stabilises orientation, a phone loose on a seat tumbles, and
- * only the rotational terms separate those two. The hand-held decision (CAR-174)
- * reads both: high accelVariance with low rotationVariance.
+ * Raw rotational features behind the two counters, over the same 1-second window.
+ * Exposed for calibration and for classifiers that want the numbers rather than the
+ * decision.
  */
 export interface MotionFeatures {
-  /** Variance of total acceleration magnitude (g²). */
-  accelVariance: number;
   /** Mean angular speed over the window (rad/s). */
   rotationRateMean: number;
   /** Variance of angular speed over the window ((rad/s)²). */
@@ -145,16 +133,12 @@ export class PhoneUsageManager {
   private isActive = false;
   private onEvent: (event: DrivingEvent) => void;
   private onInteractionData: (data: InteractionData) => void;
-  private accelSub: { remove: () => void } | null = null;
 
-  private magnitudeWindow: number[] = [];
-  // Angular-speed window, same span as magnitudeWindow so both features describe the
-  // same second. Fed by pushGyroSample() rather than a subscription of its own.
+  // Angular-speed window covering one second at the expected 10 Hz feed. Fed by
+  // pushGyroSample() rather than a subscription of its own.
   private rotationWindow: number[] = [];
-  private touchEpochs = 0;
-  private touchEpochsThisTick = 0;
   private screenInteractionSeconds = 0;
-  private lastEpochMs = 0;
+  private phoneMotionSeconds = 0;
   private lastGyroMs = 0;
   // Tap-signature state. `wasPairing` is edge detection: one physical kick spans several
   // 10 Hz samples, and counting each of them would turn one tap into a burst — a pair is
@@ -164,13 +148,13 @@ export class PhoneUsageManager {
   // Completion times of taps inside the analysis window, trimmed by age on read so the
   // count describes the same second as the variance terms beside it.
   private tapPairTimes: number[] = [];
-  private handheldTimer: ReturnType<typeof setInterval> | null = null;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
   // Last speed the host reported. Stored and passed through untouched — no threshold
   // and no weighting here, both of which are scoring decisions outside this SDK.
   private speedKmh = 0;
-  // True while the current stretch has already been confirmed hand-held
-  // (variance > threshold) — gates PHONE_USAGE to one emission per pickup, not per second.
-  private isHandheldStretchOpen = false;
+  // True while the current stretch has already been judged distracted — gates
+  // PHONE_USAGE to one emission per pickup, not one per second.
+  private isDistractedStretchOpen = false;
 
   constructor(
     onEvent: (event: DrivingEvent) => void,
@@ -182,42 +166,36 @@ export class PhoneUsageManager {
 
   public start(): void {
     this.isActive = true;
-    this.touchEpochs = 0;
-    this.touchEpochsThisTick = 0;
     this.screenInteractionSeconds = 0;
-    this.lastEpochMs = 0;
+    this.phoneMotionSeconds = 0;
     this.lastGyroMs = 0;
     this.wasPairing = false;
     this.lastPairAtMs = 0;
     this.tapPairTimes = [];
-    this.magnitudeWindow = [];
     this.rotationWindow = [];
     this.speedKmh = 0;
 
-    Accelerometer.setUpdateInterval(100); // 10 Hz
-    this.accelSub = Accelerometer.addListener(({ x, y, z }) => this.handleAccel(x, y, z));
+    // No sensor subscription of its own — the gyroscope arrives through
+    // pushGyroSample(), and nothing here reads the accelerometer any more.
+    this.startTickTimer();
 
-    this.startHandheldTimer();
-
-    console.log('[SDK-Phone] v1.9 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
+    console.log('[SDK-Phone] v2.0 started. rotation_variance_threshold=', ROTATION_VARIANCE_THRESHOLD);
   }
 
   public stop(): void {
     this.isActive = false;
-    this.accelSub?.remove();
-    this.accelSub = null;
-    this.stopHandheldTimer();
+    this.stopTickTimer();
     console.log(
-      '[SDK-Phone] v1.9 stopped.',
-      `touchEpochs=${this.touchEpochs}`,
+      '[SDK-Phone] v2.0 stopped.',
       `screenInteractionSeconds=${this.screenInteractionSeconds}`,
+      `phoneMotionSeconds=${this.phoneMotionSeconds}`,
     );
   }
 
   public getSnapshot(): InteractionData {
     return {
-      touchEpochs: this.touchEpochs,
       screenInteractionSeconds: this.screenInteractionSeconds,
+      phoneMotionSeconds: this.phoneMotionSeconds,
       speedKmh: this.speedKmh,
     };
   }
@@ -233,13 +211,14 @@ export class PhoneUsageManager {
   }
 
   /**
-   * Feed one gyroscope sample (rad/s per axis). Expected at the accelerometer's
-   * 10 Hz so both windows cover the same second.
+   * Feed one gyroscope sample (rad/s per axis). Expected at 10 Hz, so the window
+   * covers one second.
    *
    * Push-based on purpose: the host is expected to already have the gyroscope
-   * subscribed for other detection, and a second subscription would spend battery
-   * on a sensor that is running anyway. Not calling this is supported — the
-   * rotational features simply stay empty.
+   * subscribed for other detection, and a second subscription would spend battery on
+   * a sensor that is running anyway. Not calling this is supported — every feature
+   * stays empty and both counters stay at zero, which is what a device with no
+   * gyroscope reports.
    */
   public pushGyroSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
@@ -301,28 +280,11 @@ export class PhoneUsageManager {
     const windowMs = VARIANCE_WINDOW_SIZE * 100;
     this.tapPairTimes = this.tapPairTimes.filter((t) => now - t < windowMs);
     return {
-      accelVariance: this.computeVariance(this.magnitudeWindow),
       rotationRateMean: n === 0 ? 0 : window.reduce((s, v) => s + v, 0) / n,
       rotationVariance: this.computeVariance(window),
       rotationSampleCount: n,
       gyroTapPairs: stale ? 0 : this.tapPairTimes.length,
     };
-  }
-
-  private handleAccel(x: number, y: number, z: number): void {
-    if (!this.isActive) return;
-    const mag = Math.sqrt(x * x + y * y + z * z);
-
-    this.magnitudeWindow.push(mag);
-    if (this.magnitudeWindow.length > VARIANCE_WINDOW_SIZE) this.magnitudeWindow.shift();
-
-    // Glass-tap proxy: sharp transient well above the resting ~1 g baseline.
-    const now = Date.now();
-    if (mag > GLASS_TAP_MAGNITUDE_THRESHOLD && now - this.lastEpochMs > EPOCH_COOLDOWN_MS) {
-      this.touchEpochs++;
-      this.touchEpochsThisTick++;
-      this.lastEpochMs = now;
-    }
   }
 
   private computeVariance(window: number[]): number {
@@ -332,48 +294,52 @@ export class PhoneUsageManager {
     return window.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
   }
 
-  private startHandheldTimer(): void {
-    this.stopHandheldTimer();
-    // Tick every second for as long as this manager runs, foreground or background.
-    // Hand-held requires high acceleration variance AND low rotation variance (CAR-174) —
-    // a phone loose on a seat also bounces, but only a hand keeps orientation stable.
-    // No gyro pushed yet → rotationVariance computes to 0 (see computeVariance, n<2),
-    // which always clears the threshold below, so this falls back to acceleration alone
-    // without a separate branch for it.
-    this.handheldTimer = setInterval(() => {
+  private startTickTimer(): void {
+    this.stopTickTimer();
+    // Ticks every second for as long as this manager runs, foreground or background.
+    //
+    // The two counters are mutually exclusive and screen interaction wins: a tap
+    // cadence necessarily moves the phone, so without the precedence a second of
+    // typing would count twice, once against each baseline.
+    //
+    // A window with no gyro samples computes to zero variance and zero pairs, so a
+    // device without a gyroscope reports nothing rather than needing a branch here.
+    this.tickTimer = setInterval(() => {
       if (!this.isActive) return;
       const motion = this.getMotionFeatures();
-      const isHandheld =
-        motion.accelVariance > HANDHELD_VARIANCE_THRESHOLD &&
-        motion.rotationVariance < ROTATION_VARIANCE_MAX_THRESHOLD;
+      // A completed paired-peak signature in this window is the cadence — one tap is
+      // already two rotational kicks, and what separates typing from a single knock is
+      // that the signature repeats at all.
+      const isScreenInteraction = motion.gyroTapPairs > 0;
+      const isPhoneMotion = !isScreenInteraction && motion.rotationVariance >= ROTATION_VARIANCE_THRESHOLD;
 
-      if (isHandheld) {
-        this.screenInteractionSeconds++;
-        // Fire PHONE_USAGE once per hand-held stretch, not once per tick — this is the
-        // IMU-confirmed signal replacing the old "any AppState change" trigger.
-        if (!this.isHandheldStretchOpen) {
-          this.isHandheldStretchOpen = true;
+      if (isScreenInteraction) this.screenInteractionSeconds++;
+      if (isPhoneMotion) this.phoneMotionSeconds++;
+
+      // Fire PHONE_USAGE once per distracted stretch, not once per tick.
+      if (isScreenInteraction || isPhoneMotion) {
+        if (!this.isDistractedStretchOpen) {
+          this.isDistractedStretchOpen = true;
           this.onEvent({ type: DrivingEventType.PHONE_USAGE, timestamp: new Date(), severity: 0.5 });
         }
       } else {
-        this.isHandheldStretchOpen = false;
+        this.isDistractedStretchOpen = false;
       }
 
       // One emission per tick regardless of outcome (CAR-175) — a delta, not a snapshot.
       this.onInteractionData({
-        touchEpochs: this.touchEpochsThisTick,
-        screenInteractionSeconds: isHandheld ? 1 : 0,
+        screenInteractionSeconds: isScreenInteraction ? 1 : 0,
+        phoneMotionSeconds: isPhoneMotion ? 1 : 0,
         speedKmh: this.speedKmh,
       });
-      this.touchEpochsThisTick = 0;
     }, 1000);
   }
 
-  private stopHandheldTimer(): void {
-    if (this.handheldTimer !== null) {
-      clearInterval(this.handheldTimer);
-      this.handheldTimer = null;
+  private stopTickTimer(): void {
+    if (this.tickTimer !== null) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
     }
-    this.isHandheldStretchOpen = false;
+    this.isDistractedStretchOpen = false;
   }
 }
