@@ -492,6 +492,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invite a colleague at MANAGER or CASHIER — OWNER only */
+        post: operations["create_invitation_api_business_invitations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel a pending invitation — unusable immediately. OWNER only. */
+        delete: operations["revoke_invitation_api_business_invitations__invitation_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect an invitation before accepting it. 404 unless it is still valid. */
+        get: operations["preview_invitation_api_invitations__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation — creates the membership it names. 409 if already a member. */
+        post: operations["accept_invitation_api_invitations__token__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List everyone with voucher-redemption access to the authenticated business — OWNER only */
+        get: operations["list_members_api_business_members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/members/{membership_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a member's access — OWNER only. 409 if it would leave no OWNER. */
+        delete: operations["revoke_access_api_business_members__membership_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a member's business-scoped role — OWNER only. 409 if it would leave no OWNER. */
+        patch: operations["change_role_api_business_members__membership_id__patch"];
+        trace?: never;
+    };
     "/api/business/join-requests": {
         parameters: {
             query?: never;
@@ -844,6 +947,80 @@ export interface components {
             token: string;
             user: components["schemas"]["UserOut"];
         };
+        /** BusinessInvitationAcceptOut */
+        BusinessInvitationAcceptOut: {
+            /** Businessid */
+            businessId: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+        };
+        /** BusinessInvitationAcceptResponse */
+        BusinessInvitationAcceptResponse: {
+            membership: components["schemas"]["BusinessInvitationAcceptOut"];
+        };
+        /** BusinessInvitationCreateResponse */
+        BusinessInvitationCreateResponse: {
+            invitation: components["schemas"]["BusinessInvitationOut"];
+        };
+        /** BusinessInvitationIn */
+        BusinessInvitationIn: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+        };
+        /**
+         * BusinessInvitationOut
+         * @description Returned once, at creation — the only time the plaintext token exists
+         *     outside the caller's own memory. Nothing later re-derives or re-displays it.
+         */
+        BusinessInvitationOut: {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+            /** Token */
+            token: string;
+            /** Url */
+            url: string;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+        };
+        /**
+         * BusinessInvitationPreviewOut
+         * @description What a recipient sees before deciding to accept — enough to identify the
+         *     business and the role on offer, nothing that assumes they already belong to it.
+         */
+        BusinessInvitationPreviewOut: {
+            /** Businessid */
+            businessId: string;
+            /** Businessname */
+            businessName: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+        };
+        /** BusinessInvitationPreviewResponse */
+        BusinessInvitationPreviewResponse: {
+            invitation: components["schemas"]["BusinessInvitationPreviewOut"];
+        };
         /** BusinessJoinRequestAdminListOut */
         BusinessJoinRequestAdminListOut: {
             /** Requests */
@@ -952,6 +1129,45 @@ export interface components {
             /** Reviewernote */
             reviewerNote?: string | null;
         };
+        /**
+         * BusinessMemberOut
+         * @description One row of `business_memberships`, joined with the user it names — the
+         *     only user fields this page needs (CAR-117), not a full `UserOut`.
+         */
+        BusinessMemberOut: {
+            /** Id */
+            id: string;
+            /** Userid */
+            userId: string;
+            /** Name */
+            name?: string | null;
+            /** Email */
+            email?: string | null;
+            role: components["schemas"]["BusinessMembershipRole"];
+            /**
+             * Joinedat
+             * Format: date-time
+             */
+            joinedAt: string;
+        };
+        /** BusinessMemberResponse */
+        BusinessMemberResponse: {
+            member: components["schemas"]["BusinessMemberOut"];
+        };
+        /** BusinessMemberRoleIn */
+        BusinessMemberRoleIn: {
+            role: components["schemas"]["BusinessMembershipRole"];
+        };
+        /** BusinessMembersOut */
+        BusinessMembersOut: {
+            /** Members */
+            members: components["schemas"]["BusinessMemberOut"][];
+        };
+        /**
+         * BusinessMembershipRole
+         * @enum {string}
+         */
+        BusinessMembershipRole: "OWNER" | "MANAGER" | "CASHIER";
         /**
          * BusinessRewardIn
          * @description Create payload for a business-owned reward.
@@ -1839,6 +2055,12 @@ export interface components {
             businessName?: string | null;
             /** Businessnamehe */
             businessNameHe?: string | null;
+            businessMembershipRole?: components["schemas"]["BusinessMembershipRole"] | null;
+            /**
+             * Businessmembershipambiguous
+             * @default false
+             */
+            businessMembershipAmbiguous: boolean;
             /**
              * Createdat
              * Format: date-time
@@ -2845,6 +3067,214 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessVoucherResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_invitation_api_business_invitations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessInvitationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessInvitationCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invitation_api_business_invitations__invitation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_invitation_api_invitations__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessInvitationPreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invitation_api_invitations__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessInvitationAcceptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_business_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessMembersOut"];
+                };
+            };
+        };
+    };
+    revoke_access_api_business_members__membership_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_role_api_business_members__membership_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessMemberRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessMemberResponse"];
                 };
             };
             /** @description Validation Error */

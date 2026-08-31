@@ -16,6 +16,7 @@ const en: TranslationMap = {
     namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
     citySelectPlaceholder: 'Select city',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
+    regionAck: "I've read and understand: CARMA may only be used within the State of Israel",
     requiredHint: 'Fields marked with * are required',
     forgot: {
       link: 'Forgot password',
@@ -83,6 +84,10 @@ const en: TranslationMap = {
     mapUnavailable: 'Route not available',
     openInMaps: 'Open in Maps',
     eventsLabel: 'Safety events',
+    phoneUsage: 'Phone Use',
+    routeStart: 'Trip start', routeEnd: 'Trip end',
+    kmh: 'km/h',
+    openLocationInMaps: 'Open location in Maps',
   },
   driving: {
     debugTitle: 'Admin tools (demo mode)',
@@ -191,6 +196,7 @@ const en: TranslationMap = {
     inactive: 'Inactive',
     enable: 'Enable',
     disable: 'Disable',
+    driveModeFailed: 'Could not update drive mode. Please try again.',
     selectDevice: 'Select Bluetooth Device...',
     dataManagement: 'Data Management',
     clearHistory: 'Reset Trip History',
@@ -260,10 +266,14 @@ const en: TranslationMap = {
     historyClearedDesc: 'Trip history has been hidden',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
   },
+  deviceGate: {
+    regionTitle: 'Not available in your region',
+    regionMessage: 'CARMA is currently available only in Israel.',
+    capabilityTitle: 'Device not supported',
+    capabilityMessage: 'Your device or OS version does not meet CARMA\'s minimum requirements.',
+  },
   time: {
-    now: 'just now', ago: 'ago',
     secondsShort: 's', minutesShort: 'm', hoursShort: 'h',
-    hoursWord: 'h', daysWord: 'd',
   },
 }
 

@@ -9,26 +9,29 @@
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 
 export enum ValidationState {
-  IDLE      = 'IDLE',       // BT connected, waiting for movement
-  PRE_TRIP  = 'PRE_TRIP',  // speed > 10 km/h detected, counting 30s
-  SCORING   = 'SCORING',   // 30s confirmed — scoring is active
-  ENDED     = 'ENDED',     // 3 min below threshold — trip closed
+  IDLE      = 'IDLE',      // detection armed, no movement seen yet
+  PRE_TRIP  = 'PRE_TRIP',  // movement seen, validator has not confirmed a trip yet
+  SCORING   = 'SCORING',   // validator confirmed the trip — it is running
+  ENDED     = 'ENDED',     // validator closed the trip
 }
 
-export enum TransportMode {
-  UNKNOWN = 'UNKNOWN',  // not yet classified (Phase 2 populates this)
-  CAR     = 'CAR',
-  TRAIN   = 'TRAIN',
-  BUS     = 'BUS',      // Phase 2 classifier (reserved — FraudDetector emits UNKNOWN until implemented)
-}
+// How long a sample stays usable after it arrives (docs/fraud-detection.md §3.1, §7).
+// Lives here rather than in SensorManager because a TripValidator needs it too, and
+// SensorManager pulls expo-location/expo-sensors in at module scope — importing it for
+// one number drags those into every consumer, jest included.
+export const SENSOR_STALE_MS = 5000;
 
-// Snapshot fed into TripValidationManager each tick.
-// speed is required for Rules 1 & 2; sensor fields are optional placeholders for Phase 2.
+// Snapshot fed into the configured TripValidator each tick.
+// speed is always populated; the sensor fields are optional and only some validators read them.
 export interface ValidationSample {
   speedKmh: number;
   timestamp: number;          // Date.now()
-  accel?: { x: number; y: number; z: number };  // Phase 2 (fraud detection)
-  gyroYaw?: number;                              // Phase 2
+  accel?: { x: number; y: number; z: number };  // read only by validators that classify motion
+  gyroYaw?: number;
+  // Present only on ticks that carried a GPS fix. A validator that gates on where the
+  // journey is happening reads these; one that does not simply ignores them.
+  lat?: number;
+  lng?: number;
   // accel/gyroYaw are 0 when their sensor was never registered — these say whether
   // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
   accelAvailable?: boolean;
@@ -91,6 +94,14 @@ export interface MotionThresholds {
   turnThresholdMs2: number;  // lateral accel that triggers SHARP_TURN
 }
 
+// ─── Automatic trip detection ─────────────────────────────────────────────────
+
+/** A device the handset is already paired with, as offered to the user to pick as the trigger. */
+export interface BluetoothDevice {
+  id: string;   // MAC address on Android (e.g. "AA:BB:CC:DD:EE:FF")
+  name: string;
+}
+
 // ─── Pluggable trip validation ─────────────────────────────────────────────────
 // DrivingSDK ships with a trivial default (confirms/ends trips immediately, never
 // flags anything as suspicious). Apps that need "wait N seconds of sustained
@@ -104,7 +115,11 @@ export interface MotionThresholds {
  */
 export interface SuspiciousActivityEvaluation {
   score: number;
-  mode: TransportMode;
+  // The validator's own label for what it thinks it saw. Opaque on purpose, for the same
+  // reason `signals` below is: a list of modes here would be one consumer's classifier
+  // vocabulary — "TRAIN", "BUS" — sitting inside a sensor library that has no opinion on
+  // public transport. The SDK carries the string to onFraudDetected without reading it.
+  mode: string;
   telemetry: {
     avgSpeedKmh: number;
     maxLateralAccelG: number;
@@ -130,13 +145,12 @@ export interface TripValidator {
   onTripConfirmed?: () => void;
   onTripEnded?: () => void;
   onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  onRegionRejected?: () => void;
 }
 
 export interface SDKConfig {
   autoStartOnBluetooth?: boolean;
   targetBluetoothId?: string | null;
-  sensorUpdateInterval?: number; // ms
-  scoringEnabled?: boolean;
   // Overrides the SDK's default motion-event sensitivity. Any field omitted falls
   // back to DEFAULT_MOTION_THRESHOLDS — most consumers never need to set this.
   motionThresholds?: Partial<MotionThresholds>;
@@ -147,8 +161,41 @@ export interface SDKConfig {
 export interface RouteWaypoint {
   lat: number;
   lng: number;
-  ts: number;        // Date.now() ms
+  ts: number;        // epoch ms of the GPS fix the point came from
   speedKmh: number;
+}
+
+/**
+ * One tick from the sensor layer: a GPS fix, or a speed-only tick emitted when the
+ * location stream has gone quiet. Declared once here because `SensorManager` produces
+ * it and `DrivingSDK` consumes it — a field added on one side has to reach the other.
+ */
+export interface SensorUpdate {
+  distanceKm: number;
+  currentSpeed: number;
+  timeDeltaS: number;
+  accelX: number;
+  gyroZ: number;
+  // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
+  // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
+  accelAvailable: boolean;
+  gyroAvailable: boolean;
+  // Whether accelerometer *registration* itself threw — distinct from
+  // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
+  // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
+  // is exposed here purely for a consumer to tell "no sensor" from "broken sensor" (CAR-189).
+  accelInitFailed: boolean;
+  // Whether "Always"/background location permission was granted — false means
+  // automatic (background) tracking cannot run, distinct from it just not
+  // having happened yet.
+  backgroundLocationAvailable: boolean;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+  // Timestamp of the GPS fix itself, absent on speed-only ticks. Anything measuring
+  // elapsed time between fixes must use this and not its own arrival time: Android can
+  // deliver a batch of deferred fixes in one turn, all arriving at the same instant (CAR-178).
+  fixTs?: number;
 }
 
 export interface TripData {
@@ -157,11 +204,9 @@ export interface TripData {
   distanceKm: number;
   durationSeconds: number;
   events: DrivingEvent[];
-  waypoints: RouteWaypoint[];      // GPS track — downsampled at ~5s intervals while moving
+  waypoints: RouteWaypoint[];      // GPS track — downsampled to 2s intervals of GPS-fix time while moving
   averageSpeed: number;
   maxSpeed: number;
-  /** @deprecated v1.7 — replaced by touchEpochs + screenInteractionSeconds */
-  phoneSeconds: number;
   touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
   screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds, no speed gate
                                     // (per-second samples arrive via onInteractionData)
@@ -181,7 +226,7 @@ export type StateChangeCallback = (isActive: boolean) => void;
 // it upstream. The SDK itself takes no action beyond emitting this.
 export interface FraudDetectedEvent {
   fraudScore: number;       // 0–1 weighted rule score — not a calibrated confidence
-  detectedMode: TransportMode; // classified transport mode
+  detectedMode: string;     // the validator's own label — see SuspiciousActivityEvaluation.mode
   telemetry: {
     avgSpeedKmh: number;    // average speed over the detection window
     maxLateralAccelG: number; // peak gravity-removed lateral force (g-units)

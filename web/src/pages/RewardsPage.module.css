@@ -1,0 +1,62 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-md);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.stateBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-label);
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.stateBadge[data-state='active'] {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.stateBadge[data-state='soldOut'] {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.stateBadge[data-state='expired'],
+.stateBadge[data-state='inactive'] {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-faint);
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-block: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}

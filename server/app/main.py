@@ -16,6 +16,8 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core.limiter import limiter
+from app.core.logging import redact_path
+from app.database import SessionLocal
 from app.middlewares.rate_limit import DefaultRateLimitMiddleware, rate_limit_handler
 from app.middlewares.request_id import RequestIdMiddleware
 from app.middlewares.request_log import RequestLogMiddleware
@@ -24,7 +26,9 @@ from app.routers import (
     admin_business_requests,
     auth,
     business,
+    business_invitations,
     business_join_requests,
+    business_memberships,
     fraud,
     friends,
     health,
@@ -36,6 +40,7 @@ from app.routers import (
     trips,
     users,
 )
+from app.services import speed_limits
 
 
 @asynccontextmanager
@@ -47,7 +52,34 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             "CORS_ORIGINS is '*' in production — credentialed cross-origin requests are refused. "
             "Set an explicit comma-separated origin list."
         )
+    await _warn_if_speed_limits_missing(log)
     yield
+
+
+async def _warn_if_speed_limits_missing(log: logging.Logger) -> None:
+    """Say so loudly when `road_segments` is empty (CAR-222).
+
+    An unloaded map is the quietest failure this system has: every trip simply
+    loses its speeding component and scores on four, with nothing in any log to
+    say why. The migration creates the table but ships it empty, so a deploy that
+    forgets `scripts/load_speed_limits.py` looks completely healthy.
+
+    Never fatal. A server that refuses to start because a lookup table is empty
+    would turn a degraded score into an outage.
+    """
+    try:
+        async with SessionLocal() as db:
+            roads = await speed_limits.loaded_road_count(db)
+    except Exception:  # noqa: BLE001 - a DB that is not up yet is the health check's problem, not ours
+        log.warning("could not check the speed-limit map on startup")
+        return
+    if roads:
+        log.info("speed-limit map loaded: %s roads", f"{roads:,}")
+    else:
+        log.error(
+            "speed-limit map is EMPTY - every trip will be scored without speeding. "
+            "Run scripts/load_speed_limits.py against this database."
+        )
 
 
 app = FastAPI(
@@ -85,10 +117,14 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logging.getLogger(__name__).exception("%s %s", request.method, request.url.path)
+    # Redacted before it ever reaches the logger or the response — CAR-76's
+    # invitation token lives in the path itself, so logging or echoing the raw
+    # path back would leak it into logs and to whoever triggered the 500.
+    path = redact_path(request.url.path)
+    logging.getLogger(__name__).exception("%s %s", request.method, path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error", "path": request.url.path},
+        content={"detail": "Internal server error", "path": path},
     )
 
 
@@ -101,6 +137,9 @@ app.include_router(fraud.router)
 app.include_router(rewards.rewards_router)
 app.include_router(rewards.vouchers_router)
 app.include_router(business.router)
+app.include_router(business_invitations.router)
+app.include_router(business_invitations.redeem_router)
+app.include_router(business_memberships.router)
 app.include_router(business_join_requests.router)
 app.include_router(admin_business_requests.router)
 app.include_router(leaderboard.router)

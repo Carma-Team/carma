@@ -21,8 +21,9 @@ import {
   TripValidator,
   ValidationSample,
   SuspiciousActivityEvaluation,
-  TransportMode,
+  SensorUpdate,
 } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -40,16 +41,14 @@ let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
   | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
-let mockBtConnect: (() => void) | null = null;
-let mockBtDisconnect: (() => void) | null = null;
+let mockDetected: (() => void) | null = null;
+let mockLost: (() => void) | null = null;
 
 const mockSensorStart = jest.fn(async () => undefined);
 const mockSensorStop = jest.fn();
 const mockPhoneStart = jest.fn();
 const mockPhoneStop = jest.fn();
-const mockBtSetTarget = jest.fn();
-const mockBtStartMonitoring = jest.fn();
-const mockBtStopMonitoring = jest.fn();
+const mockAutoEnable = jest.fn();
 const mockRawStart = jest.fn();
 const mockRawStop = jest.fn(async () => undefined);
 const mockRawPushAccel = jest.fn();
@@ -98,38 +97,26 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
   },
 }));
 
-jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
-  BluetoothManager: class {
-    constructor(onConnect: any, onDisconnect: any) {
-      mockBtConnect = onConnect;
-      mockBtDisconnect = onDisconnect;
+jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
+  AutoDriveModeManager: class {
+    constructor(onDetected: any, onLost: any) {
+      mockDetected = onDetected;
+      mockLost = onLost;
     }
-    setTargetDevice(id: string | null) { return mockBtSetTarget(id); }
-    startMonitoring() { return mockBtStartMonitoring(); }
-    stopMonitoring() { return mockBtStopMonitoring(); }
-    async getBondedDevices() { return []; }
-    async getBTSupportStatus() { return { supported: true }; }
-    simulateConnect() { mockBtConnect?.(); }
-    simulateDisconnect() { mockBtDisconnect?.(); }
+    enable(target: string | null) { return mockAutoEnable(target); }
   },
 }));
 
-// ─── Fixtures & helpers ───────────────────────────────────────────────────────
+// Stateless Bluetooth queries the SDK re-exports. Mocked here only to keep the native
+// module out of this suite — their own behaviour is covered in bluetoothDevices.test.ts.
+jest.mock('@/lib/driving-sdk/auto-trip-detection/bluetoothDevices', () => ({
+  getBondedDevices: jest.fn(async () => []),
+  getBTSupportStatus: jest.fn(async () => ({
+    nativeAvailable: true, btAvailable: true, btEnabled: true, permissionsGranted: true,
+  })),
+}));
 
-type SensorUpdate = {
-  distanceKm: number;
-  currentSpeed: number;
-  timeDeltaS: number;
-  accelX: number;
-  gyroZ: number;
-  accelAvailable: boolean;
-  gyroAvailable: boolean;
-  accelInitFailed: boolean;
-  backgroundLocationAvailable: boolean;
-  lat?: number;
-  lng?: number;
-  accuracy?: number;
-};
+// ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 /** The 3-second window after startTrip() where events are deliberately dropped. */
 const WARMUP_MS = 3000;
@@ -249,8 +236,8 @@ describe('DrivingSDK', () => {
     mockAccelPassthrough = null;
     mockPhoneEmit = null;
     mockPhoneInteraction = null;
-    mockBtConnect = null;
-    mockBtDisconnect = null;
+    mockDetected = null;
+    mockLost = null;
     jest.clearAllMocks();
 
     onTripStart = jest.fn();
@@ -560,20 +547,51 @@ describe('DrivingSDK', () => {
 
   // ── Waypoint downsampling ──────────────────────────────────────────────────
 
-  it('appends a waypoint only once ~5 GPS seconds have elapsed', async () => {
+  it('appends a waypoint only once 2 GPS seconds have elapsed', async () => {
     await startTripReady();
     const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
 
     sendSensorUpdate(moving);
     expect(tripData()?.waypoints).toHaveLength(1); // anchor point, recorded immediately
 
-    jest.advanceTimersByTime(4000);
+    jest.advanceTimersByTime(1000);
     sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(1); // only 4s since anchor — not yet
+    expect(tripData()?.waypoints).toHaveLength(1); // only 1s since anchor — not yet
 
     jest.advanceTimersByTime(1000);
     sendSensorUpdate(moving);
-    expect(tripData()?.waypoints).toHaveLength(2); // 5s since anchor — lands
+    expect(tripData()?.waypoints).toHaveLength(2); // 2s since anchor — lands
+  });
+
+  // The Android case the cadence exists for: fixes deferred under Doze arrive as a batch
+  // in one JS turn, so arrival time barely moves across the whole window (CAR-178).
+  it('thins a deferred batch on fix time, not on arrival time', async () => {
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
+    const t0 = Date.now();
+
+    [0, 2000, 4000, 6000].forEach(offset =>
+      sendSensorUpdate({ ...moving, fixTs: t0 + offset }),
+    );
+
+    expect(tripData()?.waypoints).toHaveLength(4);
+    expect(tripData()?.waypoints.map(w => w.ts)).toEqual([t0, t0 + 2000, t0 + 4000, t0 + 6000]);
+  });
+
+  // Scope: the waypoint anchor only. SensorManager is mocked here, so a stepped fix
+  // reaches this handler by construction — that it reaches it in the app is pinned by
+  // the re-anchor test in SensorManager's own suite, which drives the real GPS path.
+  it('re-anchors instead of stalling when the fix clock steps forward', async () => {
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
+    const t0 = Date.now();
+
+    sendSensorUpdate({ ...moving, fixTs: t0 });
+    sendSensorUpdate({ ...moving, fixTs: t0 + 3_600_000 }); // NTP step: an hour forward
+    sendSensorUpdate({ ...moving, fixTs: t0 + 2000 });      // back on the real clock
+
+    // Without the negative-gap branch the anchor stays an hour ahead and this is 2.
+    expect(tripData()?.waypoints).toHaveLength(3);
   });
 
   it('collects no waypoints while stationary', async () => {
@@ -705,6 +723,19 @@ describe('DrivingSDK', () => {
     expect(instance.getStatus().tripData).toBeNull();
   });
 
+  // The abort arrives from inside the validator, which cannot know the session is over.
+  // Every other end route stops it; a validator left running holds whatever state it
+  // reached, and the next session starts from there instead of from scratch.
+  it('stops the validator on a fraud abort, like every other end route', async () => {
+    const validator = new StubValidator();
+    const instance = wire(new DrivingSDK({ tripValidator: validator }));
+    await startTripReady(instance);
+
+    validator.onFraudSuspected?.(FRAUD);
+
+    expect(validator.stopped).toBe(1);
+  });
+
   it('reports the peak speed seen during validation on the fraud payload', async () => {
     const validator = new StubValidator();
     wire(new DrivingSDK({ tripValidator: validator }));
@@ -799,21 +830,21 @@ describe('DrivingSDK', () => {
 
   // ── Target device wiring ───────────────────────────────────────────────────
 
-  it('starts monitoring when a target device is set and stops when it is cleared', () => {
+  // Whether a target arms or disarms detection is the manager's rule, asserted in its own
+  // suite. What belongs here is only that the SDK forwards what it was given, unchanged.
+  it('forwards a target device to detection, and forwards clearing it too', () => {
     sdk.updateTargetDevice('AA:BB:CC:DD:EE:FF');
-    expect(mockBtSetTarget).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
-    expect(mockBtStartMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
 
     sdk.updateTargetDevice(null);
-    expect(mockBtStopMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith(null);
   });
 
-  it('monitors from construction when a target device comes in through config', () => {
+  it('arms detection from construction when a target device comes in through config', () => {
     jest.clearAllMocks();
     new DrivingSDK({ targetBluetoothId: 'AA:BB:CC:DD:EE:FF' });
 
-    expect(mockBtSetTarget).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
-    expect(mockBtStartMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
   });
 
   // ── Debug seam ─────────────────────────────────────────────────────────────
@@ -874,13 +905,13 @@ describe('DrivingSDK', () => {
     expect(mockSensorStop).not.toHaveBeenCalled();
   });
 
-  it('leaves sensors running on stopRawRecording if a BT trip is still validating (not yet active)', async () => {
-    // Mirrors handleBluetoothConnect: isValidating can be true before isTripActive
+  it('leaves sensors running on stopRawRecording if an auto-started trip is still validating (not yet active)', async () => {
+    // Mirrors handleDriveDetected: isValidating can be true before isTripActive
     // flips. StubValidator never auto-confirms, so this pins that state — the default
     // validator confirms synchronously and would collapse straight to isTripActive.
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
-    mockBtConnect?.();
+    mockDetected?.();
     await flush();
     mockSensorStop.mockClear();
 
@@ -908,15 +939,15 @@ describe('DrivingSDK', () => {
     expect(mockSensorStop).not.toHaveBeenCalled();
   });
 
-  it('leaves sensors running on BT disconnect mid-validation if a raw-recording session is still active', async () => {
+  it('leaves sensors running when detection is lost mid-validation if a raw-recording session is still active', async () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
-    mockBtConnect?.();
+    mockDetected?.();
     await flush();
     await instance.startRawRecording('handheld', 'ios');
     mockSensorStop.mockClear();
 
-    mockBtDisconnect?.();
+    mockLost?.();
 
     expect(mockSensorStop).not.toHaveBeenCalled();
   });

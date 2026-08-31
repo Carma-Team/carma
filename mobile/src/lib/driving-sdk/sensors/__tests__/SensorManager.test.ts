@@ -365,6 +365,38 @@ describe('SensorManager', () => {
     expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 
+  // A backwards clock step (NTP correction mid-trip) is not the duplicate burst the
+  // 500 ms filter exists for. Dropping it would strand lastLocation on the pre-step
+  // stamp, so every later fix reads as a duplicate too — the cost is the rest of the
+  // trip, not one fix.
+  it('re-anchors on a backwards clock step and keeps collecting after it', () => {
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 20 });
+    onUpdate.mockClear();
+
+    sendFix({ t: -1000, speed: 20 }); // clock steps 3s back
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    // Re-anchored, so nothing is measured across the step itself.
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ distanceKm: 0 }));
+
+    sendFix({ t: 1000, speed: 20, lat: 32.0953 }); // ~1.1 km on from the fixture
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+    expect(onUpdate.mock.calls[1][0].distanceKm).toBeGreaterThan(0);
+  });
+
+  // The staleness anchor is stamped from fix time, so it has to move with the clock
+  // too — left in the future it never expires, and the speed decay stops working.
+  it('decays the held speed on the new clock after a backwards step', () => {
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: -3_600_000, speed: null }); // an hour back, speed lock lost with it
+    onUpdate.mockClear();
+
+    // 11s past the step on the clock the fixes now arrive on — past STALE_SPEED_MS.
+    sendFix({ t: -3_600_000 + 11_000, speed: null });
+
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ currentSpeed: 0 }));
+  });
+
   it('holds the last known speed through an unavailable reading instead of reporting 0', () => {
     sendFix({ t: 0, speed: 20 });
     onUpdate.mockClear();
@@ -418,6 +450,90 @@ describe('SensorManager', () => {
   it('detaches the location handler on stop', () => {
     manager.stop();
     expect(mockLocationHandler).toBeNull();
+  });
+
+  it('leaves no sensor subscriptions behind when stop() runs while start() is still awaiting permissions (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const startPromise = raceManager.start();
+
+    // Simulates a Bluetooth disconnect racing the permission dialog: stop() runs
+    // before start()'s first await resolves, while isRunning is already true.
+    raceManager.stop();
+    resolvePermission({ status: 'granted' });
+    await startPromise;
+
+    expect(Accelerometer.addListener).not.toHaveBeenCalled();
+    expect(Gyroscope.addListener).not.toHaveBeenCalled();
+  });
+
+  it('registers one listener per sensor when a stop/start pair races start() (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    // Only the first start() stalls; the restart below gets the default granted mock.
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+
+    // The Bluetooth flap this PR is written around: drops and reconnects while the
+    // permission dialog is still up, so a whole second run completes underneath.
+    raceManager.stop();
+    await raceManager.start();
+
+    // The dialog is answered only now. isRunning is true again — but it is the *new*
+    // run's true, which is exactly what the boolean alone could not distinguish.
+    resolvePermission({ status: 'granted' });
+    await stalledStart;
+
+    expect(Accelerometer.addListener).toHaveBeenCalledTimes(1);
+    expect(Gyroscope.addListener).toHaveBeenCalledTimes(1);
+
+    raceManager.stop();
+  });
+
+  it('leaves the location task alone when a superseded start() finishes late (CAR-177)', async () => {
+    // Pins the conditional half of the fix rather than the original leak: a superseded
+    // run must not undo the background task, because a newer run shares it and would
+    // lose location tracking mid-trip. A run counter without this check still breaks it.
+    const locationModule = jest.requireMock('expo-location');
+
+    let reachedStart: () => void = () => {};
+    const parkedInsideStart = new Promise<void>((resolve) => { reachedStart = resolve; });
+    let releaseStart: () => void = () => {};
+    locationModule.startLocationUpdatesAsync.mockImplementationOnce(
+      () => { reachedStart(); return new Promise<void>((resolve) => { releaseStart = resolve; }); },
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+    await parkedInsideStart;
+
+    raceManager.stop();
+    await raceManager.start(); // newer run now owns the location task
+    locationModule.stopLocationUpdatesAsync.mockClear();
+
+    releaseStart();
+    await stalledStart;
+
+    expect(locationModule.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+
+    raceManager.stop();
   });
 
   // ── Sensor availability (§3.1 staleness) ───────────────────────────────────

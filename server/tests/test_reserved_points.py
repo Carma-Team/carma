@@ -173,6 +173,7 @@ async def test_a_consumed_voucher_stops_being_reserved(db_session: AsyncSession)
     """A USED voucher's points are charged (CAR-109), not reserved — it must drop out here."""
     business = await _make_business(db_session)
     driver = await _make_driver(db_session, points=100)
+    member = await _make_driver(db_session, points=0)
     business_id, driver_id = business.id, driver.id
     try:
         reward = await _make_reward(db_session, business, cost_points=60)
@@ -180,11 +181,15 @@ async def test_a_consumed_voucher_stops_being_reserved(db_session: AsyncSession)
         assert await rewards_service.reserved_points(db_session, driver_id) == 60
 
         await db_session.refresh(business)
-        consumed = await business_service.consume_voucher(db_session, business, voucher.code)
+        consumed = await business_service.consume_voucher(
+            db_session, business, voucher.code, consumed_by_user_id=member.id
+        )
         assert consumed.status == "used"
 
         assert await rewards_service.reserved_points(db_session, driver_id) == 0
     finally:
+        await db_session.delete(member)
+        await db_session.commit()
         await _cleanup(db_session, business_id, driver_id)
 
 

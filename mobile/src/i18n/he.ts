@@ -16,6 +16,7 @@ const he = {
     namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
     citySelectPlaceholder: 'בחירת עיר',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
+    regionAck: 'קראתי ואני מבין/ה: השימוש ב-CARMA מותר רק בתחומי מדינת ישראל',
     requiredHint: 'שדות המסומנים ב-* הם שדות חובה',
     forgot: {
       link: 'שכחתי סיסמה',
@@ -86,6 +87,10 @@ const he = {
     mapUnavailable: 'מסלול הנסיעה אינו זמין',
     openInMaps: 'פתיחה באפליקציית מפות',
     eventsLabel: 'אירועי בטיחות',
+    phoneUsage: 'שימוש בטלפון',
+    routeStart: 'התחלת הנסיעה', routeEnd: 'סיום הנסיעה',
+    kmh: 'קמ"ש',
+    openLocationInMaps: 'פתיחת המיקום במפות',
   },
   driving: {
     debugTitle: 'כלי ניהול (מצב דמו)',
@@ -193,12 +198,13 @@ const he = {
     driveModeDesc: 'האפליקציה תתחיל ותסיים נסיעה אוטומטית בעת חיבור למכשיר Bluetooth המוגדר.',
     active: 'פעיל',
     inactive: 'כבוי',
-    enable: 'הפעל',
-    disable: 'בטל',
-    selectDevice: 'בחר מכשיר Bluetooth',
+    enable: 'הפעלה',
+    disable: 'ביטול',
+    driveModeFailed: 'לא הצלחנו לעדכן את מצב הנסיעה. נסו שוב.',
+    selectDevice: 'בחירת מכשיר Bluetooth',
     dataManagement: 'ניהול נתונים',
     clearHistory: 'איפוס היסטוריית נסיעות',
-    clearHistoryConfirm: 'האם אתה בטוח שברצונך למחוק את כל היסטוריית הנסיעות המקומית?',
+    clearHistoryConfirm: 'למחוק את כל היסטוריית הנסיעות המקומית?',
     version: 'גרסה',
   },
   stats: {
@@ -264,10 +270,14 @@ const he = {
     historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
+  deviceGate: {
+    regionTitle: 'לא זמין באזור שלך',
+    regionMessage: 'CARMA זמינה כרגע רק בישראל.',
+    capabilityTitle: 'המכשיר אינו נתמך',
+    capabilityMessage: 'המכשיר או גרסת מערכת ההפעלה שלך אינם עומדים בדרישות המינימליות של CARMA.',
+  },
   time: {
-    now: 'עכשיו', ago: 'לפני',
     secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",
-    hoursWord: 'שעות', daysWord: 'ימים',
   },
 } as const
 

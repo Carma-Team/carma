@@ -8,6 +8,7 @@ import { COLORS } from '@/constants/theme';
 import { useDriveMode } from '@/hooks/useDriveMode';
 import { isBusiness } from '@/lib/utils';
 import { ToastContainer } from '@/components/ui/Toast';
+import UnsupportedDeviceScreen from '@/screens/auth/UnsupportedDeviceScreen';
 
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
@@ -18,7 +19,7 @@ I18nManager.allowRTL(true);
 if (__DEV__) require('@/testing/mocks').registerMockNetwork();
 
 function RootLayoutNav() {
-  const { user, isLoading, lang } = useApp();
+  const { user, isLoading, deviceBlocked, lang } = useApp();
   const router = useRouter();
   useDriveMode();
   const segments = useSegments();
@@ -57,6 +58,10 @@ function RootLayoutNav() {
       }
     }
   }, [user, isLoading, segments, router]);
+
+  if (deviceBlocked) {
+    return <UnsupportedDeviceScreen />;
+  }
 
   if (isLoading) {
     return (

@@ -32,7 +32,7 @@ const REDEEM_ERROR_KEYS: Record<string, string> = {
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
-  const { user, setUser, addToast } = useApp()
+  const { user, patchUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
   const [tab, setTab] = useState<Tab>('rewards')
@@ -101,7 +101,7 @@ export default function MarketplaceScreen() {
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      await setUser({ ...user, points: (user.points || 0) - selectedReward.costPoints })
+      patchUser(prev => ({ points: (prev.points || 0) - selectedReward.costPoints }))
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
       setTab('vouchers')

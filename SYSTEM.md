@@ -149,9 +149,6 @@ carma/                                # Carma-Team/carma (monorepo root)
 │   ├── metro.config.js               # proxies to localhost:3000
 │   └── app.json
 │
-├── mock-server/                      # Express + db.json mock — deprecated (kept for offline dev)
-│   └── local-server/
-│
 ├── scripts/
 │   ├── dev.ps1                       # one-command local dev (DB + server + Metro)
 │   └── smoke.sh                      # end-to-end HTTP smoke test

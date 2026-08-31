@@ -50,7 +50,8 @@ jest.mock('react-native-bluetooth-classic', () => ({
   },
 }));
 
-import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
+import { BluetoothDriveModeStrategy } from '@/lib/driving-sdk/auto-trip-detection/BluetoothDriveModeStrategy';
+import { getBondedDevices } from '@/lib/driving-sdk/auto-trip-detection/bluetoothDevices';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -69,10 +70,10 @@ function deviceEvent(address: string, eventType: string) {
   };
 }
 
-describe('BluetoothManager', () => {
+describe('BluetoothDriveModeStrategy', () => {
   let onConnect: jest.Mock;
   let onDisconnect: jest.Mock;
-  let manager: BluetoothManager;
+  let strategy: BluetoothDriveModeStrategy;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -83,13 +84,15 @@ describe('BluetoothManager', () => {
 
     onConnect = jest.fn();
     onDisconnect = jest.fn();
-    manager = new BluetoothManager(onConnect, onDisconnect);
+    strategy = new BluetoothDriveModeStrategy();
+    strategy.onDetected = onConnect;
+    strategy.onLost = onDisconnect;
   });
 
   describe('event payload shape', () => {
     it('fires onConnect when the nested device address matches the target', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       mockConnectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
 
@@ -97,8 +100,8 @@ describe('BluetoothManager', () => {
     });
 
     it('fires onDisconnect when the nested device address matches the target', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       mockDisconnectHandler?.(deviceEvent(TARGET, 'DEVICE_DISCONNECTED'));
 
@@ -109,8 +112,8 @@ describe('BluetoothManager', () => {
     // event, where it is always undefined. Both callbacks stayed silent forever
     // and nothing failed — not tsc, not a test, not the app.
     it('ignores an event carrying the address at the top level instead of under device', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       mockConnectHandler?.({ address: TARGET, name: 'Car Stereo' });
 
@@ -118,8 +121,8 @@ describe('BluetoothManager', () => {
     });
 
     it('survives an event with no device payload at all', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       expect(() => mockConnectHandler?.({ eventType: 'DEVICE_CONNECTED' })).not.toThrow();
       expect(onConnect).not.toHaveBeenCalled();
@@ -128,8 +131,8 @@ describe('BluetoothManager', () => {
 
   describe('target matching', () => {
     it('ignores a device that is not the target', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       mockConnectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
       mockDisconnectHandler?.(deviceEvent(OTHER, 'DEVICE_DISCONNECTED'));
@@ -139,9 +142,9 @@ describe('BluetoothManager', () => {
     });
 
     it('follows the target when it changes while monitoring is live', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
-      manager.setTargetDevice(OTHER);
+      strategy.setTarget(TARGET);
+      strategy.start();
+      strategy.setTarget(OTHER);
 
       mockConnectHandler?.(deviceEvent(OTHER, 'DEVICE_CONNECTED'));
 
@@ -149,9 +152,9 @@ describe('BluetoothManager', () => {
     });
 
     it('matches nothing once the target is cleared', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
-      manager.setTargetDevice(null);
+      strategy.setTarget(TARGET);
+      strategy.start();
+      strategy.setTarget(null);
 
       mockConnectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'));
 
@@ -160,34 +163,34 @@ describe('BluetoothManager', () => {
   });
 
   describe('subscription lifecycle', () => {
-    it('subscribes once even when startMonitoring is called repeatedly', () => {
+    it('subscribes once even when start() is called repeatedly', () => {
       const RNBluetoothClassic = require('react-native-bluetooth-classic').default;
 
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
-      manager.startMonitoring();
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
+      strategy.start();
+      strategy.start();
 
       expect(RNBluetoothClassic.onDeviceConnected).toHaveBeenCalledTimes(1);
       expect(RNBluetoothClassic.onDeviceDisconnected).toHaveBeenCalledTimes(1);
     });
 
-    it('removes both subscriptions on stopMonitoring', () => {
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
-      manager.stopMonitoring();
+    it('removes both subscriptions on stop()', () => {
+      strategy.setTarget(TARGET);
+      strategy.start();
+      strategy.stop();
 
       expect(mockRemoveConnect).toHaveBeenCalledTimes(1);
       expect(mockRemoveDisconnect).toHaveBeenCalledTimes(1);
     });
 
-    it('can be re-armed after stopMonitoring', () => {
+    it('can be re-armed after stop()', () => {
       const RNBluetoothClassic = require('react-native-bluetooth-classic').default;
 
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
-      manager.stopMonitoring();
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
+      strategy.stop();
+      strategy.start();
 
       expect(RNBluetoothClassic.onDeviceConnected).toHaveBeenCalledTimes(2);
     });
@@ -196,8 +199,8 @@ describe('BluetoothManager', () => {
       const RNBluetoothClassic = require('react-native-bluetooth-classic').default;
       platform.OS = 'ios';
 
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       expect(RNBluetoothClassic.onDeviceConnected).not.toHaveBeenCalled();
     });
@@ -206,16 +209,36 @@ describe('BluetoothManager', () => {
       const RNBluetoothClassic = require('react-native-bluetooth-classic').default;
       delete nativeModules.RNBluetoothClassic;
 
-      manager.setTargetDevice(TARGET);
-      manager.startMonitoring();
+      strategy.setTarget(TARGET);
+      strategy.start();
 
       expect(RNBluetoothClassic.onDeviceConnected).not.toHaveBeenCalled();
     });
   });
 
+  describe('surviving a target with no listener attached', () => {
+    // onDetected/onLost are optional on the interface, so a strategy armed before the
+    // strategy wires them must not throw when the broadcast arrives.
+    it('does not throw when an event fires with no callbacks set', () => {
+      const bare = new BluetoothDriveModeStrategy();
+      bare.setTarget(TARGET);
+      bare.start();
+
+      expect(() => mockConnectHandler?.(deviceEvent(TARGET, 'DEVICE_CONNECTED'))).not.toThrow();
+    });
+  });
+});
+
+describe('bluetoothDevices', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    platform.OS = 'android';
+    nativeModules.RNBluetoothClassic = {};
+  });
+
   describe('getBondedDevices', () => {
     it('maps the native address onto id and falls back to the address for a nameless device', async () => {
-      const devices = await manager.getBondedDevices();
+      const devices = await getBondedDevices();
 
       expect(devices).toEqual([
         { id: TARGET, name: 'Car Stereo' },
@@ -226,14 +249,14 @@ describe('BluetoothManager', () => {
     it('returns an empty list on iOS', async () => {
       platform.OS = 'ios';
 
-      await expect(manager.getBondedDevices()).resolves.toEqual([]);
+      await expect(getBondedDevices()).resolves.toEqual([]);
     });
 
     it('returns an empty list when Bluetooth is switched off', async () => {
       const RNBluetoothClassic = require('react-native-bluetooth-classic').default;
       RNBluetoothClassic.isBluetoothEnabled.mockResolvedValueOnce(false);
 
-      await expect(manager.getBondedDevices()).resolves.toEqual([]);
+      await expect(getBondedDevices()).resolves.toEqual([]);
     });
   });
 });

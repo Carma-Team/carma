@@ -45,17 +45,11 @@ export type Trip = Schemas['TripOut'] & {
   eventsArray?: any[];
 };
 
-// Manual addition — GET /api/trips/:id returns a superset of the list shape.
-// Mirrors EventOut / TripDetailOut in server/app/schemas/trip.py. Note `type`
-// arrives lower-cased there; use lib/tripEvents.ts to reach the SDK's enum.
-export interface TripEvent {
-  id: string;
-  type: string;
-  severity: number;
-  timestamp: string;
-  lat: number | null;
-  lng: number | null;
-}
+// Returned by GET /api/trips/:id only, never by the list endpoint. `type` arrives
+// lower-cased on the wire — use lib/tripEvents.ts to reach the SDK's enum. `severity`
+// is 1.0–3.0 for every type (scoring.md §3.4); it is not the SDK's 0–1 field of the
+// same name, and nothing converts between them.
+export type TripEvent = Schemas['EventOut'];
 
 export interface TripDetail extends Trip {
   events?: TripEvent[];
@@ -135,8 +129,9 @@ export type Notification =
 export type NotificationType = Notification['type'];
 
 // ─── Trip Validation (local SDK) ─────────────────────────────────────────────
-// String literals mirror ValidationState / TransportMode enums in driving-sdk/types.ts
-// to avoid a circular import between @/types and the SDK layer.
+// String literals mirror the ValidationState enum in driving-sdk/types.ts and the
+// TransportMode enum in lib/transportMode.ts, to avoid a circular import between
+// @/types and the SDK layer.
 export interface TripValidationResult {
   isValid: boolean;
   state: 'IDLE' | 'PRE_TRIP' | 'SCORING' | 'ENDED';

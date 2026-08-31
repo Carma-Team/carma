@@ -118,6 +118,8 @@ async def _cleanup(db: AsyncSession, business: Business, *drivers: User) -> None
 async def test_consume_sets_settled_at_equal_to_used_at(db_session: AsyncSession) -> None:
     business = await _make_business(db_session)
     driver = await _make_driver(db_session)
+    member_id = business.owner_user_id
+    assert member_id is not None
     try:
         reward = await _make_reward(db_session, business)
         voucher = _voucher(reward, driver)
@@ -125,7 +127,7 @@ async def test_consume_sets_settled_at_equal_to_used_at(db_session: AsyncSession
         await db_session.commit()
         await db_session.refresh(voucher)
 
-        await business_service.consume_voucher(db_session, business, voucher.qr_code)
+        await business_service.consume_voucher(db_session, business, voucher.qr_code, consumed_by_user_id=member_id)
 
         row = await db_session.get(Redemption, voucher.id)
         assert row is not None
