@@ -13,26 +13,29 @@ log = logging.getLogger(__name__)
 # FastAPIInstrumentor's server_request_hook fires from the outer ASGI
 # middleware, before Starlette routing runs — scope["route"] isn't resolved
 # yet, so this can't reuse core.logging.redact_path's route-template approach
-# and instead masks by raw-path prefix.
-_SENSITIVE_PATH_PREFIXES = ("/api/business/vouchers/", "/api/invitations/")
+# and instead masks by raw-path prefix. Invitation routes take their token in
+# the request body, not the URL (CAR-118), so there's no path prefix for them
+# to add here.
+_SENSITIVE_PATH_PREFIX = "/api/business/vouchers/"
 
 
 def _redact_span_path(span: Any, scope: Any) -> None:
     """Overwrite the raw-path span attributes FastAPIInstrumentor's own
     default hook already set, before the span is exported anywhere.
 
-    Otherwise a voucher code or invitation token — which live in the URL
-    path, not a header or body — reach Application Insights on every request,
-    span attributes being exactly the kind of field `RedactFilter` and
-    `redact_path` exist to keep them out of.
+    Otherwise a voucher code — which lives in the URL path, not a header or
+    body — reaches Application Insights on every request, span attributes
+    being exactly the kind of field `RedactFilter` and `redact_path` exist to
+    keep it out of.
     """
     if span is None or not span.is_recording():
         return
     path = scope.get("path", "")
-    if not path.startswith(_SENSITIVE_PATH_PREFIXES):
+    if not path.startswith(_SENSITIVE_PATH_PREFIX):
         return
-    prefix = next(p for p in _SENSITIVE_PATH_PREFIXES if path.startswith(p))
-    redacted = prefix + "***"
+    remainder = path[len(_SENSITIVE_PATH_PREFIX) :]
+    _code, _, rest = remainder.partition("/")
+    redacted = f"{_SENSITIVE_PATH_PREFIX}***/{rest}" if rest else f"{_SENSITIVE_PATH_PREFIX}***"
     for attribute in ("http.target", "http.url", "url.path", "url.full"):
         span.set_attribute(attribute, redacted)
 
