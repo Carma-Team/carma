@@ -366,10 +366,12 @@ export class DrivingSDK {
     const WARMUP_MS = 3000;
     if (Date.now() - this.tripStartTime < WARMUP_MS) return;
 
-    // Per-type cooldown — spec §א Table 1: minimum time between events = 0.5 s.
-    // Recommended for less sensitivity: raise IMU cooldowns to 2–3 s.
+    // Matched to the 5 s window the consumer's server merges detections over. Widening
+    // the evaluation window to 5 s instead would average a short hard event below its
+    // own threshold and stop reporting it at all, so the merge happens after detection.
+    // Per type on purpose: a sustained brake must not swallow a turn detected inside it.
     if (event.type !== DrivingEventType.PHONE_USAGE) {
-      const cooldownMs = 500;
+      const cooldownMs = 5000;
       const last = this.lastEventTime[event.type] ?? 0;
       if (event.timestamp.getTime() - last < cooldownMs) return;
       this.lastEventTime[event.type] = event.timestamp.getTime();

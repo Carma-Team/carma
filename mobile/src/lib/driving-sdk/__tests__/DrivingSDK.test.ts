@@ -365,7 +365,7 @@ describe('DrivingSDK', () => {
     await startTripReady();
 
     emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 200 });
+    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 3000 });
 
     expect(tripData()?.events).toHaveLength(1);
   });
@@ -374,7 +374,7 @@ describe('DrivingSDK', () => {
     await startTripReady();
 
     emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 600 });
+    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 5100 });
 
     expect(tripData()?.events).toHaveLength(2);
   });
@@ -432,8 +432,10 @@ describe('DrivingSDK', () => {
     emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
     expect(handler).not.toHaveBeenCalled();
 
+    // Past the cooldown, which is applied before the speed gate — the suppressed
+    // event above still stamped the type.
     sendSensorUpdate({ currentSpeed: 20 });
-    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 600 });
+    emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 5100 });
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
