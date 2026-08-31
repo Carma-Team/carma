@@ -94,8 +94,9 @@ async def test_remaining_budget_is_visible_before_the_caller_is_cut_off(
 async def test_a_decorated_route_without_a_response_param_still_gets_headers(
     rate_limited: None, db_api_client: AsyncClient
 ) -> None:
-    """`register` takes no `response: Response` — SlowAPI's own header
-    injection 500s on routes shaped like this. Ours must not.
+    """`register` takes no `response: Response` — flipping `headers_enabled`
+    on the `Limiter` instead of this helper would 500 routes shaped like this,
+    since SlowAPI's own header injection raises on a non-`Response` argument.
     """
     body = {"name": "Carma Test", "email": "car133@carmatest.co.il", "password": "not-a-real-password"}
     response = await db_api_client.post("/api/auth/register", json=body)

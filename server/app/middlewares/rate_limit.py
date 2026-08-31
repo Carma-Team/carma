@@ -45,9 +45,10 @@ def _rate_limit_headers(request: Request) -> dict[str, str]:
 
     `_check_request_limit` — called by this middleware and, for a decorated
     route, by the route's own wrapper before `call_next` returns here — always
-    records the tighter of the 30/min and 500/hour windows on
-    `request.state.view_rate_limit` as `(RateLimitItem, identifiers)`, win or
-    lose. So one read here after `call_next` covers both paths with no change
+    records the window it checked on `request.state.view_rate_limit` as
+    `(RateLimitItem, identifiers)`, win or lose: the tighter of the 30/min and
+    500/hour defaults here, or the route's own declared limit on a decorated
+    route. So one read here after `call_next` covers both paths with no change
     to any route signature. Unset (exempt route, unmatched path) means no
     headers, correctly.
     """
