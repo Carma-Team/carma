@@ -72,6 +72,12 @@ export type RetireRewardResult =
   | { outcome: 'network_error' }
   | { outcome: 'unexpected_error' };
 
+export type LiveVoucherCountResult =
+  | { outcome: 'ok'; liveVouchers: number }
+  | { outcome: 'forbidden' }
+  | { outcome: 'network_error' }
+  | { outcome: 'unexpected_error' };
+
 function errorOutcome(err: unknown): 'forbidden' | 'network_error' | 'unexpected_error' {
   if (err instanceof ApiError) {
     if (err.status === 0) return 'network_error';
@@ -117,6 +123,20 @@ export async function retireReward(rewardId: string): Promise<RetireRewardResult
   try {
     await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, { method: 'DELETE' });
     return { outcome: 'ok' };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Mirrors `LiveVoucherCountOut` (server/app/schemas/reward.py) — the count the
+// retire confirmation dialog must show before a business can actually retire
+// a reward with live vouchers outstanding.
+export async function getLiveVoucherCount(rewardId: string): Promise<LiveVoucherCountResult> {
+  try {
+    const { liveVouchers } = await request<{ liveVouchers: number }>(
+      `/api/business/rewards/${encodeURIComponent(rewardId)}/live-vouchers`,
+    );
+    return { outcome: 'ok', liveVouchers };
   } catch (err) {
     return { outcome: errorOutcome(err) };
   }

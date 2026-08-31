@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listRewards, createReward, updateReward, retireReward, type Reward, type RewardPayload } from './rewards';
+import { listRewards, createReward, updateReward, retireReward, getLiveVoucherCount, type Reward, type RewardPayload } from './rewards';
 import { setSession } from '@/lib/auth/session';
 import { attemptRefresh } from '@/lib/auth/refresh';
 import type { AuthUser } from '@/lib/auth/types';
@@ -156,6 +156,30 @@ describe('rewards', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'Internal server error' }, 500));
 
     await expect(retireReward('r1')).resolves.toEqual({ outcome: 'unexpected_error' });
+  });
+
+  // ── live voucher count ──────────────────────────────────────────────────
+
+  it('getLiveVoucherCount issues a GET against /api/business/rewards/{id}/live-vouchers and resolves with the server count', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ liveVouchers: 3 }, 200));
+
+    await expect(getLiveVoucherCount('r1')).resolves.toEqual({ outcome: 'ok', liveVouchers: 3 });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url).endsWith('/api/business/rewards/r1/live-vouchers')).toBe(true);
+    expect(init?.method ?? 'GET').toBe('GET');
+  });
+
+  it('maps a network failure fetching the live-voucher count to network_error rather than rejecting', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(getLiveVoucherCount('r1')).resolves.toEqual({ outcome: 'network_error' });
+  });
+
+  it('maps an unexpected server error fetching the live-voucher count to unexpected_error rather than rejecting', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'Internal server error' }, 500));
+
+    await expect(getLiveVoucherCount('r1')).resolves.toEqual({ outcome: 'unexpected_error' });
   });
 
   // ── auth reuse ───────────────────────────────────────────────────────────

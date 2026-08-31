@@ -164,6 +164,7 @@ export type TranslationMap = {
   rewards: {
     title: string;
     subtitle: string;
+    subtitleReadOnly: string;
     createButton: string;
     loadingLabel: string;
     loadErrorTitle: string;
@@ -173,6 +174,7 @@ export type TranslationMap = {
     forbiddenMessage: string;
     emptyTitle: string;
     emptyMessage: string;
+    emptyMessageReadOnly: string;
     stateActive: string;
     stateSoldOut: string;
     stateExpired: string;
@@ -190,6 +192,10 @@ export type TranslationMap = {
     retireConfirmYes: string;
     retireConfirmCancel: string;
     retireConfirmCloseLabel: string;
+    retireCheckingVouchers: string;
+    retireCheckErrorMessage: string;
+    retireLiveVoucherWarningSingular: string;
+    retireLiveVoucherWarningPlural: string;
     formCreateTitle: string;
     formEditTitle: string;
     formCloseLabel: string;
@@ -239,5 +245,39 @@ export type TranslationMap = {
     statusRejectedMessage: string;
     reviewerNoteLabel: string;
     submittedAtLabel: string;
+  };
+  permissions: {
+    title: string;
+    subtitle: string;
+    loadingLabel: string;
+    loadErrorTitle: string;
+    loadErrorMessage: string;
+    retryButton: string;
+    forbiddenTitle: string;
+    forbiddenMessage: string;
+    emptyTitle: string;
+    emptyMessage: string;
+    memberColumnLabel: string;
+    roleColumnLabel: string;
+    actionsColumnLabel: string;
+    unnamedMemberLabel: string;
+    youBadge: string;
+    roleLabelOwner: string;
+    roleLabelManager: string;
+    roleLabelCashier: string;
+    roleDescriptionOwner: string;
+    roleDescriptionManager: string;
+    roleDescriptionCashier: string;
+    roleChangeErrorMessage: string;
+    revokeButton: string;
+    revokeButtonAriaLabel: string;
+    revokingLabel: string;
+    revokeErrorMessage: string;
+    revokeConfirmTitle: string;
+    revokeConfirmBody: string;
+    revokeConfirmYes: string;
+    revokeConfirmCancel: string;
+    revokeConfirmCloseLabel: string;
+    lastOwnerErrorMessage: string;
   };
 };
