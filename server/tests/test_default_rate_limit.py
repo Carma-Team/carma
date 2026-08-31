@@ -74,6 +74,36 @@ async def test_the_liveness_probe_is_never_refused(rate_limited: None, api_clien
 
 
 @pytest.mark.asyncio
+async def test_remaining_budget_is_visible_before_the_caller_is_cut_off(
+    rate_limited: None, api_client: AsyncClient
+) -> None:
+    """A client should see the ceiling coming, not just hit it.
+
+    CAR-133: without `RateLimit-*` headers, the only way to learn a budget
+    exists is to exhaust it.
+    """
+    responses = [await api_client.get(UNCAPPED_ROUTE) for _ in range(BURST_CEILING)]
+    remaining = [int(r.headers["ratelimit-remaining"]) for r in responses]
+    assert remaining == sorted(remaining, reverse=True), "remaining must count down, never up"
+    assert remaining[0] == BURST_CEILING - 1
+    assert responses[0].headers["ratelimit-limit"] == str(BURST_CEILING)
+    assert int(responses[0].headers["ratelimit-reset"]) >= 0
+
+
+@pytest.mark.asyncio
+async def test_a_decorated_route_without_a_response_param_still_gets_headers(
+    rate_limited: None, db_api_client: AsyncClient
+) -> None:
+    """`register` takes no `response: Response` — SlowAPI's own header
+    injection 500s on routes shaped like this. Ours must not.
+    """
+    body = {"name": "Carma Test", "email": "car133@carmatest.co.il", "password": "not-a-real-password"}
+    response = await db_api_client.post("/api/auth/register", json=body)
+    assert response.status_code != 500
+    assert "ratelimit-remaining" in response.headers
+
+
+@pytest.mark.asyncio
 async def test_a_route_with_its_own_ceiling_keeps_it(rate_limited: None, db_api_client: AsyncClient) -> None:
     """The tighter number a route declares must not be shadowed by the default.
 

@@ -25,6 +25,7 @@ type. `tests/test_default_rate_limit.py` is what makes that safe to do.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -37,6 +38,29 @@ from starlette.responses import Response
 from starlette.routing import Match
 
 from app.core.limiter import limiter
+
+
+def _rate_limit_headers(request: Request) -> dict[str, str]:
+    """The IETF `RateLimit-*` triad for whichever window SlowAPI last checked.
+
+    `_check_request_limit` — called by this middleware and, for a decorated
+    route, by the route's own wrapper before `call_next` returns here — always
+    records the tighter of the 30/min and 500/hour windows on
+    `request.state.view_rate_limit` as `(RateLimitItem, identifiers)`, win or
+    lose. So one read here after `call_next` covers both paths with no change
+    to any route signature. Unset (exempt route, unmatched path) means no
+    headers, correctly.
+    """
+    view_rate_limit = getattr(request.state, "view_rate_limit", None)
+    if not view_rate_limit:
+        return {}
+    item, identifiers = view_rate_limit
+    reset_epoch, remaining = limiter.limiter.get_window_stats(item, *identifiers)
+    return {
+        "RateLimit-Limit": str(item.amount),
+        "RateLimit-Remaining": str(remaining),
+        "RateLimit-Reset": str(max(0, round(reset_epoch - time.time()))),
+    }
 
 
 def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
@@ -91,7 +115,12 @@ class DefaultRateLimitMiddleware(BaseHTTPMiddleware):
         # value is a callable, so checking only `_route_limits` would stack the
         # default on top of a ceiling that route already declared.
         if name in limiter._exempt_routes or name in limiter._route_limits or name in limiter._dynamic_route_limits:
-            return await call_next(request)
+            # A decorated route counts itself inside the handler, which
+            # `call_next` runs — by the time it returns, `view_rate_limit` is
+            # populated and `_rate_limit_headers` below picks it up.
+            response = await call_next(request)
+            response.headers.update(_rate_limit_headers(request))
+            return response
 
         try:
             limiter._check_request_limit(request, endpoint, True)
@@ -99,6 +128,10 @@ class DefaultRateLimitMiddleware(BaseHTTPMiddleware):
             # Raising would escape past the exception handlers, which Starlette
             # installs inside the middleware stack rather than around it. The
             # caller would get a 500 for being too quick.
-            return rate_limit_handler(request, exc)
+            response = rate_limit_handler(request, exc)
+            response.headers.update(_rate_limit_headers(request))
+            return response
 
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers.update(_rate_limit_headers(request))
+        return response
