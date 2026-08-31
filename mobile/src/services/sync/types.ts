@@ -20,8 +20,12 @@ export interface TelemetryDigest {
   timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
   // Per-trip accelerometer snapshot — lets the server tell a quiet drive from a dead/absent
   // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
+  // `accelCoverage` is the share of the trip (0-1) the sensor actually delivered samples
+  // for; it rides inside the digest, which the server stores whole, so it survives the
+  // wire today even though no typed column reads it yet.
   accelAvailable?:          boolean;
   accelInitFailed?:         boolean;
+  accelCoverage?:           number;
 }
 
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────
@@ -48,6 +52,7 @@ export interface ValidTripPayload {
   // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
   accelAvailable?:  boolean;
   accelInitFailed?: boolean;
+  accelCoverage?:   number;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;

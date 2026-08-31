@@ -46,6 +46,7 @@ let mockLost: (() => void) | null = null;
 
 const mockSensorStart = jest.fn(async () => undefined);
 const mockSensorStop = jest.fn();
+const mockSensorResetCoverage = jest.fn();
 const mockPhoneStart = jest.fn();
 const mockPhoneStop = jest.fn();
 const mockAutoEnable = jest.fn();
@@ -66,6 +67,7 @@ jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
     }
     async start() { return mockSensorStart(); }
     stop() { return mockSensorStop(); }
+    resetSensorCoverage() { return mockSensorResetCoverage(); }
   },
 }));
 
@@ -214,6 +216,7 @@ describe('DrivingSDK', () => {
       gyroZ: 0,
       accelAvailable: true,
       gyroAvailable: true,
+      accelCoverage: 1,
       accelInitFailed: false,
       backgroundLocationAvailable: true,
       ...update,

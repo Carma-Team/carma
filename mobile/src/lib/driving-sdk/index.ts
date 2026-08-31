@@ -252,11 +252,16 @@ export class DrivingSDK {
       // false mid-trip. These default false and latch true once the accelerometer is
       // ever confirmed live this trip (CAR-189).
       accelAvailable: false,
+      accelCoverage: 0,
       accelInitFailed: false,
     };
 
     // SensorManager may already be running (started during validation phase)
     await this.sensorManager.start();
+    // Coverage has to describe the trip, not the wait in front of it. On a BT-triggered
+    // trip the sensors have been running since validation opened, and start() above is a
+    // no-op then — so the window is restarted here, where the trip actually begins.
+    this.sensorManager.resetSensorCoverage();
     this.phoneManager.start();
 
     this.timer = setInterval(() => {
@@ -444,6 +449,9 @@ export class DrivingSDK {
     // Latch, never reset: a healthy accelerometer that goes stale in the last seconds of
     // a trip must not arrive as `false`, which is the signature of missing hardware.
     this.currentTripData.accelAvailable ||= update.accelAvailable;
+    // Not latched, unlike the flag above: this one is a running share of the trip so
+    // far, and the freshest reading is the whole point of it.
+    this.currentTripData.accelCoverage = update.accelCoverage;
     this.currentTripData.accelInitFailed = update.accelInitFailed;
 
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise

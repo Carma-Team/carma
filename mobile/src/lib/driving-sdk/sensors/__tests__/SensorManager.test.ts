@@ -283,6 +283,54 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
   });
 
+  // ── Accelerometer coverage over the window ─────────────────────────────────
+  // `accelAvailable` is a boolean about right now, and it latches over a trip — so a
+  // sensor that quit halfway reads exactly like one that ran the whole way. These
+  // three cases are the three answers the fraction has to keep apart.
+
+  /** Delivers `n` samples at the 10 Hz the subscription requests. */
+  function feedAccelFor(n: number) {
+    for (let i = 0; i < n; i++) {
+      jest.advanceTimersByTime(100);
+      mockAccelHandler?.({ x: 0, y: 0, z: 1 });
+    }
+  }
+
+  const coverage = () => onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].accelCoverage;
+
+  it('reports full coverage while the accelerometer keeps delivering', () => {
+    feedAccelFor(20); // 2 s of samples over a 2 s window
+
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBeCloseTo(1, 2);
+  });
+
+  it('reports partial coverage for a sensor that goes quiet mid-window', () => {
+    feedAccelFor(10);           // 1 s live
+    jest.advanceTimersByTime(10_000); // 10 s of silence — well past SENSOR_STALE_MS
+    feedAccelFor(10);           // it comes back
+
+    sendFix({ t: 0, speed: 20 });
+
+    // The outage is not retroactively credited when the sensor returns, so the
+    // fraction stays far from 1 — and it is not 0 either, which is the whole point.
+    expect(coverage()).toBeGreaterThan(0);
+    expect(coverage()).toBeLessThan(0.25);
+  });
+
+  it('reports zero coverage when there is no accelerometer at all', async () => {
+    manager.stop();
+    mockAccelAvailable = false;
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    jest.advanceTimersByTime(2000);
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBe(0);
+  });
+
   // ── Lateral: turns ─────────────────────────────────────────────────────────
 
   it('fires SHARP_TURN from heading rate × speed', () => {
