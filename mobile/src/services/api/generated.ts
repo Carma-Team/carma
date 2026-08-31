@@ -527,24 +527,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invitations/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Inspect an invitation before accepting it. 404 unless it is still valid. */
-        get: operations["preview_invitation_api_invitations__token__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/invitations/{token}/accept": {
+    "/api/invitations/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -553,8 +536,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept an invitation — creates the membership it names. 409 if already a member. */
-        post: operations["accept_invitation_api_invitations__token__accept_post"];
+        /** Inspect an invitation before accepting it. 404 unless it is still valid. */
+        post: operations["preview_invitation_api_invitations_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation — creates the membership it names. 409 if already a member, or if the account already belongs to a different business. */
+        post: operations["accept_invitation_api_invitations_accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1517,6 +1517,18 @@ export interface components {
             rawPayload?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * InvitationTokenIn
+         * @description The recipient-side preview/accept payload (CAR-118 review item 1) —
+         *     the token travels in the request body, never the URL. A path segment (or
+         *     a query string) is a request *target*, which a CDN, load balancer, WAF,
+         *     or the web server's own access log can capture before this app ever sees
+         *     the request; a JSON body is not.
+         */
+        InvitationTokenIn: {
+            /** Token */
+            token: string;
         };
         /**
          * InviteLinkOut
@@ -3191,16 +3203,18 @@ export interface operations {
             };
         };
     };
-    preview_invitation_api_invitations__token__get: {
+    preview_invitation_api_invitations_preview_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationTokenIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3222,16 +3236,18 @@ export interface operations {
             };
         };
     };
-    accept_invitation_api_invitations__token__accept_post: {
+    accept_invitation_api_invitations_accept_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationTokenIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

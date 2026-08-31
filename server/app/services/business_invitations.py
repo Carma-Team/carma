@@ -35,6 +35,7 @@ from app.schemas.business_invitation import (
     BusinessInvitationOut,
     BusinessInvitationPreviewOut,
 )
+from app.services.business import lock_user_for_membership_change
 
 _TOKEN_LEN = 10
 _INVITABLE_ROLES = {"manager": BusinessMembershipRole.MANAGER, "cashier": BusinessMembershipRole.CASHIER}
@@ -42,6 +43,10 @@ _EXPIRES_AFTER = timedelta(hours=72)
 
 ALREADY_MEMBER = "ALREADY_MEMBER"
 ALREADY_REDEEMED = "ALREADY_REDEEMED"
+# CAR-118 review item 3: this portal cannot place an account into two
+# businesses (business switching is out of scope), so accepting into a
+# second one would create a membership the account has no way to use here.
+INCOMPATIBLE_BUSINESS = "INCOMPATIBLE_BUSINESS"
 
 # A dedicated, derived key rather than `settings.jwt_secret` used directly:
 # domain-separated so a JWT-signing compromise and an invitation-hash
@@ -251,17 +256,33 @@ async def preview_invitation(db: AsyncSession, token: str) -> BusinessInvitation
 async def accept_invitation(db: AsyncSession, current: User, token: str) -> BusinessInvitationAcceptOut:
     invitation = await _valid_invitation(db, token)
 
-    existing = await db.scalar(
-        select(BusinessMembership).where(
-            BusinessMembership.user_id == current.id, BusinessMembership.business_id == invitation.business_id
-        )
-    )
+    # Held for the rest of this transaction — serializes this check-then-write
+    # against every other membership-creating path for the same user (see the
+    # lock's own docstring), so the two queries below see a picture that
+    # cannot change out from under them before the commit at the end.
+    await lock_user_for_membership_change(db, current.id)
+
+    memberships = (await db.scalars(select(BusinessMembership).where(BusinessMembership.user_id == current.id))).all()
+    existing = next((m for m in memberships if m.business_id == invitation.business_id), None)
     if existing is not None:
         # Neither the invitation nor the membership table is touched — the
         # ticket is explicit that this must change nothing.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {"code": ALREADY_MEMBER, "message": "You are already a member of this business"},
+        )
+    if memberships:
+        # A membership in some *other* business — accepting would create a
+        # second, real membership this portal has no way to enter (business
+        # switching is out of scope). Same "change nothing" contract as
+        # ALREADY_MEMBER above: the invitation stays exactly as valid as it
+        # was before this call.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": INCOMPATIBLE_BUSINESS,
+                "message": "This account already belongs to a different business",
+            },
         )
 
     # Conditional UPDATE, not a read-then-write: two recipients racing the same

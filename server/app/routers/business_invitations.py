@@ -20,6 +20,7 @@ from app.schemas.business_invitation import (
     BusinessInvitationIn,
     BusinessInvitationListResponse,
     BusinessInvitationPreviewResponse,
+    InvitationTokenIn,
 )
 from app.services import business_invitations as svc
 
@@ -68,21 +69,28 @@ async def revoke_invitation(invitation_id: str, membership: CurrentBusinessOwner
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@redeem_router.get(
-    "/{token}",
+@redeem_router.post(
+    "/preview",
     response_model=BusinessInvitationPreviewResponse,
     response_model_by_alias=True,
     summary="Inspect an invitation before accepting it. 404 unless it is still valid.",
 )
-async def preview_invitation(token: str, _user: CurrentUser, db: DbSession) -> BusinessInvitationPreviewResponse:
-    return BusinessInvitationPreviewResponse(invitation=await svc.preview_invitation(db, token))
+async def preview_invitation(
+    dto: InvitationTokenIn, _user: CurrentUser, db: DbSession
+) -> BusinessInvitationPreviewResponse:
+    return BusinessInvitationPreviewResponse(invitation=await svc.preview_invitation(db, dto.token))
 
 
 @redeem_router.post(
-    "/{token}/accept",
+    "/accept",
     response_model=BusinessInvitationAcceptResponse,
     response_model_by_alias=True,
-    summary="Accept an invitation — creates the membership it names. 409 if already a member.",
+    summary=(
+        "Accept an invitation — creates the membership it names. 409 if already a member, "
+        "or if the account already belongs to a different business."
+    ),
 )
-async def accept_invitation(token: str, user: CurrentUser, db: DbSession) -> BusinessInvitationAcceptResponse:
-    return BusinessInvitationAcceptResponse(membership=await svc.accept_invitation(db, user, token))
+async def accept_invitation(
+    dto: InvitationTokenIn, user: CurrentUser, db: DbSession
+) -> BusinessInvitationAcceptResponse:
+    return BusinessInvitationAcceptResponse(membership=await svc.accept_invitation(db, user, dto.token))

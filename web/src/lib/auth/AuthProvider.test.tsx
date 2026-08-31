@@ -118,6 +118,62 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('status')).not.toHaveTextContent('error');
   });
 
+  // CAR-118 review item 5: the stale bootstrap error must be genuinely
+  // settled by a successful login, not just outrun by `session` taking
+  // priority — otherwise it resurfaces the instant the session is gone again.
+  it('logout after a bootstrap-error-then-login sequence settles into unauthenticated, not the stale bootstrap error', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(503, 'Service unavailable'));
+    vi.mocked(authApi.login).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+    vi.mocked(authApi.logout).mockResolvedValue({ message: 'ok' });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    fireEvent.click(screen.getByText('login'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+
+    fireEvent.click(screen.getByText('logout'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+    expect(screen.getByTestId('status')).not.toHaveTextContent('error');
+  });
+
+  it('logout after a bootstrap-error-then-registration sequence settles into unauthenticated, not the stale bootstrap error', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(503, 'Service unavailable'));
+    vi.mocked(authApi.register).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+    vi.mocked(authApi.logout).mockResolvedValue({ message: 'ok' });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    fireEvent.click(screen.getByText('register'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+
+    fireEvent.click(screen.getByText('logout'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+    expect(screen.getByTestId('status')).not.toHaveTextContent('error');
+  });
+
+  // A later *genuine* refresh rejection (e.g. `lib/api/client.ts` retrying a
+  // 401 mid-session) must reach 'unauthenticated' too, not the stale
+  // bootstrap error from the tab's original mount.
+  it('a later genuine refresh rejection after bootstrap-error-then-login settles into unauthenticated, not the stale bootstrap error', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(503, 'Service unavailable'));
+    vi.mocked(authApi.login).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('error'));
+    fireEvent.click(screen.getByText('login'));
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+
+    // Simulates a mid-session rejection reaching the store directly — the
+    // same effect `applyRefreshRejection` has, without depending on
+    // `lib/api/client.ts`'s own retry-on-401 plumbing here.
+    setSession(null);
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+    expect(screen.getByTestId('status')).not.toHaveTextContent('error');
+  });
+
   it('retry() re-runs the bootstrap check and can recover into authenticated', async () => {
     vi.mocked(authApi.refresh)
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))

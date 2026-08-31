@@ -33,6 +33,23 @@ def _parse_category(value: str) -> BusinessCategory:
     return category
 
 
+async def lock_user_for_membership_change(db: AsyncSession, user_id: str) -> None:
+    """Serializes every path that creates or gates on this user's business
+    memberships against every other one — invitation acceptance
+    (`business_invitations.py::accept_invitation`) and business-registration
+    approval (`business_join_requests.py::approve_join_request`, via
+    `ensure_owner_membership`) both call this first, before checking or
+    writing `BusinessMembership`. Without it, two concurrent requests for the
+    same user — one on each path — can each pass their own "no conflicting
+    membership yet" check before either commits, landing the account in the
+    two-business state CAR-118's own invariant exists to prevent. Always the
+    same single resource (this user's own row, held only for the rest of the
+    caller's transaction), so there is nothing for two callers to deadlock
+    over.
+    """
+    await db.execute(select(User.id).where(User.id == user_id).with_for_update())
+
+
 async def list_memberships(db: AsyncSession, user_id: str) -> list[BusinessMembership]:
     """Every `business_memberships` row for this user, business eager-loaded.
 
@@ -61,8 +78,13 @@ async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: s
     otherwise the owner it just created has no membership row and
     `current_business` refuses them with a 403 on their very first request.
     Idempotent so a re-run (e.g. `seed.py` against an already-seeded database)
-    does not trip the table's `UNIQUE(user_id, business_id)`.
+    does not trip the table's `UNIQUE(user_id, business_id)`. Locks the user
+    row first (see `lock_user_for_membership_change`) — the same guard
+    `accept_invitation` takes before its own membership check, so this and an
+    invitation acceptance racing for the same user cannot both pass their own
+    pre-check before either commits.
     """
+    await lock_user_for_membership_change(db, user_id)
     existing = await db.scalar(
         select(BusinessMembership).where(
             BusinessMembership.business_id == business_id, BusinessMembership.user_id == user_id

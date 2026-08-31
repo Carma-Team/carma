@@ -90,6 +90,11 @@ export type AcceptInvitationResult =
   // named conflict the server surfaces deliberately, not one of the
   // indistinguishable invalid states.
   | { outcome: 'already_member' }
+  // CAR-118 review item 3: the server's own authoritative refusal — the
+  // account already belongs to a different business, so accepting would
+  // create a second, real membership this portal cannot enter. Distinct from
+  // `already_member`: nothing about *this* business is touched here.
+  | { outcome: 'incompatible_business' }
   | { outcome: 'network_error' }
   | { outcome: 'unexpected_error' };
 
@@ -137,11 +142,19 @@ export async function revokeInvitation(invitationId: string): Promise<RevokeInvi
   }
 }
 
+// CAR-118 review item 1: the token travels in the request body for both
+// calls below, never the URL — a path segment (or a query string) is a
+// request *target*, which a CDN, load balancer, WAF, or the web server's own
+// access log can capture before this app ever sees the request; a JSON body
+// is not. Both are POSTs for exactly this reason, `previewInvitation`
+// included, even though it only reads.
+
 export async function previewInvitation(token: string): Promise<PreviewInvitationResult> {
   try {
-    const { invitation } = await request<{ invitation: InvitationPreview }>(
-      `/api/invitations/${encodeURIComponent(token)}`,
-    );
+    const { invitation } = await request<{ invitation: InvitationPreview }>('/api/invitations/preview', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
     return { outcome: 'ok', invitation };
   } catch (err) {
     if (err instanceof ApiError) {
@@ -154,16 +167,17 @@ export async function previewInvitation(token: string): Promise<PreviewInvitatio
 
 export async function acceptInvitation(token: string): Promise<AcceptInvitationResult> {
   try {
-    const { membership } = await request<{ membership: AcceptedMembership }>(
-      `/api/invitations/${encodeURIComponent(token)}/accept`,
-      { method: 'POST' },
-    );
+    const { membership } = await request<{ membership: AcceptedMembership }>('/api/invitations/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
     return { outcome: 'ok', membership };
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 0) return { outcome: 'network_error' };
       if (err.status === 404) return { outcome: 'invalid' };
       if (err.status === 409 && err.code === 'ALREADY_MEMBER') return { outcome: 'already_member' };
+      if (err.status === 409 && err.code === 'INCOMPATIBLE_BUSINESS') return { outcome: 'incompatible_business' };
     }
     return { outcome: 'unexpected_error' };
   }

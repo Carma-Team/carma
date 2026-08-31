@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { attemptRefresh } from '@/lib/auth/refresh';
@@ -8,24 +8,34 @@ import { acceptInvitation, previewInvitation, type InvitationPreview } from '@/l
 import { Card, Heading, Text, Button, ErrorState, LoadingState } from '@/components/ui';
 import styles from './AcceptInvitationPage.module.css';
 
+// Mirrors the server's `READABLE_ALPHABET` + fixed length
+// (`services/business_invitations.py`) — a UI-only pre-filter so a garbled
+// or foreign fragment never even reaches the network, not a security
+// boundary (the server is still the only authority on a real token).
+const TOKEN_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{10}$/;
+
 type PreviewStatus = 'loading' | 'ok' | 'invalid' | 'error';
-// 'ambiguous' and 'reconcile_*' are reachable once the server has confirmed
-// (or plausibly confirmed — see 'indeterminate' below) acceptance — a
-// membership may already exist from this point on, no matter which of these
-// this session's reconciliation lands on. 'indeterminate' is different: it
-// means the *accept* call itself never got an answer (a lost response or a
-// transient failure), not that reconciliation of a known acceptance failed —
-// the membership may or may not exist yet, which is exactly why this state
-// never claims failure and never blindly repeats the mutation without first
-// checking.
-type AcceptPhase =
-  | 'idle'
-  | 'accepting'
-  | 'indeterminate'
-  | 'already_member'
-  | 'ambiguous'
-  | 'reconcile_rejected'
-  | 'reconcile_transient';
+
+// Every one of these is reachable only once an accept attempt has actually
+// happened (or, for 'incompatible_business', can be reached either before
+// one — the pre-mutation guard — or after one, if the server itself refused
+// the exact same way):
+//   - 'checking'   — reconciling to find out what an accept response
+//                    actually means; never claims an outcome either way.
+//   - 'ambiguous'  — the account holds a real, confirmed membership in the
+//                    invited business, but cannot be placed there
+//                    unambiguously (CAR-258).
+//   - 'auth_required' — reconciliation needs a live session to answer at
+//                    all; neutral copy, since this is reachable whether or
+//                    not the accept itself was ever confirmed.
+//   - 'transient'  — reconciliation itself failed transiently; retry
+//                    reconciliation only, never the accept mutation.
+//   - 'incompatible_business' — the account belongs to a different
+//                    business; the invitation was never consumed.
+// Falling out of 'checking' with none of the above met returns to 'idle' —
+// the account provably does not hold the invited membership yet, so
+// attempting acceptance again is safe.
+type AcceptPhase = 'idle' | 'accepting' | 'checking' | 'ambiguous' | 'auth_required' | 'transient' | 'incompatible_business';
 
 function roleKey(role: InvitationPreview['role']): 'Manager' | 'Cashier' {
   return role === 'manager' ? 'Manager' : 'Cashier';
@@ -43,18 +53,36 @@ function roleKey(role: InvitationPreview['role']): 'Manager' | 'Cashier' {
 // The token lives in the URL *fragment*, not a `:token` path param — a
 // fragment is never sent in the HTTP request, to this server or to any
 // CDN/proxy in front of it, so it cannot land in a web-host access log the
-// way a path segment inevitably would (see `_link`'s own docstring).
+// way a path segment inevitably would (see `_link`'s own docstring). A
+// `/business-invite/:token` route still exists purely to canonicalize an
+// already-issued legacy link (72h validity) to the fragment form below.
 export function AcceptInvitationPage() {
   const location = useLocation();
-  const token = decodeURIComponent(location.hash.slice(1));
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { status, logout, user } = useAuth();
-  const navigate = useNavigate();
+  const { token: legacyToken } = useParams<{ token?: string }>();
+
+  // A malformed fragment (`#%`, invalid percent-encoding) must never crash
+  // rendering — `decodeURIComponent` throws `URIError` on one, so this is
+  // deliberately not a bare `decodeURIComponent(...)` at the top of the
+  // component.
+  let decodedToken: string | null;
+  try {
+    decodedToken = location.hash.length > 1 ? decodeURIComponent(location.hash.slice(1)) : null;
+  } catch {
+    decodedToken = null;
+  }
+  const token = decodedToken ?? '';
+  const tokenLooksValid = decodedToken !== null && TOKEN_PATTERN.test(decodedToken);
 
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading');
+  // A malformed/empty/unsupported-shape fragment is 'invalid' immediately —
+  // derived here, not written into `previewStatus` from an effect, so there
+  // is no state to synchronize and no render-time setState warning.
+  const effectivePreviewStatus: PreviewStatus = tokenLooksValid ? previewStatus : 'invalid';
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [acceptPhase, setAcceptPhase] = useState<AcceptPhase>('idle');
-  const [reconciling, setReconciling] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const acceptInFlight = useRef(false);
   // The business an accept attempt claims (or may claim) membership in —
@@ -65,9 +93,43 @@ export function AcceptInvitationPage() {
   // job is giving the reconciliation check below something to compare the
   // refreshed session against.
   const acceptedBusinessId = useRef<string | null>(null);
+  // What the *next* (or most recent) reconciliation should do with its
+  // answer — captured once per accept attempt so the transient-retry button
+  // can re-run reconciliation alone and still interpret it the same way.
+  const settleContext = useRef<{
+    // Did the accept response itself already confirm success ('ok' or
+    // 'already_member')? Governs whether an ambiguous reconciliation result
+    // may be attributed to *this* attempt at all (CAR-118 review item 2) —
+    // an unconfirmed attempt cannot safely claim an ambiguous account is a
+    // consequence of this click, since the account may already have been
+    // ambiguous for an unrelated reason.
+    confirmed: boolean;
+    // Which copy an 'ambiguous' outcome should use — accepting this
+    // invitation is not the same claim as already having had access to it.
+    origin: 'accepted' | 'already_member';
+    // What "conclusively not a member yet" resolves to: back to the normal
+    // accept form ('idle'), or — only for a definitive server 'invalid' —
+    // the invalid-invitation state.
+    notAcceptedFallback: 'idle' | 'invalid';
+  }>({ confirmed: false, origin: 'accepted', notAcceptedFallback: 'idle' });
+
+  // Legacy path-shaped link (pre-fragment format, still valid for its own
+  // 72h window) — canonicalize once, with history *replacement* so the old
+  // URL never survives in back-button history, before anything else in this
+  // component reads the token from anywhere.
+  useEffect(() => {
+    if (legacyToken) {
+      navigate(`/business-invite#${encodeURIComponent(legacyToken)}`, { replace: true });
+    }
+  }, [legacyToken, navigate]);
 
   useEffect(() => {
-    if (status !== 'authenticated') return;
+    // Malformed, empty, or unsupported-shape — never worth a round trip; the
+    // server would answer identically to any other invalid token, but there
+    // is no reason to ask it. Handled below as a derived render value
+    // (`effectivePreviewStatus`), not a state write here, so there is
+    // nothing to synchronize and nothing to crash on.
+    if (legacyToken || status !== 'authenticated' || !tokenLooksValid) return;
     let cancelled = false;
     previewInvitation(token).then((result) => {
       if (cancelled) return;
@@ -83,7 +145,7 @@ export function AcceptInvitationPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, token, retryCount]);
+  }, [legacyToken, status, token, tokenLooksValid, retryCount]);
 
   function retryPreview() {
     setPreviewStatus('loading');
@@ -100,24 +162,26 @@ export function AcceptInvitationPage() {
 
     if (result.outcome === 'ok') {
       acceptedBusinessId.current = result.membership.businessId;
-      await reconcileAfterAccept();
+      await settle({ confirmed: true, origin: 'accepted', notAcceptedFallback: 'idle' });
       return;
     }
-
     if (result.outcome === 'already_member') {
       // The membership itself might predate this click, but "already a
       // member" is still a real, server-confirmed fact — reconcile before
       // deciding what to show, the same as a fresh 'ok' does, rather than
       // navigating (or not) off whatever `useAuth()` happened to hold before
-      // this request (CAR-118 review item 3).
+      // this request (CAR-118 review item 4).
       acceptedBusinessId.current = preview?.businessId ?? null;
-      const settled = await reconcileAfterAccept();
-      if (!settled) {
-        // Reconciliation came back clean but doesn't show the membership the
-        // server just confirmed exists (an unusually stale race) — this is
-        // still a true, safe thing to say, never a claim of failure.
-        setAcceptPhase('already_member');
-      }
+      await settle({ confirmed: true, origin: 'already_member', notAcceptedFallback: 'idle' });
+      return;
+    }
+    if (result.outcome === 'incompatible_business') {
+      // Authoritative and server-confirmed: nothing was consumed (CAR-118
+      // review item 3), so there is nothing left to reconcile — this is the
+      // exact same terminal state the pre-mutation guard below shows,
+      // reached this time because a race let the click through before that
+      // guard's own picture was fresh.
+      setAcceptPhase('incompatible_business');
       return;
     }
 
@@ -129,50 +193,42 @@ export function AcceptInvitationPage() {
     // (fetched at preview time, before this attempt) as what "this actually
     // already succeeded" would look like, before ever calling it a failure.
     acceptedBusinessId.current = preview?.businessId ?? null;
-    const settled = acceptedBusinessId.current ? await reconcileAfterAccept() : false;
-    if (settled) return;
+    await settle({
+      confirmed: false,
+      origin: 'accepted',
+      notAcceptedFallback: result.outcome === 'invalid' ? 'invalid' : 'idle',
+    });
+  }
 
-    // Reconciliation confirmed no membership exists in the invited business
-    // — this account genuinely has not redeemed this token.
-    if (result.outcome === 'invalid') {
-      setPreviewStatus('invalid');
-      setAcceptPhase('idle');
-    } else {
-      // Never "failed" — safe to retry, because a not-yet-redeemed
-      // invitation just gets redeemed normally, and a token this same
-      // account already redeemed answers 'already_member' next time, not a
-      // second, silently-accepted mutation.
-      setAcceptPhase('indeterminate');
-    }
+  async function settle(context: typeof settleContext.current) {
+    settleContext.current = context;
+    await runSettle();
   }
 
   // Server-authoritative reconciliation (CAR-118): whatever `acceptedBusinessId`
   // names was already decided in the database by the time this runs (either
   // because the server just said so, or because it might have on a call
   // whose response never reached us) — so the session is refreshed from
-  // there rather than assembled or trusted client-side. Split out from
-  // `handleAccept` so the "Retry" action on a transient reconciliation
-  // failure below can re-run only this half — `acceptInvitation` must never
-  // be called a second time for a token the server may have already
-  // consumed. Returns whether this call reached a terminal, displayed
-  // outcome (navigated, or shown ambiguous/rejected/transient) — `false`
-  // means reconciliation completed cleanly and the account genuinely holds
-  // no membership in `acceptedBusinessId` yet, leaving the caller to decide
-  // what that means for the specific call that led here.
-  async function reconcileAfterAccept(): Promise<boolean> {
-    setReconciling(true);
+  // there rather than assembled or trusted client-side. `settleContext`
+  // (not a fresh argument) is what lets the transient-retry button below
+  // re-run only this half — `acceptInvitation` must never be called a
+  // second time for a token the server may have already consumed.
+  async function runSettle() {
+    setAcceptPhase('checking');
     const outcome = await attemptRefresh();
-    setReconciling(false);
+    const { confirmed, notAcceptedFallback } = settleContext.current;
 
-    if (outcome !== 'ok') {
-      // Neither of these means the acceptance failed — the membership may
-      // already be committed server-side. 'rejected' is a genuinely dead
-      // session (the refresh cookie is gone); 'transient' is a network/5xx
-      // blip that says nothing about session validity either way (see
-      // `lib/auth/refresh.ts`) — both get a distinct message from an actual
-      // accept failure, and neither offers to redeem the token again.
-      setAcceptPhase(outcome === 'rejected' ? 'reconcile_rejected' : 'reconcile_transient');
-      return true;
+    if (outcome === 'rejected') {
+      // Neither this nor 'transient' below means the acceptance failed —
+      // the membership may already be committed server-side either way.
+      // Neutral copy regardless of `confirmed`: this step genuinely cannot
+      // say whether it succeeded, so it must not claim either answer.
+      setAcceptPhase('auth_required');
+      return;
+    }
+    if (outcome === 'transient') {
+      setAcceptPhase('transient');
+      return;
     }
 
     const refreshedUser = getSession()?.user;
@@ -183,23 +239,37 @@ export function AcceptInvitationPage() {
       refreshedUser.businessId === acceptedBusinessId.current
     ) {
       navigate('/', { replace: true });
-      return true;
+      return;
     }
-    // Fails closed the same way CAR-258's own server contract does: an
-    // ambiguous account, or one resolved to some business other than the one
-    // this invitation named, both mean the account cannot be placed into a
-    // single unambiguous business context. Business-context selection is
-    // explicitly out of scope here (CAR-258) and nowhere else in this app
-    // either, so this is a terminal state, not a retryable one.
-    if (
+
+    const looksAmbiguous =
       refreshedUser &&
       (refreshedUser.businessMembershipAmbiguous ||
-        (refreshedUser.businessMembershipRole && refreshedUser.businessId !== acceptedBusinessId.current))
-    ) {
+        (refreshedUser.businessMembershipRole && refreshedUser.businessId !== acceptedBusinessId.current));
+    if (looksAmbiguous && confirmed) {
+      // Fails closed the same way CAR-258's own server contract does — but
+      // only when this specific attempt was already server-confirmed. An
+      // *unconfirmed* attempt reconciling to an ambiguous account cannot
+      // safely be attributed to this click (the account may already have
+      // been ambiguous, unrelated to whether this token was ever redeemed),
+      // so that case falls through to "not a member yet" below instead.
       setAcceptPhase('ambiguous');
-      return true;
+      return;
     }
-    return false;
+
+    // Conclusively not a member of the invited business (or an unconfirmed
+    // attempt whose ambiguity cannot be attributed to it) — safe to attempt
+    // acceptance again, unless the server already gave a definitive verdict
+    // on this exact token ('invalid').
+    if (notAcceptedFallback === 'invalid') {
+      setPreviewStatus('invalid');
+    }
+    setAcceptPhase('idle');
+  }
+
+  function handleSignInFromAuthRequired() {
+    const from = location.pathname + location.hash;
+    navigate('/sign-in', { state: { from }, replace: true });
   }
 
   async function handleSignOutAfterAmbiguousAcceptance() {
@@ -214,10 +284,19 @@ export function AcceptInvitationPage() {
   // no way to enter (business switching is out of scope), and the mutation
   // cannot be undone from here once it lands. Same-business membership is
   // not incompatible — it safely no-ops through the ordinary `already_member`
-  // path instead. A session that changed *after* this render is not this
-  // check's job to catch; `reconcileAfterAccept` above is what makes the
-  // outcome safe even if this guard was stale the moment it ran.
+  // path instead. Recomputed every render (not stored state) so it never
+  // gets stuck stale; the *authoritative* guard is the server's own refusal
+  // (`accept_invitation`'s cross-business check under a per-user lock) —
+  // this is the pre-emptive UX layer in front of it, not the only one.
+  //
+  // Gated to `acceptPhase === 'idle'`: once an accept attempt has actually
+  // run, `user` reflects *that attempt's own* reconciliation (e.g. an
+  // 'ambiguous' phase deliberately leaves the session showing an ambiguous
+  // profile) — re-evaluating this pre-check against that post-attempt state
+  // would override the correct, already-decided phase with this earlier,
+  // no-longer-relevant guard.
   const incompatibleBusiness =
+    acceptPhase === 'idle' &&
     preview !== null &&
     user !== null &&
     (user.businessMembershipAmbiguous || (user.businessMembershipRole !== null && user.businessId !== preview.businessId));
@@ -228,76 +307,78 @@ export function AcceptInvitationPage() {
     navigate('/sign-in', { state: { from }, replace: true });
   }
 
-  // These four are all reachable only after the server has already confirmed
-  // acceptance (or, for 'already_member', after confirming the membership
-  // already existed) — checked ahead of `status` on purpose. A 'rejected'
-  // reconciliation clears the session as a side effect (`applyRefreshRejection`
-  // in `lib/auth/session.ts`), which flips `status` to 'unauthenticated' the
-  // moment it happens; without this ordering that flip would replace this
-  // outcome with the generic sign-in-or-register choice screen below, losing
-  // the fact that the invitation was already, successfully consumed.
-  if (acceptPhase === 'already_member') {
+  if (legacyToken) {
+    return (
+      <main className={styles.page}>
+        <LoadingState label={t('common.loading')} />
+      </main>
+    );
+  }
+
+  if (acceptPhase === 'incompatible_business' || incompatibleBusiness) {
     return (
       <main className={styles.page}>
         <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.alreadyMemberTitle')}</Heading>
-          <Text variant="body">{t('invitations.alreadyMemberMessage')}</Text>
-          <Button onClick={() => navigate('/', { replace: true })}>{t('invitations.goToBusinessButton')}</Button>
+          <Heading level={1}>{t('invitations.incompatibleBusinessTitle')}</Heading>
+          <Text variant="body">{t('invitations.incompatibleBusinessMessage')}</Text>
+          <Button onClick={handleSignOutIncompatibleBusiness}>{t('invitations.incompatibleBusinessSignOutButton')}</Button>
         </Card>
       </main>
     );
   }
 
+  // All four below are reachable only once an accept attempt has run —
+  // checked ahead of `status` on purpose. A rejected reconciliation clears
+  // the session as a side effect (`applyRefreshRejection` in
+  // `lib/auth/session.ts`), which flips `status` to 'unauthenticated' the
+  // moment it happens; without this ordering that flip would replace this
+  // outcome with the generic sign-in-or-register choice screen below,
+  // losing the fact that an accept attempt is still being resolved.
   if (acceptPhase === 'ambiguous') {
+    const ambiguousAlreadyMember = settleContext.current.origin === 'already_member';
     return (
       <main className={styles.page}>
         <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.ambiguousTitle')}</Heading>
-          <Text variant="body">{t('invitations.ambiguousMessage')}</Text>
+          <Heading level={1}>
+            {t(ambiguousAlreadyMember ? 'invitations.alreadyMemberAmbiguousTitle' : 'invitations.ambiguousTitle')}
+          </Heading>
+          <Text variant="body">
+            {t(ambiguousAlreadyMember ? 'invitations.alreadyMemberAmbiguousMessage' : 'invitations.ambiguousMessage')}
+          </Text>
           <Button onClick={handleSignOutAfterAmbiguousAcceptance}>{t('invitations.ambiguousSignOutButton')}</Button>
         </Card>
       </main>
     );
   }
 
-  if (acceptPhase === 'reconcile_rejected') {
+  if (acceptPhase === 'auth_required') {
     return (
       <main className={styles.page}>
         <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.reconcileRejectedTitle')}</Heading>
-          <Text variant="body">{t('invitations.reconcileRejectedMessage')}</Text>
-          <Button onClick={() => navigate('/sign-in', { replace: true })}>{t('invitations.signInLinkLabel')}</Button>
+          <Heading level={1}>{t('invitations.authRequiredTitle')}</Heading>
+          <Text variant="body">{t('invitations.authRequiredMessage')}</Text>
+          <Button onClick={handleSignInFromAuthRequired}>{t('invitations.signInLinkLabel')}</Button>
         </Card>
       </main>
     );
   }
 
-  if (acceptPhase === 'reconcile_transient') {
+  if (acceptPhase === 'transient') {
     return (
       <main className={styles.page}>
         <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.reconcileTransientTitle')}</Heading>
-          <Text variant="body">{t('invitations.reconcileTransientMessage')}</Text>
-          <Button onClick={reconcileAfterAccept} disabled={reconciling}>
-            {reconciling ? t('invitations.reconcilingLabel') : t('invitations.reconcileRetryButton')}
-          </Button>
+          <Heading level={1}>{t('invitations.transientTitle')}</Heading>
+          <Text variant="body">{t('invitations.transientMessage')}</Text>
+          <Button onClick={runSettle}>{t('invitations.transientRetryButton')}</Button>
         </Card>
       </main>
     );
   }
 
-  // Reachable only after `handleAccept` reconciled and found no membership
-  // in the invited business — never shown for a response that definitely
-  // never landed anywhere (a network error before the request left the
-  // browser reaches the same reconciliation, and settles here identically).
-  if (acceptPhase === 'indeterminate') {
+  if (acceptPhase === 'checking') {
     return (
       <main className={styles.page}>
-        <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.indeterminateTitle')}</Heading>
-          <Text variant="body">{t('invitations.indeterminateMessage')}</Text>
-          <Button onClick={handleAccept}>{t('invitations.indeterminateRetryButton')}</Button>
-        </Card>
+        <LoadingState label={t('invitations.checkingStatusLabel')} />
       </main>
     );
   }
@@ -338,7 +419,7 @@ export function AcceptInvitationPage() {
     );
   }
 
-  if (previewStatus === 'loading') {
+  if (effectivePreviewStatus === 'loading') {
     return (
       <main className={styles.page}>
         <LoadingState label={t('invitations.loadingPreviewLabel')} />
@@ -346,7 +427,7 @@ export function AcceptInvitationPage() {
     );
   }
 
-  if (previewStatus === 'invalid') {
+  if (effectivePreviewStatus === 'invalid') {
     return (
       <main className={styles.page}>
         <ErrorState title={t('invitations.invalidTitle')} message={t('invitations.invalidMessage')} />
@@ -354,7 +435,7 @@ export function AcceptInvitationPage() {
     );
   }
 
-  if (previewStatus === 'error' || !preview) {
+  if (effectivePreviewStatus === 'error' || !preview) {
     return (
       <main className={styles.page}>
         <ErrorState
@@ -363,18 +444,6 @@ export function AcceptInvitationPage() {
           onRetry={retryPreview}
           retryLabel={t('common.retry')}
         />
-      </main>
-    );
-  }
-
-  if (incompatibleBusiness) {
-    return (
-      <main className={styles.page}>
-        <Card className={styles.card}>
-          <Heading level={1}>{t('invitations.incompatibleBusinessTitle')}</Heading>
-          <Text variant="body">{t('invitations.incompatibleBusinessMessage')}</Text>
-          <Button onClick={handleSignOutIncompatibleBusiness}>{t('invitations.incompatibleBusinessSignOutButton')}</Button>
-        </Card>
       </main>
     );
   }

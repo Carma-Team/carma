@@ -53,6 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // `services/auth.py::login_with_password`. No follow-up refresh needed
     // just to downgrade it.
     setSession({ accessToken: res.token, user: res.user });
+    // Settles `bootstrapPhase`, not just outrun by `session` taking priority
+    // below — a login this successful is itself proof the bootstrap question
+    // ("is there a live session?") has a real, current answer, so a *later*
+    // sign-out or session rejection must fall through to 'unauthenticated',
+    // never resurface whatever transient failure the tab's original mount
+    // happened to hit (CAR-118 review item 5).
+    setBootstrapPhase('done');
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
@@ -63,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // and refresh cookie without a follow-up refresh.
     const res = await authApi.register(name, email, password);
     setSession({ accessToken: res.token, user: res.user });
+    setBootstrapPhase('done');
   }, []);
 
   const logout = useCallback(async () => {

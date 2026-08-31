@@ -16,6 +16,16 @@ class BusinessInvitationIn(CamelModel):
     role: InvitationRole
 
 
+class InvitationTokenIn(CamelModel):
+    """The recipient-side preview/accept payload (CAR-118 review item 1) —
+    the token travels in the request body, never the URL. A path segment (or
+    a query string) is a request *target*, which a CDN, load balancer, WAF,
+    or the web server's own access log can capture before this app ever sees
+    the request; a JSON body is not."""
+
+    token: str
+
+
 class BusinessInvitationOut(CamelModel):
     """Returned once, at creation — the only time the plaintext token exists
     outside the caller's own memory. Nothing later re-derives or re-displays it."""

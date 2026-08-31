@@ -32,6 +32,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.business_invitation import BusinessInvitationIn
+from app.services import business as business_service
 from app.services import business_invitations as svc
 
 INVITATIONS_URL = "/api/business/invitations"
@@ -115,7 +116,9 @@ async def test_create_then_redeem_grants_exactly_that_role(
         assert created.status_code == 201, created.text
         token = created.json()["invitation"]["token"]
 
-        accepted = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(recipient)))
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
         assert accepted.status_code == 200, accepted.text
         assert accepted.json()["membership"]["role"] == role.value.lower()
 
@@ -179,10 +182,14 @@ async def test_second_redeem_of_the_same_token_fails(db_session: AsyncSession, d
         created = await db_api_client.post(INVITATIONS_URL, json={"role": "cashier"}, headers=_auth(owner_token))
         token = created.json()["invitation"]["token"]
 
-        first = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(first_recipient)))
+        first = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(first_recipient))
+        )
         assert first.status_code == 200, first.text
 
-        second = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(second_recipient)))
+        second = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(second_recipient))
+        )
         assert second.status_code == 404, second.text
     finally:
         await _cleanup(db_session, users=(owner, first_recipient, second_recipient), businesses=(business,))
@@ -246,16 +253,22 @@ async def test_expired_and_unknown_tokens_answer_identically(
         )
         await db_session.commit()
 
-        expired = await db_api_client.get(f"/api/invitations/{token}", headers=_auth(_token(recipient)))
-        unknown = await db_api_client.get(
-            f"/api/invitations/{uuid.uuid4().hex[:10].upper()}", headers=_auth(_token(recipient))
+        expired = await db_api_client.post(
+            "/api/invitations/preview", json={"token": token}, headers=_auth(_token(recipient))
+        )
+        unknown = await db_api_client.post(
+            "/api/invitations/preview",
+            json={"token": uuid.uuid4().hex[:10].upper()},
+            headers=_auth(_token(recipient)),
         )
 
         assert expired.status_code == 404
         assert unknown.status_code == 404
         assert expired.json() == unknown.json()
 
-        accept_expired = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(recipient)))
+        accept_expired = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
         assert accept_expired.status_code == 404
         assert accept_expired.json() == unknown.json()
     finally:
@@ -279,7 +292,9 @@ async def test_revoking_a_pending_invitation_makes_it_unusable_at_once(
         revoked = await db_api_client.delete(f"{INVITATIONS_URL}/{invitation_id}", headers=_auth(owner_token))
         assert revoked.status_code == 204, revoked.text
 
-        accepted = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(recipient)))
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
         assert accepted.status_code == 404, "a revoked invitation must be unusable immediately"
     finally:
         await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
@@ -301,7 +316,9 @@ async def test_listing_returns_only_pending_invitations_with_their_expiry(
         redeemed = await db_api_client.post(INVITATIONS_URL, json={"role": "cashier"}, headers=_auth(owner_token))
         redeemed_token = redeemed.json()["invitation"]["token"]
         redeemed_id = redeemed.json()["invitation"]["id"]
-        accept = await db_api_client.post(f"/api/invitations/{redeemed_token}/accept", headers=_auth(_token(recipient)))
+        accept = await db_api_client.post(
+            "/api/invitations/accept", json={"token": redeemed_token}, headers=_auth(_token(recipient))
+        )
         assert accept.status_code == 200, accept.text
 
         revoked = await db_api_client.post(INVITATIONS_URL, json={"role": "cashier"}, headers=_auth(owner_token))
@@ -379,7 +396,9 @@ async def test_already_a_member_is_rejected_without_consuming_the_invitation(
         invitation_id = created.json()["invitation"]["id"]
         token = created.json()["invitation"]["token"]
 
-        accepted = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(recipient)))
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
         assert accepted.status_code == 409, accepted.text
         assert accepted.json()["detail"]["code"] == "ALREADY_MEMBER"
 
@@ -399,6 +418,137 @@ async def test_already_a_member_is_rejected_without_consuming_the_invitation(
         await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
 
 
+# ─── Cross-business invariant enforced server-side (CAR-118 review item 3) ───
+
+
+@pytest.mark.asyncio
+async def test_accept_is_refused_and_the_invitation_stays_pending_for_an_account_already_in_a_different_business(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """A direct API call, not the web UI's own pre-check — proving the server
+    itself is the authority, not just a client-side guard that a raw request
+    could bypass."""
+    business, owner, owner_token = await _setup_owner(db_session)
+    other_business, other_owner, _other_owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    await _add_membership(db_session, recipient, other_business, BusinessMembershipRole.CASHIER)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        invitation_id = created.json()["invitation"]["id"]
+        token = created.json()["invitation"]["token"]
+
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
+        assert accepted.status_code == 409, accepted.text
+        assert accepted.json()["detail"]["code"] == "INCOMPATIBLE_BUSINESS"
+
+        membership = await db_session.scalar(
+            select(BusinessMembership).where(
+                BusinessMembership.user_id == recipient.id, BusinessMembership.business_id == business.id
+            )
+        )
+        assert membership is None, "the invitation must not have been consumed into a new membership"
+
+        invitation = await db_session.get(BusinessInvitation, invitation_id)
+        assert invitation is not None
+        assert invitation.redeemed_at is None, "a refused acceptance must leave the invitation exactly as pending"
+    finally:
+        await _cleanup(db_session, users=(owner, other_owner, recipient), businesses=(business, other_business))
+
+
+@pytest.mark.asyncio
+async def test_concurrent_membership_creation_elsewhere_reliably_blocks_acceptance_whichever_way_the_race_lands(
+    db_session: AsyncSession,
+) -> None:
+    """The exact race `business_service.lock_user_for_membership_change`
+    exists to close: this user's invitation-accept racing a business-
+    registration approval's `ensure_owner_membership` for a *different*
+    business, via `asyncio.gather` rather than a forced ordering — this must
+    hold regardless of which happens to reach Postgres first.
+
+    CAR-118 owns only the accept side of this invariant: it must never
+    consume an invitation while the account already belongs elsewhere, and
+    must be correct no matter which of the two operations the lock lets
+    through first. Whether a *second* business can independently choose to
+    approve someone who already has one — the other direction — is that
+    flow's own rule, not something this ticket changes.
+    """
+    business, owner, _owner_token = await _setup_owner(db_session)
+    other_business = await _make_business(db_session)
+    recipient = await _make_user(db_session)
+    recipient_id = recipient.id
+    try:
+        invitation_out = await svc.create_invitation(db_session, business, owner, BusinessInvitationIn(role="cashier"))
+
+        async def _approve_elsewhere() -> None:
+            async with _rival_session() as rival_db:
+                await business_service.ensure_owner_membership(rival_db, other_business.id, recipient_id)
+                await rival_db.commit()
+
+        results = await asyncio.gather(
+            svc.accept_invitation(db_session, recipient, invitation_out.token),
+            _approve_elsewhere(),
+            return_exceptions=True,
+        )
+
+        invited_membership = await db_session.scalar(
+            select(BusinessMembership).where(
+                BusinessMembership.user_id == recipient_id, BusinessMembership.business_id == business.id
+            )
+        )
+        invitation = await db_session.get(BusinessInvitation, invitation_out.id)
+        assert invitation is not None
+
+        if invited_membership is not None:
+            # accept_invitation won the lock first — nothing existed yet for
+            # it to refuse against, so it correctly proceeded.
+            assert invitation.redeemed_at is not None
+            assert not isinstance(results[0], BaseException)
+        else:
+            # The rival approval won the lock first — accept_invitation must
+            # have seen the resulting membership and refused, leaving the
+            # invitation exactly as pending as it was before the race, never
+            # blindly consumed and never left in an undefined state.
+            assert invitation.redeemed_at is None
+            assert isinstance(results[0], HTTPException)
+            assert results[0].status_code == 409
+            assert results[0].detail["code"] == svc.INCOMPATIBLE_BUSINESS
+    finally:
+        await db_session.refresh(business)
+        await db_session.refresh(owner)
+        await db_session.refresh(recipient)
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business, other_business))
+
+
+# ─── Neither API request ever carries the token in its URL (CAR-118 review item 1) ─
+
+
+@pytest.mark.asyncio
+async def test_preview_and_accept_requests_carry_no_token_in_their_url(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business, owner, owner_token = await _setup_owner(db_session)
+    recipient = await _make_user(db_session)
+    try:
+        created = await db_api_client.post(INVITATIONS_URL, json={"role": "manager"}, headers=_auth(owner_token))
+        token = created.json()["invitation"]["token"]
+
+        preview = await db_api_client.post(
+            "/api/invitations/preview", json={"token": token}, headers=_auth(_token(recipient))
+        )
+        assert preview.status_code == 200, preview.text
+        assert token not in str(preview.request.url), "the token must never appear in the request target"
+
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
+        assert accepted.status_code == 200, accepted.text
+        assert token not in str(accepted.request.url), "the token must never appear in the request target"
+    finally:
+        await _cleanup(db_session, users=(owner, recipient), businesses=(business,))
+
+
 # ─── Redeeming with an elevated role in the payload cannot escalate ──────────
 
 
@@ -411,8 +561,8 @@ async def test_role_in_the_accept_payload_is_ignored(db_session: AsyncSession, d
         token = created.json()["invitation"]["token"]
 
         accepted = await db_api_client.post(
-            f"/api/invitations/{token}/accept",
-            json={"role": "owner"},
+            "/api/invitations/accept",
+            json={"token": token, "role": "owner"},
             headers=_auth(_token(recipient)),
         )
         assert accepted.status_code == 200, accepted.text
@@ -442,7 +592,9 @@ async def test_invitation_token_never_appears_in_the_request_log(
         token = created.json()["invitation"]["token"]
 
         with caplog.at_level(logging.INFO, logger="carma.http"):
-            preview = await db_api_client.get(f"/api/invitations/{token}", headers=_auth(_token(owner)))
+            preview = await db_api_client.post(
+                "/api/invitations/preview", json={"token": token}, headers=_auth(_token(owner))
+            )
         assert preview.status_code == 200, preview.text
 
         request_logs = [r for r in caplog.records if r.name == "carma.http"]
@@ -484,7 +636,9 @@ async def test_invitation_token_never_appears_in_an_unhandled_exception_log_or_r
             transport=ASGITransport(app=fastapi_app, raise_app_exceptions=False), base_url="http://test"
         ) as no_raise_client:
             with caplog.at_level(logging.ERROR, logger="app.main"):
-                response = await no_raise_client.get(f"/api/invitations/{token}", headers=_auth(_token(owner)))
+                response = await no_raise_client.post(
+                    "/api/invitations/preview", json={"token": token}, headers=_auth(_token(owner))
+                )
 
         assert response.status_code == 500
         assert token not in response.text, "the 500 response body must not echo the raw token back"
@@ -566,7 +720,9 @@ async def test_revoking_an_already_redeemed_invitation_is_refused_without_mutati
         invitation_id = created.json()["invitation"]["id"]
         token = created.json()["invitation"]["token"]
 
-        accepted = await db_api_client.post(f"/api/invitations/{token}/accept", headers=_auth(_token(recipient)))
+        accepted = await db_api_client.post(
+            "/api/invitations/accept", json={"token": token}, headers=_auth(_token(recipient))
+        )
         assert accepted.status_code == 200, accepted.text
 
         revoked = await db_api_client.delete(f"{INVITATIONS_URL}/{invitation_id}", headers=_auth(owner_token))

@@ -322,33 +322,33 @@ const en: TranslationMap = {
     loadingPreviewLabel: 'Checking the invitation…',
     invalidTitle: 'This invitation is not valid',
     invalidMessage: 'It may have already been used, revoked, expired, or never existed. Ask for a new one.',
-    alreadyMemberTitle: 'You already have access',
-    alreadyMemberMessage: 'You are already a member of this business.',
     ambiguousTitle: 'Invitation accepted',
     ambiguousMessage:
       "The invitation was accepted and you now have access to this business. However, your account already belongs to another business too, and this web portal can't yet switch between multiple businesses on one account. Sign out and sign in with a dedicated account for this business to continue.",
+    // Distinct from `ambiguousMessage` on purpose: nothing about *this*
+    // business was touched by this click — the account's ambiguity predates
+    // it, so this must never read as "your acceptance just did this."
+    alreadyMemberAmbiguousTitle: 'You already have access',
+    alreadyMemberAmbiguousMessage:
+      "You already have access to this business. However, your account also belongs to another business, and this web portal can't yet switch between multiple businesses on one account. Sign out and sign in with a dedicated account for this business to continue.",
     ambiguousSignOutButton: 'Sign out',
     incompatibleBusinessTitle: 'This invitation is for a different business',
     incompatibleBusinessMessage:
       'Your account already has access to a different business, and this web portal does not yet support switching between businesses. To accept this invitation, sign out and sign in (or create an account) that is not already linked to a business — the invitation link will still work.',
     incompatibleBusinessSignOutButton: 'Sign out',
-    reconcileRejectedTitle: 'Invitation accepted — please sign in again',
-    reconcileRejectedMessage:
-      "The invitation was accepted, but your session has expired. Sign in again to continue — your access is already saved.",
-    reconcileTransientTitle: 'Invitation accepted',
-    reconcileTransientMessage:
-      "The invitation was accepted, but we couldn't confirm your updated access. Check your connection and try again — the invitation itself does not need to be redeemed again.",
-    reconcilingLabel: 'Confirming…',
-    reconcileRetryButton: 'Try again',
+    // Neutral on purpose — reachable both when acceptance was already
+    // confirmed and when it was not, so this can never claim a success this
+    // step has no way to actually confirm.
+    authRequiredTitle: 'Please sign in again',
+    authRequiredMessage: "Your session needs to be renewed to check this invitation's status. Sign in again to continue — the invitation itself is unaffected.",
+    transientTitle: "Couldn't confirm your invitation's status",
+    transientMessage: "We couldn't verify this due to a connection problem. It's safe to try again.",
+    transientRetryButton: 'Try again',
+    checkingStatusLabel: "Checking your invitation's status…",
     previewBusinessLabel: 'Business',
     previewRoleLabel: 'Access level',
     acceptButton: 'Accept invitation',
     acceptingLabel: 'Accepting…',
-    indeterminateTitle: "Couldn't confirm the invitation",
-    indeterminateMessage:
-      "We couldn't confirm whether the invitation went through — this can happen on a slow or interrupted connection. It's safe to try again: if it already succeeded, nothing will be redone.",
-    indeterminateRetryButton: 'Try again',
-    goToBusinessButton: 'Go to the business',
     signInPrompt: 'Already have an account?',
     signInLinkLabel: 'Sign in',
     createAccountPrompt: "Don't have an account yet?",
