@@ -12,7 +12,6 @@ export interface TelemetryDigest {
   hardBrakes:               number;
   aggressiveAccels:         number;
   sharpTurns:               number;
-  swerves?:                 number;  // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
   screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds at >=15 km/h
   startTime:                string;  // ISO 8601 UTC — the server derives riskMultiplier from this
@@ -44,7 +43,6 @@ export interface ValidTripPayload {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — replaces phoneSeconds
   screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds; counted at >=15 km/h
   penalties: number;
