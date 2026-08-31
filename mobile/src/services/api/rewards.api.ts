@@ -8,9 +8,9 @@
  * - `myVouchers` — fetch only the current user's vouchers
  *
  * @server
- * - GET /api/rewards — USE_REAL_SERVER=false → mock; true → real server
- * - POST /api/rewards/:id/redeem — USE_REAL_SERVER=false → mock; true → real server
- * - GET /api/vouchers — USE_REAL_SERVER=false → mock; true → real server
+ * - GET /api/rewards
+ * - POST /api/rewards/:id/redeem
+ * - GET /api/vouchers
  */
 import { request } from './client';
 import { Reward, Voucher } from '@/types';

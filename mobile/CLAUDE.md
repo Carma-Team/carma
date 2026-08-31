@@ -80,10 +80,10 @@ These tags are JSDoc, which is what TypeDoc reads. Doxygen does not support Type
 
 | Flag | Value | Where requests go |
 |---|---|---|
-| `USE_REAL_SERVER` | `false` | Metro proxy → local mock server (Expo Go / dev client only) |
+| `USE_REAL_SERVER` | `false` | Metro proxy → the FastAPI server running locally (Expo Go / dev client only) |
 | `USE_REAL_SERVER` | `true` | `STAGING_SERVER_URL` (real or cloud-hosted server) |
 
-`USE_REAL_SERVER = true` today, pointed at the deployed Azure Container App. The app talks to the real backend, **not** the local mock server.
+`USE_REAL_SERVER = true` today, pointed at the deployed Azure Container App. Either setting reaches the real API — the flag chooses which host it runs on, not whether it is real. There has been no mock server since `carma-local-server` was deleted.
 
 ### Builds
 

@@ -60,8 +60,6 @@ export default function MarketplaceScreen() {
    * Loads rewards and vouchers from the server on every category change.
    *
    * [server] rewardsApi.list(category) → GET /api/rewards?category=...
-   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_REWARDS + MOCK_VOUCHERS
-   *   - USE_REAL_SERVER=true  → GET /api/rewards on the real server
    */
   const loadCatalog = useCallback(() => {
     const load = ++latestLoad.current
@@ -89,8 +87,6 @@ export default function MarketplaceScreen() {
    * Called only after the user confirms in RedeemConfirmSheet.
    *
    * [server] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
-   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock voucher
-   *   - USE_REAL_SERVER=true  → POST to the real server
    *
    * On success: adds the voucher to the list, updates points in AppContext,
    * shows a success toast, and switches to the vouchers tab.
