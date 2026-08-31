@@ -24,6 +24,7 @@ jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
     constructor(_onEvent: any, onUpdate: any) { sendUpdate = onUpdate; }
     async start() {}
     stop() {}
+    resetSensorCoverage() {}
   },
 }));
 
@@ -66,6 +67,7 @@ function tickAt80(): void {
     accelX: 0.01,
     gyroZ: 0.001,
     accelAvailable: true,
+    accelCoverage: 1,
     gyroAvailable: true,
     accelInitFailed: false,
     backgroundLocationAvailable: true,
