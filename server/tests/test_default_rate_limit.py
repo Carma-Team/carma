@@ -87,3 +87,39 @@ async def test_a_route_with_its_own_ceiling_keeps_it(rate_limited: None, db_api_
     codes = [(await db_api_client.post("/api/auth/login", json=body)).status_code for _ in attempts]
     assert codes[-1] == 429
     assert codes[:-1] == [401] * CREDENTIAL_CEILING, f"the route's own budget was cut short, got {sorted(set(codes))}"
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_body_still_spends_the_routes_own_budget(
+    rate_limited: None, db_api_client: AsyncClient
+) -> None:
+    """A 422 never reaches the handler, so only the middleware can count it.
+
+    Before CAR-137 this flood was free indefinitely: SlowAPI's decorator counts
+    inside the handler, and FastAPI rejects a malformed body before the handler
+    runs.
+    """
+    attempts = range(CREDENTIAL_CEILING + 1)
+    body = {"email": "not-an-email"}
+    codes = [(await db_api_client.post("/api/auth/login", json=body)).status_code for _ in attempts]
+    assert codes[-1] == 429, f"the route's own ceiling never caught the flood, got {sorted(set(codes))}"
+    assert codes[:-1] == [422] * CREDENTIAL_CEILING
+
+
+@pytest.mark.asyncio
+async def test_a_scan_of_unknown_paths_shares_one_budget(rate_limited: None, api_client: AsyncClient) -> None:
+    """Varying the path must not buy the scan a fresh counter each time."""
+    paths = ["/wp-login.php", "/.env", "/admin"]
+    codes = [(await api_client.get(paths[i % len(paths)])).status_code for i in range(BURST_CEILING + 1)]
+    assert codes[:-1] == [404] * BURST_CEILING, f"an unmatched path was refused early, got {sorted(set(codes))}"
+    assert codes[-1] == 429, "the scan was never refused despite crossing the shared budget"
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_method_on_a_real_route_counts_like_an_unmatched_one(
+    rate_limited: None, api_client: AsyncClient
+) -> None:
+    """A method mismatch is `Match.PARTIAL`, not `Match.FULL` — it must not be exempted."""
+    codes = [(await api_client.post(UNCAPPED_ROUTE)).status_code for _ in range(BURST_CEILING + 1)]
+    assert codes[:-1] == [405] * BURST_CEILING, f"a wrong-method probe was refused early, got {sorted(set(codes))}"
+    assert codes[-1] == 429, "the wrong-method probe was never refused"

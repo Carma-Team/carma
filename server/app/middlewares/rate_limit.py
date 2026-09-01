@@ -1,4 +1,5 @@
-"""The default rate limit, applied to every route that does not declare its own.
+"""Where every request gets counted — the default ceiling, a route's own tighter
+one, and the bucket for a path that matches no route at all.
 
 This replaces `slowapi.middleware.SlowAPIMiddleware`, which stopped limiting
 anything at all under FastAPI 0.137. That release made `include_router` store
@@ -18,9 +19,9 @@ Counting happens here rather than in a dependency so that it lands before
 authentication and before the body is parsed: an unauthenticated flood should
 cost us a dictionary lookup, not a database round trip.
 
-The four underscore-prefixed attributes reached for below are SlowAPI's, and
-using them is the price of keeping its decorators, its storage and its error
-type. `tests/test_default_rate_limit.py` is what makes that safe to do.
+The underscore-prefixed names reached for below are SlowAPI's, and using them
+is the price of keeping its decorators, its storage and its error type.
+`tests/test_default_rate_limit.py` is what makes that safe to do.
 """
 
 from __future__ import annotations
@@ -65,8 +66,9 @@ def _matched_endpoint(request: Request) -> Callable[..., Any] | None:
     """The handler this request is heading for, or None if nothing matches.
 
     Middleware runs before routing, so the decision has to be made twice — once
-    here and once by FastAPI. None means an unknown path, which is left alone:
-    it is answered with a 404 without touching anything expensive.
+    here and once by FastAPI. None means an unknown path or a method mismatch on
+    a known one — a scan for `/admin` and a wrong-method probe of a real route
+    both land here, and both must still spend a budget.
     """
     for context in iter_route_contexts(request.app.routes):
         match, _ = context.matches(request.scope)
@@ -75,26 +77,50 @@ def _matched_endpoint(request: Request) -> Callable[..., Any] | None:
     return None
 
 
+def _unmatched_bucket(request: Request) -> None:
+    """Never called — only named, so every unrouteable request shares one key.
+
+    `_check_request_limit` keys its counter off `__module__.__qualname__`. A
+    real endpoint would give a 404 sweep one fresh budget per path tried; this
+    sentinel gives the whole sweep one shared budget regardless of path.
+    """
+
+
+def _counts_by_address(endpoint_name: str) -> bool:
+    """Whether every limit declared for this route can be counted here.
+
+    A route keyed on the caller's address (the default, or a route's own
+    tighter ceiling declared with no `key_func`) is safe to count before
+    routing runs. A route keyed on something else — `business_key`, which
+    reads `request.state.business_id` — depends on a FastAPI dependency that
+    only runs *after* this middleware returns, so it cannot be evaluated here
+    and is left for the decorator to count in-handler, as SlowAPI always did.
+    """
+    limits = limiter._route_limits.get(endpoint_name, [])
+    groups = limiter._dynamic_route_limits.get(endpoint_name, [])
+    key_funcs = [limit.key_func for limit in limits] + [group.key_function for group in groups]
+    return all(key_func is limiter._key_func for key_func in key_funcs)
+
+
 class DefaultRateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         if not limiter.enabled:
             return await call_next(request)
 
         endpoint = _matched_endpoint(request)
-        if endpoint is None:
-            return await call_next(request)
-
-        name = f"{endpoint.__module__}.{endpoint.__name__}"
-        # A route carrying `@limiter.limit` counts itself inside the handler, and
-        # a tighter ceiling there must not be shadowed by the looser one here.
-        # SlowAPI files a limit under `_dynamic_route_limits` instead when its
-        # value is a callable, so checking only `_route_limits` would stack the
-        # default on top of a ceiling that route already declared.
-        if name in limiter._exempt_routes or name in limiter._route_limits or name in limiter._dynamic_route_limits:
-            return await call_next(request)
 
         try:
-            limiter._check_request_limit(request, endpoint, True)
+            if endpoint is None:
+                limiter._check_request_limit(request, _unmatched_bucket, True)
+            elif _counts_by_address(f"{endpoint.__module__}.{endpoint.__name__}"):
+                # `in_middleware=False` is what makes `_check_request_limit` also
+                # consult `_route_limits`/`_dynamic_route_limits` — the ceilings
+                # `@limiter.limit` registers — so a route's own tighter budget is
+                # spent here, before FastAPI parses the body. Setting the flag
+                # below tells the decorator's own wrapper the check already ran,
+                # so a request that clears validation is not counted twice.
+                limiter._check_request_limit(request, endpoint, False)
+                request.state._rate_limiting_complete = True
         except RateLimitExceeded as exc:
             # Raising would escape past the exception handlers, which Starlette
             # installs inside the middleware stack rather than around it. The
