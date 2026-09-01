@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core.limiter import limiter
+from app.core.logging import redact_path
 from app.database import SessionLocal
 from app.middlewares.rate_limit import DefaultRateLimitMiddleware, rate_limit_handler
 from app.middlewares.request_id import RequestIdMiddleware
@@ -116,7 +117,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    path = request.url.path
+    path = redact_path(request)
     logging.getLogger(__name__).exception("%s %s", request.method, path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
