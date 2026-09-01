@@ -13,10 +13,12 @@ against the old middleware.
 
 from __future__ import annotations
 
+import limits
 import pytest
 from httpx import AsyncClient
 
 from app.core.limiter import BURST_LIMIT
+from app.middlewares import rate_limit as rate_limit_middleware
 from app.routers.auth import CREDENTIAL_LIMIT
 
 # Read off the limiter rather than repeated here, so tuning a ceiling does not
@@ -71,6 +73,62 @@ async def test_the_liveness_probe_is_never_refused(rate_limited: None, api_clien
     """A 429 on the probe reads as a dead container and restarts it."""
     codes = [(await api_client.get("/health/live")).status_code for _ in range(BURST_CEILING + 10)]
     assert set(codes) == {200}
+
+
+@pytest.mark.asyncio
+async def test_remaining_budget_is_visible_before_the_caller_is_cut_off(
+    rate_limited: None, api_client: AsyncClient
+) -> None:
+    """A client should see the ceiling coming, not just hit it.
+
+    CAR-133: without `RateLimit-*` headers, the only way to learn a budget
+    exists is to exhaust it.
+    """
+    responses = [await api_client.get(UNCAPPED_ROUTE) for _ in range(BURST_CEILING)]
+    remaining = [int(r.headers["ratelimit-remaining"]) for r in responses]
+    assert remaining == sorted(remaining, reverse=True), "remaining must count down, never up"
+    assert remaining[0] == BURST_CEILING - 1
+    assert responses[0].headers["ratelimit-limit"] == str(BURST_CEILING)
+    assert int(responses[0].headers["ratelimit-reset"]) >= 0
+
+
+@pytest.mark.asyncio
+async def test_the_tighter_default_window_wins_the_header(
+    rate_limited: None, api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller pacing under the burst ceiling must still see the hourly one.
+
+    SlowAPI's own bookkeeping (`view_rate_limit`) names whichever default
+    window it evaluated last, chosen by granularity, not by budget — on the
+    real 30/minute + 500/hour pair that is always the minute window, so a
+    slow, steady caller would never see the hourly ceiling in the headers
+    until the request it refuses. A one-request stand-in for the hourly
+    window, swapped in for the real pair, proves the header now reports
+    whichever default has less budget left rather than whichever SlowAPI
+    happened to flag.
+    """
+    monkeypatch.setattr(
+        rate_limit_middleware,
+        "_DEFAULT_LIMIT_ITEMS",
+        (limits.parse("1/hour"), limits.parse(BURST_LIMIT)),
+    )
+    response = await api_client.get(UNCAPPED_ROUTE)
+    assert response.headers["ratelimit-limit"] == "1", "the tighter stand-in window should have won"
+    assert response.headers["ratelimit-remaining"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_a_decorated_route_without_a_response_param_still_gets_headers(
+    rate_limited: None, db_api_client: AsyncClient
+) -> None:
+    """`register` takes no `response: Response` — flipping `headers_enabled`
+    on the `Limiter` instead of this helper would 500 routes shaped like this,
+    since SlowAPI's own header injection raises on a non-`Response` argument.
+    """
+    body = {"name": "Carma Test", "email": "car133@carmatest.co.il", "password": "not-a-real-password"}
+    response = await db_api_client.post("/api/auth/register", json=body)
+    assert response.status_code != 500
+    assert "ratelimit-remaining" in response.headers
 
 
 @pytest.mark.asyncio
