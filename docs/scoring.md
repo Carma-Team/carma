@@ -4,7 +4,9 @@
 
 This document defines the CARMA scoring system: what it measures, how a trip becomes a number, and how that number drives the rewards economy.
 
-Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number.
+Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number: it is forensic, nothing reads it back into a computation.
+
+The version is a flat `<year>-<month>-<subject>` identifier, not semver — semver's compatibility contract has no meaning for a scoring formula. It changes whenever the same input would score differently, and the subject names what changed (`2026-08-posted-limit`, not a number bump).
 
 Reference implementation: [`server/app/services/scoring.py`](../server/app/services/scoring.py).
 
