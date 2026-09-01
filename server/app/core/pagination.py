@@ -25,6 +25,13 @@ def decode_cursor(cursor: str) -> tuple[datetime, str]:
         sort_at_str, row_id = raw.rsplit("|", 1)
         if not row_id:
             raise ValueError("empty id")
-        return datetime.fromisoformat(sort_at_str), row_id
+        sort_at = datetime.fromisoformat(sort_at_str)
+        # `encode_cursor` only ever writes an aware `isoformat()` — a naive value
+        # here means a hand-crafted cursor, not one this module produced. Reject
+        # it rather than comparing it against an aware `settled_at` column, which
+        # Postgres/asyncpg would otherwise error on (or worse, silently mishandle).
+        if sort_at.tzinfo is None:
+            raise ValueError("naive timestamp")
+        return sort_at, row_id
     except (ValueError, UnicodeDecodeError, binascii.Error) as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid pagination cursor") from e

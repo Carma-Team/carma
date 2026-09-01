@@ -13,9 +13,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import decode_cursor, encode_cursor
 from app.core.security import create_access_token
 from app.main import app
 from app.models import (
@@ -594,6 +596,129 @@ async def test_malformed_cursor_is_a_400(db_session: AsyncSession, db_api_client
         assert r.status_code == 400
     finally:
         await _cleanup(db_session, business)
+
+
+# ─── Timezone-aware datetimes ────────────────────────────────────────────────
+
+# `Redemption.settled_at` is `DateTime(timezone=True)` — every datetime that
+# reaches a comparison against it must carry a UTC offset, whether it comes in
+# as a `from`/`to` filter or decoded off a pagination cursor.
+
+
+@pytest.mark.asyncio
+async def test_naive_from_is_rejected(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    business = await _make_business(db_session)
+    owner = await _owner_of(db_session, business)
+    try:
+        r = await db_api_client.get(
+            "/api/business/redemptions",
+            params={"from": "2026-01-01T00:00:00"},
+            headers=await _headers(owner),
+        )
+        assert r.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_naive_to_is_rejected(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    business = await _make_business(db_session)
+    owner = await _owner_of(db_session, business)
+    try:
+        r = await db_api_client.get(
+            "/api/business/redemptions",
+            params={"to": "2026-01-01T00:00:00"},
+            headers=await _headers(owner),
+        )
+        assert r.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_aware_from_and_to_are_accepted(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """A UTC offset must not be mistaken for the naive case it exists to rule out."""
+    business = await _make_business(db_session)
+    owner = await _owner_of(db_session, business)
+    try:
+        r = await db_api_client.get(
+            "/api/business/redemptions",
+            params={"from": "2026-01-01T00:00:00+02:00", "to": "2026-12-31T00:00:00Z"},
+            headers=await _headers(owner),
+        )
+        assert r.status_code == 200
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_a_syntactically_valid_cursor_with_a_naive_timestamp_is_rejected(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """A well-formed cursor is not the same thing as a usable one.
+
+    `encode_cursor` itself does not validate — only ever fed an aware
+    `settled_at` in production — so this crafts what a tampered or
+    hand-built cursor would look like: base64 of `naive-iso|id`, parseable,
+    wrong.
+    """
+    business = await _make_business(db_session)
+    owner = await _owner_of(db_session, business)
+    try:
+        naive_cursor = encode_cursor(datetime(2026, 1, 1, 0, 0, 0), uuid.uuid4().hex)  # noqa: DTZ001 - deliberately naive
+        r = await db_api_client.get(
+            "/api/business/redemptions",
+            params={"cursor": naive_cursor},
+            headers=await _headers(owner),
+        )
+        assert r.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+def test_decode_cursor_rejects_a_naive_timestamp() -> None:
+    naive_cursor = encode_cursor(datetime(2026, 1, 1, 0, 0, 0), uuid.uuid4().hex)  # noqa: DTZ001 - deliberately naive
+    with pytest.raises(HTTPException) as exc:
+        decode_cursor(naive_cursor)
+    assert exc.value.status_code == 400
+
+
+def test_decode_cursor_round_trips_an_aware_timestamp_unchanged() -> None:
+    """Ordinary generated cursors — the vast majority of real traffic — must keep working."""
+    aware = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    row_id = uuid.uuid4().hex
+    decoded_at, decoded_id = decode_cursor(encode_cursor(aware, row_id))
+    assert decoded_at == aware
+    assert decoded_id == row_id
+
+
+@pytest.mark.asyncio
+async def test_a_real_generated_next_cursor_keeps_working_end_to_end(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    reward = await _make_reward(db_session, business)
+    owner = await _owner_of(db_session, business)
+    now = datetime.now(UTC)
+    try:
+        older = await _seed_redemption(
+            db_session, business, driver, reward, status=RedemptionStatus.USED, settled_at=now - timedelta(minutes=1)
+        )
+        await _seed_redemption(db_session, business, driver, reward, status=RedemptionStatus.USED, settled_at=now)
+        headers = await _headers(owner)
+
+        first = await db_api_client.get("/api/business/redemptions", params={"limit": "1"}, headers=headers)
+        cursor = first.json()["nextCursor"]
+        assert cursor is not None
+
+        second = await db_api_client.get(
+            "/api/business/redemptions", params={"limit": "1", "cursor": cursor}, headers=headers
+        )
+        assert second.status_code == 200
+        assert {row["id"] for row in second.json()["redemptions"]} == {older.id}
+    finally:
+        await _cleanup(db_session, business, drivers=(driver,))
 
 
 # ─── Unit-level: status filter parsing ───────────────────────────────────────

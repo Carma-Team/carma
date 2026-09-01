@@ -404,6 +404,17 @@ def parse_redemption_status_filter(value: str | None) -> set[RedemptionStatus]:
     return statuses
 
 
+def _require_aware(value: datetime | None, *, param: str) -> None:
+    """Reject a `from`/`to` filter with no UTC offset before it reaches the query.
+
+    `Redemption.settled_at` is `DateTime(timezone=True)` — comparing it against a
+    naive value is a client mistake (an omitted offset, not an implied UTC), so
+    this is a 400 rather than a silent `tzinfo=UTC` guess.
+    """
+    if value is not None and value.tzinfo is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"'{param}' must include a UTC offset")
+
+
 async def _live_voucher_count(db: AsyncSession, business_id: str) -> int:
     """Vouchers this business has outstanding right now — CAR-79's separate counter.
 
@@ -456,6 +467,9 @@ async def list_redemptions(
     newer than anything already paged past — can never be skipped past or
     re-shown to a client mid-page.
     """
+    _require_aware(settled_from, param="from")
+    _require_aware(settled_to, param="to")
+
     await rewards_service.expire_overdue(db, Redemption.business_id == business.id)
     await db.commit()
 
