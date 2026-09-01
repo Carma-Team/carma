@@ -49,14 +49,42 @@ describe('submitJoinRequest', () => {
     expect(body.address).toBe('Rothschild 1, Tel Aviv');
   });
 
-  it('reports every 409 as a generic conflict — the server gives no structured signal to tell "your own pending request" apart from "this registration number belongs to someone else"', async () => {
+  it('maps a 409 with code ALREADY_HAS_PENDING_REQUEST to its own outcome', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: { code: 'ALREADY_HAS_PENDING_REQUEST', message: 'You already have a pending business request' } }, 409),
+    );
+
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'already_has_pending_request' });
+  });
+
+  it('maps a 409 with code REGISTRATION_NUMBER_PENDING to its own outcome', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: { code: 'REGISTRATION_NUMBER_PENDING', message: 'Another applicant already has a pending request' } }, 409),
+    );
+
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'registration_number_pending' });
+  });
+
+  it('maps a 409 with code REGISTRATION_NUMBER_TAKEN to its own outcome', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: { code: 'REGISTRATION_NUMBER_TAKEN', message: 'This business is already registered' } }, 409));
+
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'registration_number_taken' });
+  });
+
+  it('falls back to the generic conflict outcome on a 409 with an unrecognized code', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: { code: 'SOME_FUTURE_CODE', message: 'Conflict' } }, 409));
+
+    await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'conflict' });
+  });
+
+  it('falls back to the generic conflict outcome on a 409 with no code (missing discriminator, e.g. plain-text detail)', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'You already have a pending business request' }, 409));
 
     await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'conflict' });
   });
 
-  it('reports a 409 for a different reason (registration number already approved) the same honest way — never claims it is the caller\'s own request', async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'This business is already registered' }, 409));
+  it('falls back to the generic conflict outcome on a 409 with a malformed code (non-string)', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: { code: 123, message: 'Conflict' } }, 409));
 
     await expect(submitJoinRequest(PAYLOAD, 'tok-otp-1')).resolves.toEqual({ outcome: 'conflict' });
   });

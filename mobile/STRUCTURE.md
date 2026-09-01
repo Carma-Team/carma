@@ -161,6 +161,7 @@ documented in `mobile/CLAUDE.md`.
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
 | `tripSummary.ts` | May | One shape for the end-of-trip summary, built either from the device's own trip data or from a trip the server returned. Both summary surfaces render this shape, so neither can show a field the other does not. |
 | `regionCheck.ts` | May | Israel-only region check (team decision). Tests a fix the SDK already holds against an offline bounding box — no network, no permission request of its own, and no dependency on a geocoder's answer. |
+| `telemetrySigning.ts` | Shared | Signs the RFC-001 telemetry digest: canonical JSON over a hand-written SHA-256 and HMAC-SHA256 (FIPS 180-4 / FIPS 198-1). The primitive is hand-written because the app has no crypto dependency and cannot get one — expo-crypto ships no HMAC, Hermes exposes neither `crypto.subtle` nor `node:crypto`, a native module would break Expo Go, and the single caller signs synchronously inside the end-trip path. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
 | `__tests__/` | — | Unit tests for the files directly under `lib/` |
 

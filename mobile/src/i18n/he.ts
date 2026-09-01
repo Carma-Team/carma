@@ -129,14 +129,32 @@ const he = {
     pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
   },
   marketplace: {
-    title: 'חנות הפרסים', subtitle: 'ממש את הנקודות שלך',
-    myVouchers: 'השוברים שלי', allRewards: 'כל הפרסים',
-    redeem: 'ממש', redeemSuccess: 'הפרס מומש בהצלחה!',
+    title: 'חנות הפרסים', subtitle: 'מימוש הנקודות שלך',
+    redeem: 'מימוש', redeemSuccess: 'הפרס מומש בהצלחה!',
     // The two reasons the server refuses a redemption that looked available a moment ago.
     redeemOutOfStock: 'הפרס אזל מהמלאי הרגע', redeemCampaignEnded: 'מבצע הפרס הסתיים',
+    // לכל אחד מהשניים שתי גרסאות: השרת שולח זמן המתנה, אך לא תמיד חישב אחד
+    redeemCooldown: 'אי אפשר להנפיק שובר נוסף לפרס הזה כרגע.',
+    redeemCooldownWait: 'אי אפשר להנפיק שובר נוסף לפרס הזה כרגע. אפשר לנסות שוב בעוד {wait}.',
+    redeemAtCap: 'יש לך כבר את המספר המרבי של שוברים פעילים לפרס הזה.',
+    redeemAtCapWait: 'יש לך כבר את המספר המרבי של שוברים פעילים לפרס הזה. יתפנה מקום בעוד {wait}.',
+    // דחייה מהשרת מול שרת שלא נענה — שני מצבים שונים, ובשניהם שום דבר לא זז
+    redeemRefused: 'המימוש נדחה על ידי השרת. הפרס לא מומש והנקודות לא נגרעו.',
+    redeemUnreachable: 'המימוש לא הושלם — אין כרגע תקשורת עם השרת. הפרס לא מומש.',
+    loadFailed: 'טעינת חנות הפרסים נכשלה. אפשר לנסות שוב מאוחר יותר.',
     missingPoints: 'חסרות לך', outOfStock: 'אזל מהמלאי',
+    voucherCap: 'יש לך כבר שני שוברים פעילים לפרס הזה',
+    availablePoints: 'נקודות זמינות', reservedPoints: 'נקודות שמורות לשוברים פעילים',
+    balanceAfter: 'יישארו לך',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
-    voucher: { title: 'השובר שלך', scanQR: 'סרוק QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל' },
+    voucher: {
+      title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      cancel: 'ביטול השובר',
+      cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
+      cancelSuccess: 'השובר בוטל והנקודות שוחררו',
+      cancelRefused: 'ביטול השובר נדחה על ידי השרת. השובר עדיין פעיל.',
+      cancelUnreachable: 'ביטול השובר לא הושלם — אין כרגע תקשורת עם השרת. השובר עדיין פעיל.',
+    },
     bonusDilemma: {
       title: 'בחר את הפרס שלך!', invest: 'השקע בנקודות', investDesc: 'שמור נקודות לפרס גדול יותר',
       redeem: 'ממש עכשיו', redeemDesc: 'קבל פרס מידי', cancel: 'ביטול',

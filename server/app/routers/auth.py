@@ -56,8 +56,8 @@ CREDENTIAL_LIMIT = "20/minute"
     summary="Register a new user with email+password",
 )
 @limiter.limit(CREDENTIAL_LIMIT)
-async def register(request: Request, dto: RegisterIn, db: DbSession) -> AuthOut:
-    return await auth_service.register_with_password(db, dto)
+async def register(request: Request, response: Response, dto: RegisterIn, db: DbSession) -> AuthOut:
+    return await auth_service.register_with_password(db, dto, response, is_browser=is_browser_request(request))
 
 
 @router.post("/login", response_model=AuthOut, response_model_by_alias=True, summary="Login with email+password")
@@ -128,6 +128,19 @@ async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> Otp
 @limiter.limit(SENSITIVE_LIMIT)
 async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
     return await auth_service.verify_otp(db, dto, client_ip(request))
+
+
+@router.post(
+    "/otp/login",
+    response_model=AuthOut,
+    response_model_by_alias=True,
+    summary="Sign in with phone + OTP, establishing a CAR-217 browser session (CAR-265)",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def otp_login(request: Request, response: Response, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
+    return await auth_service.login_with_otp(
+        db, dto, client_ip(request), response, is_browser=is_browser_request(request)
+    )
 
 
 # ─── Forgotten password (CAR-60) ─────────────────────────────────────────────

@@ -103,7 +103,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "HARD_BRAKE": EventType.HARD_BRAKE,
     "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
     "SHARP_TURN": EventType.SHARP_TURN,
-    "SWERVE": EventType.SWERVE,
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,

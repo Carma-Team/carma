@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-28**
+**Last updated: 2026-08-29**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -76,7 +76,7 @@ it, never the other way round.
 | `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
 | `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
 | `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also streams speed, distance and raw IMU values to the SDK on every fix. |
-| `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance and a glass-tap proxy. Reports tap count and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
+| `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance, a glass-tap proxy and a paired gyroscope tap signature. Reports tap counts and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
 | `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
 | `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
 | `DeviceCapabilities.ts` | One-shot startup probe of what the device can actually do: which motion sensors it exposes, and whether its OS meets the floor recorded in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds and stops there — whether a missing sensor blocks the user is a host-app decision. |
@@ -336,6 +336,7 @@ interface TripData {
   touchEpochs:            number;           // glass-tap proxy count (IMU)
   screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
   accelAvailable:         boolean;          // ever confirmed live this trip; false alone says nothing about why — see accelInitFailed
+  accelCoverage:          number;           // 0–1 share of the trip the accelerometer actually delivered samples for
   accelInitFailed:        boolean;          // true only if accelerometer registration itself threw
 }
 ```

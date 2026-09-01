@@ -35,6 +35,10 @@ ALREADY_OWNS_BUSINESS = "ALREADY_OWNS_BUSINESS"
 REGISTRATION_NUMBER_TAKEN = "REGISTRATION_NUMBER_TAKEN"
 APPLICANT_ROLE_INVALID = "APPLICANT_ROLE_INVALID"
 INVALID_STATE_TRANSITION = "INVALID_STATE_TRANSITION"
+# submit()'s own two conflicts; REGISTRATION_NUMBER_TAKEN above is reused for
+# its third — same meaning as approve()'s check of the same name.
+ALREADY_HAS_PENDING_REQUEST = "ALREADY_HAS_PENDING_REQUEST"
+REGISTRATION_NUMBER_PENDING = "REGISTRATION_NUMBER_PENDING"
 
 # Postgres's own constraint name, not string-matched: asyncpg parses it out of
 # the wire protocol's ErrorResponse and exposes it as `.constraint_name` on the
@@ -61,6 +65,29 @@ def _approval_conflict_code(e: IntegrityError) -> str:
     if not isinstance(constraint, str):
         return REGISTRATION_NUMBER_TAKEN
     return _UNIQUE_VIOLATION_CODE_BY_CONSTRAINT.get(constraint, REGISTRATION_NUMBER_TAKEN)
+
+
+# CAR-42's two partial unique indexes on business_join_requests, mapped the
+# same way for submit()'s own IntegrityError branch below — the pre-checks
+# name which rule a non-racing caller tripped, this is the last-resort
+# guarantee for whoever won the race between the pre-check and the commit.
+_SUBMIT_CONFLICT_CODE_BY_CONSTRAINT = {
+    "uq_business_join_requests_applicant_pending": ALREADY_HAS_PENDING_REQUEST,
+    "uq_business_join_requests_regnum_pending": REGISTRATION_NUMBER_PENDING,
+}
+
+_SUBMIT_CONFLICT_MESSAGE_BY_CODE = {
+    ALREADY_HAS_PENDING_REQUEST: "You already have a pending business request",
+    REGISTRATION_NUMBER_PENDING: "This business already has a pending request",
+}
+
+
+def _submit_conflict_code(e: IntegrityError) -> str:
+    driver_error = getattr(e.orig, "__cause__", None)
+    constraint = getattr(driver_error, "constraint_name", None)
+    if not isinstance(constraint, str):
+        return REGISTRATION_NUMBER_PENDING
+    return _SUBMIT_CONFLICT_CODE_BY_CONSTRAINT.get(constraint, REGISTRATION_NUMBER_PENDING)
 
 
 def parse_status_filter(value: str | None) -> BusinessJoinRequestStatus | None:
@@ -102,7 +129,10 @@ async def submit(db: AsyncSession, current: User, dto: BusinessJoinRequestIn) ->
         )
     )
     if own_pending is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "You already have a pending business request")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": ALREADY_HAS_PENDING_REQUEST, "message": "You already have a pending business request"},
+        )
 
     business_pending = await db.scalar(
         select(BusinessJoinRequest).where(
@@ -111,7 +141,10 @@ async def submit(db: AsyncSession, current: User, dto: BusinessJoinRequestIn) ->
         )
     )
     if business_pending is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This business already has a pending request")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": REGISTRATION_NUMBER_PENDING, "message": "This business already has a pending request"},
+        )
 
     # CAR-77: a request that can never be approved is worse than no request —
     # refuse it at submission instead of leaving it PENDING forever. This is a
@@ -119,7 +152,10 @@ async def submit(db: AsyncSession, current: User, dto: BusinessJoinRequestIn) ->
     # constraint on Business.registration_number is the actual guarantee.
     already_approved = await db.scalar(select(Business.id).where(Business.registration_number == registration_number))
     if already_approved is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This business is already registered")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": REGISTRATION_NUMBER_TAKEN, "message": "This business is already registered"},
+        )
 
     request = BusinessJoinRequest(
         applicant_user_id=current.id,
@@ -140,7 +176,11 @@ async def submit(db: AsyncSession, current: User, dto: BusinessJoinRequestIn) ->
         # A concurrent identical submission won one of the partial unique
         # indexes between the pre-checks above and this commit.
         await db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "A pending request already exists") from e
+        code = _submit_conflict_code(e)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": code, "message": _SUBMIT_CONFLICT_MESSAGE_BY_CODE[code]},
+        ) from e
 
     await db.refresh(request)
     audit("business.join_request.submitted", user_id=current.id, request_id=request.id)
