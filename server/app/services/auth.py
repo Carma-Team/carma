@@ -672,7 +672,10 @@ async def login_with_otp(
     Shares `_verify_login_otp`'s identity check with `verify_otp` and diverges
     only in what a correct code buys: a real CAR-217 browser session (rotating
     httpOnly refresh cookie, short-lived access token) rather than the bare
-    JWT `verify_otp` hands back for CAR-203's pre-account identity proof.
+    JWT `verify_otp` hands back for CAR-203's identity proof ahead of a
+    business join request — the `User` row already exists by then (created or
+    matched by `register_with_otp`), there is just no `Business` or membership
+    behind it yet.
     """
     user = await _verify_login_otp(db, dto.phone, dto.code, caller_ip)
     return await _establish_browser_session(
