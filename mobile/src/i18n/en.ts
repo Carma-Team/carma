@@ -43,6 +43,7 @@ const en: TranslationMap = {
       tooManyAttempts: 'Too many requests. Try again in {seconds} seconds',
       tooManyAttemptsNoWait: 'Too many requests. Try again in a few minutes',
       invalidDetails: 'Some of the details are not valid',
+      timeout: 'The server is not answering. Check your connection and try again',
       invalidAge: 'Age must be between 16 and 120',
       invalidLicenseYear: 'License year must be between 1950 and this year',
       licenseYearBeforeAge: 'License year is earlier than the age allows — the practical test in Israel opens at 16 years and 9 months',
