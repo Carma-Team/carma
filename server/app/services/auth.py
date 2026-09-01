@@ -87,9 +87,11 @@ def _backoff_seconds(failures: int) -> int:
     return min(1 << min(over, 20), settings.login_backoff_max_seconds)
 
 
-async def _reserve_attempt(db: AsyncSession, user: User, caller_ip: str) -> bool:
-    """True while this address is still serving out its wait on this account —
-    and if not, banks the attempt before the caller does slow verification.
+async def _reserve_attempt(db: AsyncSession, user: User, caller_ip: str) -> LoginFailure | None:
+    """`None` while this address is still serving out its wait on this account —
+    otherwise banks the attempt before the caller does slow verification, and
+    hands back the row so a caller that turns out to have nothing to verify
+    (an expired or missing OTP) can undo it with `_release_attempt`.
 
     Counted per (account, address) rather than per account, which is the whole
     point: a wait keyed on the account alone is something a stranger can inflict
@@ -117,10 +119,22 @@ async def _reserve_attempt(db: AsyncSession, user: User, caller_ip: str) -> bool
     last: datetime | None = row[1]
     if last is not None and last + timedelta(seconds=_backoff_seconds(failures)) > _now():
         await db.commit()
-        return True
-    db.add(LoginFailure(user_id=user.id, caller_ip=caller_ip))
+        return None
+    reservation = LoginFailure(user_id=user.id, caller_ip=caller_ip)
+    db.add(reservation)
     await db.commit()
-    return False
+    return reservation
+
+
+async def _release_attempt(db: AsyncSession, reservation: LoginFailure) -> None:
+    """Undo a reservation that never got to test a credential.
+
+    A missing or expired OTP says nothing about whether the caller holds the
+    phone — charging it as a guess would let anyone lock out an address just by
+    submitting stale codes, which is not the burst this backoff exists to slow.
+    """
+    await db.delete(reservation)
+    await db.commit()
 
 
 async def _sweep_expired(db: AsyncSession, since: datetime) -> None:
@@ -250,7 +264,7 @@ async def login_with_password(
         audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     _assert_not_locked(user)
-    if await _reserve_attempt(db, user, caller_ip):
+    if await _reserve_attempt(db, user, caller_ip) is None:
         # Refused before bcrypt, with the identical 401 a wrong password gets. A
         # 429 or a Retry-After would re-open the oracle #64 closed; sleeping out
         # the wait would hold a pooled connection, and fifteen of those stop the
@@ -639,7 +653,8 @@ async def _verify_login_otp(db: AsyncSession, phone: str, code: str, caller_ip: 
     # registered?".
     if user.locked_until and user.locked_until > _now():
         raise _rejected(phone, "locked", user)
-    if await _reserve_attempt(db, user, caller_ip):
+    reservation = await _reserve_attempt(db, user, caller_ip)
+    if reservation is None:
         raise _rejected(phone, "caller_backoff", user)
 
     otp = await db.scalar(
@@ -648,8 +663,10 @@ async def _verify_login_otp(db: AsyncSession, phone: str, code: str, caller_ip: 
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
+        await _release_attempt(db, reservation)
         raise _rejected(phone, "no_active_otp", user)
     if otp.expires_at < _now():
+        await _release_attempt(db, reservation)
         raise _rejected(phone, "expired", user)
 
     if not verify_code(code, otp.code_hash):
@@ -771,7 +788,8 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
     # ceiling that eventually shuts `verify_otp` cannot fire here, and nothing in
     # the codebase reads `otp.attempts`. Six digits and a five-minute window are
     # the whole defence against somebody rotating addresses.
-    if await _reserve_attempt(db, user, caller_ip):
+    reservation = await _reserve_attempt(db, user, caller_ip)
+    if reservation is None:
         raise _rejected(dto.phone, "caller_backoff", user)
 
     otp = await db.scalar(
@@ -780,8 +798,10 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
+        await _release_attempt(db, reservation)
         raise _rejected(dto.phone, "no_active_reset_otp", user)
     if otp.expires_at < _now():
+        await _release_attempt(db, reservation)
         raise _rejected(dto.phone, "expired", user)
 
     if not verify_code(dto.code, otp.code_hash):

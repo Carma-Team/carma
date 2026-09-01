@@ -115,6 +115,52 @@ async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(
         await _cleanup(db_session, phone)
 
 
+async def test_a_stale_code_is_not_charged_as_a_guess(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """CAR-130: `_reserve_attempt` banks a row before the OTP lookup even runs.
+
+    An expired code, or none at all, says nothing about whether the caller
+    holds the phone — it must not cost the address a step of backoff, or five
+    late submissions would lock out someone who never guessed wrong once.
+    """
+    phone = _phone()
+    user = await _registered_driver(db_session, phone)
+    db_session.add(
+        OtpCode(
+            phone=phone,
+            code_hash=hash_code("123456"),
+            purpose=OTP_PURPOSE,
+            expires_at=_now() - timedelta(minutes=1),
+        )
+    )
+    await db_session.commit()
+    try:
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert r.status_code == 401
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows == 0, "an expired code is not a wrong guess"
+    finally:
+        await _cleanup(db_session, phone)
+
+
+async def test_a_missing_code_is_not_charged_as_a_guess(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """Same trap, the other branch: nobody has requested a code at all yet."""
+    phone = _phone()
+    user = await _registered_driver(db_session, phone)
+    try:
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert r.status_code == 401
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows == 0, "no active code is not a wrong guess"
+    finally:
+        await _cleanup(db_session, phone)
+
+
 async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
     """A 403 here would make five wrong guesses a test for "is this registered?"."""
     phone = _phone()
