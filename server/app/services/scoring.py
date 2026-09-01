@@ -3,7 +3,13 @@
 Spec: docs/scoring.md. This module owns the trip score, the driver score and
 points. The `version` on ScoringConfig is stamped onto every trip row
 (`trips.scoring_version`) so an old score stays interpretable after the formula
-moves; it is not a name for the engine.
+moves; it is not a name for the engine. It is a flat `<year>-<month>-<subject>`
+identifier, not semver (CAR-199) — bump it whenever identical input would score
+differently, and pick a subject slug describing what changed. Forensic only:
+`compute_driver_score` deliberately blends trips scored under different
+versions with no adjustment, the same way CMT and Root do — a trip's score is
+frozen at scoring time, and the EWMA half-life is what fades an old formula's
+influence out.
 
 July 2026 recalibration: the decay constants were re-fit from the live fleet's
 recency-weighted rate distributions — the initial estimates produced a bimodal
@@ -24,7 +30,7 @@ What is NOT yet available, and how this module copes until it is:
     (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
     to raw counts (each event weight 1.0). `event_severity()` is implemented and
     tested now so the downstream math is unchanged the day that value arrives.
-  * Speeding against posted limits arrived in 2.3.0 (CAR-222). It is measured as
+  * Speeding against posted limits arrived in 2026-08-posted-limit (CAR-222). It is measured as
     a share of distance rather than as weighted minutes, so `k_speed` is a new
     constant on a new scale and not a re-tuning of the old one. The weight is
     still redistributed ("Blending the five") on any trip the map cannot cover.
@@ -49,7 +55,7 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2.3.0"
+    version: str = "2026-08-posted-limit"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
