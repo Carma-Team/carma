@@ -1,5 +1,5 @@
 import { authApi, AuthApiError } from './authApi';
-import { setSession } from './session';
+import { applyRefreshRejection, applyRefreshSuccess, captureLineage } from './session';
 
 // 'ok' — session (re)established, holding a fresh access token.
 // 'rejected' — the server looked at the cookie and answered "no": missing,
@@ -25,15 +25,21 @@ let inFlight: Promise<RefreshOutcome> | null = null;
 // impossible instead of just unlikely.
 export function attemptRefresh(): Promise<RefreshOutcome> {
   if (!inFlight) {
+    // Captured once, when this call actually starts the network request —
+    // not per-caller, since every caller sharing this promise is awaiting
+    // the same call. Both branches below judge their response against this
+    // exact snapshot, never against whatever the store holds by the time
+    // they run — see `session.ts`'s `applyRefreshSuccess`/`applyRefreshRejection`.
+    const lineage = captureLineage();
     inFlight = authApi
       .refresh()
       .then((res): RefreshOutcome => {
-        setSession({ accessToken: res.token, user: res.user });
+        applyRefreshSuccess(lineage, { accessToken: res.token, user: res.user });
         return 'ok';
       })
       .catch((err: unknown): RefreshOutcome => {
         if (err instanceof AuthApiError && err.status === 401) {
-          setSession(null);
+          applyRefreshRejection(lineage);
           return 'rejected';
         }
         // Deliberately not touching the session store here — see

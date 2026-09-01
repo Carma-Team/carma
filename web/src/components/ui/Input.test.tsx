@@ -22,4 +22,13 @@ describe('Input', () => {
     expect(input).not.toHaveAttribute('aria-describedby');
     expect(input).toHaveAttribute('aria-invalid', 'false');
   });
+
+  // CAR-118 review's small completion items: a submit-time validation
+  // failure must be announced the moment it appears, not only when the
+  // field happens to already be focused.
+  it('announces the error message as an alert', () => {
+    render(<Input label="Code" error="Required" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Required');
+  });
 });

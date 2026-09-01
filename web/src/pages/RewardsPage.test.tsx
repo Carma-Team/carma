@@ -76,6 +76,8 @@ describe('RewardsPage', () => {
       status: 'authenticated',
       user: USER,
       login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
       logout: vi.fn(),
       retry: vi.fn(),
     } satisfies AuthContextValue);
@@ -405,6 +407,45 @@ describe('RewardsPage', () => {
   });
 
   // ── blank/whitespace legacy translations (N6) ──────────────────────────
+
+  // ── CAR-116: CASHIER gets the view granted by the matrix, none of the rest ──
+
+  it('shows a CASHIER the active rewards the server sent, with no create/edit/retire controls', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { ...USER, businessMembershipRole: 'CASHIER' },
+      login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    } satisfies AuthContextValue);
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: 'הטבה חדשה' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'עריכה' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'הסרה' })).not.toBeInTheDocument();
+  });
+
+  it('shows a CASHIER a view-only empty state, not the create-oriented copy', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { ...USER, businessMembershipRole: 'CASHIER' },
+      login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    } satisfies AuthContextValue);
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('אין כרגע הטבות זמינות.')).toBeInTheDocument());
+    expect(screen.queryByText('צרו את ההטבה הראשונה שלכם כדי להציע אותה לחברי כרמה.')).not.toBeInTheDocument();
+  });
 
   it('falls back to Hebrew when the English title and description are blank/whitespace, rather than rendering an empty card', async () => {
     window.localStorage.setItem('carma_lang', 'EN');
