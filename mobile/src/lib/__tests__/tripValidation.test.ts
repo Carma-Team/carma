@@ -531,6 +531,40 @@ describe('Rule 4 — region check', () => {
     m.stop();
   });
 
+  // CAR-279: the rejection resets the validator, and the reset used to clear the mark the
+  // gate had just set — so any later sample carrying a fix ran the gate again and rejected
+  // the same trip twice. The abort stops the sensors, which bounded it in practice; the
+  // mark surviving the reset is what prevents it.
+  test('does not run the gate again after it has already rejected the trip', () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(1);
+    expect(regionRejected).toHaveBeenCalledTimes(1);
+    m.stop();
+  });
+
+  test('a new trip is region-checked again after the previous one was rejected', () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    m.start();
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    m.stop();
+
+    mockRegionAllowed = true;
+    m.start();
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(2);
+    m.stop();
+  });
+
   test('checks the region only once per trip, off the first fix', () => {
     const m = new TripValidationManager();
     m.start();
