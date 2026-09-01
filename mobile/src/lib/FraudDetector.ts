@@ -95,8 +95,8 @@ export interface FraudEvaluation {
    *  freezing it, so a stale GPS reading never reaches this buffer. */
   sensorAvailability: {
     gps: boolean;
-    accelerometer: boolean;
-    gyroscope: boolean;
+    accelerometer: boolean | null;
+    gyroscope: boolean | null;
   };
   // Raw computed values — passed through to the API payload for Sean's analytics
   telemetry: {
@@ -115,9 +115,10 @@ export class FraudDetector {
 
   // Latest-tick availability, mirroring the granularity SensorManager itself reports
   // at — not a second circular buffer recording every sample in the window, since
-  // signals 2/3 stay null regardless of these until CAR-214 exists.
-  private accelAvailable = false;
-  private gyroAvailable  = false;
+  // signals 2/3 stay null regardless of these until CAR-214 exists. Starts UNKNOWN,
+  // not FALSE — an unwired caller has not reported absence, only silence.
+  private accelAvailable: boolean | null = null;
+  private gyroAvailable: boolean | null  = null;
 
   /**
    * @param speedKmh        GPS ground speed. Frame-free.
@@ -128,17 +129,18 @@ export class FraudDetector {
    *                        gravity — same file, same reason.
    * @param accelAvailable  Whether this tick's accelerometer reading came from a live
    *                        sensor rather than SensorManager's absent-sensor default.
-   *                        Defaults false: TripValidationManager doesn't pass real
-   *                        availability yet (May's follow-on, CAR-162 plan), so an
-   *                        unwired caller reports "unavailable" rather than a guess.
+   *                        Defaults null (unknown): TripValidationManager doesn't pass
+   *                        real availability yet (May's follow-on, CAR-162 plan), and an
+   *                        unwired caller reporting `false` would assert "absent" — a
+   *                        claim it has no basis for — rather than "not yet reported."
    * @param gyroAvailable   Same, for the gyroscope.
    */
   addSample(
     speedKmh: number,
     lateralAccelG: number,
     gyroZ: number,
-    accelAvailable = false,
-    gyroAvailable = false,
+    accelAvailable: boolean | null = null,
+    gyroAvailable: boolean | null = null,
   ): void {
     this.speedBuffer.push(speedKmh);
     this.accelBuffer.push(Math.abs(lateralAccelG)); // peak magnitude is what matters
@@ -154,7 +156,7 @@ export class FraudDetector {
       return {
         score: 0, confidence: 0, isReady: false, mode: TransportMode.UNKNOWN,
         signals: { constantHighSpeed: null, noLateralForce: null, noHeadingChange: null },
-        sensorAvailability: { gps: false, accelerometer: false, gyroscope: false },
+        sensorAvailability: { gps: false, accelerometer: null, gyroscope: null },
         telemetry: { avgSpeedKmh: 0, maxLateralAccelG: 0, yawVariance: 0 },
       };
     }
@@ -202,8 +204,8 @@ export class FraudDetector {
     this.speedBuffer.reset();
     this.accelBuffer.reset();
     this.gyroBuffer.reset();
-    this.accelAvailable = false;
-    this.gyroAvailable = false;
+    this.accelAvailable = null;
+    this.gyroAvailable = null;
   }
 
   // Var(X) = E[X²] − E[X]²  (single-pass, numerically stable for reasonable float ranges)
