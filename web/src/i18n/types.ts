@@ -110,6 +110,21 @@ export type TranslationMap = {
     creatingAccountLabel: string;
     emailAlreadyRegisteredError: string;
     createAccountGenericError: string;
+    signInWithPhoneLink: string;
+    signInWithEmailLink: string;
+    phoneLabel: string;
+    phoneFormatError: string;
+    sendCodeButton: string;
+    sendingCodeLabel: string;
+    codeLabel: string;
+    otpSubtitle: string;
+    verifyButton: string;
+    verifyingLabel: string;
+    resendButton: string;
+    changePhoneButton: string;
+    invalidCodeError: string;
+    otpRateLimitedError: string;
+    otpNetworkError: string;
   };
   businessRegistration: {
     title: string;

@@ -121,6 +121,7 @@ function mockAuth(overrides: Partial<ReturnType<typeof useAuth>>) {
     status: 'authenticated',
     user: null,
     login: vi.fn(),
+    loginWithOtp: vi.fn(),
     register: vi.fn(),
     logout: vi.fn(),
     retry: vi.fn(),
