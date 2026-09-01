@@ -37,7 +37,7 @@ const NEEDLE_HALF_W = 6;
 // hub. The needle sweeps through here at mid-range scores, which is what the
 // outline on the digits is for — the number is drawn last and stays legible.
 const SCORE_Y = 65;
-const SCORE_SIZE = 34;      // score font size
+const SCORE_SIZE = 40;      // score font size
 // Outline behind the digits. Only there to hold the number apart from the needle
 // when the two overlap at mid-range scores, so it wants to be the thinnest line
 // that still separates them — thicker and it starts closing up the 8 and the 0.

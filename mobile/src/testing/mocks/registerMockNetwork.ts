@@ -4,11 +4,12 @@
  * on email (login) or bearer token (everything after) — a real account never
  * matches, so its traffic always falls through to the real server unchanged.
  *
- * /api/auth/me and GET /api/trips are handled here, not per-account: every
- * mock session needs them answered the same way to survive AppContext's
- * startup refresh (loadInitialData in context/AppContext.tsx), which otherwise
- * treats the 401 a real server gives a fake token as an invalid session and
- * wipes it.
+ * The endpoints at the bottom are handled here, not per-account: every mock
+ * session needs them answered the same way to survive AppContext's startup
+ * refresh (loadInitialData in context/AppContext.tsx), which otherwise treats
+ * the 401 a real server gives a fake token as an invalid session and wipes it.
+ * They are defaults, though — an account is asked first and may answer any of
+ * them itself.
  */
 import { businessMockAccount } from './accounts/business.mock';
 import { driverMockAccount } from './accounts/driver.mock';
@@ -21,6 +22,26 @@ function mockResponse(status: number, data: unknown): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+/**
+ * Enough of DrivingStats to keep the dashboard quiet, carrying over the totals the
+ * account's own user already states. An account with trips of its own answers this
+ * itself and gets numbers that agree with them.
+ */
+function blankStats(user: MockAccount['user']) {
+  return {
+    totalTrips: 0,
+    totalDistance: user.totalDistance ?? 0,
+    totalPoints: user.totalPoints ?? 0,
+    averageScore: 0,
+    safeTripsCount: 0,
+    totalDurationSeconds: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+    recentScores: [],
+    eventCounts: { hardBrakes: 0, aggressiveAccels: 0, sharpTurns: 0, touchEpochs: 0 },
+  };
 }
 
 function tokenOf(init?: RequestInit): string | undefined {
@@ -39,9 +60,11 @@ function parseBody(init?: RequestInit): unknown {
 }
 
 export function registerMockNetwork() {
-  const originalFetch = global.fetch;
+  // `globalThis`, not `global`: the latter is typed by @types/node, which this app
+  // does not depend on, so it reads as an untyped name in the editor.
+  const originalFetch = globalThis.fetch;
 
-  global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input).replace(/^https?:\/\/[^/]+/, '');
     const cleanPath = path.split('?')[0];
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -62,16 +85,40 @@ export function registerMockNetwork() {
     const token = tokenOf(init);
     const account = token ? ACCOUNTS.find(a => a.token === token) : undefined;
     if (account) {
+      // Asked before the defaults below, so an account that has its own trips can
+      // say so instead of being overruled by the empty list every session gets.
+      const result = account.handleRequest?.(method, cleanPath, parseBody(init));
+      if (result) {
+        console.log(`[mock] ${method} ${cleanPath} → ${account.email}`);
+        return mockResponse(result.status, result.data);
+      }
       if (method === 'GET' && cleanPath.endsWith('/api/auth/me')) {
+        return mockResponse(200, account.user);
+      }
+      // Profile writes — the drive mode toggle is one. Left to fall through, the
+      // synthetic token 401s and the toggle can never move in a mock session.
+      // Mutates the account so /api/auth/me above keeps agreeing with it.
+      if (method === 'PATCH' && cleanPath.endsWith('/api/users/me')) {
+        Object.assign(account.user, parseBody(init) ?? {});
         return mockResponse(200, account.user);
       }
       if (method === 'GET' && cleanPath.endsWith('/api/trips')) {
         return mockResponse(200, { trips: [] });
       }
-      const result = account.handleRequest(method, cleanPath, parseBody(init));
-      if (result) {
-        console.log(`[mock] ${method} ${cleanPath} → ${account.email}`);
-        return mockResponse(result.status, result.data);
+      // Read on every dashboard focus for the header's badge counts. Left to fall
+      // through, they reach the real server with a synthetic token, 401, and pin
+      // both badges at zero for the whole mock session.
+      if (method === 'GET' && cleanPath.endsWith('/api/friend-requests')) {
+        return mockResponse(200, { requests: [] });
+      }
+      if (method === 'GET' && cleanPath.endsWith('/api/notifications')) {
+        return mockResponse(200, []);
+      }
+      // Requested on every dashboard mount. Unanswered, the synthetic token reaches
+      // the real server as a malformed JWT and comes back as a console error over
+      // the whole mock session ("invalid token: Not enough segments").
+      if (method === 'GET' && cleanPath.endsWith('/api/user/stats')) {
+        return mockResponse(200, { stats: blankStats(account.user) });
       }
     }
 

@@ -86,6 +86,15 @@ class Settings(BaseSettings):
     # instead of the app.
     invite_base_url: str = "https://carma.app"
     trip_signing_secret: str = Field(default="", min_length=0)
+    # Off by default so merging this changes no request outcome (CAR-13 phase 2).
+    # Flipping it on is a fraud-control rollout judgment, not a deploy — env var
+    # only, no redeploy needed either way.
+    trip_signature_enforced: bool = Field(default=False)
+
+    # CAR-72: after a voucher for a (driver, reward) pair lapses or is
+    # cancelled, that pair is locked out of reissuing for this long. Consuming
+    # a voucher never starts this — only churn does.
+    reward_reissue_cooldown_seconds: int = Field(default=60, ge=0)
 
     @field_validator("cors_origins")
     @classmethod

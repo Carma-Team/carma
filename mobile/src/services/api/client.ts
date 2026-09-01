@@ -16,14 +16,44 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    // Seconds the server asked us to wait before retrying. Only ever set on a 429.
-    public readonly retryAfterSeconds?: number
+    // Seconds the server asked us to wait before retrying — a 429, or a redemption
+    // refused while a cooldown or the live-voucher cap is still holding.
+    public readonly retryAfterSeconds?: number,
+    // The server's machine-readable reason, when it sent one. Branch on this and
+    // never on the message: the codes are a contract, the wording is English prose
+    // that changes freely (server/app/services/rewards.py).
+    public readonly code?: string
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
+// `detail` is not always a string. Our 409s send `{code, message}` so a client can
+// tell "out of stock" from "campaign ended", and FastAPI's own 422 sends an array
+// of `{loc, msg, type}`. Either one handed to `Error()` becomes the literal text
+// "[object Object]", which is what reached the logs on a failed redemption.
+function parseDetail(detail: unknown): { message?: string; code?: string; retryAfterSeconds?: number } {
+  if (typeof detail === 'string') return { message: detail };
+  if (Array.isArray(detail)) return parseDetail(detail[0]);
+  if (detail !== null && typeof detail === 'object') {
+    const { message, msg, code, retryAfterSeconds } = detail as Record<string, unknown>;
+    const text = message ?? msg;
+    return {
+      message: typeof text === 'string' ? text : undefined,
+      code: typeof code === 'string' ? code : undefined,
+      // Numbers only, so a malformed nested value cannot shadow a good one at the
+      // top of the body — rate limiting reads the same field through this path.
+      retryAfterSeconds: typeof retryAfterSeconds === 'number' ? retryAfterSeconds : undefined,
+    };
+  }
+  return {};
+}
+
+// Two shapes, not one: rate limiting puts the wait at the top of the body, while the
+// redemption 409s put it beside the code inside `detail` (server/app/services/rewards.py).
+// Reading only the top level is why a cooldown refusal arrived with no wait attached.
+//
 // The server sends the wait twice — `Retry-After` and a `retryAfterSeconds` body field.
 // Prefer the body: it is already a number, while the header is a string and the HTTP-date
 // form of it is not something our server ever emits.
@@ -56,11 +86,15 @@ export async function request<T>(
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+    // `?? {}` and not just the catch: a body of literal `null` parses fine, and
+    // reading `.detail` off it would throw a TypeError over the real HTTP error.
+    const data = (await res.json().catch(() => null)) ?? {};
+    const { message, code, retryAfterSeconds } = parseDetail(data.detail);
     throw new ApiError(
       res.status,
-      data.detail || data.error || 'Request failed',
-      parseRetryAfter(res.headers.get('Retry-After'), data.retryAfterSeconds)
+      message || parseDetail(data.error).message || 'Request failed',
+      parseRetryAfter(res.headers.get('Retry-After'), retryAfterSeconds ?? data.retryAfterSeconds),
+      code
     );
   }
 

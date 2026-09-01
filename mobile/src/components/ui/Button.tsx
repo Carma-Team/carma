@@ -27,6 +27,17 @@ const variantStyle: Record<Variant, ViewStyle & { color?: string }> = {
   outline:   { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.brand },
 }
 
+// One source for both the label and the loading spinner. The spinner used to be
+// hardcoded white, which left it invisible on every variant that has no filled
+// background of its own.
+const labelColor: Record<Variant, string> = {
+  primary:   '#ffffff',
+  secondary: COLORS.text,
+  ghost:     COLORS.text,
+  danger:    '#ffffff',
+  outline:   COLORS.brand,
+}
+
 const sizeStyle: Record<Size, { padding: ViewStyle; text: TextStyle }> = {
   sm: { padding: { paddingHorizontal: 12, paddingVertical: 6  }, text: { fontSize: 13 } },
   md: { padding: { paddingHorizontal: 16, paddingVertical: 10 }, text: { fontSize: 14 } },
@@ -64,14 +75,13 @@ export function Button({
       ]}
     >
       {loading
-        ? <ActivityIndicator color="#fff" size="small" />
+        ? <ActivityIndicator color={labelColor[variant]} size="small" />
         : <Text
             style={[
               styles.text,
               sStyle.text,
               fullWidth && { flex: 1 },
-              (variant === 'primary' || variant === 'danger') && { color: '#ffffff' },
-              variant === 'outline' && { color: COLORS.brand },
+              { color: labelColor[variant] },
               textStyle
             ]}
             numberOfLines={1}

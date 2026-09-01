@@ -1,5 +1,5 @@
-import React from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import React, { useState } from 'react'
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import QRCode from 'react-native-qrcode-svg'
 import { Card } from '@/components/ui/Card'
@@ -9,21 +9,34 @@ import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS } from '@/constants/theme'
 import { ICONS, CATEGORY_CONFIG, DEFAULT_CATEGORY, type IoniconName } from '@/constants/icons'
 import { localize } from '@/lib/utils'
-import type { Reward, Voucher } from '@/types'
+import { isSoldOut } from '@/lib/rewardStock'
+import type { Language, Reward, Voucher } from '@/types'
 
 // ─── RewardCard ───────────────────────────────────────────────────────────────
+// The server caps how many vouchers a driver may hold live against one reward
+// (CAR-71) and stays the authority on it. The card mirrors the ceiling so the
+// third attempt is not offered at all, instead of being refused after the tap.
+const MAX_LIVE_VOUCHERS = 2
+
+// Numeric and short on purpose. `formatDate` in lib/utils spells the month out,
+// which is right for a trip row and too wide for the voucher line on a card.
+const expiryDate = (iso: string, lang: Language) =>
+  new Date(iso).toLocaleDateString(lang === 'HE' ? 'he-IL' : 'en-US')
+
 interface RewardCardProps {
   reward: Reward
   userPoints: number
+  /** Live (pending) vouchers this driver holds against this reward — 0, 1 or 2. */
+  vouchers: Voucher[]
   onRedeem: (reward: Reward) => void
+  onVoucherPress: (voucher: Voucher) => void
 }
 
-export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
+export function RewardCard({ reward, userPoints, vouchers, onRedeem, onVoucherPress }: RewardCardProps) {
   const { t, lang } = useTranslation()
   const canAfford = userPoints >= reward.costPoints
-  // null is unlimited, so it has to be tested before the comparison: `null > 0`
-  // is false, which would render every uncapped reward as sold out.
-  const inStock   = reward.available === null || reward.available > 0
+  const inStock   = !isSoldOut(reward.available)
+  const atCap     = vouchers.length >= MAX_LIVE_VOUCHERS
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY
 
   return (
@@ -48,8 +61,8 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
 
         <Button
           size="sm"
-          variant={canAfford && inStock ? 'primary' : 'secondary'}
-          disabled={!canAfford || !inStock}
+          variant={canAfford && inStock && !atCap ? 'primary' : 'secondary'}
+          disabled={!canAfford || !inStock || atCap}
           onPress={() => onRedeem(reward)}
           style={styles.redeemBtn}
           textStyle={styles.redeemBtnText}
@@ -62,10 +75,27 @@ export function RewardCard({ reward, userPoints, onRedeem }: RewardCardProps) {
         </Button>
       </View>
 
-      {!canAfford && inStock && (
+      {!canAfford && inStock && !atCap && (
         <Text style={styles.missingPointsHint}>
           {t('marketplace.missingPoints')} {(reward.costPoints - userPoints).toLocaleString()} {t('common.points')}
         </Text>
+      )}
+
+      {atCap && <Text style={styles.missingPointsHint}>{t('marketplace.voucherCap')}</Text>}
+
+      {vouchers.length > 0 && (
+        <View style={styles.voucherStrip}>
+          {vouchers.map(v => (
+            <TouchableOpacity key={v.id} style={styles.voucherRow} onPress={() => onVoucherPress(v)}>
+              <Ionicons name={ICONS.active} size={14} color={COLORS.brand} />
+              <Text style={styles.voucherCode} numberOfLines={1}>{v.code}</Text>
+              <Text style={styles.voucherExpiryInline}>
+                {t('marketplace.voucher.expiry')} {expiryDate(v.expiresAt, lang)}
+              </Text>
+              <Text style={styles.qrArrow}>QR →</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       )}
     </Card>
   )
@@ -76,14 +106,24 @@ interface VoucherModalProps {
   open: boolean
   voucher: Voucher | null
   onClose: () => void
+  onCancelVoucher: (voucher: Voucher) => void
+  cancelling: boolean
 }
 
-export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
+export function VoucherModal({ open, voucher, onClose, onCancelVoucher, cancelling }: VoucherModalProps) {
   const { t, lang } = useTranslation()
+  // Cancelling is irreversible, and the button sits under a QR the driver may be
+  // holding out to a cashier — one stray tap must not throw the voucher away.
+  const [confirming, setConfirming] = useState(false)
   if (!voucher) return null
 
+  const close = () => {
+    setConfirming(false)
+    onClose()
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title={t('marketplace.voucher.title')}>
+    <Modal open={open} onClose={close} title={t('marketplace.voucher.title')}>
       <View style={styles.voucherContent}>
         <View style={styles.voucherIconCircle}>
           <Ionicons
@@ -104,17 +144,39 @@ export function VoucherModal({ open, voucher, onClose }: VoucherModalProps) {
             color={COLORS.text}
           />
           <Text style={styles.qrNote}>{t('marketplace.voucher.scanQR')}</Text>
-          <Text style={styles.qrCodeText}>{voucher.code}</Text>
+          {/* The same code also sits on the reward card behind this modal; the id is
+              what lets a test say which of the two it is looking at. */}
+          <Text testID="voucher-modal-code" style={styles.qrCodeText}>{voucher.code}</Text>
         </View>
 
         <Text style={styles.voucherExpiry}>
-          {t('marketplace.voucher.expiry')}: {new Date(voucher.expiresAt).toLocaleDateString(lang === 'HE' ? 'he-IL' : 'en-US')}
+          {t('marketplace.voucher.expiry')}: {expiryDate(voucher.expiresAt, lang)}
         </Text>
         <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
           <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>
             {voucher.isUsed ? t('marketplace.voucher.used') : t('marketplace.voucher.active')}
           </Text>
         </View>
+
+        {voucher.status === 'pending' && (
+          confirming ? (
+            <View style={styles.cancelConfirm}>
+              <Text style={styles.cancelPrompt}>{t('marketplace.voucher.cancelConfirm')}</Text>
+              <View style={styles.cancelActions}>
+                <Button size="sm" variant="secondary" onPress={() => setConfirming(false)} disabled={cancelling}>
+                  {t('common.back')}
+                </Button>
+                <Button size="sm" variant="danger" onPress={() => onCancelVoucher(voucher)} disabled={cancelling}>
+                  {cancelling ? '...' : t('common.confirm')}
+                </Button>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity onPress={() => setConfirming(true)}>
+              <Text style={styles.cancelLink}>{t('marketplace.voucher.cancel')}</Text>
+            </TouchableOpacity>
+          )
+        )}
       </View>
     </Modal>
   )
@@ -140,6 +202,15 @@ const styles = StyleSheet.create({
   redeemBtn:        { minWidth: 70, height: 32, paddingHorizontal: 12, paddingVertical: 0, borderRadius: 8, alignSelf: 'flex-end' },
   redeemBtnText:    { fontSize: 13, fontWeight: '700' },
   missingPointsHint: { color: '#f59e0b', fontSize: 11, fontWeight: '600', textAlign: 'right', marginTop: 6 },
+  voucherStrip:     { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 6 },
+  voucherRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voucherCode:      { color: COLORS.text, fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
+  voucherExpiryInline: { color: COLORS.textMuted, fontSize: 11, flex: 1 },
+  qrArrow:          { color: COLORS.brandLight, fontSize: 12, fontWeight: '700' },
+  cancelLink:       { color: COLORS.danger, fontSize: 13, fontWeight: '600', paddingVertical: 6 },
+  cancelConfirm:    { alignItems: 'center', gap: 10 },
+  cancelPrompt:     { color: COLORS.textMuted, fontSize: 13, textAlign: 'center' },
+  cancelActions:    { flexDirection: 'row', gap: 10 },
   voucherContent:   { alignItems: 'center', paddingVertical: 16, gap: 12 },
   voucherIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(99,102,241,0.1)', alignItems: 'center', justifyContent: 'center' },
   voucherRewardTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },

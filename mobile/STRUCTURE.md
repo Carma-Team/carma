@@ -30,7 +30,6 @@ Expo Router file-system routing. Each file here is a route.
 | Path | What goes here |
 |---|---|
 | `(tabs)/(home)/` | Tab-bar screens: dashboard, active trip, trip detail |
-| `(business)/` | Business-portal screens (rewards, reward form) |
 
 **Rules:**
 - Files here are route entry points only — keep them thin.
@@ -90,7 +89,7 @@ React Context providers — global state accessible from anywhere in the compone
 | `sdkBindings.ts` | Trip lifecycle callbacks — `onTripStart`, `onUpdate`, `onTripEnd` → React state. Sensor plumbing only. | May |
 | `scoringEvents.ts` | `sdk.on()` listeners and CARMA's speed thresholds; maintains the per-trip event counters. | Dan |
 | `fraudBinding.ts` | `onFraudDetected` → state reset + `fraudApi.syncInvalidTrip()`. | Dan |
-
+| `regionBinding.ts` | `onRegionRejected` → state reset + toast. No server call — the trip never happened as far as CARMA is concerned. | May |
 **Rules:**
 - Context is the bridge between the SDK/lib layer and the UI layer.
 - Server calls triggered by SDK events (e.g. `tripsApi.save()` after `onTripEnd`, `fraudApi.syncInvalidTrip()` after `onFraudDetected`) live here.
@@ -155,9 +154,13 @@ documented in `mobile/CLAUDE.md`.
 | `utils.ts` | May | Generic display formatting shared across screens and components. Numbers, distances, durations, dates and relative times in Hebrew and English, plus score/level to icon, colour and grade mappings. |
 | `authErrors.ts` | May | Turns a failed auth request into a message the driver can read. Maps the HTTP status onto a translation key, per screen, and never shows the server's own `detail` — that string is always English. |
 | `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
-| `rewardStock.ts` | Shaun | The two reward-stock rules the business screens share. Formats the "left out of allocated" line, and parses the stock field where blank means no cap. |
+| `rewardStock.ts` | Shaun | The reward-stock rules the marketplace uses. Formats the "left out of allocated" line, parses the stock field where blank means no cap, and decides what counts as sold out — for the card that disables it and the list that sorts it down. |
 | `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
+| `transportMode.ts` | Dan | The transport modes `FraudDetector` classifies a session into. Lives in CARMA rather than in `driving-sdk` because "was this a train" is this product's question, not a sensor library's. |
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
+| `tripSummary.ts` | May | One shape for the end-of-trip summary, built either from the device's own trip data or from a trip the server returned. Both summary surfaces render this shape, so neither can show a field the other does not. |
+| `regionCheck.ts` | May | Israel-only region check (team decision). Tests a fix the SDK already holds against an offline bounding box — no network, no permission request of its own, and no dependency on a geocoder's answer. |
+| `telemetrySigning.ts` | Shared | Signs the RFC-001 telemetry digest: canonical JSON over a hand-written SHA-256 and HMAC-SHA256 (FIPS 180-4 / FIPS 198-1). The primitive is hand-written because the app has no crypto dependency and cannot get one — expo-crypto ships no HMAC, Hermes exposes neither `crypto.subtle` nor `node:crypto`, a native module would break Expo Go, and the single caller signs synchronously inside the end-trip path. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
 | `__tests__/` | — | Unit tests for the files directly under `lib/` |
 
@@ -205,7 +208,7 @@ Full-screen React Native views. Routed via `app/`.
 | Subfolder | Contents |
 |---|---|
 | `app/` | Authenticated screens: Dashboard, Active Trip, Trip Detail, Profile, Roadmap, Leaderboard, Marketplace, Settings |
-| `auth/` | Unauthenticated screens: Login, Register, Onboarding |
+| `auth/` | Unauthenticated screens: Login, Register, Onboarding, Unsupported Device |
 
 **Rules:**
 - Screens compose components, use hooks, and read from context.
@@ -231,7 +234,6 @@ One file per backend resource.
 | `levels.api.ts` | `GET /api/levels` |
 | `leaderboard.api.ts` | `GET /api/leaderboard` |
 | `rewards.api.ts` | `GET /api/rewards`, `POST /api/rewards/redeem` |
-| `business.api.ts` | Business-portal endpoints |
 | `user.api.ts` | `GET /api/users/:id`, `PATCH /api/users/:id` |
 | `notifications.api.ts` | Push notification registration |
 | `friends.api.ts` | `GET /api/friend-requests`, `POST /api/friend-requests/:id/accept`, `DELETE /api/friend-requests/:id`, `DELETE /api/friends/:userId` |

@@ -59,19 +59,12 @@ Thumbs.db
 screen*.png
 demo_shots/
 
-# ─── Local check output ──────────────────────────────────────────────────────
-# Redirected output from tsc/eslint/jest/git runs, and scratch PR-body drafts.
-# One directory so a new fixed-name file here never needs its own .gitignore line.
+# ─── Local check output & drafts ─────────────────────────────────────────────
+# tsc/eslint/jest/git output redirected from the terminal, and draft PR body/
+# comment text — always under mobile/.local/, fixed filenames, always
+# overwritten. Ignoring the directory covers a new fixed-name file added
+# there automatically, with no .gitignore edit and no per-name drift.
 mobile/.local/
-# Belt-and-suspenders: same files by naming convention, in case one ever lands
-# outside mobile/.local/ by mistake.
-commit-*.txt
-*-out.txt
-pr-*.txt
-
-# ─── Scratch PR bodies ────────────────────────────────────────────────────────
-# --body-file drafts for gh pr create, never meant to be committed.
-*-pr-body.md
 
 # ─── Generated schema intermediate ───────────────────────────────────────────
 # The schema-drift recipe renders this on the way to generated.ts, which is the

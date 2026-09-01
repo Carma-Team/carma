@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
-from app.models import Business, Trip, TripStatus, User, UserRole
+from app.models import Trip, TripStatus, User, UserRole
 from app.schemas.stats import DrivingStats, EventCounts, RecentScore, StatsOut
 from app.schemas.user import (
     ContactMatchOut,
@@ -18,23 +18,58 @@ from app.schemas.user import (
     UpdateProfileIn,
     UserOut,
 )
-from app.services import friends, trips
+from app.services import business as business_service
+from app.services import friends, rewards, trips
 
 
 async def profile_out(db: AsyncSession, user: User) -> UserOut:
-    """UserOut plus the business fields, which only a BUSINESS account has.
-
-    Looked up on demand rather than eager-loaded in `current_user`: this costs one
-    indexed query on the handful of business requests instead of a join on every
-    authenticated request in the app.
+    """The one place a `User` becomes a `UserOut` — every endpoint that returns
+    a profile (login, refresh, `/api/auth/me`, `/api/users/me` and its two
+    PATCH routes) goes through here, so the contract can never drift between
+    them. See `_apply_business_context` for why that now includes an extra
+    query on every call, not only a `BUSINESS`-role one.
     """
     out = UserOut.model_validate(user)
-    if user.role == UserRole.BUSINESS:
-        business = await db.scalar(select(Business).where(Business.owner_user_id == user.id))
-        if business is not None:
-            out.business_id = business.id
-            out.business_category = business.category.value.lower()
+    # Only a DRIVER ever holds vouchers, but the sum is 0 for anyone else either
+    # way — no need to gate this on role.
+    reserved = await rewards.reserved_points(db, user.id)
+    out.reserved_points = reserved
+    out.available_points = user.points - reserved
+    await _apply_business_context(db, user, out)
     return out
+
+
+async def _apply_business_context(db: AsyncSession, user: User, out: UserOut) -> None:
+    """Fill the business identity + role from `business_memberships` — never
+    from the legacy `Business.owner_user_id` lookup or `User.role` (CAR-258).
+
+    Runs unconditionally, not gated on `role == BUSINESS` the way the old
+    owner-only lookup was: CAR-74 lets a DRIVER hold a membership too (e.g. a
+    CASHIER), so only a real query can tell. `business_service.list_memberships`
+    is the same query `core.deps.current_business` authorizes `/api/business/*`
+    off, so a revoked or role-changed membership shows up here on the very next
+    profile read too — but this path never raises: zero or several memberships
+    both resolve to a normal (if business-context-less) profile, which is what
+    keeps a driver session valid regardless of how many businesses it also
+    belongs to.
+    """
+    memberships = await business_service.list_memberships(db, user.id)
+    if not memberships:
+        return
+    if len(memberships) > 1:
+        # Never pick one arbitrarily — same fail-closed rule as
+        # `core.deps.current_business`, just surfaced as a flag instead of a
+        # 409, since this path also serves an otherwise-valid driver session.
+        out.business_membership_ambiguous = True
+        return
+
+    membership = memberships[0]
+    business = membership.business
+    out.business_id = business.id
+    out.business_category = business.category.value.lower()
+    out.business_name = business.name
+    out.business_name_he = business.name_he
+    out.business_membership_role = membership.role
 
 
 async def update_profile(db: AsyncSession, user: User, dto: UpdateProfileIn) -> User:

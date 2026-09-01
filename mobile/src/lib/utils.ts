@@ -7,25 +7,17 @@
  *
  * @description
  * Pure functions for formatting data for UI display:
- * - `formatPoints` / `formatDistance` / `formatDuration` / `formatScore` — number formatting
- * - `formatDate` / `formatTime` / `formatRelativeTime` — date formatting (Hebrew/English)
- * - `scoreToGrade` / `scoreToColor` / `scoreToIcon` / `levelToIcon` — score/level to display mapping
- * - `truncate` / `clamp` / `sleep` — general utilities
+ * - `formatDistance` / `formatDuration` / `formatTripDistance` / `formatTripDuration` — number formatting
+ * - `formatDate` / `formatTime` — date formatting (Hebrew/English)
+ * - `scoreToGrade` / `scoreToColor` / `levelToIcon` — score/level to display mapping
  * - `toE164` — phone number to the canonical form the server's auth routes require
+ * - `availableBalance` — the spendable half of a user's points
  *
  * @remarks No server calls — local functions only.
  */
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import type { Language } from '@/types'
-
-export function formatPoints(points: number, lang: Language = 'HE'): string {
-  const rounded = Math.round(points)
-  const dict = lang === 'HE' ? he : en
-  return lang === 'HE'
-    ? `${rounded.toLocaleString('he-IL')} ${dict.common.points}`
-    : `${rounded.toLocaleString('en-US')} ${dict.common.points}`
-}
 
 export function formatDistance(km: number, lang: Language = 'HE'): string {
   const rounded = Math.round(km * 10) / 10
@@ -72,10 +64,6 @@ export function formatTripDistance(km: number): string {
   return safe.toFixed(2)
 }
 
-export function formatScore(score: number): string {
-  return Math.round(score).toString()
-}
-
 export function formatDate(dateStr: string, lang: Language = 'HE'): string {
   if (!dateStr) return '';
   const date = new Date(dateStr)
@@ -91,29 +79,6 @@ export function formatTime(dateStr: string): string {
   return date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
 }
 
-export function formatRelativeTime(dateStr: string, lang: Language = 'HE'): string {
-  const date      = new Date(dateStr)
-  const now       = new Date()
-  const diffMs    = now.getTime() - date.getTime()
-  const diffMins  = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays  = Math.floor(diffHours / 24)
-  const t = (lang === 'HE' ? he : en).time
-
-  if (lang === 'HE') {
-    if (diffMins < 1) return t.now
-    if (diffMins < 60) return `${t.ago} ${diffMins} ${t.minutesShort}`
-    if (diffHours < 24) return `${t.ago} ${diffHours} ${t.hoursWord}`
-    if (diffDays < 7) return `${t.ago} ${diffDays} ${t.daysWord}`
-    return formatDate(dateStr, 'HE')
-  }
-  if (diffMins < 1) return t.now
-  if (diffMins < 60) return `${diffMins}${t.minutesShort} ${t.ago}`
-  if (diffHours < 24) return `${diffHours}${t.hoursWord} ${t.ago}`
-  if (diffDays < 7) return `${diffDays}${t.daysWord} ${t.ago}`
-  return formatDate(dateStr, 'EN')
-}
-
 /** Presentation only — the score itself is computed server-side, never here. */
 export function scoreToGrade(score: number): 'excellent' | 'good' | 'fair' | 'poor' {
   if (score >= 90) return 'excellent'
@@ -127,13 +92,6 @@ export function scoreToColor(score: number): string {
   if (score >= 75) return '#84cc16'
   if (score >= 55) return '#f59e0b'
   return '#ef4444'
-}
-
-export function scoreToIcon(score: number): string {
-  if (score >= 90) return 'star'
-  if (score >= 75) return 'checkmark-circle'
-  if (score >= 55) return 'alert-circle'
-  return 'close-circle'
 }
 
 export function levelToIcon(level: number): string {
@@ -152,26 +110,16 @@ export function levelToIcon(level: number): string {
   return icons[Math.max(0, Math.min(level - 1, icons.length - 1))]
 }
 
-export function truncate(str: string, maxLen: number): string {
-  if (str.length <= maxLen) return str
-  return str.slice(0, maxLen - 1) + '…'
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
-
 /**
- * True if the user's role is admin. Case-normalized because the real server sends the
- * UserRole enum's wire value uppercase ("ADMIN"), while the mobile UserRole type is lowercase.
+ * The balance a driver can actually spend: the total minus what live vouchers hold
+ * reserved. The server owns both numbers and sends them apart (CAR-73) — this only
+ * picks the one every headline shows.
+ *
+ * The fallback is for a user cached before the server split the two: their stored
+ * record has no `availablePoints`, and reading it raw would show a blank balance.
  */
-export function isAdmin(user: { role?: string } | null | undefined): boolean {
-  return user?.role?.toUpperCase() === 'ADMIN'
-}
-
-/** Same case-normalization as isAdmin() — the real server sends role as "BUSINESS" (uppercase). */
-export function isBusiness(user: { role?: string } | null | undefined): boolean {
-  return user?.role?.toUpperCase() === 'BUSINESS'
+export function availableBalance(user: { availablePoints?: number; points?: number } | null | undefined): number {
+  return user?.availablePoints ?? user?.points ?? 0
 }
 
 /**
@@ -185,10 +133,6 @@ export function toE164(phone: string): string | null {
   const cleaned = phone.replace(/[^\d+]/g, '')
   const intl = cleaned.startsWith('0') ? `+972${cleaned.slice(1)}` : cleaned
   return /^\+[1-9]\d{6,14}$/.test(intl) ? intl : null
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 /**

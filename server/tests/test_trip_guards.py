@@ -21,10 +21,12 @@ import pytest
 from app.schemas.trip import SaveTripIn
 from app.services import telemetry, trips
 from app.services.trips import (
+    _audit_touch_epoch_outlier,
     _check_timestamp_drift,
     _validate_plausibility,
     _verify_signature,
     _witness_distance,
+    _witness_distraction,
 )
 
 # ─── _check_timestamp_drift ───────────────────────────────────────────────────
@@ -77,17 +79,19 @@ class TestVerifySignature:
         ts_ms = datetime.now(UTC).timestamp() * 1000
         return {"timestamp": ts_ms, "distanceKm": 5.0}
 
+    # ── unenforced (default) — regression guard on today's behavior ──────────
+
     def test_no_signature_skips_check(self) -> None:
-        _verify_signature(None, None, "secret")  # must not raise
+        _verify_signature(None, None, "secret", False)  # must not raise
 
     def test_ph_bypass_skips_hmac(self) -> None:
-        _verify_signature(self._fresh_digest(), "ph:sprint1", "secret")  # must not raise
+        _verify_signature(self._fresh_digest(), "ph:sprint1", "secret", False)  # must not raise
 
     def test_missing_digest_with_signature_raises_403(self) -> None:
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            _verify_signature(None, "somesig", "secret")
+            _verify_signature(None, "somesig", "secret", False)
         assert exc_info.value.status_code == 403
 
     def test_valid_hmac_passes(self) -> None:
@@ -95,17 +99,54 @@ class TestVerifySignature:
         digest = self._fresh_digest()
         canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
         sig = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
-        _verify_signature(digest, sig, secret)  # must not raise
+        _verify_signature(digest, sig, secret, False)  # must not raise
 
     def test_invalid_hmac_raises_403(self) -> None:
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            _verify_signature(self._fresh_digest(), "badhash", "secret")
+            _verify_signature(self._fresh_digest(), "badhash", "secret", False)
         assert exc_info.value.status_code == 403
 
     def test_no_secret_skips_hmac(self) -> None:
-        _verify_signature(self._fresh_digest(), "anysig", "")  # must not raise
+        _verify_signature(self._fresh_digest(), "anysig", "", False)  # must not raise
+
+    # ── enforced (CAR-13 phase 2) ─────────────────────────────────────────────
+
+    def test_enforced_no_signature_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(None, None, "secret", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_ph_bypass_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "ph:sprint1", "secret", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_no_secret_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "anysig", "", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_valid_hmac_still_passes(self) -> None:
+        secret = "testsecret"
+        digest = self._fresh_digest()
+        canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
+        sig = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+        _verify_signature(digest, sig, secret, True)  # must not raise
+
+    def test_enforced_invalid_hmac_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "badhash", "secret", True)
+        assert exc_info.value.status_code == 403
 
 
 # ─── _validate_plausibility ───────────────────────────────────────────────────
@@ -197,6 +238,19 @@ class TestValidatePlausibility:
         with pytest.raises(HTTPException) as e:
             _validate_plausibility(self._make(distance_km=300.0, duration_seconds=60))
         assert e.value.status_code == 422
+
+    def test_screen_secs_exceeding_duration_rejected(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as e:
+            _validate_plausibility(self._make(screen_interaction_seconds=601, duration_seconds=600))
+        assert e.value.status_code == 422
+
+    def test_screen_secs_at_duration_passes(self) -> None:
+        _validate_plausibility(self._make(screen_interaction_seconds=600, duration_seconds=600))
+
+    def test_screen_secs_without_duration_skips_check(self) -> None:
+        _validate_plausibility(self._make(screen_interaction_seconds=999_999, duration_seconds=None))
 
 
 # ─── Digest physics validation ────────────────────────────────────────────────
@@ -333,6 +387,54 @@ class TestDistractionExposure:
         trace = [_wp_at(0, 80.0), _wp_at(3, 80.0), _wp_at(60, 80.0), _wp_at(63, 80.0)]
         gps = telemetry.analyze(trace, 63)
         assert trips._distraction_exposure_min(gps, 63) == pytest.approx(63.0 / 60.0)
+
+
+# ─── _witness_distraction ─────────────────────────────────────────────────────
+
+
+class TestWitnessDistraction:
+    def test_claim_within_witness_is_untouched(self) -> None:
+        assert _witness_distraction(600.0, 10.0) == 600.0
+
+    def test_claim_inside_tolerance_is_untouched(self) -> None:
+        # 10 exposure-min witnessed -> cap is 10*60*1.35 + 30 = 840
+        assert _witness_distraction(800.0, 10.0) == 800.0
+
+    def test_inflated_claim_is_capped(self) -> None:
+        assert _witness_distraction(5000.0, 10.0) == pytest.approx(840.0)
+
+    def test_short_trip_grace_floor(self) -> None:
+        # Zero exposure still gets the flat 30s grace floor.
+        assert _witness_distraction(25.0, 0.0) == 25.0
+        assert _witness_distraction(45.0, 0.0) == pytest.approx(30.0)
+
+    def test_zero_claim_with_no_exposure(self) -> None:
+        assert _witness_distraction(0.0, 0.0) == 0.0
+
+
+# ─── _audit_touch_epoch_outlier ────────────────────────────────────────────────
+
+
+class TestAuditTouchEpochOutlier:
+    def test_plausible_count_does_not_audit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        monkeypatch.setattr(trips, "audit", lambda event, **fields: calls.append((event, fields)))
+        # 600s trip, cooldown 1.5s -> max plausible 400
+        _audit_touch_epoch_outlier(400, 600)
+        assert calls == []
+
+    def test_impossible_count_audits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        monkeypatch.setattr(trips, "audit", lambda event, **fields: calls.append((event, fields)))
+        _audit_touch_epoch_outlier(401, 600)
+        assert len(calls) == 1
+        assert calls[0][0] == "trips.touch_epochs.outlier"
+
+    def test_zero_duration_with_any_epoch_audits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        monkeypatch.setattr(trips, "audit", lambda event, **fields: calls.append((event, fields)))
+        _audit_touch_epoch_outlier(1, 0)
+        assert len(calls) == 1
 
 
 def _wp_at(ts_s: float, speed: float) -> dict:

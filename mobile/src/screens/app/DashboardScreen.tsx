@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/Button';
 import { DashboardHero } from '@/components/gamification/DashboardHero';
@@ -12,18 +12,39 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
-import { formatDistance } from '@/lib/utils';
+import { availableBalance, formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
+import { friendsApi } from '@/services/api/friends.api';
+import { notificationsApi } from '@/services/api/notifications.api';
 
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
-  const [avgScore, setAvgScore] = useState<number | null>(null);
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // On focus rather than on mount: both counts are cleared by the very screens the
+  // badges lead to, and the dashboard is what the user comes back to straight after.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      // Failures leave the count at whatever it was. A badge is an aid, not a fact the
+      // screen depends on, and an error banner over the dashboard for one would be worse
+      // than the badge being briefly stale.
+      friendsApi.getIncoming()
+        .then(d => { if (alive) setPendingRequests(d.requests.length); })
+        .catch(() => {});
+      notificationsApi.list()
+        .then(rows => { if (alive) setUnreadNotifications(rows.filter(n => !n.readAt).length); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, []),
+  );
 
   // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
   useEffect(() => {
@@ -71,16 +92,6 @@ export default function DashboardScreen() {
     });
   };
 
-  // Compute average score across recent trips
-  useEffect(() => {
-    if (recentTrips && recentTrips.length > 0) {
-      const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
-      setAvgScore(Math.round(sum / recentTrips.length));
-    } else {
-      setAvgScore(null);
-    }
-  }, [recentTrips]);
-
   if (!user || isLoading) {
     return (
       <View style={[COMMON_STYLES.screen, COMMON_STYLES.center]}>
@@ -99,12 +110,18 @@ export default function DashboardScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <DashboardHeader userName={user.name || ''} currentStreak={currentStreak} bestStreak={bestStreak} />
+        <DashboardHeader
+          userName={user.name || ''}
+          currentStreak={currentStreak}
+          bestStreak={bestStreak}
+          pendingRequests={pendingRequests}
+          unreadNotifications={unreadNotifications}
+        />
 
         {/* Level & Points Card */}
         <DashboardHero
           user={user}
-          avgScore={avgScore}
+          avgScore={Math.round(user.driverScore)}
           lang={lang}
         />
 
@@ -115,7 +132,10 @@ export default function DashboardScreen() {
           items={[
             { icon: ICONS.trips,    value: recentTrips.length,                          label: t('stats.totalTrips') },
             { icon: ICONS.distance, value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
-            { icon: ICONS.points,   value: user.totalPoints.toLocaleString(),             label: t('common.points') },
+            // The spendable balance, not the lifetime total — the level progress
+            // above already carries the total, and this is the number a driver
+            // walks into the store with.
+            { icon: ICONS.points,   value: availableBalance(user).toLocaleString(),      label: t('marketplace.availablePoints') },
           ]}
         />
 
@@ -137,11 +157,9 @@ export default function DashboardScreen() {
       {/* Post-trip summary modal */}
       <TripSummaryModal
         visible={showSummary}
-        trip={lastTripSummary}
+        summary={lastTripSummary}
         onClose={handleCloseSummary}
         onViewDetails={handleViewDetails}
-        currentStreak={currentStreak}
-        bestStreak={bestStreak}
       />
     </View>
   );

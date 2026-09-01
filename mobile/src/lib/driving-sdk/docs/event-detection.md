@@ -83,25 +83,29 @@ not the sensor layer.
 
 - Distance gate: ticks below **3 km/h** do not accumulate distance (eliminates coordinate jitter when stationary).
 - Teleportation guard: each tick's distance contribution is capped to `(speed / 3600) × timeDeltaS × 1.5 km`. If the Haversine result exceeds this cap (e.g. a GPS position jump while stationary), the capped value is used instead.
-- **Waypoints, `(since #139)`:** appended on the same gate, downsampled to one
-  point per **~5 seconds of real elapsed GPS time** while moving —
-  accumulated from each tick's actual measured interval (`timeDeltaS`, floored
-  at 0.5 s), not an assumed fixed cadence. Before #139 this accumulator
-  hardcoded `+= 2` regardless of the real interval, so a throttled or jittery
-  GPS stream (see #17 above) silently desynced waypoint density from
-  wall-clock reality. The ~5s-elapsed target itself is unchanged — only the
-  accounting behind it is real now. At a steady 2 s tick interval the nominal
-  rate is unchanged too (~300 points per 30 minutes); the fix only matters
-  when ticks *aren't* steady.
+- **Waypoints:** appended on the same gate, downsampled to one point per
+  **2 seconds of elapsed GPS-fix time** while moving. Two things decide that:
+  - **The interval.** The server re-detects a brake as the average deceleration
+    between two consecutive points, so a sampling interval longer than the event
+    smears it across time in which nothing happened — at 5 s it takes a 54 km/h
+    drop between two points to register a brake, where a real one is ~25 km/h.
+    A hard brake lasts ~2 s, so the cadence is 2 s. ~900 points per 30-minute
+    trip, and no extra battery: the location stream already runs at 2 s.
+  - **The clock.** Elapsed time is measured between the GPS fixes themselves
+    (`fixTs`), never between arrivals. Android defers updates under Doze and
+    releases them as a batch in one JS turn (see #17 above), where arrival time
+    barely moves — thinning against it would collapse the whole deferred window
+    into a single point and stamp every point in the batch with one instant.
 
 ---
 
 ## Gyroscope — `SensorManager`
 
-Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry
-on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g.
-transport-mode fraud detection). It does not itself trigger any
-`DrivingEventType`.
+Yaw rate is captured at 10 Hz, resolved about gravity rather than about the
+device's Z axis, and exposed as `yawRateRadS` on every `onUpdate` tick alongside
+the vehicle-frame `longitudinalAccelG`/`lateralAccelG`, for use by an app-supplied
+`TripValidator` (e.g. transport-mode fraud detection). All three are `null` while
+the vehicle frame is unresolved. It does not itself trigger any `DrivingEventType`.
 
 ## Raw accel/gyro taps — `onAccelSample` / `onGyroSample`
 
@@ -136,6 +140,16 @@ is used as a proxy. One delta is emitted per second via `onInteractionData`
   `pushGyroSample()`, the veto is skipped and the decision falls back to
   acceleration alone — the behavior every version before #138 has.
 - **Glass-tap proxy:** a single sample above **1.8 g** total magnitude flags a touch-epoch transient, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
+- **Paired-peak tap signature:** reported as `gyroTapPairs` on the motion features, and
+  independent of everything above — it changes no decision the manager makes. A jolt
+  through the suspension drives mostly the vertical accelerometer axis; a finger on glass
+  produces a small *rotational* kick on both in-plane axes at once, because the hand's
+  grip resists it. A pair is both X and Y between **0.2 and 0.7 rad/s** on the same
+  sample, counted on the sample that enters the band rather than on every sample inside
+  it; a tap is two pairs within **400 ms**. The Z axis is excluded on purpose — in a flat
+  mounting it is the vehicle's own yaw, and including it would let a turn qualify.
+  The 10 Hz feed puts a floor of 100 ms under the repeat gap, so the tightest gaps the
+  method describes cannot be resolved at this sample rate.
 - **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the combined threshold, so one pickup can produce more than one event.
 
 ```mermaid
@@ -156,7 +170,8 @@ flowchart TD
 > validated against real drive data** — the rotation threshold most of all,
 > since no drive-test data backs it yet (tracked as CAR-183). The glass-tap
 > proxy also cannot distinguish a finger tap from a sharp road bump. Treat
-> all of these as indicative until calibrated.
+> all of these as indicative until calibrated. The tap-signature band and repeat gap are
+> the patent's own worked example and carry the same caveat.
 
 ---
 

@@ -24,7 +24,6 @@ class EventType(str, enum.Enum):
     HARD_BRAKE = "HARD_BRAKE"
     AGGRESSIVE_ACCEL = "AGGRESSIVE_ACCEL"
     SHARP_TURN = "SHARP_TURN"
-    SWERVE = "SWERVE"
     PHONE_USE = "PHONE_USE"
     SPEEDING = "SPEEDING"
 
@@ -49,3 +48,15 @@ class FriendStatus(str, enum.Enum):
     PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     BLOCKED = "BLOCKED"
+
+
+class BusinessJoinRequestStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class BusinessMembershipRole(str, enum.Enum):
+    OWNER = "OWNER"
+    MANAGER = "MANAGER"
+    CASHIER = "CASHIER"

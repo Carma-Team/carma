@@ -16,6 +16,10 @@ const USER: AuthUser = {
   role: 'BUSINESS',
   businessId: null,
   businessCategory: null,
+  businessName: null,
+  businessNameHe: null,
+  businessMembershipRole: null,
+  businessMembershipAmbiguous: false,
 };
 
 describe('attemptRefresh', () => {
@@ -114,5 +118,108 @@ describe('attemptRefresh', () => {
     expect(await attemptRefresh()).toBe('transient');
     expect(await attemptRefresh()).toBe('ok');
     expect(authApi.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── session lineage ───────────────────────────────────────────────────
+  // CAR-117 final review: a stale response must be judged against the exact
+  // session it was requested for (`session.ts`'s `captureLineage`/
+  // `isStillTheSameSession`) — not just "did anything change" (the
+  // generation counter alone), and not "does a session merely exist".
+
+  it('a logout while a refresh is in flight is not undone by a stale "ok" response resolving afterward', async () => {
+    let resolveOld!: (value: { token: string; user: AuthUser }) => void;
+    setSession({ accessToken: 'old-tok', user: USER });
+    vi.mocked(authApi.refresh).mockReturnValue(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+
+    const stale = attemptRefresh();
+    setSession(null); // logout
+
+    resolveOld({ token: 'old-tok-rotated', user: USER });
+    expect(await stale).toBe('ok');
+    expect(getSession()).toBeNull();
+  });
+
+  it('a logout while a refresh is in flight is not undone by a stale "rejected" response resolving afterward', async () => {
+    let rejectOld!: (err: unknown) => void;
+    setSession({ accessToken: 'old-tok', user: USER });
+    vi.mocked(authApi.refresh).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectOld = reject;
+      }),
+    );
+
+    const stale = attemptRefresh();
+    setSession(null); // already logged out — the 401 below tells us nothing new
+
+    rejectOld(new AuthApiError(401, 'Session expired'));
+    expect(await stale).toBe('rejected');
+    expect(getSession()).toBeNull();
+  });
+
+  it('a different user logging in while an older refresh is in flight is not overwritten, and no token is mixed across users', async () => {
+    let resolveOld!: (value: { token: string; user: AuthUser }) => void;
+    const userB: AuthUser = { ...USER, id: '2', name: 'User B' };
+    setSession({ accessToken: 'A-old-tok', user: USER });
+    vi.mocked(authApi.refresh).mockReturnValue(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+
+    const stale = attemptRefresh(); // in flight for user 1 ("USER")
+    setSession(null);
+    setSession({ accessToken: 'B-fresh-tok', user: userB }); // a different user signs in
+
+    resolveOld({ token: 'A-rotated-tok', user: USER }); // the stale call's own response, still user 1
+    await stale;
+
+    expect(getSession()).toEqual({ accessToken: 'B-fresh-tok', user: userB });
+  });
+
+  it('logging out and back in as the same user with a new token while an older refresh is in flight discards the stale response entirely', async () => {
+    let resolveOld!: (value: { token: string; user: AuthUser }) => void;
+    setSession({ accessToken: 'tok-1', user: USER });
+    vi.mocked(authApi.refresh).mockReturnValue(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+
+    const stale = attemptRefresh(); // in flight while the session still holds 'tok-1'
+    setSession(null);
+    setSession({ accessToken: 'tok-2', user: USER }); // same user, but a genuinely new session/token
+
+    resolveOld({ token: 'tok-1-rotated', user: USER }); // rotated from the now-superseded 'tok-1'
+    await stale;
+
+    // A same user ID alone is not enough lineage to adopt this token — it
+    // was rotated from a cookie the current session never presented.
+    expect(getSession()).toEqual({ accessToken: 'tok-2', user: USER });
+  });
+
+  it('a same-session refresh started before a self-membership patch still adopts its rotated token once the patch has landed', async () => {
+    let resolveOld!: (value: { token: string; user: AuthUser }) => void;
+    setSession({ accessToken: 'tok-1', user: USER });
+    vi.mocked(authApi.refresh).mockReturnValue(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+
+    const stale = attemptRefresh();
+    // Same session, same token — only the user's own profile fields change,
+    // exactly what `selfMembership.ts`'s synchronous patch does.
+    const patched = { ...getSession()!, user: { ...USER, businessMembershipRole: 'MANAGER' as const } };
+    setSession(patched);
+
+    resolveOld({ token: 'tok-1-rotated', user: USER });
+    await stale;
+
+    expect(getSession()?.user.businessMembershipRole).toBe('MANAGER');
+    expect(getSession()?.accessToken).toBe('tok-1-rotated');
   });
 });

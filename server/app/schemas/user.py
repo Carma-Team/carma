@@ -4,9 +4,10 @@ from datetime import datetime
 
 from pydantic import EmailStr, Field, field_validator
 
-from app.models.enums import Language, UserRole
+from app.models.enums import BusinessMembershipRole, Language, UserRole
 from app.schemas._base import CamelModel
 from app.schemas.friend import FriendshipStatus
+from app.services.scoring import CONFIG
 
 
 class UserOut(CamelModel):
@@ -22,16 +23,48 @@ class UserOut(CamelModel):
     license_year: int | None = None
     points: int
     total_points: int
+    driver_score: float
+
+    @field_validator("driver_score", mode="before")
+    @classmethod
+    def _default_driver_score(cls, value: float | None) -> float:
+        """The DB column is nullable (a brand-new driver has no row value
+        yet), but the wire contract isn't — same prior trips.py:488 already
+        uses for a driver with no completed trips (CAR-85).
+        """
+        return value if value is not None else CONFIG.prior_score
+
+    # Derived, never stored (CAR-73): reserved is the sum of points_cost over
+    # this driver's live vouchers, available is points minus that sum. Not on
+    # the User model, so users_service.profile_out fills these in after
+    # validation — the defaults here only satisfy from_attributes on that read.
+    # See rewards_service.reserved_points for why there is no reserved_points column.
+    available_points: int = 0
+    reserved_points: int = 0
     total_distance: float
     level: int
     is_private: bool = False
     drive_mode_enabled: bool
     bluetooth_device_id: str | None = None
     bluetooth_device_name: str | None = None
-    # Set only for role=BUSINESS (see users_service.profile_out). The business
-    # screens key off businessCategory to categorise new rewards.
+    # This whole block is resolved from `business_memberships` on every read
+    # (never `Business.owner_user_id`, `User.role`, or the JWT) — see
+    # users_service.profile_out. Independent of the account's global role: a
+    # DRIVER can hold a CASHIER membership (CAR-74). businessCategory is what
+    # the business screens key new rewards off.
     business_id: str | None = None
     business_category: str | None = None
+    # Raw fields, not a server-resolved fallback — the business web shell
+    # picks between them itself based on the active UI language (HE prefers
+    # businessNameHe, EN prefers businessName), which the server has no
+    # notion of.
+    business_name: str | None = None
+    business_name_he: str | None = None
+    business_membership_role: BusinessMembershipRole | None = None
+    # True for more than one membership. CAR-258 fails closed rather than
+    # picking one arbitrarily — every field above stays null, exactly like no
+    # membership at all, so this is what tells the two states apart.
+    business_membership_ambiguous: bool = False
     created_at: datetime
 
 

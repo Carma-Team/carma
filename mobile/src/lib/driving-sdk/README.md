@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-20**
+**Last updated: 2026-08-29**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -60,14 +60,27 @@ npx expo install expo-file-system expo-sharing
 
 ## What belongs in this directory
 
+Every file in the library, each row copied from that file's own `@brief` header. The
+header is the current one and is written by whoever changes the file; this table follows
+it, never the other way round.
+
 | File | Responsibility |
 |---|---|
-| `index.ts` | `DrivingSDK` — the single public entry point; orchestrates all managers |
-| `BluetoothManager.ts` | Lists OS-bonded BT devices; fires `onConnect` / `onDisconnect` on system connection events |
-| `sensors/SensorManager.ts` | GPS + accelerometer + gyroscope fusion; emits `DrivingEvent` objects and raw telemetry |
-| `sensors/PhoneUsageManager.ts` | IMU-based hand-held detection (accelerometer + gyroscope variance); emits `touchEpochs`/`screenInteractionSeconds` and `PHONE_USAGE` events while a trip is active |
-| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS stream to an NDJSON file for a staged calibration session (scenario/platform-tagged); exports via `expo-sharing` |
-| `types.ts` | Shared TypeScript types consumed by the SDK and its consumers |
+| `index.ts` | The SDK's public entry point and orchestrator, `DrivingSDK`. Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream, and emits driving events to whatever host app is consuming the library. |
+| `types.ts` | Every type and interface the library exposes to its host app. Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract through which an app injects its own trip-start, trip-end and suspicion rules. |
+| `auto-trip-detection/types.ts` | The contract every automatic trip-detection method implements. One strategy is active at a time, picked per platform, and `DrivingSDK` never learns which. |
+| `auto-trip-detection/AutoDriveModeManager.ts` | Owns the one active trip-detection strategy and picks it per platform. Turns whatever that strategy noticed into the two calls `DrivingSDK` cares about. |
+| `auto-trip-detection/BluetoothDriveModeStrategy.ts` | Detects vehicle travel from a paired Bluetooth device connecting. Android only. Subscribes to the OS-level connect/disconnect broadcasts for one target device, which is how a trip can start and end without the driver touching the phone. |
+| `auto-trip-detection/bluetoothDevices.ts` | Android Bluetooth device listing and permissions, holding no monitoring state. Answers which devices can be picked, and — when none can — why the list is empty. |
+| `auto-trip-detection/IosDriveModeStrategy.ts` | Placeholder for iOS automatic trip detection. Detects nothing yet: an iPhone still starts trips from the manual button. |
+| `DefaultTripValidator.ts` | The no-op `TripValidator` the SDK falls back to when the host supplies none. Confirms a trip immediately and never evaluates suspicion, so the library works standalone with zero configuration. |
+| `PowerManagement.ts` | Detects the platform where OS background throttling can degrade GPS cadence, and opens the system settings screen from which the user can lift it. Holds no opinion on when to ask or what to say — that is host-app UX. |
+| `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also resolves the IMU into the vehicle's own frame and streams speed, distance and those vehicle-frame values to the SDK on every fix. |
+| `sensors/vehicleFrame.ts` | Resolves phone-frame IMU readings into the vehicle's frame: horizontal force split into signed longitudinal and lateral components, and angular rate about gravity. |
+| `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance, a glass-tap proxy and a paired gyroscope tap signature. Reports tap counts and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
+| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
+| `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
+| `DeviceCapabilities.ts` | One-shot startup probe of what the device can actually do: which motion sensors it exposes, and whether its OS meets the floor recorded in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds and stops there — whether a missing sensor blocks the user is a host-app decision. |
 
 ---
 
@@ -101,8 +114,8 @@ Any file that encodes a decision specific to the consuming application.
 │                   ↓ registers  ↑ events                      │
 ├──────────────────────────────────────────────────────────────┤
 │                      driving-sdk/                            │
-│  DrivingSDK · BluetoothManager · SensorManager               │
-│  PhoneUsageManager · DefaultTripValidator                    │
+│  DrivingSDK · SensorManager · PhoneUsageManager              │
+│  DefaultTripValidator · auto-trip-detection/                 │
 │                                                              │
 │  Detects physical events via GPS+IMU fusion (tunable via     │
 │  SDKConfig.motionThresholds)                                 │
@@ -204,16 +217,15 @@ This fires for every event that passes the SDK's internal cooldown guard, **rega
 interface DrivingEvent {
   type:      DrivingEventType;
   timestamp: Date;
-  // PHONE_USAGE only — motion events omit it (CAR-156, scoring.md §3.4: the IMU
-  // magnitude below isn't a vehicle-frame axis, so there is no severity to report
-  // until a phone→vehicle rotation stage exists).
+  // PHONE_USAGE only — motion events carry physical measurements instead, below.
   severity?: number;            // PHONE_USAGE only — currently a hardcoded 0.5, see below
   speedKmh?: number;            // GPS speed at detection time (stamped by DrivingSDK)
   location?: { latitude: number; longitude: number }; // GPS coordinates at detection time
-  // Motion events only — absent on PHONE_USAGE:
-  peakG?:      number;          // reserved for a single vehicle-frame axis once a phone→vehicle
-                                 // rotation stage exists; not populated until then
-  durationMs?: number;          // how long the force stayed above the IMU cross-confirm threshold
+  // Motion events only — absent on PHONE_USAGE, and absent when the vehicle frame
+  // could not be resolved:
+  peakLongitudinalG?: number;   // g, signed — positive forward, so a brake is negative
+  peakLateralG?:      number;   // g, signed — positive to the left of travel
+  durationMs?:        number;   // how long the force stayed above the IMU cross-confirm threshold
 }
 ```
 
@@ -221,12 +233,17 @@ interface DrivingEvent {
 has no effect on it, since that config only tunes the motion-event thresholds
 (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN), not PHONE_USAGE.
 
-`peakG` is reserved, not populated. The value it would carry — an orientation-invariant,
-gravity-relative horizontal magnitude — cannot be mapped onto `scoring.md`'s severity curve,
-which is anchored on a single vehicle-frame axis (longitudinal for braking/accel, lateral for
-turns): folding both into one unsigned scalar makes a brake and a turn indistinguishable at
-the point of measurement. It stays reserved until a phone→vehicle rotation stage exists to
-resolve it onto the right axis.
+`peakLongitudinalG` and `peakLateralG` are **physical measurements, not a score**. They are
+the peak force of the event resolved onto the vehicle's own axes, which is what makes a brake
+distinguishable from a turn at the point of measurement — an unsigned horizontal magnitude
+folds the two together and cannot be mapped onto any per-axis severity curve. Turning them
+into a severity is the consuming application's job; a scoring curve does not belong in a
+sensor library.
+
+Both are **absent, not zero**, when the frame could not be resolved. The forward direction is
+learned from ordinary driving — agreement between GPS speed changes and the force felt over
+them — so it takes a few real accelerations or brakes at the start of a trip, and it is
+relearned from scratch if the phone is picked up or re-mounted mid-trip.
 
 `durationMs` is the length of the continuous stretch, at or above the IMU cross-confirm
 threshold, that contains the event's peak horizontal force — not simply the longest such
@@ -250,10 +267,8 @@ new DrivingSDK(config?: SDKConfig)
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `autoStartOnBluetooth` | `boolean` | `true` | Start trip automatically when target BT device connects |
-| `targetBluetoothId` | `string \| null` | — | MAC address of the BT device to monitor |
-| `sensorUpdateInterval` | `number` (ms) | `1000` | How often `onUpdate` fires (wall-clock) |
-| `scoringEnabled` | `boolean` | `true` | Reserved — passed through to application callbacks |
+| `autoStartOnBluetooth` | `boolean` | `true` | Start a trip automatically when detection fires. Named for the Android mechanism, but it gates every platform's. |
+| `targetBluetoothId` | `string \| null` | — | What detection watches for — a MAC address on Android. |
 | `motionThresholds` | `Partial<MotionThresholds>` | `DEFAULT_MOTION_THRESHOLDS` | Tune HARD_BRAKE / AGGRESSIVE_ACCEL / SHARP_TURN sensitivity (m/s²) without editing the SDK. Any field omitted falls back to the default. |
 | `tripValidator` | `TripValidator` | `DefaultTripValidator` (confirms/ends trips immediately) | Plug in app-specific rules for when a trip actually starts/ends, and suspicious-activity detection. See [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md). |
 
@@ -262,10 +277,10 @@ new DrivingSDK(config?: SDKConfig)
 | Method | Returns | Description |
 |---|---|---|
 | `startTrip()` | `Promise<string>` | Manually start a trip; returns trip ID |
-| `stopTrip()` | `Promise<TripData \| null>` | Stop recording; returns final trip data |
+| `stopTrip()` | `Promise<TripData \| null>` | Stop recording and stop the validator; returns final trip data |
 | `on(type, condition, handler)` | `ListenerToken` | Subscribe to a sensor event with conditions |
 | `off(token)` | `void` | Unsubscribe a registered listener |
-| `updateTargetDevice(id)` | `void` | Change the BT device to monitor at runtime |
+| `updateTargetDevice(id)` | `void` | Change the device automatic detection watches for, at runtime. `null` disarms it. |
 | `getAvailableDevices()` | `Promise<BluetoothDevice[]>` | Returns OS-bonded BT devices (Android only) |
 | `getStatus()` | `object` | Returns `{ isActive, isValidating, tripData }` |
 
@@ -290,8 +305,8 @@ than read the total.
 
 | Method | Description |
 |---|---|
-| `simulateBluetoothConnection()` | Fires the BT connect callback without a physical device |
-| `simulateBluetoothDisconnection()` | Fires the BT disconnect callback without a physical device |
+| `simulateBluetoothConnection()` | Runs the auto-start path without a physical device |
+| `simulateBluetoothDisconnection()` | Runs the auto-end path without a physical device |
 | `debugAddDistance(km)` | Injects distance into the active trip (dev only) |
 
 #### Calibration recording
@@ -320,12 +335,13 @@ interface TripData {
   distanceKm:             number;
   durationSeconds:        number;
   events:                 DrivingEvent[];   // all SDK-qualified events (route map markers)
-  waypoints:              RouteWaypoint[];  // GPS track, one point every ~5s of wall-clock time while moving
+  waypoints:              RouteWaypoint[];  // GPS track, one point every 2s of elapsed GPS-fix time while moving
   averageSpeed:           number;           // km/h
   maxSpeed:               number;           // km/h
   touchEpochs:            number;           // glass-tap proxy count (IMU)
   screenInteractionSeconds: number;         // IMU-confirmed hand-held seconds
   accelAvailable:         boolean;          // ever confirmed live this trip; false alone says nothing about why — see accelInitFailed
+  accelCoverage:          number;           // 0–1 share of the trip the accelerometer actually delivered samples for
   accelInitFailed:        boolean;          // true only if accelerometer registration itself threw
 }
 ```
@@ -368,6 +384,15 @@ class MyTripValidator implements TripValidator {
 
 const sdk = new DrivingSDK({ tripValidator: new MyTripValidator() });
 ```
+
+### Lifecycle contract
+
+The SDK calls `start()` when a session begins, and `stop()` on **every** route out of
+one — a manual `stopTrip()`, a Bluetooth disconnect, and an abort after
+`onFraudSuspected`. There is no fourth way for a session to end, so `stop()` is the
+single place an implementation tears down whatever it holds — a ticker, a sliding
+window, accumulated state — and every trip is guaranteed to start against a clean
+validator.
 
 Full interface, timing details, and the trip state-machine diagram are in
 [`docs/trip-lifecycle.md`](./docs/trip-lifecycle.md).

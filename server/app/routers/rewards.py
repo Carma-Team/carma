@@ -39,3 +39,14 @@ async def redeem(reward_id: str, user: CurrentUser, db: DbSession) -> VoucherRes
 )
 async def my_vouchers(user: CurrentUser, db: DbSession) -> dict[str, object]:
     return await rewards_service.list_my_vouchers(db, user.id)
+
+
+@vouchers_router.post(
+    "/{voucher_id}/cancel",
+    response_model=VoucherResponse,
+    response_model_by_alias=True,
+    summary="Cancel one of the authenticated user's own live vouchers",
+)
+async def cancel_voucher(voucher_id: str, user: CurrentUser, db: DbSession) -> VoucherResponse:
+    voucher = await rewards_service.cancel(db, user, voucher_id)
+    return VoucherResponse(voucher=voucher)

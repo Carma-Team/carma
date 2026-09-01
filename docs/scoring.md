@@ -4,7 +4,9 @@
 
 This document defines the CARMA scoring system: what it measures, how a trip becomes a number, and how that number drives the rewards economy.
 
-Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number.
+Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number: it is forensic, nothing reads it back into a computation.
+
+The version is a flat `<year>-<month>-<subject>` identifier, not semver — semver's compatibility contract has no meaning for a scoring formula. It changes whenever the same input would score differently, and the subject names what changed (`2026-08-posted-limit`, not a number bump).
 
 Reference implementation: [`server/app/services/scoring.py`](../server/app/services/scoring.py).
 
@@ -156,16 +158,46 @@ Our measured population averages should land in the same region, counter by coun
 
 ### 3.2 Speeding — weight 0.25
 
-Speeding measures **time spent over the limit, weighted by how far over** — not a count of incidents.
+Speeding measures **the share of a trip's distance driven above the limit, weighted by how far above** - not a count of incidents, and not minutes.
+
+```
+speeding ratio = SUM(distance in band x band weight)
+                 ───────────────────────────────────
+                        distance we can judge
+```
+
+Distance rather than time, because a car covers less ground per minute of speeding in a 50 zone than on a motorway. Charged by time, the identical offence costs a city driver roughly twice what it costs a motorway driver. The ratio carries its own exposure and is not divided by kilometres again.
 
 | How far over the limit | Weight |
 |---|---|
-| Under 10 km/h | Ignored — GPS noise and normal traffic flow |
-| 10–19 km/h | ×1 |
-| 20–29 km/h | ×3 |
-| 30 km/h and above | ×8 |
+| Inside the buffer | Ignored |
+| Buffer to 19 km/h over | x1 |
+| 20-29 km/h over | x3 |
+| 30 km/h and above | x8 |
 
-The limit is the road's **posted speed limit** where map data covers the road. Where it does not, the system falls back to a flat **120 km/h** national maximum. With the 10 km/h buffer, the fallback only charges sustained speed above 130 km/h.
+The ratio therefore runs from 0 to 8, not 0 to 1: 1.0 is a whole trip spent just over the buffer, and 8.0 is a whole trip spent 30 or more over. Without the bands, 65 km/h and 95 km/h in a 50 zone cost a driver exactly the same per kilometre, which is not something a safety score should say.
+
+**The buffer is 10% of the limit, with a floor of 5 km/h.** A flat 10 km/h was 20% of a 50 zone and 9% of a 110 one, so the same allowance meant "well over" in town and "barely moving" on a motorway. The 5 km/h floor is the margin Israeli traffic cameras subtract from every measured speed; below it we would be charging for what the enforcement system itself treats as noise.
+
+| Limit | Speeding starts above |
+|---|---|
+| 50 | 55 |
+| 80 | 88 |
+| 110 | 121 |
+
+**The limit is the road's posted speed limit.** It comes from an OpenStreetMap extract loaded into `road_segments`, resolved in three steps:
+
+| Step | Source | Covers |
+|---|---|---|
+| 1 | The road's explicit `maxspeed` tag | 38,718 roads |
+| 2 | 50 km/h where more than half an untagged `secondary`, `tertiary` or `unclassified` road's length lies inside a built-up area | 34,747 roads |
+| 3 | Israel's statutory default for the road's class | the rest |
+
+Step 2 is not a refinement, it is the difference between the component working in a city and not. Israeli law sets the limit by built-up area rather than by road class, so the same untagged `tertiary` is 50 inside a town and 80 outside it. Taking 80 everywhere read Dizengoff in Tel Aviv as an 80 zone, which scores 90 km/h down it as clean driving - the exact blindness this component exists to remove. Motorway, trunk and primary are deliberately never demoted: those keep a high limit through a city, and demoting them would invent offences on the roads where speed is legitimately highest.
+
+**Every remaining ambiguity resolves in the driver's favour.** The nearest road wins; where others run within 8 m of it - a service road beside a motorway, the far carriageway of a divided road - the highest limit among them wins. Where a segment spans two limits, the higher one judges it. Under-charging a real offence is recoverable; charging a driver for an offence they did not commit is not.
+
+**Where the map cannot answer**, a flat 120 km/h national maximum applies, so egregious motorway speeding is still charged off the map. But a trip with a mapped limit for **less than half** its judged distance does not get scored on speeding at all - see "Blending the five". Scoring a whole urban drive against a 130 km/h threshold does not measure speeding; it hands out a free component.
 
 ### 3.3 Harsh events — braking, acceleration, cornering
 
@@ -236,8 +268,9 @@ Severity runs from **1.0** at the detection threshold to **3.0** for an extreme,
 
 | Measure | Divided by | Floor |
 |---|---|---|
-| Braking, acceleration, cornering, speeding | 100 km | 4 km |
+| Braking, acceleration, cornering | 100 km | 4 km |
 | Distraction | Driving hour | 5 minutes |
+| Speeding | Its own judged distance | - |
 
 The floors prevent very short trips from exploding. Without them, one brake in a 500 m trip reads as 200 brakes per 100 km.
 
@@ -252,7 +285,7 @@ subscore = 100 × exp(−k × rate)
 | Braking | 0.018 ⚠️ |
 | Acceleration | 0.022 ⚠️ |
 | Cornering | 0.012 ⚠️ |
-| Speeding | 0.012 ⚠️ |
+| Speeding | 0.05 ⚠️ |
 | Distraction | 0.0035 |
 
 Distraction carries no warning. It was never an event count — it has always been seconds per driving hour — and its constant is fitted against CMT's published US average rather than against our own detector. Two anchors nobody can re-derive from the curve: a driver at the US average of 82 seconds per driving hour scores 75, and the subscore reaches 50 at roughly 198.
@@ -268,6 +301,8 @@ Distraction carries no warning. It was never an event count — it has always be
 > **Re-fit conditions:** a minimum of 200 trips, recorded with severity-capable detection, on the detector configuration intended for release.
 
 The exponential curve never reaches zero and never flattens. There is always something to gain by improving, including for a driver scoring badly. A straight-line penalty stops mattering once a driver is bad enough, which removes the incentive exactly where it is needed most.
+
+**The weakest factor.** The trip-completion response names the one behaviour the driver should fix, as `weakestFactor` — one of `braking`, `acceleration`, `cornering`, `speeding`, `distraction`, or `null`. It is not the lowest subscore: it is the subscore whose **weighted loss**, `weight × (100 − subscore)`, is largest — on a full-length trip, the exact amount the trip score would rise if that one behaviour were perfect. On a short trip (§3.7's 50/50 blend with the driver's rolling standing), the ranking is unaffected but that exact-amount reading no longer holds. A heavily-weighted behaviour scoring a little low can cost more than a lightly-weighted one scoring a lot low, and the composite already prices that trade-off, so the named factor prices it the same way. Speeding is never named on a trip that fell back to the four-component blend (§3.6) — its subscore carries no weight there, so naming it would blame a behaviour the trip was never scored on. Nothing is named when every candidate's subscore is above 90: at that point the driver has no weak behaviours, and naming one would read as a complaint about nothing. The five subscores themselves stay server-side; only the name of the winner crosses the wire, so the ranking cannot drift between app versions. The sentence shown to the driver is client copy, not server text.
 
 ### 3.6 Blending the five
 
@@ -288,7 +323,11 @@ trip score = 0.30 × distraction
 | Acceleration | 0.20 |
 | Cornering | 0.13 |
 
-This is decided **per trip**. A trip qualifies for speeding only with at least **20 waypoints**, covering at least **half its duration**, at a **median gap of 10 seconds or less**. A phone whose location updates are throttled fails this test and is scored on four components. GPS cadence is therefore a scoring concern, not only a battery one.
+This is decided **per trip**, and a trip has to pass two separate tests to keep speeding.
+
+**The trace has to be measurable**: at least **20 waypoints**, covering at least **half the trip's duration**, at a **median gap of 10 seconds or less**. A phone whose location updates are throttled fails this and is scored on four components. GPS cadence is therefore a scoring concern, not only a battery one.
+
+**And the map has to know the road**: a posted limit for at least **half** the trip's judged distance. A drive through country the extract does not cover is scored on four components rather than against a 120 km/h fallback it was never going to reach.
 
 ### 3.7 Final adjustments
 
@@ -422,7 +461,9 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 ### Scoring edge cases
 
 - **A throttled phone is scored on four components, not five.** Some Android handsets defer location updates hard enough that the trace cannot support speed measurement. That trip loses speeding and has its upside capped. Nobody is penalised, but two drivers can be scored by different formulas on the same drive.
-- **Speeding accuracy depends on map coverage.** On a road with no posted-limit data, only sustained speed above 130 km/h is charged.
+- **Most limits are derived, not read.** Explicit `maxspeed` tags cover 62% of Israel's trunk roads in OpenStreetMap but only 34% of primary, 25% of secondary, 16% of tertiary and 9% of residential - 38,718 of 322,862 loaded roads in total. Everything else is inferred from road class and built-up area. A road whose derived limit is wrong is wrong in the driver's favour by construction, but it is still wrong: a 70 km/h stretch mapped as `primary` is judged at 90.
+- **Built-up area is a polygon, not a sign.** The 50 km/h rule needs more than half a road's length inside an OSM place polygon. A majority rather than any overlap, because a bypass that clips the corner of a town would otherwise be demoted to 50 and charge a driver doing 75 on it. A town whose polygon is missing or drawn tight still keeps the open-road default on its streets.
+- **Off the extract, only sustained speed above 130 km/h is charged**, and a trip more than half off the extract loses the component entirely.
 - **The streak bonus rewards showing up, not driving well.** It counts consecutive days with any trip, at any score.
 - **The score has never been validated against crash or claim data.** The method matches the industry leader, which makes the numbers comparable to theirs. It does not make them validated. Validation requires claims data.
 

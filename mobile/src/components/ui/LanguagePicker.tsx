@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
-import {
-  Modal, View, Text, TouchableOpacity,
-  ScrollView, StyleSheet,
-} from 'react-native';
+import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
+import { COLORS } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
+import { SelectSheet } from '@/components/ui/SelectSheet';
 import type { Language } from '@/types';
 
 export interface SupportedLanguage {
@@ -46,50 +44,14 @@ export function LanguagePicker({ lang, onSelect, buttonLabel }: LanguagePickerPr
         <Ionicons name="chevron-down" size={12} color={COLORS.textMuted} />
       </TouchableOpacity>
 
-      <Modal
+      <SelectSheet
         visible={open}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setOpen(false)}
-        />
-
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-
-          <Text style={styles.sheetTitle}>{buttonLabel}</Text>
-
-          <ScrollView
-            style={styles.list}
-            showsVerticalScrollIndicator={SUPPORTED_LANGUAGES.length > 6}
-            bounces={false}
-          >
-            {SUPPORTED_LANGUAGES.map((item, index) => {
-              const isSelected = item.code === lang;
-              const isLast = index === SUPPORTED_LANGUAGES.length - 1;
-              return (
-                <TouchableOpacity
-                  key={item.code}
-                  style={[styles.item, !isLast && styles.itemBorder]}
-                  onPress={() => handleSelect(item.code)}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[styles.itemLabel, isSelected && styles.itemLabelActive]}>
-                    {item.label}
-                  </Text>
-                  {isSelected && (
-                    <Ionicons name="checkmark-circle" size={20} color={COLORS.brand} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      </Modal>
+        onClose={() => setOpen(false)}
+        title={buttonLabel}
+        items={SUPPORTED_LANGUAGES.map(l => ({ key: l.code, label: l.label }))}
+        selectedKey={lang}
+        onSelect={code => handleSelect(code as Language)}
+      />
     </>
   );
 }
@@ -106,46 +68,5 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     backgroundColor: COLORS.card,
   },
-  triggerText: { ...TYPOGRAPHY.label, fontSize: 13, color: COLORS.brandLight },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.dark,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-    paddingBottom: 32,
-    maxHeight: '60%',
-  },
-  handle: {
-    width: 36, height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.border,
-    alignSelf: 'center',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  sheetTitle: {
-    ...COMMON_STYLES.sectionTitle,
-    textAlign: 'center',
-    paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    marginBottom: 0,
-  },
-  list: { paddingHorizontal: SPACING.lg },
-  item: {
-    ...COMMON_STYLES.rowBetween,
-    paddingVertical: SPACING.md,
-  },
-  itemBorder:      { borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  itemLabel:       { ...TYPOGRAPHY.body },
-  itemLabelActive: { color: COLORS.brand, fontWeight: '700' },
+  triggerText: { fontSize: 13, fontWeight: '600', color: COLORS.brandLight },
 });

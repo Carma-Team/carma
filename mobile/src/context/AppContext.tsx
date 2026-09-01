@@ -24,13 +24,18 @@ import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
+import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
+import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
 import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import { availableBalance } from '@/lib/utils'
+import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
+import { signTelemetryDigest } from '@/lib/telemetrySigning'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
@@ -41,122 +46,9 @@ import { INITIAL_TRIP_STATE, type TripState } from './tripState'
 import { useSdkBindings } from './sdkBindings'
 import { useScoringEvents } from './scoringEvents'
 import { useFraudBinding } from './fraudBinding'
+import { useRegionBinding } from './regionBinding'
 
 export type { TripState } from './tripState'
-
-// ─── RFC-001: Telemetry Digest + Payload Signing ─────────────────────────────
-// Pure-JS HMAC-SHA256 (FIPS 198-1 / FIPS 180-4) — no native bridge, no packages.
-// The key ships inside the app bundle, so a valid signature proves the payload came
-// from a copy of the client, not from a trusted device. That limit is accepted
-// deliberately — docs/fraud-detection.md, "What we accept losing"; attestation-
-// provisioned keys are Stage 2 of its maturity path.
-// The 'ph:' prefix marks the signature unverifiable. The server accepts it today;
-// CAR-13 is the switch to rejecting it.
-
-const SIGNING_KEY = 'CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION';
-
-// SHA-256 round constants: first 32 bits of the cube roots of the first 64 primes.
-const _SHA256_K = new Uint32Array([
-  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-]);
-
-function _rotr32(n: number, d: number): number {
-  return ((n >>> d) | (n << (32 - d))) >>> 0;
-}
-
-// UTF-8 encode a string to bytes (handles BMP characters; ASCII is the common case).
-function _utf8Bytes(s: string): Uint8Array {
-  const out: number[] = [];
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if      (c < 0x80)   { out.push(c); }
-    else if (c < 0x800)  { out.push((c >> 6) | 0xc0, (c & 0x3f) | 0x80); }
-    else                  { out.push((c >> 12) | 0xe0, ((c >> 6) & 0x3f) | 0x80, (c & 0x3f) | 0x80); }
-  }
-  return new Uint8Array(out);
-}
-
-// SHA-256 core — FIPS 180-4 §6.2.2. Returns a 32-byte digest.
-function _sha256(data: Uint8Array): Uint8Array {
-  // Initial hash values: first 32 bits of fractional parts of sqrt of first 8 primes.
-  const H = new Uint32Array([
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-  ]);
-
-  const byteLen = data.length;
-  const bitLen  = byteLen * 8;
-  // Pad: append 0x80, zero bytes, then 64-bit big-endian message length.
-  const padLen = ((byteLen + 9 + 63) & ~63);
-  const padded = new Uint8Array(padLen);
-  padded.set(data);
-  padded[byteLen] = 0x80;
-  const dv = new DataView(padded.buffer);
-  dv.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000), false);
-  dv.setUint32(padLen - 4, bitLen >>> 0, false);
-
-  const w = new Uint32Array(64);
-  for (let i = 0; i < padLen; i += 64) {
-    // Prepare message schedule.
-    for (let j = 0; j < 16; j++) w[j] = dv.getUint32(i + j * 4, false);
-    for (let j = 16; j < 64; j++) {
-      const s0 = _rotr32(w[j-15], 7)  ^ _rotr32(w[j-15], 18) ^ (w[j-15] >>> 3);
-      const s1 = _rotr32(w[j-2],  17) ^ _rotr32(w[j-2],  19) ^ (w[j-2]  >>> 10);
-      w[j] = (w[j-16] + s0 + w[j-7] + s1) >>> 0;
-    }
-
-    // Compression.
-    let a = H[0], b = H[1], c = H[2], d = H[3];
-    let e = H[4], f = H[5], g = H[6], hh = H[7];
-    for (let j = 0; j < 64; j++) {
-      const S1  = _rotr32(e, 6)  ^ _rotr32(e, 11) ^ _rotr32(e, 25);
-      const ch  = (e & f) ^ (~e & g);
-      const t1  = (hh + S1 + ch + _SHA256_K[j] + w[j]) >>> 0;
-      const S0  = _rotr32(a, 2)  ^ _rotr32(a, 13) ^ _rotr32(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const t2  = (S0 + maj) >>> 0;
-      hh = g; g = f; f = e; e = (d  + t1) >>> 0;
-      d  = c; c = b; b = a; a = (t1 + t2) >>> 0;
-    }
-    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;
-    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+hh)>>>0;
-  }
-
-  const result = new Uint8Array(32);
-  const rv = new DataView(result.buffer);
-  H.forEach((v, i) => rv.setUint32(i * 4, v, false));
-  return result;
-}
-
-// HMAC-SHA256 — FIPS 198-1. Returns lowercase hex string (64 chars).
-function _hmacSha256Hex(key: string, message: string): string {
-  const BLOCK = 64;
-  let k = _utf8Bytes(key);
-  if (k.length > BLOCK) k = _sha256(k);   // keys > block size are hashed first
-
-  const kPad = new Uint8Array(BLOCK);      // zero-padded to block size
-  kPad.set(k);
-
-  const ipad = kPad.map(b => b ^ 0x36);
-  const opad = kPad.map(b => b ^ 0x5c);
-
-  const msg   = _utf8Bytes(message);
-  const inner = new Uint8Array(BLOCK + msg.length);
-  inner.set(ipad); inner.set(msg, BLOCK);
-
-  const innerHash = _sha256(inner);
-  const outer     = new Uint8Array(BLOCK + 32);
-  outer.set(opad); outer.set(innerHash, BLOCK);
-
-  return Array.from(_sha256(outer)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
 
 // ─── TelemetryDigest builder ──────────────────────────────────────────────────
 // Produces the raw-sensor canonical snapshot defined in RFC-001 v1.7 §3.1.
@@ -169,8 +61,15 @@ function buildTelemetryDigest(
   endTime: string,
   // Read from TripData (via lastTripDataRef at the call site), not TripState — accel
   // health is SDK trip data, not part of the reducer-shaped trip state (CAR-189).
-  accelAvailable: boolean,
-  accelInitFailed: boolean,
+  //
+  // Optional on purpose: a trip that ended with no SDK data at all knows nothing about
+  // the accelerometer, and `undefined` is that. Defaulting to `false` here turned that
+  // silence into the claim "the sensor was not live", which is the one thing the field
+  // must never say on its own — and it disagreed with the top-level payload, which
+  // sends the same values with no default at all.
+  accelAvailable: boolean | undefined,
+  accelInitFailed: boolean | undefined,
+  accelCoverage: number | undefined,
 ): TelemetryDigest {
   return {
     distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
@@ -178,7 +77,6 @@ function buildTelemetryDigest(
     hardBrakes:               state.eventCounts.HARD_BRAKE,
     aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
     sharpTurns:               state.eventCounts.SHARP_TURN,
-    // swerves:               state.eventCounts.SWERVE,  // EVT_SWERVE disabled
     touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
     startTime,
@@ -186,18 +84,9 @@ function buildTelemetryDigest(
     timestamp:                Date.now(),
     accelAvailable,
     accelInitFailed,
+    accelCoverage,
   };
 }
-
-// Signs the digest with HMAC-SHA256. Canonical JSON (sorted keys) guarantees a
-// deterministic byte sequence regardless of JS engine key-insertion order.
-// 'ph:' prefix marks the signature unverifiable — accepted today, rejected under CAR-13.
-function signTelemetryDigest(digest: TelemetryDigest): string {
-  const canonical = JSON.stringify(digest, Object.keys(digest).sort() as (keyof TelemetryDigest)[]);
-  const hmac = _hmacSha256Hex(SIGNING_KEY, canonical);
-  return `ph:${hmac}`;
-}
-
 
 /**
  * The Bluetooth device the driver picked as "their car", held locally only.
@@ -210,6 +99,7 @@ export type BluetoothTarget = { id: string; name?: string } | null
 interface AppContextValue {
   user: AppUser | null
   setUser: (user: AppUser | null) => void
+  patchUser: (fields: UserPatch | ((prev: AppUser) => UserPatch)) => void
   loginUser: (data: AuthResponse) => Promise<void>
   lang: Language
   setLang: (lang: Language) => void
@@ -217,13 +107,14 @@ interface AppContextValue {
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
   isLoading: boolean
+  deviceBlocked: boolean
   tripState: TripState
   endTrip: () => Promise<TripState>
   recentTrips: Trip[]
   simulateBTConnect: () => void
   simulateBTDisconnect: () => void
-  lastTripSummary: any | null
-  setLastTripSummary: (v: any | null) => void
+  lastTripSummary: TripSummary | null
+  setLastTripSummary: (v: TripSummary | null) => void
   startTrip: () => Promise<void>
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
@@ -237,6 +128,8 @@ interface AppContextValue {
   userLevelState: GamificationLevel
 }
 
+type UserPatch = Partial<AppUser>
+
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -244,11 +137,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Language>('HE')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [deviceBlocked, setDeviceBlocked] = useState(false)
   const [recentTrips, setRecentTrips] = useState<Trip[]>([])
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
-  const [lastTripSummary, setLastTripSummary] = useState<any | null>(null)
+  const [lastTripSummary, setLastTripSummary] = useState<TripSummary | null>(null)
   const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
   const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
+
+  /**
+   * Applies a partial change to the user against whatever the state holds now.
+   *
+   * The alternative — building `{ ...user, field }` from the `user` a screen or a
+   * callback closed over — reverts anything that landed while its request was in
+   * flight, and a trip finishing mid-request is exactly that. Callers whose new
+   * value depends on the old one (points arithmetic) pass a function and get the
+   * same guarantee for the read.
+   *
+   * Declared here, above its consumers: several of them are effects and callbacks
+   * defined further down.
+   */
+  const patchUser = useCallback((fields: UserPatch | ((prev: AppUser) => UserPatch)) => {
+    setUserState(prev => {
+      if (!prev) return prev;
+      const merged = { ...prev, ...(typeof fields === 'function' ? fields(prev) : fields) };
+      // Written from inside the updater because this is the only place the latest
+      // user is visible. Non-blocking, like the other writes here — a storage
+      // failure must not take the state change down with it.
+      AsyncStorage.setItem('carma_user', JSON.stringify(merged)).catch(e =>
+        console.error('[AppContext] Failed to persist user patch', e)
+      );
+      return merged;
+    });
+  }, []);
 
   // Filtered trips based on lastClearedHistory
   const filteredTrips = useMemo(() => {
@@ -285,7 +205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     maybePromptBatteryOptimizationExemption(lang === 'HE' ? he : en).catch(() => {});
 
     if (finalState.distanceKm < 0.1) {
-      setLastTripSummary({ isTooShort: true });
+      setLastTripSummary(TOO_SHORT_SUMMARY);
       setTripState(INITIAL_TRIP_STATE);
       return finalState;
     }
@@ -301,8 +221,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       telemetryDigest  = buildTelemetryDigest(
         finalState, tripStartTime, endTime,
-        lastTripDataRef.current?.accelAvailable ?? false,
-        lastTripDataRef.current?.accelInitFailed ?? false,
+        lastTripDataRef.current?.accelAvailable,
+        lastTripDataRef.current?.accelInitFailed,
+        lastTripDataRef.current?.accelCoverage,
       );
       payloadSignature = signTelemetryDigest(telemetryDigest);
     } catch (sigErr) {
@@ -320,12 +241,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
       touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
       penalties: 0,         // server computes — placeholder only
       accelAvailable: lastTripDataRef.current?.accelAvailable,
       accelInitFailed: lastTripDataRef.current?.accelInitFailed,
+      accelCoverage: lastTripDataRef.current?.accelCoverage,
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,
@@ -335,7 +256,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         severity: e.severity,
         speedKmh: e.speedKmh,
         location: e.location,
-        peakG: e.peakG,
+        peakLongitudinalG: e.peakLongitudinalG,
+        peakLateralG: e.peakLateralG,
         durationMs: e.durationMs,
       })),
     };
@@ -368,14 +290,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Use server-returned score/points as the single source of truth.
-    // Falls back to 0 when offline (SyncManager.onTripSynced will refresh once connectivity returns).
+    // These zeros are the stored row's, not the summary's: the row must satisfy the
+    // schema, while the summary says `pending` instead of showing a score nobody gave
+    // (see fromLocalTrip). SyncManager.onTripSynced replaces the row once the save lands.
     const serverScore          = savedTrip?.avgScore      ?? 0;
     const serverPointsRaw      = savedTrip?.points        ?? 0;
     const serverRiskMultiplier = savedTrip?.riskMultiplier ?? 1.0;
-    // Same fallback as the base above: offline there is no server-tapered value,
-    // and SyncManager.onTripSynced replaces the row once the save lands.
     const serverEffectiveRisk  = savedTrip?.effectiveRiskMultiplier ?? serverRiskMultiplier;
-    const serverPointsCapped   = savedTrip?.pointsCapped   ?? false;
     // The server's number, unmodified. It already includes the level bonus
     // (services/levels.py). Scaling it here again is what made the summary
     // disagree with trip history on the next refresh (#29).
@@ -396,7 +317,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          // swerves: finalState.eventCounts.SWERVE,  // EVT_SWERVE disabled
           touchEpochs: finalState.touchEpochs,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
@@ -408,6 +328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           endLocation: null,
           aiInsight: null,
           pointsCapped: false,
+          pendingSync: true,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -432,32 +353,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setUserLevelState(levelDisplay(newLevel));
 
-      const updatedUser = {
-        ...user,
-        points: newTotalPoints,       // spec field (5.3.1.1) + Marketplace reads this
-        totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
-        totalDistance: (user.totalDistance || 0) + finalState.distanceKm,
-        level: newLevel
-      };
-      setUserState(updatedUser);
-      // Non-blocking — a storage failure must never leave the trip stuck in "active" state (D-CTX-2).
-      AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser)).catch(e =>
-        console.error('[AppContext] Failed to persist user after trip end', e)
-      );
+      // Totals are re-derived from the state at write time, not from the `user` this
+      // callback closed over: saving the trip is a round trip to the server, and a
+      // settings change made while it ran would otherwise be rolled back here.
+      patchUser(prev => {
+        const earnedFrom = prev.totalPoints ?? prev.points ?? 0;
+        return {
+          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1)
+          totalPoints: earnedFrom + earnedPoints,  // Dashboard/Profile UI reads this
+          // What the trip earned is spendable immediately. Without this the store's
+          // balance stays on the pre-trip number until the next full user refresh,
+          // since reserved points are the only other thing that moves it.
+          availablePoints: availableBalance(prev) + earnedPoints,
+          totalDistance: (prev.totalDistance || 0) + finalState.distanceKm,
+          level: newLevel,
+        };
+      });
     }
 
-    setLastTripSummary({
-      ...finalState,
-      id: newTrip.id,
-      score: serverScore,
-      points: earnedPoints,
-      pointsCapped: serverPointsCapped,
-      riskMultiplier: serverRiskMultiplier,
-      effectiveRiskMultiplier: serverEffectiveRisk,
-      penalties: 0,
-      routeWaypoints: lastTripDataRef.current?.waypoints ?? [],
-      tripEvents: lastTripDataRef.current?.events ?? [],
-    });
+    setLastTripSummary(fromLocalTrip(newTrip.id, savedTrip, finalState, lastTripDataRef.current));
     lastTripDataRef.current = null;
     setTripState(INITIAL_TRIP_STATE);
     return finalState;
@@ -466,6 +380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
   useScoringEvents(sdk, setTripState);
   useFraudBinding(sdk, user, setTripState);
+  useRegionBinding(sdk, setTripState, addToast, lang);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
@@ -481,12 +396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
-        setUserState(prev => (prev ? { ...prev, ...freshUser } : null));
+        patchUser(freshUser);
         setUserLevelState(levelDisplay(freshUser.level ?? 1));
-        AsyncStorage.setItem('carma_user', JSON.stringify(freshUser)).catch(() => {});
       }).catch(() => {});
     };
-  }, []);
+  }, [patchUser]);
 
   // ─── AppState: flush queued trips when app returns to foreground ──────────────
   useEffect(() => {
@@ -496,6 +410,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
     return () => sub.remove();
+  }, []);
+
+  // CAR-23: device-capability gate, checked once at startup, independent of the
+  // auth/data load below. Region is no longer checked here — a GPS fix on every
+  // cold start was real battery/latency cost for no benefit to a returning user
+  // already known to be in Israel. Region is enforced at trip start instead (see
+  // TripValidationManager's region check), and acknowledged once at registration.
+  useEffect(() => {
+    checkDeviceCapabilities()
+      .then(({ hasAccelerometer, hasGyroscope, osSupported }) => {
+        if (!hasAccelerometer || !hasGyroscope || !osSupported) setDeviceBlocked(true);
+      })
+      .catch(() => {}); // fail open — an unexpected error here must not lock out a supported device
   }, []);
 
   useEffect(() => {
@@ -592,22 +519,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserState(u);
       setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
-
-      // Load trips immediately on login to sync with the new user context
-      try {
-        const serverData = await tripsApi.list();
-        setRecentTrips(serverData.trips);
-        await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
-      } catch {
-        const cached = await AsyncStorage.getItem('carma_trips');
-        if (cached) setRecentTrips(JSON.parse(cached));
-      }
     }
   }, []);
 
   const loginUser = useCallback(async (data: AuthResponse) => {
     await AsyncStorage.setItem('carma_token', data.token);
     await setUser(data.user);
+
+    // CAR-23: prime the location prompt right after login/register, so it isn't a
+    // surprise at the driver's first trip start. Foreground only — background is
+    // still asked for at trip start. Fire-and-forget: a decline here doesn't block
+    // login, and SensorManager asks again at trip start anyway. Here rather than in
+    // setUser for the same reason the trip fetch is, below.
+    Location.requestForegroundPermissionsAsync().catch(() => {});
+
+    // Trips are fetched here and not in setUser: every partial write to the user
+    // (points after a redeem, the drive mode toggle) goes through setUser too, and
+    // used to drag a full trip list refetch along with it.
+    try {
+      const serverData = await tripsApi.list();
+      setRecentTrips(serverData.trips);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+    } catch {
+      const cached = await AsyncStorage.getItem('carma_trips');
+      if (cached) setRecentTrips(JSON.parse(cached));
+    }
   }, [setUser]);
 
   const setLang = useCallback(async (l: Language) => {
@@ -652,7 +588,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      user, setUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      user, setUser, patchUser, loginUser, lang, setLang, toasts, addToast, removeToast, isLoading,
+      deviceBlocked,
       tripState, startTrip, endTrip,
       recentTrips: filteredTrips,
       simulateBTConnect, simulateBTDisconnect,

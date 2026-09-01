@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { userApi } from '@/services/api/user.api';
 import { COLORS, SPACING, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 // dd-mm-yyyy, distinct from the long-form `formatDate` used elsewhere — this is the one place that wants the numeric format.
@@ -21,18 +22,38 @@ function formatJoinDate(dateStr: string): string {
 /**
  * Settings screen.
  * Includes: drive mode + Bluetooth selection, language, history reset, logout.
- * All actions here are local (AsyncStorage / AppContext) — no server calls.
+ * Local (AsyncStorage / AppContext) except the drive mode toggle, which the server owns.
  */
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, clearTripHistory, btDevice, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
+  const { user, setUser, patchUser, clearTripHistory, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
   const { t, lang, setLang } = useTranslation();
+  const [savingDriveMode, setSavingDriveMode] = useState(false);
   // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
   // last *completed* session, so the button can't disappear the moment recording ends.
   const [rawRecordingStatus, setRawRecordingStatus] = useState<'idle' | 'recording' | 'stopped'>('idle');
 
   if (!user) return null;
+
+  /**
+   * Toggles drive mode. The server is asked first and local state follows only on
+   * success: the flag is stored server-side, so a toggle that refuses to move is
+   * recoverable, while a local value the server never accepted is invisible drift.
+   */
+  const handleToggleDriveMode = async () => {
+    const next = !user.driveModeEnabled;
+    setSavingDriveMode(true);
+    try {
+      await userApi.updateProfile({ driveModeEnabled: next });
+      patchUser({ driveModeEnabled: next });
+    } catch (e) {
+      addToast({ type: 'error', message: t('profile.driveModeFailed') });
+      console.error('[Settings] Failed to update drive mode', e);
+    } finally {
+      setSavingDriveMode(false);
+    }
+  };
 
   // CAR-31: staged calibration recording (accel/gyro/GPS), independent of trip start/stop.
   // Scenario is the phone's mount position — labels the session for hand-held-vs-loose
@@ -154,7 +175,8 @@ export default function SettingsScreen() {
                 <Button
                   size="sm"
                   variant={user.driveModeEnabled ? 'primary' : 'outline'}
-                  onPress={() => setUser({ ...user, driveModeEnabled: !user.driveModeEnabled })}
+                  loading={savingDriveMode}
+                  onPress={handleToggleDriveMode}
                 >
                   {user.driveModeEnabled ? t('profile.disable') : t('profile.enable')}
                 </Button>
@@ -224,20 +246,9 @@ export default function SettingsScreen() {
                 <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
               </View>
               <Card style={styles.settingCard}>
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => router.push('/(business)')}
-                >
-                  <View style={styles.linkContent}>
-                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
-                    <Text style={styles.linkText}>Open Business Dashboard</Text>
-                  </View>
-                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
                 {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
                 <TouchableOpacity
-                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  style={[styles.linkButton, { opacity: 0.5 }]}
                   onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
                 >
                   <View style={styles.linkContent}>

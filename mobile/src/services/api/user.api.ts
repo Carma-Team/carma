@@ -4,7 +4,7 @@
  *
  * @description
  * - `stats` — cumulative driving statistics (trips, distance, avg score, weekly chart)
- * - `updateProfile` — update name, language, age, city
+ * - `updateProfile` — update name, language, age, city, drive mode
  * - `deleteAccount` — delete account (GDPR)
  * - `searchByPhone` — find a driver to send a friend request to
  * - `matchContacts` — which of the user's contacts already drive with CARMA
@@ -25,6 +25,7 @@ export interface UpdateProfilePayload {
   age?: number;
   city?: string;
   isPrivate?: boolean;
+  driveModeEnabled?: boolean;
 }
 
 export interface FoundUser {
@@ -37,7 +38,7 @@ export const userApi = {
   /** Aggregate driving stats for the authenticated user */
   stats: () => request<{ stats: DrivingStats }>('/api/user/stats'),
 
-  /** Update profile fields (name, language, age, city) */
+  /** Update profile fields (name, language, age, city, drive mode) */
   updateProfile: (payload: UpdateProfilePayload) =>
     request<AppUser>('/api/users/me', {
       method: 'PATCH',
