@@ -142,7 +142,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<TripSummary | null>(null)
   const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
-  const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
+  // Derived, not tracked: a level held beside the user is a second copy that can
+  // disagree with `user.level`, and the offline trip path is where it did (CAR-263).
+  // Every write that moved this state also wrote the level it came from.
+  const userLevelState = useMemo<GamificationLevel>(() => levelDisplay(user?.level ?? 1), [user?.level])
 
   /**
    * Applies a partial change to the user against whatever the state holds now.
@@ -338,29 +341,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
     if (user) {
-      // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
-      const currentPoints = user.totalPoints ?? user.points ?? 0;
-      const newTotalPoints = currentPoints + earnedPoints;
-      // The server resolved the level when it saved the trip — including the
-      // driver-score cap, which no amount of local arithmetic can reproduce
-      // (#37). Only fall back to a points lookup if the save never landed.
-      const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
-
-      const levelChange = detectLevelChange(user.level ?? newLevel, newLevel);
-      if (levelChange) {
-        const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
-        console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
-      }
-      setUserLevelState(levelDisplay(newLevel));
-
       // Totals are re-derived from the state at write time, not from the `user` this
       // callback closed over: saving the trip is a round trip to the server, and a
       // settings change made while it ran would otherwise be rolled back here.
       patchUser(prev => {
+        // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
         const earnedFrom = prev.totalPoints ?? prev.points ?? 0;
+        const newTotalPoints = earnedFrom + earnedPoints;
+        // The server resolved the level when it saved the trip — including the
+        // driver-score cap, which no amount of local arithmetic can reproduce
+        // (#37). Only fall back to a points lookup if the save never landed, and
+        // then off the total this same write is producing: derived out here it came
+        // from the snapshot the callback closed over, so an update landing while the
+        // save was in flight paired a fresh total with an older level (CAR-263).
+        const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
+
+        const levelChange = detectLevelChange(prev.level ?? newLevel, newLevel);
+        if (levelChange) {
+          const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
+          console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
+        }
+
         return {
-          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1)
-          totalPoints: earnedFrom + earnedPoints,  // Dashboard/Profile UI reads this
+          points: newTotalPoints,       // spec field (5.3.1.1)
+          totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
           // What the trip earned is spendable immediately. Without this the store's
           // balance stays on the pre-trip number until the next full user refresh,
           // since reserved points are the only other thing that moves it.
@@ -397,7 +401,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
         patchUser(freshUser);
-        setUserLevelState(levelDisplay(freshUser.level ?? 1));
       }).catch(() => {});
     };
   }, [patchUser]);
@@ -458,7 +461,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
-            setUserLevelState(levelDisplay(merged.level ?? 1));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
 
             const serverData = await tripsApi.list();
@@ -517,7 +519,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem('carma_token');
     } else {
       setUserState(u);
-      setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
     }
   }, []);
