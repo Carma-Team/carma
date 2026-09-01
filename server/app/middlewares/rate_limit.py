@@ -164,7 +164,7 @@ class DefaultRateLimitMiddleware(BaseHTTPMiddleware):
             # Raising would escape past the exception handlers, which Starlette
             # installs inside the middleware stack rather than around it. The
             # caller would get a 500 for being too quick.
-            response = rate_limit_handler(request, exc)
+            response: Response = rate_limit_handler(request, exc)
             response.headers.update(_rate_limit_headers(request))
             return response
 
