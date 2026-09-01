@@ -39,7 +39,7 @@ class Trip(Base):
     # score_v2 holds the same value as avg_score — one engine writes both
     # (docs/scoring.md). NULL only on rows scored before the engines merged.
     score_v2: Mapped[float | None] = mapped_column(Float)
-    scoring_version: Mapped[str] = mapped_column(String(16), server_default="1.0", nullable=False)
+    scoring_version: Mapped[str] = mapped_column(String(32), server_default="2026-06-v1-legacy", nullable=False)
     status: Mapped[TripStatus] = mapped_column(
         Enum(TripStatus, name="trip_status"), default=TripStatus.ACTIVE, nullable=False
     )

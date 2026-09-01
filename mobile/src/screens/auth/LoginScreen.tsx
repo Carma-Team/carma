@@ -8,7 +8,6 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { authApi } from '@/services/api/auth.api';
 import { authErrorMessage } from '@/lib/authErrors';
-import { isBusiness } from '@/lib/utils';
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 
@@ -28,9 +27,9 @@ export default function LoginScreen() {
    *
    * [server] authApi.login — POST /api/auth/login to the real server.
    *
-   * On success: saves token to AsyncStorage and navigates to the appropriate route:
-   *   - admin/driver → /(tabs)
-   *   - business     → /(business)
+   * On success: saves token to AsyncStorage and navigates into the tabs. Every role
+   * lands there — a business owner drives too and manages their business on the web
+   * (CAR-205).
    */
   async function handleLogin() {
     if (!email)    { setError(t('auth.errors.emailRequired'));    return }
@@ -42,8 +41,7 @@ export default function LoginScreen() {
       const data = await authApi.login(email, password);
       await loginUser(data);
 
-      if (isBusiness(data.user)) router.replace('/(business)');
-      else router.replace('/(tabs)');
+      router.replace('/(tabs)');
     } catch (e) {
       // Only a 401 is a wrong email or password. Catching without a binding meant a
       // rate limit and an unreachable server were shown as bad credentials too, and

@@ -30,6 +30,7 @@ from app.models.otp import OtpCode
 from app.models.redemption import Redemption
 from app.models.refresh_token import RefreshToken
 from app.models.reward import Reward
+from app.models.road_segment import RoadSegment
 from app.models.trip import Trip
 from app.models.user import User
 
@@ -57,6 +58,7 @@ __all__ = [
     "Redemption",
     "RedemptionStatus",
     "RefreshToken",
+    "RoadSegment",
     "Reward",
     "Trip",
     "TripOccupancy",

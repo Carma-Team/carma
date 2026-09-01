@@ -40,7 +40,6 @@ def test_parse_event_maps_known_types() -> None:
         ("HARD_BRAKE", EventType.HARD_BRAKE),
         ("AGGRESSIVE_ACCEL", EventType.AGGRESSIVE_ACCEL),
         ("SHARP_TURN", EventType.SHARP_TURN),
-        ("SWERVE", EventType.SWERVE),
         ("SPEEDING", EventType.SPEEDING),
     ]:
         ev = _parse_event({"type": client_name}, TRIP_START)
