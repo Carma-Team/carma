@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0027_trip_occupancy"
-down_revision: str | None = "0026_business_invitations"
+down_revision: str | None = "0030_scoring_version_flat_ids"
 branch_labels: str | None = None
 depends_on: str | None = None
 
