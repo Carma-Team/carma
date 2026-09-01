@@ -17,7 +17,6 @@ Run: python e2e_trip_pipeline.py
 import hashlib
 import hmac as _hmac
 import json
-import os
 import sys
 import time
 import uuid
@@ -25,10 +24,12 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from app.config import settings
+
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = "http://localhost:3000"
-SIGNING_KEY = os.environ.get("TRIP_SIGNING_SECRET", "")
+SIGNING_KEY = settings.trip_signing_secret
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
