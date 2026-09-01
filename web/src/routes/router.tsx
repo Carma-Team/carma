@@ -12,8 +12,10 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
+import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RequireBusinessRole } from './RequireBusinessRole';
+import { RequireAdmin } from './RequireAdmin';
 import { LandingRoute } from './LandingRoute';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
@@ -31,6 +33,11 @@ import { LandingRoute } from './LandingRoute';
 // /permissions (CAR-117) gets its own `RequireBusinessRole`, allowing OWNER
 // only — a narrower gate than the four routes above it, which every role in
 // the matrix can at least reach.
+// /admin/business-requests (CAR-255) sits beside those business-role gates,
+// not inside one — ADMIN is a system role unrelated to any business
+// membership, so it gets its own `RequireAdmin` reading `user.role` instead
+// of `businessMembershipRole`. This is UX only; `CurrentAdmin` on the CAR-77
+// endpoints is the actual boundary (see RequireAdmin's own comment).
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
   { path: '/create-account', element: <CreateAccountPage /> },
@@ -67,6 +74,10 @@ export const routes: RouteObject[] = [
               { path: '/permissions', element: <PermissionsPage /> },
               { path: '/permissions/invitations', element: <InvitationsPage /> },
             ],
+          },
+          {
+            element: <RequireAdmin />,
+            children: [{ path: '/admin/business-requests', element: <BusinessRequestsReviewPage /> }],
           },
           { path: '*', element: <NotFoundPage /> },
         ],

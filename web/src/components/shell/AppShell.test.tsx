@@ -108,6 +108,31 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'מימושים' })).toHaveAttribute('href', '/redemption');
   });
 
+  // CAR-255: ADMIN is a system role, unrelated to business membership — the
+  // nav item must show for it regardless of businessMembershipRole, and stay
+  // hidden for every ordinary business role.
+  it('shows the Business Requests nav link only for an ADMIN', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { ...baseUser, role: 'ADMIN' as const, businessMembershipRole: null },
+      login: vi.fn(),
+      logout,
+      retry: vi.fn(),
+    });
+    renderShell();
+
+    expect(screen.getByRole('link', { name: 'בקשות הצטרפות עסקים' })).toHaveAttribute(
+      'href',
+      '/admin/business-requests',
+    );
+  });
+
+  it('hides the Business Requests nav link for a non-admin, even an OWNER', () => {
+    renderShell();
+
+    expect(screen.queryByText('בקשות הצטרפות עסקים')).not.toBeInTheDocument();
+  });
+
   it('signs out through the header control', () => {
     renderShell();
 

@@ -18,6 +18,10 @@ export function AppShell() {
   const role = normalizeBusinessRole(user?.businessMembershipRole);
   const canManagePermissions = role === 'OWNER';
   const canSeeAnalytics = role === 'OWNER' || role === 'MANAGER';
+  // ADMIN (CAR-255) is a system role, not a business membership role — it
+  // never goes through `normalizeBusinessRole`/`hasBusinessRole` above, which
+  // resolve OWNER/MANAGER/CASHIER only.
+  const isAdmin = user?.role === 'ADMIN';
 
   // Raw businessName/businessNameHe, not a server-resolved fallback (see
   // AuthUser) — the fallback direction flips with the UI language, so the
@@ -52,6 +56,11 @@ export function AppShell() {
           {canManagePermissions && (
             <NavLink to="/permissions" className={({ isActive }) => navClass(styles, isActive)}>
               {t('shell.navTeam')}
+            </NavLink>
+          )}
+          {isAdmin && (
+            <NavLink to="/admin/business-requests" className={({ isActive }) => navClass(styles, isActive)}>
+              {t('shell.navBusinessRequests')}
             </NavLink>
           )}
         </nav>
