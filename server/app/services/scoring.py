@@ -36,6 +36,9 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
+
+WeakestFactor = Literal["braking", "acceleration", "cornering", "speeding", "distraction"]
 
 
 @dataclass(frozen=True)
@@ -205,6 +208,7 @@ class TripScoreV2:
     sub_cornering: float
     sub_speeding: float
     sub_distraction: float
+    weakest_factor: WeakestFactor | None
     version: str
 
 
@@ -266,6 +270,7 @@ def compute_trip_score(
     sub_speed = _subscore(r_speed, config.k_speed)
     sub_distraction = _subscore(r_distraction, config.k_distraction)
 
+    weighted_candidates: list[tuple[WeakestFactor, float, float]]
     if has_speed_data:
         score = (
             config.w_distraction * sub_distraction
@@ -274,6 +279,13 @@ def compute_trip_score(
             + config.w_accel * sub_accel
             + config.w_corner * sub_corner
         )
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction),
+            ("speeding", sub_speed, config.w_speed),
+            ("braking", sub_brake, config.w_brake),
+            ("acceleration", sub_accel, config.w_accel),
+            ("cornering", sub_corner, config.w_corner),
+        ]
     else:
         score = (
             config.w_distraction_nospeed * sub_distraction
@@ -281,6 +293,32 @@ def compute_trip_score(
             + config.w_accel_nospeed * sub_accel
             + config.w_corner_nospeed * sub_corner
         )
+        # Speeding is excluded, not just zero-weighted: sub_speed is still
+        # computed above but carries no weight here, so naming it would blame
+        # a behaviour that cost nothing.
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction_nospeed),
+            ("braking", sub_brake, config.w_brake_nospeed),
+            ("acceleration", sub_accel, config.w_accel_nospeed),
+            ("cornering", sub_corner, config.w_corner_nospeed),
+        ]
+
+    # Named factor is the largest *weighted* loss, weight * (100 - subscore) —
+    # the exact counterfactual the composite implies, since perfecting one
+    # behaviour raises the score by precisely that amount. Candidate order
+    # above is fixed, descending weight, so a tie resolves to the
+    # higher-weighted behaviour. A trip where every candidate's subscore is
+    # above 90 (or every loss is zero) means there is nothing worth naming.
+    weakest_factor: WeakestFactor | None = None
+    best_loss = 0.0
+    min_subscore = 100.0
+    for name, subscore, weight in weighted_candidates:
+        min_subscore = min(min_subscore, subscore)
+        loss = weight * (100.0 - subscore)
+        if loss > best_loss:
+            weakest_factor, best_loss = name, loss
+    if weakest_factor is not None and min_subscore > 90.0:
+        weakest_factor = None
 
     # Too little exposure to judge — blend 50/50 with the driver's standing.
     if rolling_score is not None and (distance_km < config.short_trip_km or duration_min < config.short_trip_min):
@@ -293,6 +331,7 @@ def compute_trip_score(
         sub_cornering=round(sub_corner * 10) / 10,
         sub_speeding=round(sub_speed * 10) / 10,
         sub_distraction=round(sub_distraction * 10) / 10,
+        weakest_factor=weakest_factor,
         version=config.version,
     )
 

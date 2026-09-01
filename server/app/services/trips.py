@@ -465,7 +465,7 @@ async def _compute_score(
     level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
-) -> tuple[float, float, float, bool]:
+) -> tuple[float, float, float, bool, scoring.WeakestFactor | None]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
@@ -476,7 +476,7 @@ async def _compute_score(
     speeding ratio is the share of judged distance above the road's posted
     limit plus a buffer, and the confidence caps how far above the rolling
     score a trip can land when the trace is too sparse to prove clean driving.
-    Returns (trip_score, driver_score, points, points_capped).
+    Returns (trip_score, driver_score, points, points_capped, weakest_factor).
     """
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
@@ -560,7 +560,7 @@ async def _compute_score(
         risk_multiplier=risk_multiplier,
         level_multiplier=level_multiplier,
     )
-    return trip_score, driver_score, points, round(points) < round(points_uncapped)
+    return trip_score, driver_score, points, round(points) < round(points_uncapped), trip_v2.weakest_factor
 
 
 async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
@@ -680,7 +680,7 @@ async def save(
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
 
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
+    score_v2, new_driver_score, points_v2, points_capped, weakest_factor = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -823,4 +823,6 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
+    return TripOut.from_orm_trip(
+        trip, points_capped=points_capped, user_level=level_after, weakest_factor=weakest_factor
+    )
