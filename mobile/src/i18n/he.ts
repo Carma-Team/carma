@@ -54,7 +54,7 @@ const he = {
   dashboard: {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
-    recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל',
+    recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'עוד נסיעות',
     totalDistance: 'מרחק כולל', totalTrips: 'נסיעות',
     avgScore: 'ציון ממוצע', pointsToNextLevel: 'נקודות לרמה הבאה',
   },
