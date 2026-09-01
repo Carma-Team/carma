@@ -41,6 +41,10 @@ export type Trip = Schemas['TripOut'] & {
   // points, so that row carries zeros — this flag is what tells them apart from a
   // trip the server actually scored zero.
   pendingSync?: boolean;
+  // Client-only. Set when the queue gives up on a row it has been carrying for too
+  // long (CAR-166). The trip stays on the device and is never sent — nothing here
+  // retries it, so it is a terminal state and not a slower `pendingSync`.
+  syncFailed?: boolean;
   eventsArray?: any[];
 };
 
