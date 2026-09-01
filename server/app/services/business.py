@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
+from app.core.pagination import decode_cursor, encode_cursor
 from app.core.security import normalise_voucher_code
 from app.models import (
     Business,
@@ -20,6 +21,7 @@ from app.models import (
     Reward,
     User,
 )
+from app.schemas.redemption import BusinessRedemptionOut
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
 
@@ -363,3 +365,146 @@ async def _voucher_out(db: AsyncSession, voucher: Redemption) -> BusinessVoucher
     claimed = await rewards_service.claimed_by_reward(db, [voucher.reward_id])
     available = rewards_service.available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
     return BusinessVoucherOut.from_orm_redemption(voucher, available)
+
+
+# ── Redemption history (CAR-79) ─────────────────────────────────────────────
+
+# Bounded and server-capped: a business scrolling its own history has no
+# reason to pull more than this in one page, and an unbounded `limit` would
+# turn one request into a full-table pull.
+REDEMPTION_HISTORY_MAX_LIMIT = 100
+REDEMPTION_HISTORY_DEFAULT_LIMIT = 20
+
+# PENDING is deliberately excluded — a live voucher is in flight, not history,
+# and CAR-79 exposes its count separately rather than as a filterable status.
+_HISTORY_STATUSES = (RedemptionStatus.USED, RedemptionStatus.EXPIRED, RedemptionStatus.CANCELLED)
+_HISTORY_STATUS_BY_STR = {s.value.lower(): s for s in _HISTORY_STATUSES}
+
+
+def parse_redemption_status_filter(value: str | None) -> set[RedemptionStatus]:
+    """Comma-separated `status` query value into the set of statuses to show.
+
+    Defaults to `{USED}` alone — that is what "history" means to a shop owner
+    (CAR-79). Any value outside USED/EXPIRED/CANCELLED, PENDING included, is a
+    400: live vouchers are never a valid history filter.
+    """
+    if value is None:
+        return {RedemptionStatus.USED}
+    statuses: set[RedemptionStatus] = set()
+    for part in value.split(","):
+        part = part.strip().lower()
+        if not part:
+            continue
+        parsed = _HISTORY_STATUS_BY_STR.get(part)
+        if parsed is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown status '{part}'")
+        statuses.add(parsed)
+    if not statuses:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one status is required")
+    return statuses
+
+
+async def _live_voucher_count(db: AsyncSession, business_id: str) -> int:
+    """Vouchers this business has outstanding right now — CAR-79's separate counter.
+
+    Shares `live_voucher_where` with `rewards_service.count_live_vouchers` so
+    "live" can never mean something different here than it does when a reward
+    is archived.
+    """
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Redemption)
+        .where(Redemption.business_id == business_id, *rewards_service.live_voucher_where(datetime.now(UTC)))
+    )
+    return count or 0
+
+
+async def _consumer_names(db: AsyncSession, user_ids: set[str]) -> dict[str, str | None]:
+    """Batch name lookup for the business members who consumed a page of vouchers.
+
+    One query for the whole page, the same shape as `rewards_service.claimed_by_reward`
+    — not a per-row lazy load on an async session, which would trip on the first row.
+    """
+    if not user_ids:
+        return {}
+    rows = (await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))).all()
+    return {row.id: row.name for row in rows}
+
+
+async def list_redemptions(
+    db: AsyncSession,
+    business: Business,
+    *,
+    statuses: set[RedemptionStatus],
+    reward_id: str | None,
+    settled_from: datetime | None,
+    settled_to: datetime | None,
+    cursor: str | None,
+    limit: int,
+) -> dict[str, object]:
+    """This business's redemption history, newest settlement first (CAR-79).
+
+    Settles any of this business's overdue-but-still-PENDING vouchers first —
+    the same lazy-expiry step `_owned_voucher` runs before a peek — so a
+    voucher that lapsed since the last read shows up as EXPIRED and drops out
+    of the live count in the same response, rather than one page later.
+
+    Keyset-paged on `(settled_at, id)` descending, matching index
+    `ix_redemptions_business_settled_id`: `id` breaks ties between rows that
+    settled in the same instant, which a timestamp alone cannot. The keyset
+    predicate only ever looks *below* the cursor, so a new settlement — always
+    newer than anything already paged past — can never be skipped past or
+    re-shown to a client mid-page.
+    """
+    await rewards_service.expire_overdue(db, Redemption.business_id == business.id)
+    await db.commit()
+
+    query = (
+        select(Redemption)
+        .where(
+            Redemption.business_id == business.id,
+            Redemption.status.in_(statuses),
+            # Defensive, not a fix for CAR-283/287: every write path that sets a
+            # terminal status also sets settled_at in the same statement, but the
+            # DB-level CHECK enforcing that is out for the expand window. This is
+            # what keeps a row that somehow violates it from reading as history
+            # instead of quietly having no sort key.
+            Redemption.settled_at.is_not(None),
+        )
+        .options(selectinload(Redemption.reward))
+    )
+    if reward_id is not None:
+        query = query.where(Redemption.reward_id == reward_id)
+    if settled_from is not None:
+        query = query.where(Redemption.settled_at >= settled_from)
+    if settled_to is not None:
+        query = query.where(Redemption.settled_at <= settled_to)
+    if cursor is not None:
+        cursor_settled_at, cursor_id = decode_cursor(cursor)
+        query = query.where(tuple_(Redemption.settled_at, Redemption.id) < (cursor_settled_at, cursor_id))
+
+    # One extra row fetched, never returned: its presence is what tells us
+    # whether there is a next page, without a separate COUNT query.
+    query = query.order_by(Redemption.settled_at.desc(), Redemption.id.desc()).limit(limit + 1)
+    rows = list((await db.scalars(query)).all())
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        assert last.settled_at is not None  # guaranteed by the is_not(None) filter above
+        next_cursor = encode_cursor(last.settled_at, last.id)
+
+    names = await _consumer_names(db, {r.consumed_by_user_id for r in rows if r.consumed_by_user_id is not None})
+    redemptions = [
+        BusinessRedemptionOut.from_orm_redemption(
+            r, names.get(r.consumed_by_user_id) if r.consumed_by_user_id else None
+        )
+        for r in rows
+    ]
+    live_voucher_count = await _live_voucher_count(db, business.id)
+    return {
+        "redemptions": redemptions,
+        "live_voucher_count": live_voucher_count,
+        "next_cursor": next_cursor,
+    }
