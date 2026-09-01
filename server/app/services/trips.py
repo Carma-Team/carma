@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring, telemetry
+from app.services import levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -103,7 +103,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "HARD_BRAKE": EventType.HARD_BRAKE,
     "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
     "SHARP_TURN": EventType.SHARP_TURN,
-    "SWERVE": EventType.SWERVE,
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
@@ -474,9 +473,9 @@ async def _compute_score(
     (peak_g arrives as an unsigned magnitude, not a vehicle-frame axis) so
     weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
-    speeding weight is time-over-threshold against a conservative absolute
-    limit, and the confidence caps how far above the rolling score a trip can
-    land when the trace is too sparse to prove clean driving (v2.1).
+    speeding ratio is the share of judged distance above the road's posted
+    limit plus a buffer, and the confidence caps how far above the rolling
+    score a trip can land when the trace is too sparse to prove clean driving.
     Returns (trip_score, driver_score, points, points_capped).
     """
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
@@ -492,7 +491,7 @@ async def _compute_score(
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
         w_distraction=w_distraction,
-        w_speed=gps.speeding_weight,
+        speeding_ratio=gps.speeding_ratio,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
         driving_min_above_threshold=exposure_min,
@@ -653,7 +652,10 @@ async def save(
     # witness against client under-detection. Merged counts only ever go UP —
     # the server adds missed events, never erases reported ones — so a client
     # cannot lower its penalty by suppressing detection.
-    gps = telemetry.analyze(dto.route_waypoints, digest_duration)
+    # Posted limits first: the analyzer needs them to judge speed against
+    # anything better than the national maximum (CAR-222).
+    limits = await speed_limits.resolve(db, dto.route_waypoints)
+    gps = telemetry.analyze(dto.route_waypoints, digest_duration, speed_limits=limits)
     scored_hard_brakes = max(scored_hard_brakes, gps.hard_brakes)
     scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
     scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)

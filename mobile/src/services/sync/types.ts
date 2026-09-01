@@ -12,7 +12,6 @@ export interface TelemetryDigest {
   hardBrakes:               number;
   aggressiveAccels:         number;
   sharpTurns:               number;
-  swerves?:                 number;  // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
   screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds at >=15 km/h
   startTime:                string;  // ISO 8601 UTC — the server derives riskMultiplier from this
@@ -20,8 +19,12 @@ export interface TelemetryDigest {
   timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
   // Per-trip accelerometer snapshot — lets the server tell a quiet drive from a dead/absent
   // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
+  // `accelCoverage` is the share of the trip (0-1) the sensor actually delivered samples
+  // for; it rides inside the digest, which the server stores whole, so it survives the
+  // wire today even though no typed column reads it yet.
   accelAvailable?:          boolean;
   accelInitFailed?:         boolean;
+  accelCoverage?:           number;
 }
 
 // ─── Valid Trip DTO ───────────────────────────────────────────────────────────
@@ -40,7 +43,6 @@ export interface ValidTripPayload {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  swerves?: number;                 // EVT_SWERVE — spec §א Table 1 (disabled)
   touchEpochs: number;              // v1.7 — replaces phoneSeconds
   screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds; counted at >=15 km/h
   penalties: number;
@@ -48,6 +50,7 @@ export interface ValidTripPayload {
   // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
   accelAvailable?:  boolean;
   accelInitFailed?: boolean;
+  accelCoverage?:   number;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;

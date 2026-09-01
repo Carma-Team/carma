@@ -12,7 +12,7 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
-import { formatDistance } from '@/lib/utils';
+import { availableBalance, formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -132,7 +132,10 @@ export default function DashboardScreen() {
           items={[
             { icon: ICONS.trips,    value: recentTrips.length,                          label: t('stats.totalTrips') },
             { icon: ICONS.distance, value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
-            { icon: ICONS.points,   value: user.totalPoints.toLocaleString(),             label: t('common.points') },
+            // The spendable balance, not the lifetime total — the level progress
+            // above already carries the total, and this is the number a driver
+            // walks into the store with.
+            { icon: ICONS.points,   value: availableBalance(user).toLocaleString(),      label: t('marketplace.availablePoints') },
           ]}
         />
 
