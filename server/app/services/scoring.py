@@ -304,11 +304,17 @@ def compute_trip_score(
         ]
 
     # Named factor is the largest *weighted* loss, weight * (100 - subscore) —
-    # the exact counterfactual the composite implies, since perfecting one
-    # behaviour raises the score by precisely that amount. Candidate order
-    # above is fixed, descending weight, so a tie resolves to the
-    # higher-weighted behaviour. A trip where every candidate's subscore is
-    # above 90 (or every loss is zero) means there is nothing worth naming.
+    # the exact counterfactual the composite implies on a full-length trip,
+    # since perfecting one behaviour raises the score by precisely that
+    # amount (the short-trip blend below makes it inexact there). Candidate
+    # order above must stay descending by weight so a tie resolves to the
+    # higher-weighted behaviour; asserted here so a retuned weight fails loudly
+    # instead of silently reordering the tie-break. A trip where every
+    # candidate's subscore is above 90 (or every loss is zero) means there is
+    # nothing worth naming.
+    assert all(
+        a[2] >= b[2] for a, b in zip(weighted_candidates, weighted_candidates[1:], strict=False)
+    ), "weighted_candidates must stay sorted by descending weight for the tie-break to hold"
     weakest_factor: WeakestFactor | None = None
     best_loss = 0.0
     min_subscore = 100.0
