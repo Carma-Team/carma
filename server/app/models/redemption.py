@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -25,7 +25,10 @@ class Redemption(Base):
     # is paged per business on (settled_at, id), and a reward never changes owner,
     # so denormalizing here is what lets that ordering stay a single indexed scan
     # instead of a join fanning out over every reward the business has ever had.
-    business_id: Mapped[str] = mapped_column(String(32), ForeignKey("businesses.id"), nullable=False)
+    # Nullable at the DB only for the CAR-283 expand window — every write path
+    # sets it unconditionally; CAR-287 restores NOT NULL once CAR-286 confirms
+    # no pre-CAR-120 image is still writing.
+    business_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("businesses.id"), nullable=True)
     # Snapshot of Reward.cost_points at issue time. A later price change on the
     # reward must not reprice a voucher already handed to a driver (CAR-70).
     points_cost: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -48,10 +51,11 @@ class Redemption(Base):
     consumed_by_user_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"))
     # When this voucher left the live state — set in the same statement as the
     # status write, on every terminal transition (consume, expire, cancel), so
-    # the two can never disagree. NULL iff PENDING (see the check constraint
-    # below). Distinct from used_at: this answers "when did the lifecycle end",
-    # used_at answers "was it redeemed, and when" — EXPIRED/CANCELLED rows set
-    # this and leave used_at NULL.
+    # the two can never disagree. Distinct from used_at: this answers "when did
+    # the lifecycle end", used_at answers "was it redeemed, and when" —
+    # EXPIRED/CANCELLED rows set this and leave used_at NULL. The DB no longer
+    # enforces "NULL iff PENDING" during the CAR-283 expand window — see the
+    # check constraint CAR-287 restores.
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # `foreign_keys` pins this to the voucher's own owner now that
@@ -79,8 +83,6 @@ class Redemption(Base):
         Index("ix_redemptions_qr_code", "qr_code"),
         Index("ix_redemptions_business_settled_id", "business_id", "settled_at", "id"),
         Index("ix_redemptions_consumed_by_user_id", "consumed_by_user_id"),
-        CheckConstraint(
-            "(status = 'PENDING') = (settled_at IS NULL)",
-            name="ck_redemptions_settled_at_matches_status",
-        ),
+        # ck_redemptions_settled_at_matches_status is out for the CAR-283
+        # expand window — CAR-287 re-adds it.
     )
