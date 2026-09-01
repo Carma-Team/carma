@@ -73,20 +73,24 @@ export type JoinRequestStatusOut = {
   reviewerNote: string | null;
 };
 
+// Must match `BusinessJoinRequestConflictCode` in
+// server/app/schemas/business_join_request.py — the CAR-264 discriminator.
+const ALREADY_HAS_PENDING_REQUEST = 'ALREADY_HAS_PENDING_REQUEST';
+const REGISTRATION_NUMBER_PENDING = 'REGISTRATION_NUMBER_PENDING';
+const REGISTRATION_NUMBER_TAKEN = 'REGISTRATION_NUMBER_TAKEN';
+
 export type SubmitResult =
   | { outcome: 'ok'; id: string; createdAt: string }
-  // `submit()` in server/app/services/business_join_requests.py answers 409
-  // for three different reasons — the caller's own pending request, this
-  // registration number pending under a *different* applicant, or it
-  // already belonging to an approved business — all as a plain-text
-  // `detail` string with no structured `code` (unlike e.g. VOUCHER_* on the
-  // redemption endpoints). Distinguishing them here would mean matching on
-  // that text, which the backend makes no promise to keep stable. Collapsed
-  // into one honest "could not submit, here's why it might be" outcome
-  // instead of guessing which one happened — see the CAR-203 hand-off for
-  // the backend contract gap this leaves (a structured code per reason,
-  // mirroring `approve()`'s own ALREADY_OWNS_BUSINESS / etc. pattern in the
-  // same file, would resolve it).
+  // `submit()` in server/app/services/business_join_requests.py's three
+  // documented 409 reasons (CAR-264), each now its own outcome instead of
+  // one collapsed `conflict` — mirrors `vouchers.ts`'s VOUCHER_* handling.
+  | { outcome: 'already_has_pending_request' }
+  | { outcome: 'registration_number_pending' }
+  | { outcome: 'registration_number_taken' }
+  // A 409 whose `code` is missing or none of the three above — kept as the
+  // same honest "could not submit, here's why it might be" outcome this
+  // used to cover every conflict with, so an old or unrecognized server
+  // response still degrades safely instead of throwing.
   | { outcome: 'conflict' }
   | { outcome: 'rate_limited'; retryAfterSeconds: number | null }
   | { outcome: 'network_error' }
@@ -102,7 +106,12 @@ export async function submitJoinRequest(payload: JoinRequestPayload, accessToken
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.status === 0) return { outcome: 'network_error' };
-      if (err.status === 409) return { outcome: 'conflict' };
+      if (err.status === 409) {
+        if (err.code === ALREADY_HAS_PENDING_REQUEST) return { outcome: 'already_has_pending_request' };
+        if (err.code === REGISTRATION_NUMBER_PENDING) return { outcome: 'registration_number_pending' };
+        if (err.code === REGISTRATION_NUMBER_TAKEN) return { outcome: 'registration_number_taken' };
+        return { outcome: 'conflict' };
+      }
       if (err.status === 429) return { outcome: 'rate_limited', retryAfterSeconds: err.retryAfterSeconds ?? null };
       return { outcome: 'unexpected_error' };
     }
