@@ -11,6 +11,7 @@
  * - `formatDate` / `formatTime` — date formatting (Hebrew/English)
  * - `scoreToGrade` / `scoreToColor` / `levelToIcon` — score/level to display mapping
  * - `toE164` — phone number to the canonical form the server's auth routes require
+ * - `availableBalance` — the spendable half of a user's points
  *
  * @remarks No server calls — local functions only.
  */
@@ -107,6 +108,18 @@ export function levelToIcon(level: number): string {
     'ribbon-outline',           // 10 — legend
   ]
   return icons[Math.max(0, Math.min(level - 1, icons.length - 1))]
+}
+
+/**
+ * The balance a driver can actually spend: the total minus what live vouchers hold
+ * reserved. The server owns both numbers and sends them apart (CAR-73) — this only
+ * picks the one every headline shows.
+ *
+ * The fallback is for a user cached before the server split the two: their stored
+ * record has no `availablePoints`, and reading it raw would show a blank balance.
+ */
+export function availableBalance(user: { availablePoints?: number; points?: number } | null | undefined): number {
+  return user?.availablePoints ?? user?.points ?? 0
 }
 
 /**
