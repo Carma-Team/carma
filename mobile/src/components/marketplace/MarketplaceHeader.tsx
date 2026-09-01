@@ -5,10 +5,12 @@ import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface MarketplaceHeaderProps {
-  points: number;
+  /** Spendable balance — what live vouchers hold reserved is already out of it. */
+  available: number;
+  reserved: number;
 }
 
-export function MarketplaceHeader({ points }: MarketplaceHeaderProps) {
+export function MarketplaceHeader({ available, reserved }: MarketplaceHeaderProps) {
   const { t } = useTranslation();
 
   return (
@@ -17,8 +19,14 @@ export function MarketplaceHeader({ points }: MarketplaceHeaderProps) {
       <Text style={styles.subtitle}>{t('marketplace.subtitle')}</Text>
 
       <Card glass style={styles.pointsCard}>
-        <Text style={styles.pointsValue}>{points.toLocaleString()}</Text>
-        <Text style={styles.pointsLabel}>{t('common.points')}</Text>
+        <Text style={styles.pointsValue}>{available.toLocaleString()}</Text>
+        <Text style={styles.pointsLabel}>{t('marketplace.availablePoints')}</Text>
+        {/* Silent at zero: a driver holding no voucher has nothing to explain. */}
+        {reserved > 0 && (
+          <Text style={styles.reservedLabel}>
+            {reserved.toLocaleString()} {t('marketplace.reservedPoints')}
+          </Text>
+        )}
       </Card>
     </View>
   );
@@ -31,4 +39,5 @@ const styles = StyleSheet.create({
   pointsCard: { alignItems: 'center', paddingVertical: 12 },
   pointsValue: { color: COLORS.brandLight, fontSize: 32, fontWeight: '900' },
   pointsLabel: { ...TYPOGRAPHY.caption, fontSize: 12 },
+  reservedLabel: { ...TYPOGRAPHY.caption, fontSize: 11, marginTop: 4 },
 });
