@@ -139,10 +139,14 @@ export default function DashboardScreen() {
         />
 
         {/* Level & Points Card */}
+        {/* The deployed profile can omit the score altogether (CAR-296), and a missing
+            one rounds to NaN rather than to anything a null check would catch. A score
+            that cannot be rendered is not an earned one, so it takes the same
+            placeholder as a driver with no measured history. */}
         <DashboardHero
           user={user}
           driverScore={Math.round(user.driverScore)}
-          hasMeasuredHistory={hasMeasuredHistory ?? false}
+          hasMeasuredHistory={Number.isFinite(user.driverScore) && (hasMeasuredHistory ?? false)}
           lang={lang}
         />
 
