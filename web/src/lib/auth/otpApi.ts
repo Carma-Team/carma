@@ -81,6 +81,13 @@ export function requestStatusCheckOtp(phone: string): Promise<OtpSendResult> {
   return sendResult(() => post<{ expiresInSeconds: number }>('/api/auth/otp/request', { phone }));
 }
 
+// Same request as `requestStatusCheckOtp` — a distinct name for CAR-265's
+// sign-in door so a call site reads as what it is, not as a status lookup
+// that happens to share an endpoint.
+export function requestSignInOtp(phone: string): Promise<OtpSendResult> {
+  return requestStatusCheckOtp(phone);
+}
+
 export type OtpVerifyResult =
   | { outcome: 'ok'; accessToken: string; user: AuthUser }
   | { outcome: 'invalid_code' }

@@ -151,7 +151,7 @@ async def _auth_response(db: AsyncSession, user: User, *, expires_minutes: int |
 
 
 async def _establish_browser_session(
-    db: AsyncSession, user: User, response: Response, *, is_browser: bool, success_event: str
+    db: AsyncSession, user: User, response: Response, *, is_browser: bool, success_event: str, via: str = "email"
 ) -> AuthOut:
     """The one place a session actually gets created — shared by login and
     registration so a future change to rotation, cookie flags, or the web
@@ -187,7 +187,7 @@ async def _establish_browser_session(
     raw_refresh = _mint_refresh_token(db, user)
     await db.commit()
     await db.refresh(user)
-    audit(success_event, user_id=user.id, via="email")
+    audit(success_event, user_id=user.id, via=via)
     _set_refresh_cookie(response, raw_refresh)
     expires_minutes = settings.web_access_token_expires_minutes if is_browser else None
     return await _auth_response(db, user, expires_minutes=expires_minutes)
@@ -605,43 +605,79 @@ def _rejected(phone: str, reason: str, user: User | None = None) -> HTTPExceptio
     return HTTPException(status.HTTP_401_UNAUTHORIZED, OTP_REJECTED)
 
 
-async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> AuthOut:
-    user = await db.scalar(select(User).where(User.phone == dto.phone))
+async def _verify_login_otp(db: AsyncSession, phone: str, code: str, caller_ip: str) -> User:
+    """The identity check both phone+OTP doors share — CAR-203's one-shot
+    proof-of-phone (`verify_otp`) and CAR-265's web sign-in (`login_with_otp`).
+    Factored out so a lockout, backoff or one-code-per-phone rule can only be
+    implemented once — two independent copies would be two places the same
+    security check could quietly drift apart.
+
+    Leaves its mutations (`otp.consumed_at`, `user.is_phone_verified`, the
+    cleared failure count) flushed but uncommitted — same as
+    `register_with_password`'s `db.flush()`, and for the same reason: the
+    caller decides what else must land in the same transaction as this
+    success.
+    """
+    user = await db.scalar(select(User).where(User.phone == phone))
     if user is None:
-        raise _rejected(dto.phone, "no_user")
+        raise _rejected(phone, "no_user")
     # A locked account answers like every other failure here. The lockout is
     # explained on `otp/request`, where the caller is the account's owner —
     # saying it here would make five wrong guesses a test for "is this number
     # registered?".
     if user.locked_until and user.locked_until > _now():
-        raise _rejected(dto.phone, "locked", user)
+        raise _rejected(phone, "locked", user)
     if await _backoff_active(db, user.id, caller_ip):
-        raise _rejected(dto.phone, "caller_backoff", user)
+        raise _rejected(phone, "caller_backoff", user)
 
     otp = await db.scalar(
         select(OtpCode)
-        .where(OtpCode.phone == dto.phone, OtpCode.purpose == OTP_PURPOSE, OtpCode.consumed_at.is_(None))
+        .where(OtpCode.phone == phone, OtpCode.purpose == OTP_PURPOSE, OtpCode.consumed_at.is_(None))
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
-        raise _rejected(dto.phone, "no_active_otp", user)
+        raise _rejected(phone, "no_active_otp", user)
     if otp.expires_at < _now():
-        raise _rejected(dto.phone, "expired", user)
+        raise _rejected(phone, "expired", user)
 
-    if not verify_code(dto.code, otp.code_hash):
+    if not verify_code(code, otp.code_hash):
         otp.attempts += 1
         await _record_failure(db, user, caller_ip)
-        raise _rejected(dto.phone, "bad_code", user)
+        raise _rejected(phone, "bad_code", user)
 
     otp.consumed_at = _now()
     user.is_phone_verified = True
     await _clear_failures(db, user, caller_ip)
     user.locked_until = None
     user.last_logged_at = _now()
+    return user
+
+
+async def verify_otp(db: AsyncSession, dto: OtpVerifyIn, caller_ip: str) -> AuthOut:
+    user = await _verify_login_otp(db, dto.phone, dto.code, caller_ip)
     await db.commit()
     await db.refresh(user)
     audit("auth.otp.success", user_id=user.id)
     return await _auth_response(db, user)
+
+
+async def login_with_otp(
+    db: AsyncSession, dto: OtpVerifyIn, caller_ip: str, response: Response, *, is_browser: bool = False
+) -> AuthOut:
+    """Phone + OTP sign-in for the business web app (CAR-265) — the door an
+    approved, phone-only business owner (created by CAR-203, approved by
+    CAR-77) actually has, since `SignInPage` otherwise only ever collected
+    email + password.
+
+    Shares `_verify_login_otp`'s identity check with `verify_otp` and diverges
+    only in what a correct code buys: a real CAR-217 browser session (rotating
+    httpOnly refresh cookie, short-lived access token) rather than the bare
+    JWT `verify_otp` hands back for CAR-203's pre-account identity proof.
+    """
+    user = await _verify_login_otp(db, dto.phone, dto.code, caller_ip)
+    return await _establish_browser_session(
+        db, user, response, is_browser=is_browser, success_event="auth.otp_login.success", via="phone"
+    )
 
 
 # ─── Forgotten password (CAR-60) ─────────────────────────────────────────────
