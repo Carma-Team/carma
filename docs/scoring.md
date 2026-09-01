@@ -4,7 +4,9 @@
 
 This document defines the CARMA scoring system: what it measures, how a trip becomes a number, and how that number drives the rewards economy.
 
-Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number.
+Every trip is stamped with the version of the formula that scored it, in `trips.scoring_version`. Old trips keep their original score and stamp, so a score from any past month stays readable. That stamp is the only purpose of the version number: it is forensic, nothing reads it back into a computation.
+
+The version is a flat `<year>-<month>-<subject>` identifier, not semver — semver's compatibility contract has no meaning for a scoring formula. It changes whenever the same input would score differently, and the subject names what changed (`2026-08-posted-limit`, not a number bump).
 
 Reference implementation: [`server/app/services/scoring.py`](../server/app/services/scoring.py).
 
@@ -299,6 +301,8 @@ Distraction carries no warning. It was never an event count — it has always be
 > **Re-fit conditions:** a minimum of 200 trips, recorded with severity-capable detection, on the detector configuration intended for release.
 
 The exponential curve never reaches zero and never flattens. There is always something to gain by improving, including for a driver scoring badly. A straight-line penalty stops mattering once a driver is bad enough, which removes the incentive exactly where it is needed most.
+
+**The weakest factor.** The trip-completion response names the one behaviour the driver should fix, as `weakestFactor` — one of `braking`, `acceleration`, `cornering`, `speeding`, `distraction`, or `null`. It is not the lowest subscore: it is the subscore whose **weighted loss**, `weight × (100 − subscore)`, is largest — on a full-length trip, the exact amount the trip score would rise if that one behaviour were perfect. On a short trip (§3.7's 50/50 blend with the driver's rolling standing), the ranking is unaffected but that exact-amount reading no longer holds. A heavily-weighted behaviour scoring a little low can cost more than a lightly-weighted one scoring a lot low, and the composite already prices that trade-off, so the named factor prices it the same way. Speeding is never named on a trip that fell back to the four-component blend (§3.6) — its subscore carries no weight there, so naming it would blame a behaviour the trip was never scored on. Nothing is named when every candidate's subscore is above 90: at that point the driver has no weak behaviours, and naming one would read as a complaint about nothing. The five subscores themselves stay server-side; only the name of the winner crosses the wire, so the ranking cannot drift between app versions. The sentence shown to the driver is client copy, not server text.
 
 ### 3.6 Blending the five
 
