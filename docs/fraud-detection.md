@@ -178,8 +178,15 @@ threshold:
 1. Isolate gravity with a low-pass filter; the residual is dynamic acceleration.
 2. Project out the component along gravity. What remains is the horizontal force, and its
    magnitude is independent of the phone's yaw.
-3. Resolve horizontal force into **longitudinal** and **lateral** using GPS heading as the
-   forward reference.
+3. Learn the vehicle's forward direction opportunistically, then resolve horizontal force
+   into **longitudinal** and **lateral** against it. Nothing tells the phone which way the
+   car points, so the direction is inferred from agreement between GPS speed changes and
+   the horizontal force felt over the same stretch: speeding up and slowing down are each a
+   vote for forward, and the direction enough votes agree on is forward. This needs no
+   staged calibration drive — the estimate accumulates from ordinary driving. A shift in
+   the gravity direction means the phone has been picked up, re-mounted, or slid, which
+   invalidates everything learned under the old orientation, so it restarts the estimate
+   rather than reporting a stale frame.
 4. Resolve angular rate about the gravity vector, not about the device's Z axis. That, and
    only that, is yaw.
 
@@ -188,8 +195,8 @@ treatment rather than reading raw device axes — a phone flat on a passenger se
 arbitrary rotation otherwise reports a car's cornering force as longitudinal and its
 braking as lateral.
 
-**Where the frame cannot be resolved** — no GPS heading, or gravity not yet converged —
-the dependent signal is `UNKNOWN`.
+**Where the frame cannot be resolved** — gravity has not converged, or too few speed
+changes have agreed on a forward direction yet — the dependent signal is `UNKNOWN`.
 
 ### 3.3 The three signals
 
@@ -276,6 +283,13 @@ long people sit on trains.
 
 **After a `TRAIN` verdict, classification is suppressed until movement genuinely stops** —
 speed below the trip-end threshold for the trip-end duration. One journey, one report.
+
+**Suppression lives for the running process only.** It is validator state, not stored state,
+and an app restart clears it. A validator that restarts before movement stops re-arms
+classification and can file a second report for the same journey — accepted, because the
+alternative is a stored suppression window that can outlive the journey it was meant to
+bound and silently mask a later, legitimate trip. Conformance rule 4 binds this at the
+session level, not the journey level, precisely to leave room for that restart case.
 
 ### 3.7 The driver must be told
 
@@ -463,7 +477,7 @@ they are the ones Stages 3 and 4 of the maturity path exist to replace.
 |---|---|---|
 | `SPEED_THRESHOLD_KMH` | 10 km/h | Above walking pace, below any road speed |
 | `START_THRESHOLD_MS` | 30,000 ms | Sustained movement before a trip is real |
-| `END_THRESHOLD_MS` | 180,000 ms | Long enough to survive a traffic light |
+| `END_THRESHOLD_MS` | 180,000 ms | Long enough to survive a traffic light. Also the dwell that lifts report-once suppression after a `TRAIN` verdict (§3.6) — one constant, not a second one with the same value. |
 
 ### Server bounds
 

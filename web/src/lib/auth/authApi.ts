@@ -77,6 +77,16 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 
 export const authApi = {
   login: (email: string, password: string) => post<AuthResponse>('/api/auth/login', { email, password }),
+  // Only the three fields a CAR-118 sign-up needs — `RegisterIn` also accepts
+  // phone/city/age/licenseYear, but this flow has nowhere to collect them.
+  register: (name: string, email: string, password: string) =>
+    post<AuthResponse>('/api/auth/register', { name, email, password }),
+  // CAR-265: the phone+OTP door into the same CAR-217 session `login` and
+  // `register` establish — for an approved, phone-only business owner who
+  // has no password to type. Deliberately not `lib/auth/otpApi.ts`, whose
+  // fetch never sends `credentials: 'include'` — this call is the one that
+  // sets the session cookie, so it needs this module's `post()`, not that one.
+  loginWithOtp: (phone: string, code: string) => post<AuthResponse>('/api/auth/otp/login', { phone, code }),
   refresh: () => post<AuthResponse>('/api/auth/refresh'),
   logout: () => post<{ message: string }>('/api/auth/logout'),
 };

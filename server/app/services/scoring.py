@@ -24,8 +24,10 @@ What is NOT yet available, and how this module copes until it is:
     (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
     to raw counts (each event weight 1.0). `event_severity()` is implemented and
     tested now so the downstream math is unchanged the day that value arrives.
-  * Speeding (map-matched posted limits) — needs map-matching. Until then the
-    speeding weight is redistributed across the other components ("Blending the five").
+  * Speeding against posted limits arrived in 2.3.0 (CAR-222). It is measured as
+    a share of distance rather than as weighted minutes, so `k_speed` is a new
+    constant on a new scale and not a re-tuning of the old one. The weight is
+    still redistributed ("Blending the five") on any trip the map cannot cover.
 """
 
 from __future__ import annotations
@@ -34,6 +36,9 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
+
+WeakestFactor = Literal["braking", "acceleration", "cornering", "speeding", "distraction"]
 
 
 @dataclass(frozen=True)
@@ -44,13 +49,27 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2.2.0"
+    version: str = "2.3.0"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
     k_accel: float = 0.022
     k_corner: float = 0.012
-    k_speed: float = 0.012
+    # Speeding's rate is not an event rate. It is the percentage of judged
+    # distance driven above the posted limit plus the 10 km/h buffer, so this
+    # constant has nothing to do with the 0.012 that preceded it - that one
+    # priced severity-weighted minutes per 100 km against a flat 130 km/h.
+    #
+    # Anchored, not fitted (CAR-102 owns the fit): 1% of distance just over the
+    # buffer scores 95, 10% scores 61. The reference behind those is the UBI
+    # literature's average driver, who spends 2.4% of distance above the posted
+    # limit (Guillen et al., percentile charts for speeding), so an ordinary
+    # driver should land in the 90s and the spread should come from the tail.
+    # `scripts/calibrate_speeding.py` replaces this with a real number, and it
+    # matters more than when this constant was first written: severity bands
+    # multiply the rate by up to 8, so k is doing a far wider job than the two
+    # anchors alone describe.
+    k_speed: float = 0.05
     # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
     # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
     k_distraction: float = 0.0035
@@ -128,6 +147,10 @@ class ScoringConfig:
     daily_distance_cap_km: float = 150.0
 
 
+# Ceiling on the severity-weighted speeding ratio, mirroring telemetry's own so
+# this module stays a complete description of the formula on its own.
+MAX_SPEEDING_RATIO = 8.0
+
 CONFIG = ScoringConfig()
 
 # Per-type g-force ranges for the continuous severity weight ("Severity is
@@ -185,6 +208,7 @@ class TripScoreV2:
     sub_cornering: float
     sub_speeding: float
     sub_distraction: float
+    weakest_factor: WeakestFactor | None
     version: str
 
 
@@ -199,7 +223,7 @@ def compute_trip_score(
     w_accel: float,
     w_corner: float,
     w_distraction: float,
-    w_speed: float = 0.0,
+    speeding_ratio: float = 0.0,
     distance_km: float,
     duration_min: float,
     driving_min_above_threshold: float | None = None,
@@ -214,8 +238,12 @@ def compute_trip_score(
     event contributes weight 1.0, so these equal raw counts. Distance and time
     are the exposure denominators. `driving_min_above_threshold` is distraction's
     own denominator — minutes spent actually driving — and falls back to wall-clock
-    duration when the GPS trace cannot supply it. `has_speed_data` selects the weight
-    set; `rolling_score` is the driver's current score, used only to dampen tiny trips.
+    duration when the GPS trace cannot supply it. `speeding_ratio` is the
+    severity-weighted share of judged distance driven above the posted limit, in
+    [0, MAX_SPEEDING_RATIO]: 1.0 is a whole trip spent just over the buffer, and
+    anything above that is distance spent far over it.
+    `has_speed_data` selects the weight set; `rolling_score` is the driver's
+    current score, used only to dampen tiny trips.
     """
     exposure_km = max(distance_km, config.exposure_floor_km)
     # Distraction is charged per *driving* hour, not per hour of trip: a parked
@@ -228,8 +256,13 @@ def compute_trip_score(
     r_brake = w_brake * 100.0 / exposure_km
     r_accel = w_accel * 100.0 / exposure_km
     r_corner = w_corner * 100.0 / exposure_km
-    r_speed = w_speed * 100.0 / exposure_km
     r_distraction = w_distraction * 60.0 / distraction_exposure_min  # per driving-hour
+    # Speeding carries its own exposure. It is already a share of the trip's own
+    # distance, so dividing by kilometres again would charge the same behaviour
+    # twice - and, because a car covers less ground per minute of speeding in a
+    # 50 zone than on a motorway, the old per-100 km rate priced identical
+    # urban and motorway offences differently.
+    r_speed = 100.0 * _clamp(speeding_ratio, 0.0, MAX_SPEEDING_RATIO)
 
     sub_brake = _subscore(r_brake, config.k_brake)
     sub_accel = _subscore(r_accel, config.k_accel)
@@ -237,6 +270,7 @@ def compute_trip_score(
     sub_speed = _subscore(r_speed, config.k_speed)
     sub_distraction = _subscore(r_distraction, config.k_distraction)
 
+    weighted_candidates: list[tuple[WeakestFactor, float, float]]
     if has_speed_data:
         score = (
             config.w_distraction * sub_distraction
@@ -245,6 +279,13 @@ def compute_trip_score(
             + config.w_accel * sub_accel
             + config.w_corner * sub_corner
         )
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction),
+            ("speeding", sub_speed, config.w_speed),
+            ("braking", sub_brake, config.w_brake),
+            ("acceleration", sub_accel, config.w_accel),
+            ("cornering", sub_corner, config.w_corner),
+        ]
     else:
         score = (
             config.w_distraction_nospeed * sub_distraction
@@ -252,6 +293,38 @@ def compute_trip_score(
             + config.w_accel_nospeed * sub_accel
             + config.w_corner_nospeed * sub_corner
         )
+        # Speeding is excluded, not just zero-weighted: sub_speed is still
+        # computed above but carries no weight here, so naming it would blame
+        # a behaviour that cost nothing.
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction_nospeed),
+            ("braking", sub_brake, config.w_brake_nospeed),
+            ("acceleration", sub_accel, config.w_accel_nospeed),
+            ("cornering", sub_corner, config.w_corner_nospeed),
+        ]
+
+    # Named factor is the largest *weighted* loss, weight * (100 - subscore) —
+    # the exact counterfactual the composite implies on a full-length trip,
+    # since perfecting one behaviour raises the score by precisely that
+    # amount (the short-trip blend below makes it inexact there). Candidate
+    # order above must stay descending by weight so a tie resolves to the
+    # higher-weighted behaviour; asserted here so a retuned weight fails loudly
+    # instead of silently reordering the tie-break. A trip where every
+    # candidate's subscore is above 90 (or every loss is zero) means there is
+    # nothing worth naming.
+    assert all(
+        a[2] >= b[2] for a, b in zip(weighted_candidates, weighted_candidates[1:], strict=False)
+    ), "weighted_candidates must stay sorted by descending weight for the tie-break to hold"
+    weakest_factor: WeakestFactor | None = None
+    best_loss = 0.0
+    min_subscore = 100.0
+    for name, subscore, weight in weighted_candidates:
+        min_subscore = min(min_subscore, subscore)
+        loss = weight * (100.0 - subscore)
+        if loss > best_loss:
+            weakest_factor, best_loss = name, loss
+    if weakest_factor is not None and min_subscore > 90.0:
+        weakest_factor = None
 
     # Too little exposure to judge — blend 50/50 with the driver's standing.
     if rolling_score is not None and (distance_km < config.short_trip_km or duration_min < config.short_trip_min):
@@ -264,6 +337,7 @@ def compute_trip_score(
         sub_cornering=round(sub_corner * 10) / 10,
         sub_speeding=round(sub_speed * 10) / 10,
         sub_distraction=round(sub_distraction * 10) / 10,
+        weakest_factor=weakest_factor,
         version=config.version,
     )
 

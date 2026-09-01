@@ -79,4 +79,30 @@ describe('Dialog', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // CAR-118 review's small completion items: the invitation create/revoke
+  // dialogs need an accessible name linked to their visible title — a native
+  // <dialog> with no `aria-labelledby` announces as unlabelled to a screen
+  // reader even when it shows a heading.
+  it('gives the dialog an accessible name tied to its visible title', () => {
+    render(
+      <Dialog open title="Invite a colleague" closeLabel="Close" onClose={vi.fn()}>
+        <p>Body</p>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Invite a colleague' });
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it('has no accessible name when no title is given, rather than a broken reference', () => {
+    render(
+      <Dialog open closeLabel="Close" onClose={vi.fn()}>
+        <p>Body</p>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).not.toHaveAttribute('aria-labelledby');
+  });
 });

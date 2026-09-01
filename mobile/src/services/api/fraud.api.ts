@@ -4,7 +4,8 @@
  *
  * @description
  * `syncInvalidTrip` — converts the SDK FraudDetectedEvent to the server format and posts to the backend.
- * In mock mode (USE_REAL_SERVER=false): logs formatted JSON and returns a stub DTO.
+ * `USE_REAL_SERVER=false` still posts here — it only changes BASE_URL to the local FastAPI
+ * instance (via the Metro proxy), same as every other call in this layer.
  *
  * Field names are the same at every layer, from FraudDetector through to the
  * fraud_reports row. Anything renamed on the way through can no longer be traced
@@ -13,7 +14,6 @@
  * @server POST /api/fraud — live (server/app/routers/fraud.py)
  */
 import { request } from './client';
-import { USE_REAL_SERVER } from '@/constants/serverConfig';
 import type { FraudSignals } from '@/lib/FraudDetector';
 
 // ─── Mobile SDK event shape (emitted by DrivingSDK.onFraudDetected) ──────────
@@ -74,21 +74,6 @@ function signalFlags(signals?: FraudSignals): string[] {
 
 export const fraudApi = {
   syncInvalidTrip: async (payload: FraudEventPayload): Promise<FraudReportOut> => {
-    if (!USE_REAL_SERVER) {
-      console.group('[fraud.api] INVALID TRIP DETECTED');
-      console.log('Mode:', payload.detectedMode, `| Score: ${(payload.fraudScore * 100).toFixed(0)}%`);
-      console.log('Signals fired:', signalFlags(payload.signals).join(', ') || 'none reported');
-      console.log('Telemetry:', JSON.stringify(payload.telemetry, null, 2));
-      console.log('Full payload:', JSON.stringify(payload, null, 2));
-      console.groupEnd();
-      return {
-        id: `dev_fraud_${Date.now()}`,
-        userId: payload.userId,
-        reportedAt: payload.timestamp,
-        anomalyFlags: [`TRANSPORT_MODE_${payload.detectedMode}`],
-      };
-    }
-
     // Map SDK event to server's InvalidTripPayload schema
     const serverPayload = {
       idempotencyKey: `fraud_${payload.userId}_${payload.timestamp}`,

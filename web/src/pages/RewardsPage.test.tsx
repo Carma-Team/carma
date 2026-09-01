@@ -1,15 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { RewardsPage } from './RewardsPage';
-import { listRewards, createReward, updateReward, retireReward } from '@/lib/api/rewards';
+import { listRewards, createReward, updateReward, retireReward, getLiveVoucherCount } from '@/lib/api/rewards';
 import type { Reward } from '@/lib/api/rewards';
 import { useAuth } from '@/hooks/useAuth';
 import type { AuthContextValue, AuthUser } from '@/lib/auth/types';
 
 vi.mock('@/lib/api/rewards', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/rewards')>();
-  return { ...actual, listRewards: vi.fn(), createReward: vi.fn(), updateReward: vi.fn(), retireReward: vi.fn() };
+  return {
+    ...actual,
+    listRewards: vi.fn(),
+    createReward: vi.fn(),
+    updateReward: vi.fn(),
+    retireReward: vi.fn(),
+    getLiveVoucherCount: vi.fn(),
+  };
 });
 vi.mock('@/hooks/useAuth');
 
@@ -69,6 +76,8 @@ describe('RewardsPage', () => {
       status: 'authenticated',
       user: USER,
       login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
       logout: vi.fn(),
       retry: vi.fn(),
     } satisfies AuthContextValue);
@@ -76,6 +85,8 @@ describe('RewardsPage', () => {
     vi.mocked(createReward).mockReset();
     vi.mocked(updateReward).mockReset();
     vi.mocked(retireReward).mockReset();
+    vi.mocked(getLiveVoucherCount).mockReset();
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 0 });
   });
 
   afterEach(() => {
@@ -179,8 +190,10 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: 'הוצאה משימוש' }));
-    fireEvent.click(screen.getByRole('button', { name: 'כן, הוצא משימוש' }));
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
 
     await waitFor(() => expect(retireReward).toHaveBeenCalledWith('r1'));
     await waitFor(() => expect(screen.queryByText('שובר')).not.toBeInTheDocument());
@@ -192,12 +205,14 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: 'הוצאה משימוש' }));
-    fireEvent.click(screen.getByRole('button', { name: 'כן, הוצא משימוש' }));
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
 
     await waitFor(() => expect(retireReward).toHaveBeenCalledTimes(1));
     expect(screen.getByText('שובר')).toBeInTheDocument();
-    expect(screen.getByText('לא הצלחנו להוציא את ההטבה משימוש. נסו שוב.')).toBeInTheDocument();
+    expect(screen.getByText('לא הצלחנו להסיר את ההטבה. נסו שוב.')).toBeInTheDocument();
   });
 
   it('prevents a duplicate retirement request while one is already in flight', async () => {
@@ -207,8 +222,9 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: 'הוצאה משימוש' }));
-    const confirmButton = screen.getByRole('button', { name: 'כן, הוצא משימוש' });
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
     fireEvent.click(confirmButton);
     fireEvent.click(confirmButton);
     fireEvent.click(confirmButton);
@@ -229,15 +245,17 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
 
-    const [retireA] = screen.getAllByRole('button', { name: 'הוצאה משימוש' });
+    const [retireA] = screen.getAllByRole('button', { name: 'הסרה' });
     fireEvent.click(retireA);
-    fireEvent.click(screen.getByRole('button', { name: 'כן, הוצא משימוש' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
 
     // A's DELETE is now in flight. B's own retire button — the only one
-    // still carrying the plain "retire" label, A's now reads "retiring…" —
+    // still carrying the plain "remove" label, A's now reads "removing…" —
     // must already be disabled, so clicking it cannot reassign the
     // still-open confirm dialog away from A.
-    const retireB = screen.getByRole('button', { name: 'הוצאה משימוש' });
+    const retireB = screen.getByRole('button', { name: 'הסרה' });
     expect(retireB).toBeDisabled();
     fireEvent.click(retireB);
     expect(retireReward).toHaveBeenCalledTimes(1);
@@ -252,10 +270,182 @@ describe('RewardsPage', () => {
     expect(screen.getByText('הטבה ב')).toBeInTheDocument();
     expect(retireReward).toHaveBeenCalledTimes(1);
     expect(retireReward).not.toHaveBeenCalledWith('b');
-    expect(screen.getByRole('button', { name: 'הוצאה משימוש' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'הסרה' })).not.toBeDisabled();
+  });
+
+  // ── CAR-115: warn before removing a reward with live vouchers ──────────
+
+  it('fetches the real live-voucher count and warns with it, plural phrasing, before allowing removal', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 3 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+    await waitFor(() => expect(getLiveVoucherCount).toHaveBeenCalledWith('r1'));
+
+    expect(
+      await screen.findByText(
+        'להטבה הזו יש כרגע 3 שוברים חיים. הם כבר הונפקו, ולכן יישארו בתוקף עד לתאריך התפוגה שלהם, גם לאחר הסרת ההטבה.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/דקות|ימים|days|minutes/)).not.toBeInTheDocument();
+    const confirmButton = screen.getByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+  });
+
+  it('uses singular phrasing for exactly one live voucher', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 1 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+
+    expect(
+      await screen.findByText('להטבה הזו יש כרגע שובר חי אחד. הוא כבר הונפק, ולכן יישאר בתוקף עד לתאריך התפוגה שלו, גם לאחר הסרת ההטבה.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/דקות|ימים|days|minutes/)).not.toBeInTheDocument();
+  });
+
+  it('shows a plain confirmation, no voucher warning, when the live-voucher count is zero', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 0 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+
+    expect(await screen.findByText('ההטבה תפסיק להופיע לנהגים. שוברים שכבר הונפקו עבורה לא ייפגעו.')).toBeInTheDocument();
+    expect(screen.queryByText(/שוברים חיים/)).not.toBeInTheDocument();
+    const confirmButton = screen.getByRole('button', { name: 'כן, הסר' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+  });
+
+  it('keeps the confirm button disabled and shows an error when the live-voucher count fails to load, with no way to remove anyway', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'network_error' });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+
+    const alert = await screen.findByText('לא הצלחנו לבדוק אם יש שוברים חיים. נסו שוב.');
+    expect(alert).toBeInTheDocument();
+    const confirmButton = screen.getByRole('button', { name: 'כן, הסר' });
+    expect(confirmButton).toBeDisabled();
+
+    fireEvent.click(confirmButton);
+    expect(retireReward).not.toHaveBeenCalled();
+  });
+
+  it('cancels the retire confirmation without calling retireReward', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 2 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הסרה' }));
+    await screen.findByText(/שוברים חיים/);
+    fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
+
+    expect(screen.queryByRole('button', { name: 'כן, הסר' })).not.toBeInTheDocument();
+    expect(retireReward).not.toHaveBeenCalled();
+    expect(screen.getByText('שובר')).toBeInTheDocument();
+  });
+
+  it('never lets a slow, stale voucher-count response from a cancelled dialog leak into the next reward opened', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ id: 'a', titleHe: 'הטבה א' }), reward({ id: 'b', titleHe: 'הטבה ב' })],
+    });
+    let resolveA: (value: { outcome: 'ok'; liveVouchers: number }) => void = () => {};
+    vi.mocked(getLiveVoucherCount).mockImplementation((rewardId: string) => {
+      if (rewardId === 'a') return new Promise((resolve) => (resolveA = resolve));
+      return Promise.resolve({ outcome: 'ok', liveVouchers: 0 });
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
+
+    const [retireA] = screen.getAllByRole('button', { name: 'הסרה' });
+    fireEvent.click(retireA);
+    fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
+
+    const [, retireB] = screen.getAllByRole('button', { name: 'הסרה' });
+    fireEvent.click(retireB);
+    await screen.findByText('ההטבה תפסיק להופיע לנהגים. שוברים שכבר הונפקו עבורה לא ייפגעו.');
+
+    // A's request resolves only now, well after B's dialog is already showing
+    // its own (zero-voucher) result — it must not overwrite B's state. `act`
+    // flushes the microtask queue so the (guarded-against) state update this
+    // resolution would otherwise trigger has actually had a chance to run
+    // before the assertions below check for it.
+    await act(async () => {
+      resolveA({ outcome: 'ok', liveVouchers: 5 });
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/שוברים חיים/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'כן, הסר' })).not.toBeDisabled();
+  });
+
+  it('renders the live-voucher warning correctly in English', async () => {
+    window.localStorage.setItem('carma_lang', 'EN');
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 4 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Voucher')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(
+      await screen.findByText(
+        'This reward has 4 live vouchers right now. They were already issued, so they will stay valid until their own expiry dates, even after you remove the reward.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/minutes|days/)).not.toBeInTheDocument();
+    expect(document.documentElement.dir).toBe('ltr');
   });
 
   // ── blank/whitespace legacy translations (N6) ──────────────────────────
+
+  // ── CAR-116: CASHIER gets the view granted by the matrix, none of the rest ──
+
+  it('shows a CASHIER the active rewards the server sent, with no create/edit/retire controls', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { ...USER, businessMembershipRole: 'CASHIER' },
+      login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    } satisfies AuthContextValue);
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: 'הטבה חדשה' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'עריכה' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'הסרה' })).not.toBeInTheDocument();
+  });
+
+  it('shows a CASHIER a view-only empty state, not the create-oriented copy', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: { ...USER, businessMembershipRole: 'CASHIER' },
+      login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
+    } satisfies AuthContextValue);
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('אין כרגע הטבות זמינות.')).toBeInTheDocument());
+    expect(screen.queryByText('צרו את ההטבה הראשונה שלכם כדי להציע אותה לחברי כרמה.')).not.toBeInTheDocument();
+  });
 
   it('falls back to Hebrew when the English title and description are blank/whitespace, rather than rendering an empty card', async () => {
     window.localStorage.setItem('carma_lang', 'EN');
