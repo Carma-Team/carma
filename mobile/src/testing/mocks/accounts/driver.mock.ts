@@ -18,6 +18,7 @@ const user: AppUser = {
   language: 'HE',
   points: 999999,
   totalPoints: 999999,
+  driverScore: 92.5,
   // Short of the total by exactly what the two seeded vouchers below hold, so the
   // store opens on a session that already has something reserved to show.
   availablePoints: 999999 - 1300,
