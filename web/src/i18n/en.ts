@@ -152,8 +152,7 @@ const en: TranslationMap = {
     submitConflictAlreadyPendingTitle: 'You already have a pending request',
     submitConflictAlreadyPendingMessage: "We're already reviewing a request from you. Check its status below.",
     submitConflictNumberPendingTitle: 'This registration number is already pending review',
-    submitConflictNumberPendingMessage:
-      'Another request for this registration number is already being reviewed. If that request is yours, check its status below.',
+    submitConflictNumberPendingMessage: 'Another applicant has already submitted a request for this registration number, and it is still under review.',
     submitConflictNumberTakenTitle: 'This registration number is already registered',
     submitConflictNumberTakenMessage: 'This registration number already belongs to an approved business on CARMA.',
     submitConflictTitle: "Couldn't submit this request",

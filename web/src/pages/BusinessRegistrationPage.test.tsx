@@ -398,10 +398,11 @@ describe('BusinessRegistrationPage', () => {
     // A missing or unrecognized `code` (CAR-292's fallback case) must not be
     // shown as if it were one of the three documented, specific reasons.
     expect(screen.queryByText(/כבר יש (לכם )?בקשה ממתינה/)).not.toBeInTheDocument();
+    // Unknown reason: the status-link fallback is preserved from before CAR-292.
     expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
   });
 
-  it('shows the specific "you already have a pending request" message for the ALREADY_HAS_PENDING_REQUEST conflict', async () => {
+  it('shows the specific "you already have a pending request" message and the status link for the ALREADY_HAS_PENDING_REQUEST conflict', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
     vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
     vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
@@ -413,10 +414,12 @@ describe('BusinessRegistrationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'כבר יש לכם בקשה ממתינה' })).toBeInTheDocument());
+    expect(screen.getByText('אנחנו כבר בודקים בקשה שהגשתם. בדקו את הסטטוס שלה למטה.')).toBeInTheDocument();
+    // This is the caller's own pending request, so the status link is accurate here.
     expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
   });
 
-  it('shows the specific "registration number already pending" message for the REGISTRATION_NUMBER_PENDING conflict', async () => {
+  it('shows the specific "another applicant already applied" message, without the status link, for the REGISTRATION_NUMBER_PENDING conflict', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
     vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
     vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
@@ -428,10 +431,15 @@ describe('BusinessRegistrationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'מספר העסק הזה כבר ממתין לבדיקה' })).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+    expect(screen.getByText('מבקש אחר כבר שלח בקשה עבור מספר העסק הזה, והיא עדיין נמצאת בבדיקה.')).toBeInTheDocument();
+    // The pending request under this registration number belongs to
+    // another applicant (the server returns ALREADY_HAS_PENDING_REQUEST
+    // first when it's the caller's own), so a "check your status" link
+    // here would point at a request that isn't theirs.
+    expect(screen.queryByRole('link', { name: 'בדיקת סטטוס הבקשה' })).not.toBeInTheDocument();
   });
 
-  it('shows the specific "registration number already registered" message for the REGISTRATION_NUMBER_TAKEN conflict', async () => {
+  it('shows the specific "already registered" message, without the status link, for the REGISTRATION_NUMBER_TAKEN conflict', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
     vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
     vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
@@ -443,7 +451,10 @@ describe('BusinessRegistrationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'מספר העסק הזה כבר רשום' })).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+    expect(screen.getByText('מספר העסק הזה כבר שייך לעסק מאושר במערכת CARMA.')).toBeInTheDocument();
+    // Already an approved business, not a pending request of the caller's —
+    // there is no request status to check here.
+    expect(screen.queryByRole('link', { name: 'בדיקת סטטוס הבקשה' })).not.toBeInTheDocument();
   });
 
   it('does not claim the phone number is also the sign-in number — the web sign-in only accepts email + password', () => {

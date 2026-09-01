@@ -150,7 +150,7 @@ const he: TranslationMap = {
     submitConflictAlreadyPendingTitle: 'כבר יש לכם בקשה ממתינה',
     submitConflictAlreadyPendingMessage: 'אנחנו כבר בודקים בקשה שהגשתם. בדקו את הסטטוס שלה למטה.',
     submitConflictNumberPendingTitle: 'מספר העסק הזה כבר ממתין לבדיקה',
-    submitConflictNumberPendingMessage: 'בקשה אחרת עבור מספר העסק הזה כבר נמצאת בבדיקה. אם הבקשה הזו שלכם, בדקו את הסטטוס למטה.',
+    submitConflictNumberPendingMessage: 'מבקש אחר כבר שלח בקשה עבור מספר העסק הזה, והיא עדיין נמצאת בבדיקה.',
     submitConflictNumberTakenTitle: 'מספר העסק הזה כבר רשום',
     submitConflictNumberTakenMessage: 'מספר העסק הזה כבר שייך לעסק מאושר במערכת CARMA.',
     submitConflictTitle: 'לא הצלחנו לשלוח את הבקשה',

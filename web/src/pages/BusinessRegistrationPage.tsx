@@ -213,14 +213,23 @@ export function BusinessRegistrationPage() {
           : step.reason === 'registration_number_taken'
             ? 'NumberTaken'
             : '';
+    // The link only ever points at *this* applicant's own request status.
+    // `already_has_pending_request` is that request, and `unknown` (a
+    // missing/unrecognized code) preserves the old fallback behaviour. The
+    // other two reasons name someone else's request or an already-approved
+    // business — never the caller's — so the link would send them to a
+    // status page for a request that isn't theirs, or doesn't exist.
+    const showStatusLink = step.reason === 'already_has_pending_request' || step.reason === 'unknown';
     return (
       <main className={styles.page}>
         <Card className={styles.centered}>
           <Heading level={1}>{t(`businessRegistration.submitConflict${keySuffix}Title`)}</Heading>
           <Text variant="body">{t(`businessRegistration.submitConflict${keySuffix}Message`)}</Text>
-          <Link to="/register/status" className={styles.statusLink}>
-            {t('businessRegistration.checkStatusLink')}
-          </Link>
+          {showStatusLink && (
+            <Link to="/register/status" className={styles.statusLink}>
+              {t('businessRegistration.checkStatusLink')}
+            </Link>
+          )}
         </Card>
       </main>
     );
