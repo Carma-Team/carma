@@ -3,13 +3,19 @@ import { AppShell } from '@/components/shell/AppShell';
 import { RedemptionPage } from '@/pages/RedemptionPage';
 import { RewardsPage } from '@/pages/RewardsPage';
 import { PermissionsPage } from '@/pages/PermissionsPage';
+import { InvitationsPage } from '@/pages/InvitationsPage';
+import { AcceptInvitationPage } from '@/pages/AcceptInvitationPage';
+import { AcceptInvitationEntryPage } from '@/pages/AcceptInvitationEntryPage';
+import { CreateAccountPage } from '@/pages/CreateAccountPage';
 import { ComingSoonPage } from '@/pages/ComingSoonPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
+import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RequireBusinessRole } from './RequireBusinessRole';
+import { RequireAdmin } from './RequireAdmin';
 import { LandingRoute } from './LandingRoute';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
@@ -27,20 +33,43 @@ import { LandingRoute } from './LandingRoute';
 // /permissions (CAR-117) gets its own `RequireBusinessRole`, allowing OWNER
 // only — a narrower gate than the four routes above it, which every role in
 // the matrix can at least reach.
+// /admin/business-requests (CAR-255) sits beside those business-role gates,
+// not inside one — ADMIN is a system role unrelated to any business
+// membership, so it gets its own `RequireAdmin` reading `user.role` instead
+// of `businessMembershipRole`. This is UX only; `CurrentAdmin` on the CAR-77
+// endpoints is the actual boundary (see RequireAdmin's own comment).
+// / itself sits outside every role gate above (see LandingRoute) — it is
+// the one route both an ADMIN and a business role land on straight out of
+// sign-in, so it resolves the role split itself rather than living inside
+// a gate built for only one side of it.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
+  { path: '/create-account', element: <CreateAccountPage /> },
   { path: '/register', element: <BusinessRegistrationPage /> },
   { path: '/register/status', element: <BusinessRequestStatusPage /> },
+  // CAR-118's recipient side sits outside ProtectedRoute like /sign-in and
+  // /create-account: an invitation link must work for someone with no
+  // session at all, and the page itself decides what an unauthenticated
+  // visitor sees (a sign-in/create-account choice) versus an authenticated
+  // one (the business/role preview).
+  // The token travels as a URL *fragment* (`#TOKEN`), not a path segment —
+  // see `services/business_invitations.py::_link`'s docstring. A single
+  // fixed path, read via `location.hash` inside the page, not `:token`.
+  { path: '/business-invite', element: <AcceptInvitationPage /> },
+  { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
   {
     element: <ProtectedRoute />,
     children: [
       {
         element: <AppShell />,
         children: [
+          // /  (CAR-255 review) sits outside this gate now — LandingRoute
+          // does its own role check, because it is the one route an ADMIN
+          // must also reach (see its own comment for why).
+          { path: '/', element: <LandingRoute /> },
           {
             element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
             children: [
-              { path: '/', element: <LandingRoute /> },
               { path: '/redemption', element: <RedemptionPage /> },
               { path: '/rewards', element: <RewardsPage /> },
               { path: '/business-profile', element: <ComingSoonPage /> },
@@ -48,7 +77,14 @@ export const routes: RouteObject[] = [
           },
           {
             element: <RequireBusinessRole allow={['OWNER']} />,
-            children: [{ path: '/permissions', element: <PermissionsPage /> }],
+            children: [
+              { path: '/permissions', element: <PermissionsPage /> },
+              { path: '/permissions/invitations', element: <InvitationsPage /> },
+            ],
+          },
+          {
+            element: <RequireAdmin />,
+            children: [{ path: '/admin/business-requests', element: <BusinessRequestsReviewPage /> }],
           },
           { path: '*', element: <NotFoundPage /> },
         ],

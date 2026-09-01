@@ -101,10 +101,11 @@ not the sensor layer.
 
 ## Gyroscope — `SensorManager`
 
-Raw yaw rate is captured at 10 Hz and exposed as `accelX`/`gyroZ` telemetry
-on every `onUpdate` tick, for use by an app-supplied `TripValidator` (e.g.
-transport-mode fraud detection). It does not itself trigger any
-`DrivingEventType`.
+Yaw rate is captured at 10 Hz, resolved about gravity rather than about the
+device's Z axis, and exposed as `yawRateRadS` on every `onUpdate` tick alongside
+the vehicle-frame `longitudinalAccelG`/`lateralAccelG`, for use by an app-supplied
+`TripValidator` (e.g. transport-mode fraud detection). All three are `null` while
+the vehicle frame is unresolved. It does not itself trigger any `DrivingEventType`.
 
 ## Raw accel/gyro taps — `onAccelSample` / `onGyroSample`
 

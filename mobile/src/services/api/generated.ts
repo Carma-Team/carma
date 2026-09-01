@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/otp/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in with phone + OTP, establishing a CAR-217 browser session (CAR-265) */
+        post: operations["otp_login_api_auth_otp_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password/reset/request": {
         parameters: {
             query?: never;
@@ -499,7 +516,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List this business's pending invitations, with their expiry — OWNER only */
+        get: operations["list_invitations_api_business_invitations_get"];
         put?: never;
         /** Invite a colleague at MANAGER or CASHIER — OWNER only */
         post: operations["create_invitation_api_business_invitations_post"];
@@ -526,24 +544,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invitations/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Inspect an invitation before accepting it. 404 unless it is still valid. */
-        get: operations["preview_invitation_api_invitations__token__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/invitations/{token}/accept": {
+    "/api/invitations/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -552,8 +553,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept an invitation — creates the membership it names. 409 if already a member. */
-        post: operations["accept_invitation_api_invitations__token__accept_post"];
+        /** Inspect an invitation before accepting it. 404 unless it is still valid. */
+        post: operations["preview_invitation_api_invitations_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation — creates the membership it names. 409 if already a member, or if the account already belongs to a different business. */
+        post: operations["accept_invitation_api_invitations_accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -974,6 +992,38 @@ export interface components {
             role: "manager" | "cashier";
         };
         /**
+         * BusinessInvitationListItem
+         * @description A pending invitation as the OWNER's list sees it (CAR-118) — never the
+         *     token or the URL. Both were returned once, at creation, and are not
+         *     re-derivable from `token_hash`; a list endpoint that could show them again
+         *     would be a second way to read a credential that is supposed to exist only
+         *     in whatever channel the OWNER already sent it through.
+         */
+        BusinessInvitationListItem: {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "manager" | "cashier";
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+        };
+        /** BusinessInvitationListResponse */
+        BusinessInvitationListResponse: {
+            /** Invitations */
+            invitations: components["schemas"]["BusinessInvitationListItem"][];
+        };
+        /**
          * BusinessInvitationOut
          * @description Returned once, at creation — the only time the plaintext token exists
          *     outside the caller's own memory. Nothing later re-derives or re-displays it.
@@ -1065,6 +1115,29 @@ export interface components {
             reviewedAt: string | null;
             /** Reviewernote */
             reviewerNote: string | null;
+        };
+        /**
+         * BusinessJoinRequestConflictOut
+         * @description The `detail` body of a 409 from `POST /join-requests`. `code` is the
+         *     stable discriminator a client branches on; `message` is for display only
+         *     and carries no contract — see CAR-264.
+         */
+        BusinessJoinRequestConflictOut: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "ALREADY_HAS_PENDING_REQUEST" | "REGISTRATION_NUMBER_PENDING" | "REGISTRATION_NUMBER_TAKEN";
+            /** Message */
+            message: string;
+        };
+        /**
+         * BusinessJoinRequestConflictResponse
+         * @description Documents the actual FastAPI error envelope so it appears in the
+         *     generated OpenAPI schema instead of only in code comments.
+         */
+        BusinessJoinRequestConflictResponse: {
+            detail: components["schemas"]["BusinessJoinRequestConflictOut"];
         };
         /**
          * BusinessJoinRequestIn
@@ -1486,6 +1559,18 @@ export interface components {
             } | null;
         };
         /**
+         * InvitationTokenIn
+         * @description The recipient-side preview/accept payload (CAR-118 review item 1) —
+         *     the token travels in the request body, never the URL. A path segment (or
+         *     a query string) is a request *target*, which a CDN, load balancer, WAF,
+         *     or the web server's own access log can capture before this app ever sees
+         *     the request; a JSON body is not.
+         */
+        InvitationTokenIn: {
+            /** Token */
+            token: string;
+        };
+        /**
          * InviteLinkOut
          * @description The caller's own invite link, to drop into a WhatsApp message.
          */
@@ -1898,6 +1983,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
             /** Routewaypoints */
             routeWaypoints?: {
                 [key: string]: unknown;
@@ -1968,6 +2055,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
         };
         /** TripSingle */
         TripSingle: {
@@ -2018,6 +2107,8 @@ export interface components {
             points: number;
             /** Totalpoints */
             totalPoints: number;
+            /** Driverscore */
+            driverScore: number;
             /**
              * Availablepoints
              * @default 0
@@ -2328,6 +2419,39 @@ export interface operations {
         };
     };
     otp_verify_api_auth_otp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpVerifyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    otp_login_api_auth_otp_login_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3076,6 +3200,26 @@ export interface operations {
             };
         };
     };
+    list_invitations_api_business_invitations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessInvitationListResponse"];
+                };
+            };
+        };
+    };
     create_invitation_api_business_invitations_post: {
         parameters: {
             query?: never;
@@ -3138,16 +3282,18 @@ export interface operations {
             };
         };
     };
-    preview_invitation_api_invitations__token__get: {
+    preview_invitation_api_invitations_preview_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationTokenIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3169,16 +3315,18 @@ export interface operations {
             };
         };
     };
-    accept_invitation_api_invitations__token__accept_post: {
+    accept_invitation_api_invitations_accept_post: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationTokenIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3304,6 +3452,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessJoinRequestOut"];
+                };
+            };
+            /** @description One of three conflicts already exists, told apart by `detail.code`: `ALREADY_HAS_PENDING_REQUEST` (the caller already has a pending request), `REGISTRATION_NUMBER_PENDING` (another applicant's pending request already claims this registration number), or `REGISTRATION_NUMBER_TAKEN` (the registration number already belongs to an approved business). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestConflictResponse"];
                 };
             };
             /** @description Validation Error */

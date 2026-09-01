@@ -24,6 +24,7 @@ jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
     constructor(_onEvent: any, onUpdate: any) { sendUpdate = onUpdate; }
     async start() {}
     stop() {}
+    resetSensorCoverage() {}
   },
 }));
 
@@ -57,15 +58,19 @@ const TRAIN_VERDICT: FraudEvaluation = {
   telemetry: { avgSpeedKmh: 82, maxLateralAccelG: 0.02, yawVariance: 0.001 },
 };
 
-// One second of travel at a steady 80 km/h, as the sensor layer would report it.
+// One second of travel at a steady 80 km/h, as the sensor layer would report it — in the
+// vehicle's frame, which is what the SDK emits: steady means almost no forward force, and
+// a straight line means almost no yaw.
 function tickAt80(): void {
   sendUpdate({
     distanceKm: 0.022,
     currentSpeed: 80,
     timeDeltaS: 1,
-    accelX: 0.01,
-    gyroZ: 0.001,
+    longitudinalAccelG: 0.01,
+    lateralAccelG: 0,
+    yawRateRadS: 0.001,
     accelAvailable: true,
+    accelCoverage: 1,
     gyroAvailable: true,
     accelInitFailed: false,
     backgroundLocationAvailable: true,

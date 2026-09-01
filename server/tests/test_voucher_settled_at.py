@@ -7,13 +7,21 @@ set it and the ordering property CAR-79's history pagination depends on.
 
 from __future__ import annotations
 
+import importlib.util
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import ModuleType
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from app.models import Business, BusinessCategory, Redemption, RedemptionStatus, Reward, User, UserRole
 from app.services import business as business_service
 from app.services import rewards as rewards_service
@@ -233,25 +241,249 @@ async def test_mixed_statuses_order_stably_by_settled_at_and_id(db_session: Asyn
         await _cleanup(db_session, business, driver)
 
 
-# ─── Data-integrity backstop ─────────────────────────────────────────────────
+# ─── Expand-phase compatibility (CAR-283) ────────────────────────────────────
+#
+# 0019 backfilled business_id/settled_at then immediately tightened business_id
+# to NOT NULL and added a CHECK tying settled_at to status, in the same
+# migration deploy.yml applies before the rollout. For the length of the
+# rollout the *previous* image — which predates CAR-120 and writes neither
+# column — was still serving against that tightened schema and would 500 on
+# every voucher write. 0029 relaxes both back for this release; CAR-287
+# restores them once CAR-286 confirms the rollout is complete. These tests
+# stand in for that outgoing image: they write exactly the incomplete rows it
+# would have, and prove the DB accepts them.
 
 
 @pytest.mark.asyncio
-async def test_no_terminal_row_can_have_a_null_settled_at(db_session: AsyncSession) -> None:
-    """The check constraint, not just application code, guarantees the invariant.
+async def test_insert_without_business_id_succeeds_during_expand_window(db_session: AsyncSession) -> None:
+    """Simulates the pre-CAR-120 issue path (rewards.py:219 in CAR-283), which
+    never set business_id at all."""
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        reward = await _make_reward(db_session, business)
+        voucher = _voucher(reward, driver)
+        voucher.business_id = None
+        db_session.add(voucher)
+        await db_session.commit()  # must not raise a NOT NULL violation
+        await db_session.refresh(voucher)
+        assert voucher.business_id is None
+    finally:
+        await _cleanup(db_session, business, driver)
 
-    Every write path today already sets settled_at correctly; this proves the
-    database itself refuses the illegal state, so a future write path (a cancel
-    endpoint, a manual fixup) cannot silently reintroduce it.
+
+@pytest.mark.asyncio
+async def test_terminal_status_without_settled_at_succeeds_during_expand_window(db_session: AsyncSession) -> None:
+    """Simulates the pre-CAR-120 consume/expire paths (business.py:188 and
+    rewards.py:121 in CAR-283), which set a terminal status without settled_at."""
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        reward = await _make_reward(db_session, business)
+        voucher = _voucher(reward, driver)
+        db_session.add(voucher)
+        await db_session.commit()
+        await db_session.refresh(voucher)
+
+        voucher.status = RedemptionStatus.EXPIRED
+        await db_session.commit()  # must not raise the CHECK violation
+        await db_session.refresh(voucher)
+        assert voucher.status == RedemptionStatus.EXPIRED
+        assert voucher.settled_at is None
+    finally:
+        await _cleanup(db_session, business, driver)
+
+
+# ─── Migration 0029 downgrade — backfill coverage ────────────────────────────
+
+
+def _load_0029_module() -> ModuleType:
+    """Import `0029_redemption_settled_relax.py` itself, so tests that need
+    its SQL or its real `upgrade()`/`downgrade()` can't drift silently out of
+    sync with a hand-copied version — same reasoning as
+    `test_business_memberships._load_backfill_sql`."""
+    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / "0029_redemption_settled_relax.py"
+    spec = importlib.util.spec_from_file_location("_car283_relax_migration", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_0029_backfill_sql() -> tuple[str, tuple[str, ...]]:
+    """The exact SQL `0029_redemption_settled_relax.downgrade()` runs."""
+    module = _load_0029_module()
+    business_sql: str = module.BUSINESS_ID_BACKFILL_SQL
+    settled_sql: tuple[str, ...] = module.SETTLED_AT_BACKFILL_SQL
+    return business_sql, settled_sql
+
+
+@pytest.mark.asyncio
+async def test_downgrade_backfill_leaves_no_row_that_would_block_restoring_constraints(
+    db_session: AsyncSession,
+) -> None:
+    """Rows the expand-window write paths above leave incomplete are exactly
+    what downgrade's backfill must clear before NOT NULL/CHECK can be restored.
+
+    Runs the migration's own backfill SQL, in a transaction rolled back at the
+    end so nothing leaks into the shared dev database.
     """
     business = await _make_business(db_session)
     driver = await _make_driver(db_session)
     try:
         reward = await _make_reward(db_session, business)
-        bad = _voucher(reward, driver, status=RedemptionStatus.EXPIRED, settled_at=None)
-        db_session.add(bad)
-        with pytest.raises(Exception, match="ck_redemptions_settled_at_matches_status"):
-            await db_session.commit()
+        no_business_id = _voucher(reward, driver, status=RedemptionStatus.PENDING)
+        no_business_id.business_id = None
+        unsettled_used = _voucher(reward, driver, status=RedemptionStatus.USED, used_at=datetime.now(UTC))
+        unsettled_expired = _voucher(reward, driver, status=RedemptionStatus.EXPIRED)
+        db_session.add_all([no_business_id, unsettled_used, unsettled_expired])
+        # flush, not commit — the redemption rows and the backfill below stay
+        # inside one open transaction that gets rolled back at the end, so
+        # nothing this test writes for its own sake lands in the shared dev
+        # database. business/driver/reward were already committed by the
+        # helpers above and are cleaned up normally in the `finally`.
+        await db_session.flush()
+
+        business_sql, settled_sql = _load_0029_backfill_sql()
+        await db_session.execute(text(business_sql))
+        for statement in settled_sql:
+            await db_session.execute(text(statement))
+
+        for row in (no_business_id, unsettled_used, unsettled_expired):
+            await db_session.refresh(row)
+        assert no_business_id.business_id == reward.business_id
+        assert unsettled_used.settled_at == unsettled_used.used_at
+        assert unsettled_expired.settled_at == unsettled_expired.expires_at
+
         await db_session.rollback()
     finally:
+        await _cleanup(db_session, business, driver)
+
+
+# ─── Migration 0029 — full alembic upgrade/downgrade cycle ──────────────────
+#
+# The test above proves the backfill SQL in isolation. This one drives the
+# migration's real `upgrade()`/`downgrade()` through Alembic's own Operations
+# bridge — the same mechanism `alembic/env.py` uses — against the live
+# `redemptions` table, so a broken `op.*` call would fail here even though the
+# backfill SQL itself is correct.
+
+CONSTRAINT_NAME = "ck_redemptions_settled_at_matches_status"
+
+
+async def _run_migration_fn(conn: AsyncConnection, fn: Callable[[], None]) -> None:
+    """Run one migration function for real against `conn`'s live transaction.
+
+    `MigrationContext.configure` + `Operations.context` is what Alembic's own
+    `env.py` sets up before calling a migration's `upgrade()`/`downgrade()` —
+    those call the module-level `alembic.op` proxy, which resolves to
+    whichever Operations instance is currently installed. Recreating that here
+    means the migration's actual code runs, DDL included, inside a transaction
+    this test controls and never commits.
+    """
+
+    def _sync(sync_conn: Connection) -> None:
+        context = MigrationContext.configure(sync_conn)
+        with Operations.context(context):
+            fn()
+
+    await conn.run_sync(_sync)
+
+
+async def _business_id_nullable(conn: AsyncConnection) -> bool:
+    result = await conn.execute(
+        text(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'redemptions' AND column_name = 'business_id'"
+        )
+    )
+    return bool(result.scalar_one() == "YES")
+
+
+async def _settled_at_check_exists(conn: AsyncConnection) -> bool:
+    result = await conn.execute(text("SELECT 1 FROM pg_constraint WHERE conname = :n"), {"n": CONSTRAINT_NAME})
+    return result.first() is not None
+
+
+@pytest.mark.asyncio
+async def test_migration_0029_upgrade_downgrade_upgrade_against_real_ddl(db_session: AsyncSession) -> None:
+    """0028 -> 0029 -> write like the outgoing image -> 0029 -> 0028 -> 0029,
+    all against real Postgres DDL, inside one transaction rolled back at the
+    end so nothing leaks into the shared dev database.
+
+    Every other test in this file assumes the schema is already at head
+    (0029, relaxed) — true here too, and true in CI, which runs
+    `alembic upgrade head` before pytest. To reach a genuine pre-migration
+    (0028) starting point without touching the shared `alembic_version`
+    table, this test downgrades first: that step doubles as proving
+    0029 -> 0028 works before proving 0028 -> 0029 does.
+    """
+    business = await _make_business(db_session)
+    driver = await _make_driver(db_session)
+    try:
+        reward = await _make_reward(db_session, business)
+        module = _load_0029_module()
+        conn = await db_session.connection()
+
+        assert await _business_id_nullable(conn), "precondition: schema must already be at head (0029)"
+        assert not await _settled_at_check_exists(conn), "precondition: schema must already be at head (0029)"
+
+        # Reach 0028 for real.
+        await _run_migration_fn(conn, module.downgrade)
+        assert not await _business_id_nullable(conn)
+        assert await _settled_at_check_exists(conn)
+
+        # 1. Upgrade 0028 -> 0029.
+        await _run_migration_fn(conn, module.upgrade)
+
+        # 2. Relaxed: nullable, no CHECK.
+        assert await _business_id_nullable(conn)
+        assert not await _settled_at_check_exists(conn)
+
+        # 3. Writes the outgoing (pre-CAR-120) image makes during the relaxed
+        # window: no business_id, and a terminal status with no settled_at.
+        no_business_id = _voucher(reward, driver, status=RedemptionStatus.PENDING)
+        no_business_id.business_id = None
+        unsettled_used = _voucher(reward, driver, status=RedemptionStatus.USED, used_at=datetime.now(UTC))
+        unsettled_expired = _voucher(reward, driver, status=RedemptionStatus.EXPIRED)
+        db_session.add_all([no_business_id, unsettled_used, unsettled_expired])
+        await db_session.flush()  # real INSERTs — must not raise
+
+        # 4. Downgrade 0029 -> 0028.
+        await _run_migration_fn(conn, module.downgrade)
+
+        # 5. Backfill ran, and ran before the constraints below were
+        # restored — if it hadn't, restoring them would have failed on the
+        # rows just inserted.
+        for row in (no_business_id, unsettled_used, unsettled_expired):
+            await db_session.refresh(row)
+        assert no_business_id.business_id == reward.business_id
+        assert unsettled_used.settled_at == unsettled_used.used_at
+        assert unsettled_expired.settled_at == unsettled_expired.expires_at
+
+        # 6. NOT NULL and the CHECK are restored and enforced. Each probe runs
+        # in its own SAVEPOINT so the expected failure doesn't abort the
+        # outer transaction this test rolls back.
+        assert not await _business_id_nullable(conn)
+        assert await _settled_at_check_exists(conn)
+
+        with pytest.raises(IntegrityError):
+            async with db_session.begin_nested():
+                bad = _voucher(reward, driver, status=RedemptionStatus.PENDING)
+                bad.business_id = None
+                db_session.add(bad)
+                await db_session.flush()
+
+        with pytest.raises(IntegrityError):
+            async with db_session.begin_nested():
+                bad = _voucher(reward, driver, status=RedemptionStatus.EXPIRED)
+                db_session.add(bad)
+                await db_session.flush()
+
+        # 7. Upgrade again — the schema returns cleanly to the expand state.
+        await _run_migration_fn(conn, module.upgrade)
+        assert await _business_id_nullable(conn)
+        assert not await _settled_at_check_exists(conn)
+    finally:
+        await db_session.rollback()
         await _cleanup(db_session, business, driver)
