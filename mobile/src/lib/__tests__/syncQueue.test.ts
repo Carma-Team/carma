@@ -1,4 +1,4 @@
-import { SyncManager, BACKOFF_MS, MAX_FAILURES_BEFORE_DROP } from '@/services/sync/SyncManager';
+import { SyncManager, BACKOFF_MS, MAX_QUEUE_AGE_MS } from '@/services/sync/SyncManager';
 import { ApiError } from '@/services/api/client';
 import { tripsApi } from '@/services/api/trips.api';
 import type { ValidTripPayload } from '@/services/sync/types';
@@ -70,6 +70,7 @@ beforeEach(async () => {
   await SyncManager.clearQueue();
   mockSave.mockReset();
   SyncManager.onTripSynced = undefined;
+  SyncManager.onTripAbandoned = undefined;
 });
 
 // ─── Enqueue ──────────────────────────────────────────────────────────────────
@@ -334,11 +335,11 @@ describe('retry budget and backoff', () => {
     expect(mockSave).toHaveBeenCalledTimes(2);
   });
 
-  test('429s never spend the delete budget, however many arrive', async () => {
+  test('repeated 429s never bring a trip closer to being abandoned', async () => {
     mockSave.mockRejectedValue(rateLimited());
     await SyncManager.enqueue(makePayload('trip_throttled'));
 
-    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP + 5; i++) {
+    for (let i = 0; i < 20; i++) {
       await SyncManager.flushQueue();
       clock += RATE_LIMIT_WAIT_SECONDS * 1000;
     }
@@ -346,21 +347,23 @@ describe('retry budget and backoff', () => {
     expect(await SyncManager.getQueueLength()).toBe(1);
   });
 
-  test('a trip is dropped once the failure budget is exhausted', async () => {
+  test('a trip is abandoned — not deleted — once it has sat in the queue past MAX_QUEUE_AGE_MS', async () => {
     mockSave.mockRejectedValue(new Error('Network request failed'));
-    await SyncManager.enqueue(makePayload('trip_exhausted'));
+    const abandoned: string[] = [];
+    SyncManager.onTripAbandoned = (localId: string) => abandoned.push(localId);
 
-    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP; i++) {
-      await SyncManager.flushQueue();
-      clock += LONGEST_BACKOFF_MS;
-    }
-    // Budget exactly spent — the trip is still queued and was retried every time
-    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
-    expect(await SyncManager.getQueueLength()).toBe(1);
+    await SyncManager.enqueue(makePayload('trip_stale'));
 
-    // The next pass is the one that drops it, without another attempt
+    // One millisecond short of the bound — still queued, no callback
+    clock += MAX_QUEUE_AGE_MS - 1;
     await SyncManager.flushQueue();
-    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
+    expect(await SyncManager.getQueueLength()).toBe(1);
+    expect(abandoned).toEqual([]);
+
+    // Crossing the bound removes it from the queue and fires onTripAbandoned exactly once
+    clock += 1;
+    await SyncManager.flushQueue();
     expect(await SyncManager.getQueueLength()).toBe(0);
+    expect(abandoned).toEqual(['trip_stale']);
   });
 });

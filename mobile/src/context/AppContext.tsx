@@ -401,6 +401,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [patchUser]);
 
+  // ─── SyncManager: flag a trip locally once its upload is given up on ──────────
+  useEffect(() => {
+    SyncManager.onTripAbandoned = (localId: string) => {
+      setRecentTrips(prev => {
+        const updated = prev.map(t =>
+          t.id === localId ? { ...t, syncFailed: true } : t
+        );
+        AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
+        return updated;
+      });
+    };
+  }, []);
+
   // ─── AppState: flush queued trips when app returns to foreground ──────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {

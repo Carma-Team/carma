@@ -41,6 +41,9 @@ export type Trip = Schemas['TripOut'] & {
   // points, so that row carries zeros — this flag is what tells them apart from a
   // trip the server actually scored zero.
   pendingSync?: boolean;
+  // Client-only. Set when SyncManager abandons the trip after MAX_QUEUE_AGE_MS —
+  // upload gave up, but the row stays instead of disappearing with no trace.
+  syncFailed?: boolean;
   eventsArray?: any[];
 };
 
