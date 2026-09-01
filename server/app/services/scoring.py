@@ -18,12 +18,12 @@ it values sourced from the signed telemetry digest (the oracle) and persists the
 results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
-  * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
-    sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
-    horizontal magnitude, not the per-axis vehicle-frame value the curve maps
-    (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
-    to raw counts (each event weight 1.0). `event_severity()` is implemented and
-    tested now so the downstream math is unchanged the day that value arrives.
+  * Per-event severity (peak_g, speed_at_event) — the client has sent peak_g
+    since #48, but it arrives as an unsigned horizontal magnitude, not the
+    per-axis vehicle-frame value the curve maps (CAR-156). Until a
+    phone-to-vehicle rotation exists, weighted counts collapse to raw counts
+    (each event weight 1.0). `event_severity()` is implemented and tested now
+    so the downstream math is unchanged the day that value arrives.
   * Speeding (map-matched posted limits) — needs map-matching. Until then the
     speeding weight is redistributed across the other components ("Blending the five").
 """
