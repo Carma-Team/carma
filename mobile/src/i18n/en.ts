@@ -243,6 +243,10 @@ const en: TranslationMap = {
     historyClearedDesc: 'Trip history has been hidden',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
   },
+  fraud: {
+    declinedTitle: 'Trip not counted',
+    declinedMessage: 'This journey looked like public transport, so it was not scored. If you were driving, it will be counted next time — the check runs again on every trip.',
+  },
   deviceGate: {
     regionTitle: 'Not available in your region',
     regionMessage: 'CARMA is currently available only in Israel.',

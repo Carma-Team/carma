@@ -246,6 +246,10 @@ const he = {
     historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
+  fraud: {
+    declinedTitle: 'הנסיעה לא נספרה',
+    declinedMessage: 'הנסיעה זוהתה כנסיעה בתחבורה ציבורית ולכן לא קיבלה ניקוד. אם נהגת ברכב, הנסיעה הבאה תיספר — הבדיקה רצה מחדש בכל נסיעה.',
+  },
   deviceGate: {
     regionTitle: 'לא זמין באזור שלך',
     regionMessage: 'CARMA זמינה כרגע רק בישראל.',
