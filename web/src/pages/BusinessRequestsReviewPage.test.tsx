@@ -201,6 +201,72 @@ describe('BusinessRequestsReviewPage', () => {
     await waitFor(() => expect(screen.getByLabelText('Status')).not.toBeDisabled());
   });
 
+  it('keeps the status filter disabled through the post-approve reconcile, not just through the approve request', async () => {
+    // Two independently-controlled promises catch the regression where the
+    // lock released as soon as the approve POST resolved: a filter change in
+    // that window could let this reconcile's response land after — and
+    // overwrite — the newly-selected filter's own fetch.
+    let resolveApprove!: (value: Awaited<ReturnType<typeof approveBusinessRequest>>) => void;
+    const approvePromise = new Promise<Awaited<ReturnType<typeof approveBusinessRequest>>>((resolve) => {
+      resolveApprove = resolve;
+    });
+    let resolveReconcile!: (value: Awaited<ReturnType<typeof listBusinessRequests>>) => void;
+    const reconcilePromise = new Promise<Awaited<ReturnType<typeof listBusinessRequests>>>((resolve) => {
+      resolveReconcile = resolve;
+    });
+    vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [PENDING] });
+    vi.mocked(approveBusinessRequest).mockReturnValue(approvePromise);
+    vi.mocked(listBusinessRequests).mockReturnValueOnce(reconcilePromise);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Aroma')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Aroma' }));
+    await waitFor(() => expect(screen.getByLabelText('Status')).toBeDisabled());
+
+    resolveApprove({ outcome: 'ok', request: { ...PENDING, status: 'approved', reviewedAt: '2026-08-28T00:00:00Z' } });
+    // The approve call has settled but the reconcile it triggers is still
+    // pending — the filter must still be locked here.
+    await waitFor(() => expect(listBusinessRequests).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('Status')).toBeDisabled();
+
+    resolveReconcile({ outcome: 'ok', requests: [] });
+    await waitFor(() => expect(screen.getByLabelText('Status')).not.toBeDisabled());
+  });
+
+  it('keeps the status filter disabled through the post-reject reconcile, not just through the reject request', async () => {
+    let resolveReject!: (value: Awaited<ReturnType<typeof rejectBusinessRequest>>) => void;
+    const rejectPromise = new Promise<Awaited<ReturnType<typeof rejectBusinessRequest>>>((resolve) => {
+      resolveReject = resolve;
+    });
+    let resolveReconcile!: (value: Awaited<ReturnType<typeof listBusinessRequests>>) => void;
+    const reconcilePromise = new Promise<Awaited<ReturnType<typeof listBusinessRequests>>>((resolve) => {
+      resolveReconcile = resolve;
+    });
+    vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [PENDING] });
+    vi.mocked(rejectBusinessRequest).mockReturnValue(rejectPromise);
+    vi.mocked(listBusinessRequests).mockReturnValueOnce(reconcilePromise);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Aroma')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject Aroma' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Reject this request?' })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Reviewer note'), { target: { value: 'Missing documents' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reject Aroma' }).at(-1)!);
+    await waitFor(() => expect(screen.getByLabelText('Status')).toBeDisabled());
+
+    resolveReject({
+      outcome: 'ok',
+      request: { ...PENDING, status: 'rejected', reviewerNote: 'Missing documents', reviewedAt: '2026-08-28T00:00:00Z' },
+    });
+    await waitFor(() => expect(listBusinessRequests).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('Status')).toBeDisabled();
+
+    resolveReconcile({ outcome: 'ok', requests: [] });
+    await waitFor(() => expect(screen.getByLabelText('Status')).not.toBeDisabled());
+  });
+
   it('shows the server-provided conflict message and reconciles the list when a decision was already made elsewhere', async () => {
     vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [PENDING] });
     vi.mocked(approveBusinessRequest).mockResolvedValue({

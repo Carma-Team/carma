@@ -120,16 +120,21 @@ export function BusinessRequestsReviewPage() {
     clearRowError(request.id);
 
     const result = await approveBusinessRequest(request.id);
-    mutationInFlight.current = false;
-    setMutatingId(null);
 
     if (result.outcome === 'ok') {
       setRequests((prev) => prev.map((r) => (r.id === request.id ? result.request : r)));
+      // Lock stays held through this reconcile too — releasing it right after
+      // the mutation resolves would let a filter change race the still-open
+      // GET below and land its response over the newly-selected filter's.
       await reconcile();
+      mutationInFlight.current = false;
+      setMutatingId(null);
       return;
     }
     setRowErrors((prev) => ({ ...prev, [request.id]: actionErrorMessage(result) }));
     if (result.outcome === 'conflict' || result.outcome === 'not_found') await reconcile();
+    mutationInFlight.current = false;
+    setMutatingId(null);
   }
 
   function openReject(request: BusinessRequestAdmin) {
@@ -157,17 +162,22 @@ export function BusinessRequestsReviewPage() {
     clearRowError(target.id);
 
     const result = await rejectBusinessRequest(target.id, note);
-    mutationInFlight.current = false;
-    setMutatingId(null);
     setRejectTarget(null);
 
     if (result.outcome === 'ok') {
       setRequests((prev) => prev.map((r) => (r.id === target.id ? result.request : r)));
+      // Lock stays held through this reconcile too — releasing it right after
+      // the mutation resolves would let a filter change race the still-open
+      // GET below and land its response over the newly-selected filter's.
       await reconcile();
+      mutationInFlight.current = false;
+      setMutatingId(null);
       return;
     }
     setRowErrors((prev) => ({ ...prev, [target.id]: actionErrorMessage(result) }));
     if (result.outcome === 'conflict' || result.outcome === 'not_found') await reconcile();
+    mutationInFlight.current = false;
+    setMutatingId(null);
   }
 
   // Every pending row otherwise shares the same visible button text
