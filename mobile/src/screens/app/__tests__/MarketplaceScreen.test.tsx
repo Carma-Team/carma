@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
+import { render, screen, fireEvent, act } from '@testing-library/react-native'
 import MarketplaceScreen from '@/screens/app/MarketplaceScreen'
 import { ApiError } from '@/services/api/client'
 import { rewardsApi } from '@/services/api/rewards.api'
@@ -65,25 +65,40 @@ const voucher = (code: string): Voucher =>
 
 const mocked = rewardsApi as jest.Mocked<typeof rewardsApi>
 
-/** Renders and waits for the catalog load to settle, so the cards are on screen. */
+/**
+ * Renders and settles the catalog load, so the cards are on screen.
+ *
+ * The load is flushed rather than polled for: the screen's state lands under React's
+ * control before the test looks, and there is no waiting window for a cold first run
+ * in this file to outlast.
+ */
 async function renderStore(vouchers: Voucher[] = []) {
   mocked.list.mockResolvedValue({ rewards: [reward], vouchers })
   render(<MarketplaceScreen />)
-  await screen.findByText(he.marketplace.redeem)
+  // Empty on purpose: `render` may not be called inside it — the render result is
+  // built by reaching into the renderer, which act does not allow. What is needed
+  // here is only the flush it performs on the way out.
+  await act(async () => {})
 }
 
 /**
  * Opens the confirmation sheet from the card, then confirms.
  *
- * Both buttons carry the same label, and the sheet's is the second one to appear —
- * so this waits for the count to reach two rather than for "at least one", which the
- * card alone already satisfies before the sheet has rendered.
+ * Opening is a plain state update, which `fireEvent` has already committed — so both
+ * buttons are on screen by the time this reads them. They carry the same label and the
+ * sheet's is the second, which the count asserts rather than assumes.
+ *
+ * Confirming runs an async handler, and its state updates land after the promise it
+ * awaits. `act` holds the test until they are committed; without it they arrive behind
+ * React's back and the voucher is sometimes not open yet when the assertion looks.
  */
 async function redeemOnce() {
   fireEvent.press(screen.getByText(he.marketplace.redeem))
-  await waitFor(() => expect(screen.getAllByText(he.marketplace.redeem)).toHaveLength(2))
   const buttons = screen.getAllByText(he.marketplace.redeem)
-  fireEvent.press(buttons[buttons.length - 1])
+  expect(buttons).toHaveLength(2)
+  await act(async () => {
+    fireEvent.press(buttons[buttons.length - 1])
+  })
 }
 
 beforeEach(() => jest.clearAllMocks())
@@ -95,7 +110,7 @@ describe('MarketplaceScreen redemption', () => {
 
     await redeemOnce()
 
-    expect(await screen.findByText(he.marketplace.voucher.title)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.title)).toBeTruthy()
     expect(screen.getByTestId('voucher-modal-code')).toHaveTextContent('FIRST1')
   })
 
@@ -105,7 +120,7 @@ describe('MarketplaceScreen redemption', () => {
 
     await redeemOnce()
 
-    expect(await screen.findByText(he.marketplace.voucher.title)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.title)).toBeTruthy()
     // The one that just opened is the new voucher, not the one already held.
     expect(screen.getByTestId('voucher-modal-code')).toHaveTextContent('SECOND2')
   })
@@ -118,7 +133,7 @@ describe('MarketplaceScreen redemption', () => {
 
     await redeemOnce()
 
-    await waitFor(() => expect(mockAddToast).toHaveBeenCalled())
+    expect(mockAddToast).toHaveBeenCalled()
     const { type, message } = mockAddToast.mock.calls[0][0]
     expect(type).toBe('error')
     // The duration is the server's, rendered into the sentence — never a number this
@@ -136,7 +151,7 @@ describe('MarketplaceScreen redemption', () => {
 
     await redeemOnce()
 
-    await waitFor(() => expect(mockAddToast).toHaveBeenCalled())
+    expect(mockAddToast).toHaveBeenCalled()
     expect(mockAddToast.mock.calls[0][0].message).toBe(he.marketplace.redeemCooldown)
   })
 })
