@@ -118,6 +118,21 @@ describe('routes', () => {
     expect(listBusinessRequests).not.toHaveBeenCalled();
   });
 
+  // CAR-255 review: a fresh sign-in with no `from` location state lands
+  // every role at / (see SignInPage's default) — an ADMIN has no business
+  // membership to show a dashboard for, so it must not dead-end on
+  // RequireBusinessRole's access-restricted state the way it did before
+  // LandingRoute took over its own role check.
+  it('redirects an ADMIN landing at / straight to the business-requests review page, not an access-restricted dead end', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: adminUser });
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [] });
+
+    renderAt('/');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
 

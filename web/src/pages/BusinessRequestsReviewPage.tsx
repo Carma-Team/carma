@@ -212,6 +212,14 @@ export function BusinessRequestsReviewPage() {
             id="business-requests-filter"
             className={inputStyles.input}
             value={filter}
+            // Disabled while a mutation is in flight: `handleApprove`/
+            // `confirmReject` close over this render's `filter` for their
+            // post-decision `reconcile()` call, so a filter change mid-flight
+            // would let that stale closure refetch the *old* filter and
+            // silently overwrite whatever the newly-selected filter had
+            // fetched — leaving the list showing something other than what
+            // the select control says it's showing.
+            disabled={mutatingId !== null}
             onChange={(event) => {
               setStatus('loading');
               setFilter(event.target.value as FilterValue);

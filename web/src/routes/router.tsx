@@ -38,6 +38,10 @@ import { LandingRoute } from './LandingRoute';
 // membership, so it gets its own `RequireAdmin` reading `user.role` instead
 // of `businessMembershipRole`. This is UX only; `CurrentAdmin` on the CAR-77
 // endpoints is the actual boundary (see RequireAdmin's own comment).
+// / itself sits outside every role gate above (see LandingRoute) — it is
+// the one route both an ADMIN and a business role land on straight out of
+// sign-in, so it resolves the role split itself rather than living inside
+// a gate built for only one side of it.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
   { path: '/create-account', element: <CreateAccountPage /> },
@@ -59,10 +63,13 @@ export const routes: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
+          // /  (CAR-255 review) sits outside this gate now — LandingRoute
+          // does its own role check, because it is the one route an ADMIN
+          // must also reach (see its own comment for why).
+          { path: '/', element: <LandingRoute /> },
           {
             element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
             children: [
-              { path: '/', element: <LandingRoute /> },
               { path: '/redemption', element: <RedemptionPage /> },
               { path: '/rewards', element: <RewardsPage /> },
               { path: '/business-profile', element: <ComingSoonPage /> },

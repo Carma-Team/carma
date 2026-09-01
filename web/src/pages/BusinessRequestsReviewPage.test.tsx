@@ -167,6 +167,40 @@ describe('BusinessRequestsReviewPage', () => {
     expect(approveBusinessRequest).toHaveBeenCalledOnce();
   });
 
+  it('disables the status filter while a mutation is in flight, so a filter change cannot race the post-decision reconcile', async () => {
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [PENDING] });
+    vi.mocked(approveBusinessRequest).mockReturnValue(new Promise(() => {})); // never resolves
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Aroma')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Aroma' }));
+
+    // `handleApprove`'s eventual `reconcile()` closes over the filter value
+    // from this render; disabling the control while it holds means that
+    // value can never go stale mid-flight.
+    expect(await screen.findByLabelText('Status')).toBeDisabled();
+    // Only one fetch so far (the initial load) — a disabled select cannot
+    // have fired a second one.
+    expect(listBusinessRequests).toHaveBeenCalledOnce();
+  });
+
+  it('re-enables the status filter once the in-flight mutation settles', async () => {
+    vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [PENDING] });
+    vi.mocked(approveBusinessRequest).mockResolvedValue({
+      outcome: 'ok',
+      request: { ...PENDING, status: 'approved', reviewedAt: '2026-08-28T00:00:00Z' },
+    });
+    vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [] });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Aroma')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Aroma' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Status')).not.toBeDisabled());
+  });
+
   it('shows the server-provided conflict message and reconciles the list when a decision was already made elsewhere', async () => {
     vi.mocked(listBusinessRequests).mockResolvedValueOnce({ outcome: 'ok', requests: [PENDING] });
     vi.mocked(approveBusinessRequest).mockResolvedValue({
