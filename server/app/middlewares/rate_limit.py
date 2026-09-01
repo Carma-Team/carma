@@ -29,6 +29,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import limits
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.routing import iter_route_contexts
@@ -37,28 +38,41 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.routing import Match
 
-from app.core.limiter import limiter
+from app.core.limiter import BURST_LIMIT, SUSTAINED_LIMIT, limiter
+
+# SlowAPI's own tie-break for `view_rate_limit` compares window granularity
+# (`RateLimitItem.__lt__`), not remaining budget, so on the default path it
+# always resolves to the 30/minute item — a client pacing under that ceiling
+# would never see the 500/hour budget in the headers until the request that
+# it refuses. Both defaults share the middleware's key and scope, so
+# re-querying both here and reporting whichever has less budget left is a
+# second cheap storage read, not a second rate-limit check.
+_DEFAULT_LIMIT_ITEMS = (limits.parse(SUSTAINED_LIMIT), limits.parse(BURST_LIMIT))
 
 
 def _rate_limit_headers(request: Request) -> dict[str, str]:
-    """The IETF `RateLimit-*` triad for whichever window SlowAPI last checked.
+    """The IETF `RateLimit-*` triad for the window actually binding this request.
 
     `_check_request_limit` — called by this middleware and, for a decorated
-    route, by the route's own wrapper before `call_next` returns here — always
+    route, by the route's own wrapper before `call_next` returns here —
     records the window it checked on `request.state.view_rate_limit` as
-    `(RateLimitItem, identifiers)`, win or lose: the tighter of the 30/min and
-    500/hour defaults here, or the route's own declared limit on a decorated
-    route. So one read here after `call_next` covers both paths with no change
-    to any route signature. Unset (exempt route, unmatched path) means no
-    headers, correctly.
+    `(RateLimitItem, identifiers)`. On the default path that item is always
+    the 30/minute one; both defaults are re-queried below and the tighter
+    result reported. A decorated route's own declared limit has no sibling to
+    compare against and is used as-is. Unset (exempt route, unmatched path)
+    means no headers, correctly.
     """
     view_rate_limit = getattr(request.state, "view_rate_limit", None)
     if not view_rate_limit:
         return {}
     item, identifiers = view_rate_limit
-    reset_epoch, remaining = limiter.limiter.get_window_stats(item, *identifiers)
+    candidates = _DEFAULT_LIMIT_ITEMS if item in _DEFAULT_LIMIT_ITEMS else (item,)
+    tightest_item, reset_epoch, remaining = min(
+        ((candidate, *limiter.limiter.get_window_stats(candidate, *identifiers)) for candidate in candidates),
+        key=lambda stat: stat[2],
+    )
     return {
-        "RateLimit-Limit": str(item.amount),
+        "RateLimit-Limit": str(tightest_item.amount),
         "RateLimit-Remaining": str(remaining),
         "RateLimit-Reset": str(max(0, round(reset_epoch - time.time()))),
     }

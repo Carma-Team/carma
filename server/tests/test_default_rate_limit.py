@@ -13,10 +13,12 @@ against the old middleware.
 
 from __future__ import annotations
 
+import limits
 import pytest
 from httpx import AsyncClient
 
 from app.core.limiter import BURST_LIMIT
+from app.middlewares import rate_limit as rate_limit_middleware
 from app.routers.auth import CREDENTIAL_LIMIT
 
 # Read off the limiter rather than repeated here, so tuning a ceiling does not
@@ -88,6 +90,31 @@ async def test_remaining_budget_is_visible_before_the_caller_is_cut_off(
     assert remaining[0] == BURST_CEILING - 1
     assert responses[0].headers["ratelimit-limit"] == str(BURST_CEILING)
     assert int(responses[0].headers["ratelimit-reset"]) >= 0
+
+
+@pytest.mark.asyncio
+async def test_the_tighter_default_window_wins_the_header(
+    rate_limited: None, api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller pacing under the burst ceiling must still see the hourly one.
+
+    SlowAPI's own bookkeeping (`view_rate_limit`) names whichever default
+    window it evaluated last, chosen by granularity, not by budget — on the
+    real 30/minute + 500/hour pair that is always the minute window, so a
+    slow, steady caller would never see the hourly ceiling in the headers
+    until the request it refuses. A one-request stand-in for the hourly
+    window, swapped in for the real pair, proves the header now reports
+    whichever default has less budget left rather than whichever SlowAPI
+    happened to flag.
+    """
+    monkeypatch.setattr(
+        rate_limit_middleware,
+        "_DEFAULT_LIMIT_ITEMS",
+        (limits.parse("1/hour"), limits.parse(BURST_LIMIT)),
+    )
+    response = await api_client.get(UNCAPPED_ROUTE)
+    assert response.headers["ratelimit-limit"] == "1", "the tighter stand-in window should have won"
+    assert response.headers["ratelimit-remaining"] == "1"
 
 
 @pytest.mark.asyncio
