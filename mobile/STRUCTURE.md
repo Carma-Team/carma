@@ -30,7 +30,6 @@ Expo Router file-system routing. Each file here is a route.
 | Path | What goes here |
 |---|---|
 | `(tabs)/(home)/` | Tab-bar screens: dashboard, active trip, trip detail |
-| `(business)/` | Business-portal screens (rewards, reward form) |
 
 **Rules:**
 - Files here are route entry points only — keep them thin.
@@ -155,7 +154,7 @@ documented in `mobile/CLAUDE.md`.
 | `utils.ts` | May | Generic display formatting shared across screens and components. Numbers, distances, durations, dates and relative times in Hebrew and English, plus score/level to icon, colour and grade mappings. |
 | `authErrors.ts` | May | Turns a failed auth request into a message the driver can read. Maps the HTTP status onto a translation key, per screen, and never shows the server's own `detail` — that string is always English. |
 | `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
-| `rewardStock.ts` | Shaun | The reward-stock rules the business screens and the marketplace share. Formats the "left out of allocated" line, parses the stock field where blank means no cap, and decides what counts as sold out — for the card that disables it and the list that sorts it down. |
+| `rewardStock.ts` | Shaun | The reward-stock rules the marketplace uses. Formats the "left out of allocated" line, parses the stock field where blank means no cap, and decides what counts as sold out — for the card that disables it and the list that sorts it down. |
 | `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
 | `transportMode.ts` | Dan | The transport modes `FraudDetector` classifies a session into. Lives in CARMA rather than in `driving-sdk` because "was this a train" is this product's question, not a sensor library's. |
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
@@ -235,7 +234,6 @@ One file per backend resource.
 | `levels.api.ts` | `GET /api/levels` |
 | `leaderboard.api.ts` | `GET /api/leaderboard` |
 | `rewards.api.ts` | `GET /api/rewards`, `POST /api/rewards/redeem` |
-| `business.api.ts` | Business-portal endpoints |
 | `user.api.ts` | `GET /api/users/:id`, `PATCH /api/users/:id` |
 | `notifications.api.ts` | Push notification registration |
 | `friends.api.ts` | `GET /api/friend-requests`, `POST /api/friend-requests/:id/accept`, `DELETE /api/friend-requests/:id`, `DELETE /api/friends/:userId` |

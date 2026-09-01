@@ -122,11 +122,6 @@ export function availableBalance(user: { availablePoints?: number; points?: numb
   return user?.availablePoints ?? user?.points ?? 0
 }
 
-/** Case-normalized: the real server sends the role uppercase ("BUSINESS"), the mobile UserRole type is lowercase. */
-export function isBusiness(user: { role?: string } | null | undefined): boolean {
-  return user?.role?.toUpperCase() === 'BUSINESS'
-}
-
 /**
  * A phone number in E.164, or null if it is not one the server would accept.
  *
