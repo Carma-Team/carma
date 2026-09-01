@@ -13,29 +13,31 @@ log = logging.getLogger(__name__)
 # FastAPIInstrumentor's server_request_hook fires from the outer ASGI
 # middleware, before Starlette routing runs — scope["route"] isn't resolved
 # yet, so this can't reuse core.logging.redact_path's route-template approach
-# and instead masks by raw-path prefix. Invitation routes take their token in
-# the request body, not the URL (CAR-118), so there's no path prefix for them
-# to add here.
-_SENSITIVE_PATH_PREFIX = "/api/business/vouchers/"
+# and instead masks by raw-path prefix. Business invitations (/api/invitations)
+# take their token in the request body (CAR-118) and need nothing here; referral
+# invites (/api/invites/{code}/redeem) still carry the code in the URL, same as
+# vouchers.
+_SENSITIVE_PATH_PREFIXES = ("/api/business/vouchers/", "/api/invites/")
 
 
 def _redact_span_path(span: Any, scope: Any) -> None:
     """Overwrite the raw-path span attributes FastAPIInstrumentor's own
     default hook already set, before the span is exported anywhere.
 
-    Otherwise a voucher code — which lives in the URL path, not a header or
-    body — reaches Application Insights on every request, span attributes
-    being exactly the kind of field `RedactFilter` and `redact_path` exist to
-    keep it out of.
+    Otherwise a voucher or invite code — which lives in the URL path, not a
+    header or body — reaches Application Insights on every request, span
+    attributes being exactly the kind of field `RedactFilter` and
+    `redact_path` exist to keep it out of.
     """
     if span is None or not span.is_recording():
         return
     path = scope.get("path", "")
-    if not path.startswith(_SENSITIVE_PATH_PREFIX):
+    prefix = next((p for p in _SENSITIVE_PATH_PREFIXES if path.startswith(p)), None)
+    if prefix is None:
         return
-    remainder = path[len(_SENSITIVE_PATH_PREFIX) :]
+    remainder = path[len(prefix) :]
     _code, _, rest = remainder.partition("/")
-    redacted = f"{_SENSITIVE_PATH_PREFIX}***/{rest}" if rest else f"{_SENSITIVE_PATH_PREFIX}***"
+    redacted = f"{prefix}***/{rest}" if rest else f"{prefix}***"
     for attribute in ("http.target", "http.url", "url.path", "url.full"):
         span.set_attribute(attribute, redacted)
 
