@@ -38,7 +38,7 @@
  */
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
-import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate } from '@/lib/driving-sdk/types';
+import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
 import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
 
@@ -112,7 +112,7 @@ const MS2_PER_G = 9.81;
 // actively delivering samples, not merely because isAvailableAsync() once said yes.
 // A dead listener (OS killed it, hardware faulted mid-trip) must read as unavailable,
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
-const SENSOR_STALE_MS = 5000;
+// Defined in types.ts so a TripValidator can apply the same cutoff to GPS speed.
 
 // SWERVE is in the event enum but nothing here detects it. The detector that was
 // written for it was never verified on a drive and is not scheduled — it lives in
@@ -126,12 +126,23 @@ export class SensorManager {
   private lastValidSpeedAtMs = 0; // GPS fix timestamp lastValidSpeedMs was captured at — decays it back to 0 if stale (STALE_SPEED_MS)
   private speedTicker: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
+  // Generation token for start(). isRunning is one boolean shared by every call, so it
+  // cannot tell "stopped" from "stopped and started again": a start() parked on an await
+  // would resume into a *newer* run and register a second set of listeners, which stop()
+  // never removes. Monotonic on purpose — resetting it would let an old run's token match
+  // a new run's and bring the leak straight back.
+  private runId = 0;
   private accelAvailable = false;
   private gyroAvailable = false;
   // Wall-clock timestamp of the last delivered sample per sensor — SENSOR_STALE_MS
   // turns "was available at start()" into "is available right now" (§3.1).
   private lastAccelSampleAtMs = 0;
   private lastGyroSampleAtMs = 0;
+  // Coverage accounting: wall-clock milliseconds the accelerometer actually delivered
+  // samples for, against the wall clock it was asked to. A single boolean cannot
+  // separate a sensor that died halfway from one that never started; the ratio can.
+  private coverageWindowStartMs = 0;
+  private accelLiveMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
@@ -191,6 +202,7 @@ export class SensorManager {
   public async start() {
     if (this.isRunning) return;
     this.isRunning = true;
+    const run = ++this.runId;
     this.gravity = { x: 0, y: 0, z: 1 };
     this.lastValidSpeedMs = 0;
     this.lastValidSpeedAtMs = 0;
@@ -200,6 +212,7 @@ export class SensorManager {
     this.gyroAvailable  = false;
     this.lastAccelSampleAtMs = 0;
     this.lastGyroSampleAtMs  = 0;
+    this.resetSensorCoverage();
     this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
@@ -216,6 +229,11 @@ export class SensorManager {
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      // CAR-177: stop() — or a stop() followed by a fresh start() — may have already
+      // run while we were awaiting the dialog above (e.g. a Bluetooth disconnect).
+      // Every await past this point re-checks that this run is still the current one
+      // before doing anything that leaves a subscription or background task running.
+      if (run !== this.runId) return;
       if (status === 'granted') {
         // Best-effort background permission so distance keeps counting when the
         // phone is locked / app is backgrounded. Foreground still works if denied —
@@ -227,6 +245,7 @@ export class SensorManager {
         } catch {
           this.backgroundLocationAvailable = false;
         }
+        if (run !== this.runId) return;
 
         // Feed every location (foreground AND background, via the TaskManager task)
         // through the same accumulation path. High accuracy = GPS only, avoiding
@@ -237,6 +256,13 @@ export class SensorManager {
           .catch(() => false);
         if (alreadyStarted) {
           await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+        }
+        if (run !== this.runId) {
+          // Detach only when nothing newer is live: if a fresh start() is already
+          // running, the handler on record is *its* handler, and clearing it here
+          // would blind the trip that is actually in progress.
+          if (!this.isRunning) setLocationHandler(null);
+          return;
         }
         // #17: cloud data shows some devices deliver these ticks at a ~6s median
         // with >15s gaps instead of the requested 2s — timeInterval/distanceInterval
@@ -263,18 +289,31 @@ export class SensorManager {
             notificationBody: 'Tracking your route and distance',
           },
         });
+        if (run !== this.runId) {
+          // Started after the fact. Undo it only when nothing newer is live: stop()
+          // already ran and won't come back to clean this up, so we do it ourselves —
+          // but a newer run shares this one background task, and stopping it here
+          // would kill location tracking for the trip that is actually in progress.
+          if (!this.isRunning) {
+            setLocationHandler(null);
+            await Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK).catch(() => {});
+          }
+          return;
+        }
       } else {
         console.warn('[SensorManager] Location permission denied');
       }
     } catch (err) {
       console.error('[SensorManager] Error starting location:', err);
     }
+    if (run !== this.runId) return;
 
     // Deliberately its own try: a location failure above must not skip IMU
     // registration, and a gyroscope failure below must not misattribute itself
     // to the accelerometer via a shared catch — each sensor fails independently.
     try {
       this.accelAvailable = await Accelerometer.isAvailableAsync();
+      if (run !== this.runId) return;
       if (this.accelAvailable) {
         Accelerometer.setUpdateInterval(100); // 10 Hz
         // Grace period: a sensor subscribed a moment ago isn't stale yet even
@@ -287,9 +326,11 @@ export class SensorManager {
       this.accelAvailable = false;
       this.accelInitFailed = true;
     }
+    if (run !== this.runId) return;
 
     try {
       this.gyroAvailable = await Gyroscope.isAvailableAsync();
+      if (run !== this.runId) return;
       if (this.gyroAvailable) {
         Gyroscope.setUpdateInterval(100);
         this.lastGyroSampleAtMs = Date.now(); // grace period, see accel above
@@ -307,6 +348,9 @@ export class SensorManager {
   public stop() {
     if (!this.isRunning) return;
     this.isRunning = false;
+    // Retires the current run: any start() still parked on an await now holds a stale
+    // token and will bail at its next guard instead of resuming into this stopped state.
+    this.runId++;
     if (this.speedTicker) {
       clearInterval(this.speedTicker);
       this.speedTicker = null;
@@ -384,6 +428,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
@@ -402,6 +447,14 @@ export class SensorManager {
    * expo-location exports the native timestamp as `timeIntervalSince1970 * 1000`.
    */
   private decayedSpeedMs(atMs: number): number {
+    // An anchor ahead of `atMs` can only be a backwards clock step. handleLocation
+    // re-anchors on one, but only when a fix arrives to carry the new clock — and iOS
+    // sends nothing at all while stationary, so a step with no fix behind it leaves the
+    // anchor in the future indefinitely. Treating that as stale is the worse of the two
+    // fixes: it emits a 0 mid-drive, which is a stop that never happened. Re-anchoring
+    // restarts the countdown from the step instead, so the held speed survives and a
+    // real stop after the step is still reported one STALE_SPEED_MS later.
+    if (this.lastValidSpeedAtMs > atMs) this.lastValidSpeedAtMs = atMs;
     return (atMs - this.lastValidSpeedAtMs) < STALE_SPEED_MS ? this.lastValidSpeedMs : 0;
   }
 
@@ -409,6 +462,29 @@ export class SensorManager {
   // not just "was present when start() ran".
   private isSensorFresh(lastSampleAtMs: number): boolean {
     return (Date.now() - lastSampleAtMs) < SENSOR_STALE_MS;
+  }
+
+  /**
+   * Restarts the coverage window without touching the subscriptions. A consumer that
+   * keeps sensors running across a phase boundary — validation into a confirmed trip —
+   * calls this so the fraction it later reads describes that phase and not the wait
+   * before it. `start()` calls it too, so the common case needs nothing.
+   */
+  public resetSensorCoverage(): void {
+    this.coverageWindowStartMs = Date.now();
+    this.accelLiveMs = 0;
+  }
+
+  /**
+   * Fraction of the current window (0–1) during which the accelerometer was
+   * delivering samples. 0 means it never delivered one — the same value a device
+   * with no accelerometer reports, which `accelAvailable`/`accelInitFailed` are
+   * there to tell apart. Anything between 0 and 1 is a sensor that stopped partway.
+   */
+  private accelCoverage(): number {
+    const windowMs = Date.now() - this.coverageWindowStartMs;
+    if (windowMs <= 0) return 0;
+    return Math.min(1, this.accelLiveMs / windowMs);
   }
 
   /**
@@ -427,6 +503,7 @@ export class SensorManager {
       gyroZ:        this.latestGyroZ,
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
@@ -512,7 +589,15 @@ export class SensorManager {
 
     this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
     this.onAccelSample?.(data); // raw, pre-gravity-removal — see onAccelSample doc
-    this.lastAccelSampleAtMs = Date.now();
+
+    // Credit the span since the previous sample, but only if the sensor was still
+    // considered live across it. A gap wider than SENSOR_STALE_MS is exactly the
+    // stretch this metric exists to subtract — crediting it would erase the outage
+    // the moment the sensor came back.
+    const sampleAtMs = Date.now();
+    const gapMs = sampleAtMs - this.lastAccelSampleAtMs;
+    if (this.lastAccelSampleAtMs !== 0 && gapMs < SENSOR_STALE_MS) this.accelLiveMs += gapMs;
+    this.lastAccelSampleAtMs = sampleAtMs;
 
     // Step 3: orientation-invariant horizontal magnitude.
     // Project out the component along gravity (vertical); what remains is horizontal,

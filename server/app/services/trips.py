@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring, telemetry
+from app.services import levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -54,6 +54,20 @@ _DRIFT_WINDOW_MS = 300_000  # ±5 minutes
 # reading the trips.distance.capped audit rate would reject honest trips.
 _DISTANCE_TOLERANCE = 0.35  # +35% over the witnessed distance
 _DISTANCE_GRACE_KM = 1.0  # absolute floor, for short trips and coarse sampling
+
+# Same shape as the distance bound above, for the same reason: a scoring input
+# with no independent check multiplies straight into a subscore. Reused
+# distance's 35% as the starting tolerance rather than inventing a number —
+# unlike distance's, this one isn't backed by a known one-directional sampling
+# bias (CAR-54's stop-and-go case can over- or under-count exposure depending on
+# fix timing), so treat it as provisional until the audit rate below says otherwise.
+_DISTRACTION_TOLERANCE = 0.35
+_DISTRACTION_GRACE_S = 30.0  # absolute floor, for short trips and coarse sampling
+
+# Client-enforced cooldown between two counted taps (PhoneUsageManager.ts
+# EPOCH_COOLDOWN_MS). A trip claiming more epochs than this rate allows did not
+# come from an honest client, regardless of how distracted the driver was.
+_TAP_COOLDOWN_S = 1.5
 
 # Level demotion (#37). `total_points` is cumulative and never falls, so the
 # ladder above can only climb: a driver who earned level 8 and then started
@@ -89,7 +103,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "HARD_BRAKE": EventType.HARD_BRAKE,
     "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
     "SHARP_TURN": EventType.SHARP_TURN,
-    "SWERVE": EventType.SWERVE,
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
@@ -245,6 +258,16 @@ def _validate_plausibility(dto: SaveTripIn) -> None:
         raise HTTPException(422, "touch_epochs must be >= 0")
     if dto.screen_interaction_seconds is not None and dto.screen_interaction_seconds < 0:
         raise HTTPException(422, "screen_interaction_seconds must be >= 0")
+    if (
+        dto.screen_interaction_seconds is not None
+        and dto.duration_seconds is not None
+        and dto.screen_interaction_seconds > dto.duration_seconds
+    ):
+        raise HTTPException(
+            422,
+            f"screen_interaction_seconds={dto.screen_interaction_seconds} "
+            f"exceeds duration_seconds={dto.duration_seconds}",
+        )
     # risk_multiplier is deliberately not range-checked (CAR-165): the value is deprecated and
     # discarded, and refusing a trip over a number we never read tells the client it matters.
     if dto.distance_km and dto.duration_seconds:
@@ -354,6 +377,44 @@ def _witness_distance(claimed_km: float, gps_km: float) -> float:
     return cap
 
 
+def _witness_distraction(claimed_seconds: float, exposure_min: float) -> float:
+    """Cap claimed handling seconds at what GPS-witnessed exposure can support.
+
+    Mirrors `_witness_distance` (issue #56): `screen_interaction_seconds` is a
+    scoring input with no independent check, and it feeds `w_distraction`
+    directly. The bound is loose for the same reason distance's is — punishing
+    only claims the trace cannot come close to supporting, not sparse-GPS
+    honesty.
+    """
+    cap = exposure_min * 60.0 * (1.0 + _DISTRACTION_TOLERANCE) + _DISTRACTION_GRACE_S
+    if claimed_seconds <= cap:
+        return claimed_seconds
+    audit(
+        "trips.distraction.capped",
+        claimed_seconds=round(claimed_seconds, 1),
+        exposure_seconds=round(exposure_min * 60.0, 1),
+        capped_to_seconds=round(cap, 1),
+    )
+    return cap
+
+
+def _audit_touch_epoch_outlier(touch_epochs: int, duration_seconds: int) -> None:
+    """Flag a tap count the client's own tap cooldown could not have produced.
+
+    `touch_epochs` is diagnostic only (never scored — see the comment above
+    `w_distraction`), so this logs rather than caps or rejects; the trip still
+    saves on its other, scored fields.
+    """
+    max_plausible = duration_seconds / _TAP_COOLDOWN_S
+    if touch_epochs > max_plausible:
+        audit(
+            "trips.touch_epochs.outlier",
+            touch_epochs=touch_epochs,
+            duration_seconds=duration_seconds,
+            max_plausible=round(max_plausible, 1),
+        )
+
+
 def _distraction_exposure_min(gps: telemetry.TelemetryAnalysis, duration_seconds: int) -> float:
     """Driving minutes to charge distraction against, crediting whatever the trace
     could not see (CAR-54).
@@ -412,15 +473,17 @@ async def _compute_score(
     (peak_g arrives as an unsigned magnitude, not a vehicle-frame axis) so
     weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
-    speeding weight is time-over-threshold against a conservative absolute
-    limit, and the confidence caps how far above the rolling score a trip can
-    land when the trace is too sparse to prove clean driving (v2.1).
+    speeding ratio is the share of judged distance above the road's posted
+    limit plus a buffer, and the confidence caps how far above the rolling
+    score a trip can land when the trace is too sparse to prove clean driving.
     Returns (trip_score, driver_score, points, points_capped).
     """
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
     # row: it counts pickups, and summing it with seconds charged one behaviour twice.
-    w_distraction = float(screen_interaction_seconds)
+    exposure_min = _distraction_exposure_min(gps, duration_seconds)
+    w_distraction = _witness_distraction(float(screen_interaction_seconds), exposure_min)
+    _audit_touch_epoch_outlier(touch_epochs, duration_seconds)
     rolling = user.driver_score if user.driver_score is not None else scoring.CONFIG.prior_score
 
     trip_v2 = scoring.compute_trip_score(
@@ -428,10 +491,10 @@ async def _compute_score(
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
         w_distraction=w_distraction,
-        w_speed=gps.speeding_weight,
+        speeding_ratio=gps.speeding_ratio,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
-        driving_min_above_threshold=_distraction_exposure_min(gps, duration_seconds),
+        driving_min_above_threshold=exposure_min,
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
@@ -589,7 +652,10 @@ async def save(
     # witness against client under-detection. Merged counts only ever go UP —
     # the server adds missed events, never erases reported ones — so a client
     # cannot lower its penalty by suppressing detection.
-    gps = telemetry.analyze(dto.route_waypoints, digest_duration)
+    # Posted limits first: the analyzer needs them to judge speed against
+    # anything better than the national maximum (CAR-222).
+    limits = await speed_limits.resolve(db, dto.route_waypoints)
+    gps = telemetry.analyze(dto.route_waypoints, digest_duration, speed_limits=limits)
     scored_hard_brakes = max(scored_hard_brakes, gps.hard_brakes)
     scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
     scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)

@@ -8,7 +8,7 @@
  * so neither signal may speak (CAR-167).
  */
 import { FraudDetector } from '@/lib/FraudDetector';
-import { TransportMode } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 
 // Speed alternates ±0.1 around 80 → variance ≈ 0.01, far below the 8 km/h² gate.
 function ventClippedCar(detector: FraudDetector, samples: number): void {

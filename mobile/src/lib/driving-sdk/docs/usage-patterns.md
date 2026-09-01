@@ -89,27 +89,27 @@ occurrences.
 
 ---
 
-## Bluetooth Events
+## Automatic trip detection
 
-`BluetoothManager` exposes two system-level connection events, both firing
-**only** for the device ID registered via `setTargetDevice()`:
+Noticing that a drive has begun without the driver touching the phone is one
+interface, `TripDetectionStrategy`, with one implementation per platform:
 
-```typescript
-const btManager = new BluetoothManager(
-  () => console.log('Connected'),
-  () => console.log('Disconnected'),
-);
+| Platform | Strategy | Trigger |
+|---|---|---|
+| Android | `BluetoothDriveModeStrategy` | a paired device connects |
+| iOS | `IosDriveModeStrategy` | nothing yet — the manual button still starts trips |
 
-btManager.setTargetDevice('AA:BB:CC:DD:EE:FF');
-btManager.startMonitoring();
-// ...
-btManager.stopMonitoring();
-```
+iOS is a placeholder rather than an oversight: Apple gates Classic Bluetooth
+behind an MFi licence, so the Android mechanism is not portable.
 
-In practice you rarely touch `BluetoothManager` directly — `DrivingSDK`
-already owns one internally and exposes it through `updateTargetDevice()`
-(below). Reach for `BluetoothManager` yourself only if you need connection
-events completely outside the trip lifecycle.
+`AutoDriveModeManager` picks the strategy for the running platform and owns it.
+`DrivingSDK` builds one internally and never learns which strategy it got —
+in practice you drive the whole thing through `updateTargetDevice()` (below)
+and never construct either class yourself.
+
+Listing the devices a user can pick from is separate, in `bluetoothDevices.ts`
+(`getBondedDevices`, `getBTSupportStatus`) — that question is Bluetooth-shaped
+no matter which strategy is active, and `DrivingSDK` re-exposes both.
 
 ---
 
@@ -167,8 +167,8 @@ sdk.onUpdate    = (data) => { /* update live trip screen */ };
 //    or speed constitutes a "scored" event.
 const listeners = [
   sdk.on(DrivingEventType.HARD_BRAKE,       { minSpeedKmh: 15 }, () => { hardBrakes++; }),
-  sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 5  }, () => { aggressiveAccels++; }),
-  sdk.on(DrivingEventType.SHARP_TURN,       { minSpeedKmh: 10 }, () => { sharpTurns++; }),
+  sdk.on(DrivingEventType.AGGRESSIVE_ACCEL, { minSpeedKmh: 15 }, () => { aggressiveAccels++; }),
+  sdk.on(DrivingEventType.SHARP_TURN,       { minSpeedKmh: 25 }, () => { sharpTurns++; }),
 ];
 
 // 4. Start and stop

@@ -150,10 +150,55 @@ async def _auth_response(db: AsyncSession, user: User, *, expires_minutes: int |
     return AuthOut(token=token, user=await users_service.profile_out(db, user))
 
 
+async def _establish_browser_session(
+    db: AsyncSession, user: User, response: Response, *, is_browser: bool, success_event: str
+) -> AuthOut:
+    """The one place a session actually gets created — shared by login and
+    registration so a future change to rotation, cookie flags, or the web
+    access-token TTL cannot update one caller and silently miss the other.
+
+    Every successful email+password login or registration mints one of these
+    refresh-token rows, mobile calls included — the row is a few bytes and
+    the lazy sweep below bounds the table regardless of who never comes back
+    to spend it. Unconditional for the same reason the cookie is: mobile
+    already ignores `Set-Cookie`, so both are inert for it either way. The
+    *access token's* lifetime is the one thing that does branch on
+    `is_browser` — CARMA's web app sends `X-Requested-With` on every call
+    (see `lib/auth/authApi.ts`), mobile never has. Web's very first access
+    token is short-lived from this response, not just from the first
+    `/refresh` — a 7-day bearer token that happened to leave the wire once is
+    still a 7-day bearer token no matter how fast the tab that received it
+    moves on from it; the token's own lifetime is what actually bounds that.
+    Mobile's request never carries the header, so `expires_minutes` stays
+    `None` and it keeps exactly `JWT_EXPIRES_MINUTES`, unchanged.
+
+    Callers commit their own pre-session changes (a fresh `User` row, a
+    cleared failure count) via `db.flush()`, not `db.commit()`, precisely so
+    this can be the one commit that lands both together — a failure here
+    must not leave a registered account with no session behind it, silently
+    orphaned from the response that was supposed to describe it.
+
+    `success_event` is audited here, once, after `commit()` has actually
+    returned — not by the caller beforehand. Auditing before this point would
+    log a login or registration as successful even when the commit below is
+    the very thing that fails, describing a transaction that never landed.
+    """
+    await _sweep_expired_refresh_tokens(db)
+    raw_refresh = _mint_refresh_token(db, user)
+    await db.commit()
+    await db.refresh(user)
+    audit(success_event, user_id=user.id, via="email")
+    _set_refresh_cookie(response, raw_refresh)
+    expires_minutes = settings.web_access_token_expires_minutes if is_browser else None
+    return await _auth_response(db, user, expires_minutes=expires_minutes)
+
+
 # ─── Email + password (May's app) ────────────────────────────────────────────
 
 
-async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
+async def register_with_password(
+    db: AsyncSession, dto: RegisterIn, response: Response, *, is_browser: bool = False
+) -> AuthOut:
     email = dto.email.lower()
     existing = await db.scalar(select(User).where(User.email == email))
     if existing is not None:
@@ -170,10 +215,19 @@ async def register_with_password(db: AsyncSession, dto: RegisterIn) -> AuthOut:
         last_logged_at=_now(),
     )
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    audit("auth.registered", user_id=user.id, via="email")
-    return await _auth_response(db, user)
+    # Flushed, not committed: `user.id` (a client-side default — see
+    # `models.user.User.id`) has to exist before `_establish_browser_session`
+    # can mint a refresh token that references it as a foreign key, but the
+    # account and its first browser session must land together in one
+    # transaction — see that function's own docstring for why a second,
+    # independent commit here would be the wrong shape.
+    await db.flush()
+
+    # A recipient who registers mid-invitation-acceptance (CAR-118) needs the
+    # same durable, httpOnly-cookie session a sign-in gets, not a token that
+    # only lives in memory until the tab reloads. `_establish_browser_session`
+    # emits `auth.registered` itself, once its own commit has succeeded.
+    return await _establish_browser_session(db, user, response, is_browser=is_browser, success_event="auth.registered")
 
 
 async def login_with_password(
@@ -198,30 +252,9 @@ async def login_with_password(
 
     await _clear_failures(db, user, caller_ip)
     user.last_logged_at = _now()
-    await _sweep_expired_refresh_tokens(db)
-    # Every successful email+password login mints one of these, mobile calls
-    # included — the row is a few bytes and the lazy sweep above bounds the
-    # table regardless of who never comes back to spend it. Unconditional for
-    # the same reason: mobile already ignores `Set-Cookie`, so the cookie is
-    # inert for it either way. The *access token's* lifetime is the one thing
-    # that does branch — see below — because unlike the cookie, mobile reads
-    # and uses that value, so it cannot be shortened for everyone.
-    raw_refresh = _mint_refresh_token(db, user)
-    await db.commit()
-    await db.refresh(user)
-    _set_refresh_cookie(response, raw_refresh)
-    audit("auth.login.success", user_id=user.id, via="email")
-    # `is_browser` is `X-Requested-With: XMLHttpRequest` — CARMA's web app
-    # sends it on every call (see `lib/auth/authApi.ts`), mobile never has.
-    # Web's very first access token is short-lived from this response, not
-    # just from the first `/refresh` — a 7-day bearer token that happened to
-    # leave the wire once is still a 7-day bearer token no matter how fast
-    # the tab that received it moves on from it; the token's own lifetime is
-    # what actually bounds that, so it has to be short from the start.
-    # Mobile's request never carries the header, so `expires_minutes` stays
-    # `None` and it keeps exactly `JWT_EXPIRES_MINUTES`, unchanged.
-    expires_minutes = settings.web_access_token_expires_minutes if is_browser else None
-    return await _auth_response(db, user, expires_minutes=expires_minutes)
+    return await _establish_browser_session(
+        db, user, response, is_browser=is_browser, success_event="auth.login.success"
+    )
 
 
 # ─── Web session — refresh cookie (CAR-217) ──────────────────────────────────

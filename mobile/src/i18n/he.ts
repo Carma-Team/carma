@@ -16,6 +16,7 @@ const he = {
     namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
     citySelectPlaceholder: 'בחירת עיר',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
+    regionAck: 'קראתי ואני מבין/ה: השימוש ב-CARMA מותר רק בתחומי מדינת ישראל',
     requiredHint: 'שדות המסומנים ב-* הם שדות חובה',
     forgot: {
       link: 'שכחתי סיסמה',
@@ -286,6 +287,12 @@ const he = {
     historyCleared: 'ההיסטוריה נמחקה',
     historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
+  },
+  deviceGate: {
+    regionTitle: 'לא זמין באזור שלך',
+    regionMessage: 'CARMA זמינה כרגע רק בישראל.',
+    capabilityTitle: 'המכשיר אינו נתמך',
+    capabilityMessage: 'המכשיר או גרסת מערכת ההפעלה שלך אינם עומדים בדרישות המינימליות של CARMA.',
   },
   time: {
     secondsShort: "שנ'", minutesShort: "דק'", hoursShort: "שע'",

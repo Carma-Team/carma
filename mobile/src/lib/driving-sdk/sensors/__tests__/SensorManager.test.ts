@@ -283,6 +283,54 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
   });
 
+  // ── Accelerometer coverage over the window ─────────────────────────────────
+  // `accelAvailable` is a boolean about right now, and it latches over a trip — so a
+  // sensor that quit halfway reads exactly like one that ran the whole way. These
+  // three cases are the three answers the fraction has to keep apart.
+
+  /** Delivers `n` samples at the 10 Hz the subscription requests. */
+  function feedAccelFor(n: number) {
+    for (let i = 0; i < n; i++) {
+      jest.advanceTimersByTime(100);
+      mockAccelHandler?.({ x: 0, y: 0, z: 1 });
+    }
+  }
+
+  const coverage = () => onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].accelCoverage;
+
+  it('reports full coverage while the accelerometer keeps delivering', () => {
+    feedAccelFor(20); // 2 s of samples over a 2 s window
+
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBeCloseTo(1, 2);
+  });
+
+  it('reports partial coverage for a sensor that goes quiet mid-window', () => {
+    feedAccelFor(10);           // 1 s live
+    jest.advanceTimersByTime(10_000); // 10 s of silence — well past SENSOR_STALE_MS
+    feedAccelFor(10);           // it comes back
+
+    sendFix({ t: 0, speed: 20 });
+
+    // The outage is not retroactively credited when the sensor returns, so the
+    // fraction stays far from 1 — and it is not 0 either, which is the whole point.
+    expect(coverage()).toBeGreaterThan(0);
+    expect(coverage()).toBeLessThan(0.25);
+  });
+
+  it('reports zero coverage when there is no accelerometer at all', async () => {
+    manager.stop();
+    mockAccelAvailable = false;
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    jest.advanceTimersByTime(2000);
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBe(0);
+  });
+
   // ── Lateral: turns ─────────────────────────────────────────────────────────
 
   it('fires SHARP_TURN from heading rate × speed', () => {
@@ -450,6 +498,90 @@ describe('SensorManager', () => {
   it('detaches the location handler on stop', () => {
     manager.stop();
     expect(mockLocationHandler).toBeNull();
+  });
+
+  it('leaves no sensor subscriptions behind when stop() runs while start() is still awaiting permissions (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const startPromise = raceManager.start();
+
+    // Simulates a Bluetooth disconnect racing the permission dialog: stop() runs
+    // before start()'s first await resolves, while isRunning is already true.
+    raceManager.stop();
+    resolvePermission({ status: 'granted' });
+    await startPromise;
+
+    expect(Accelerometer.addListener).not.toHaveBeenCalled();
+    expect(Gyroscope.addListener).not.toHaveBeenCalled();
+  });
+
+  it('registers one listener per sensor when a stop/start pair races start() (CAR-177)', async () => {
+    const { requestForegroundPermissionsAsync } = jest.requireMock('expo-location');
+    const { Accelerometer, Gyroscope } = jest.requireMock('expo-sensors');
+    (Accelerometer.addListener as jest.Mock).mockClear();
+    (Gyroscope.addListener as jest.Mock).mockClear();
+
+    // Only the first start() stalls; the restart below gets the default granted mock.
+    let resolvePermission: (v: { status: string }) => void = () => {};
+    (requestForegroundPermissionsAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePermission = resolve; }),
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+
+    // The Bluetooth flap this PR is written around: drops and reconnects while the
+    // permission dialog is still up, so a whole second run completes underneath.
+    raceManager.stop();
+    await raceManager.start();
+
+    // The dialog is answered only now. isRunning is true again — but it is the *new*
+    // run's true, which is exactly what the boolean alone could not distinguish.
+    resolvePermission({ status: 'granted' });
+    await stalledStart;
+
+    expect(Accelerometer.addListener).toHaveBeenCalledTimes(1);
+    expect(Gyroscope.addListener).toHaveBeenCalledTimes(1);
+
+    raceManager.stop();
+  });
+
+  it('leaves the location task alone when a superseded start() finishes late (CAR-177)', async () => {
+    // Pins the conditional half of the fix rather than the original leak: a superseded
+    // run must not undo the background task, because a newer run shares it and would
+    // lose location tracking mid-trip. A run counter without this check still breaks it.
+    const locationModule = jest.requireMock('expo-location');
+
+    let reachedStart: () => void = () => {};
+    const parkedInsideStart = new Promise<void>((resolve) => { reachedStart = resolve; });
+    let releaseStart: () => void = () => {};
+    locationModule.startLocationUpdatesAsync.mockImplementationOnce(
+      () => { reachedStart(); return new Promise<void>((resolve) => { releaseStart = resolve; }); },
+    );
+
+    const raceManager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    const stalledStart = raceManager.start();
+    await parkedInsideStart;
+
+    raceManager.stop();
+    await raceManager.start(); // newer run now owns the location task
+    locationModule.stopLocationUpdatesAsync.mockClear();
+
+    releaseStart();
+    await stalledStart;
+
+    expect(locationModule.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+
+    raceManager.stop();
   });
 
   // ── Sensor availability (§3.1 staleness) ───────────────────────────────────

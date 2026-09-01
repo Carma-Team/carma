@@ -77,6 +77,10 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 
 export const authApi = {
   login: (email: string, password: string) => post<AuthResponse>('/api/auth/login', { email, password }),
+  // Only the three fields a CAR-118 sign-up needs — `RegisterIn` also accepts
+  // phone/city/age/licenseYear, but this flow has nowhere to collect them.
+  register: (name: string, email: string, password: string) =>
+    post<AuthResponse>('/api/auth/register', { name, email, password }),
   refresh: () => post<AuthResponse>('/api/auth/refresh'),
   logout: () => post<{ message: string }>('/api/auth/logout'),
 };

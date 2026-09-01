@@ -7,7 +7,7 @@
  *
  * @description
  * Singleton class managing the full trip lifecycle:
- * - Manual and automatic start/end (via Bluetooth)
+ * - Manual and automatic start/end (automatic via the platform's trip-detection strategy)
  * - 1-second wall-clock timer that updates TripData
  * - Sensor event listeners (brake/accel/turn) via SensorManager
  * - Phone usage listener via PhoneUsageManager
@@ -16,7 +16,8 @@
  * @remarks No server calls — all logic is local. Server persistence happens in AppContext after stopTrip().
  * @see AppContext.processEndTrip — tripsApi.save() is called there after a trip ends
  */
-import { BluetoothManager } from '@/lib/driving-sdk/BluetoothManager';
+import { AutoDriveModeManager } from '@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager';
+import { getBondedDevices, getBTSupportStatus } from '@/lib/driving-sdk/auto-trip-detection/bluetoothDevices';
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
@@ -37,7 +38,7 @@ const WAYPOINT_INTERVAL_MS = 2000;
 
 export class DrivingSDK {
   private config: SDKConfig;
-  private btManager: BluetoothManager;
+  private autoDetection: AutoDriveModeManager;
   private sensorManager: SensorManager;
   private phoneManager: PhoneUsageManager;
   // Staged-calibration recording (CAR-31) — independent of trip lifecycle, never
@@ -88,6 +89,8 @@ export class DrivingSDK {
   public onInteractionData?: (data: InteractionData) => void;
   // TODO: Mai — show "public transport trip detected" toast/modal when this fires
   public onFraudDetected?: (event: FraudDetectedEvent) => void;
+  // CAR-23: fires when a trip is silently rejected for starting outside Israel.
+  public onRegionRejected?: () => void;
 
   // ─── Conditional sensor event subscription API ───────────────────────────────
 
@@ -127,9 +130,9 @@ export class DrivingSDK {
       ...config
     };
 
-    this.btManager = new BluetoothManager(
-      () => this.handleBluetoothConnect(),
-      () => this.handleBluetoothDisconnect()
+    this.autoDetection = new AutoDriveModeManager(
+      () => this.handleDriveDetected(),
+      () => this.handleDriveLost()
     );
 
     this.sensorManager = new SensorManager(
@@ -158,19 +161,21 @@ export class DrivingSDK {
     this.validationManager.onTripEnded = () => this.stopTrip();
     this.validationManager.onFraudSuspected = (evaluation) =>
       this.handleFraud(evaluation);
+    this.validationManager.onRegionRejected = () => this.handleRegionRejected();
 
     if (this.config.targetBluetoothId) {
-      this.btManager.setTargetDevice(this.config.targetBluetoothId);
-      this.btManager.startMonitoring();
+      this.autoDetection.enable(this.config.targetBluetoothId);
     }
   }
 
-  // --- Bluetooth Logic ---
+  // --- Automatic trip detection ---
+  // Fired by whichever TripDetectionStrategy the platform selected. Neither handler knows
+  // what noticed the vehicle — on Android a Bluetooth connect, on iOS eventually movement.
 
-  private async handleBluetoothConnect() {
+  private async handleDriveDetected() {
     if (!this.config.autoStartOnBluetooth || this.isTripActive || this.isValidating) return;
 
-    console.log('[SDK] BT connected — starting trip validation');
+    console.log('[SDK] Vehicle travel detected — starting trip validation');
     this.isValidating = true;
     this.validationStartTime = Date.now();
     this.validationMaxSpeed  = 0;
@@ -181,8 +186,8 @@ export class DrivingSDK {
     this.validationManager.start();
   }
 
-  private async handleBluetoothDisconnect() {
-    console.log('[SDK] BT disconnected — validating:', this.isValidating, '| trip active:', this.isTripActive);
+  private async handleDriveLost() {
+    console.log('[SDK] Detection signal lost — validating:', this.isValidating, '| trip active:', this.isTripActive);
 
     if (this.isValidating) {
       this.validationManager.stop();
@@ -197,13 +202,10 @@ export class DrivingSDK {
   }
 
   public updateTargetDevice(deviceId: string | null) {
+    // Kept in step, not read: the active strategy owns the target from here on. A config
+    // field that silently stopped matching what detection watches is the worse of the two.
     this.config.targetBluetoothId = deviceId;
-    this.btManager.setTargetDevice(deviceId);
-    if (deviceId) {
-      this.btManager.startMonitoring();
-    } else {
-      this.btManager.stopMonitoring();
-    }
+    this.autoDetection.enable(deviceId);
   }
 
   // --- Trip Control ---
@@ -218,7 +220,7 @@ export class DrivingSDK {
     // and a leaked setInterval (stopTrip only ever clears the last one).
     this.isTripActive = true;
 
-    // Manual trip start: BT-triggered trips already started the validator in handleBluetoothConnect.
+    // Manual trip start: automatically detected trips already started the validator in handleDriveDetected.
     // Without this, users on trains who start manually bypass fraud detection entirely (D-FRAUD-3).
     if (!this.isValidating) {
       this.isValidating = true;
@@ -250,11 +252,16 @@ export class DrivingSDK {
       // false mid-trip. These default false and latch true once the accelerometer is
       // ever confirmed live this trip (CAR-189).
       accelAvailable: false,
+      accelCoverage: 0,
       accelInitFailed: false,
     };
 
     // SensorManager may already be running (started during validation phase)
     await this.sensorManager.start();
+    // Coverage has to describe the trip, not the wait in front of it. On a BT-triggered
+    // trip the sensors have been running since validation opened, and start() above is a
+    // no-op then — so the window is restarted here, where the trip actually begins.
+    this.sensorManager.resetSensorCoverage();
     this.phoneManager.start();
 
     this.timer = setInterval(() => {
@@ -299,26 +306,31 @@ export class DrivingSDK {
 
   // --- Fraud Handling ---
 
+  // Teardown shared by the two silent aborts (fraud, region): same shape as stopTrip()
+  // minus the trip payload, since neither fires onTripEnd and neither has anything to
+  // persist. Stopping the validator is the part that is easy to forget and expensive to
+  // miss — its 1 Hz ticker outlives the session otherwise, and start() early-returns
+  // while that ticker is alive, so the next trip inherits this one's state.
+  private abortSession(): void {
+    this.isValidating = false;
+    this.isTripActive = false;
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.validationManager.stop();
+    this.currentTripData = null;
+    // A staged raw-recording session (CAR-31) may be running independently of this trip
+    // — stopping sensors here would truncate it silently. Same guard as stopTrip().
+    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
+    this.phoneManager.stop();
+  }
+
   private handleFraud(evaluation: SuspiciousActivityEvaluation): void {
     console.log(`[SDK] Fraud: ${evaluation.mode} at ${Math.round(evaluation.score * 100)}% — aborting session`);
-    // Same reason stopTrip() stops it, and this path is where it matters most: the
-    // call arrives from inside the validator, which has no way to know the session is
-    // over. Left running, its ticker survives the abort and start() early-returns on
-    // a live ticker, so the next session inherits this one's state.
-    this.validationManager.stop();
-    this.isValidating = false;
 
     // Read before the abort clears it below — undefined here means the pre-trip gate
     // caught the session, and stays undefined all the way to the server.
     const distanceKm = this.currentTripData?.distanceKm;
 
-    // Silently abort — do NOT fire onTripEnd so AppContext won't persist the trip
-    this.isTripActive = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    this.currentTripData = null;
-    // Same raw-recording guard as stopTrip() — a staged session may still be running.
-    if (!this.rawRecorder.isRecording()) this.sensorManager.stop();
-    this.phoneManager.stop();
+    this.abortSession();
 
     // Delegate server sync + UI to AppContext via onFraudDetected
     const event: FraudDetectedEvent = {
@@ -331,6 +343,14 @@ export class DrivingSDK {
       distanceKm,
     };
     this.onFraudDetected?.(event);
+  }
+
+  // CAR-23: no event payload, since there's nothing to report and no server call for
+  // a region rejection.
+  private handleRegionRejected(): void {
+    console.log('[SDK] Region check failed — aborting session');
+    this.abortSession();
+    this.onRegionRejected?.();
   }
 
   // --- Internal Handlers ---
@@ -415,6 +435,8 @@ export class DrivingSDK {
       timestamp: Date.now(),
       accel: { x: update.accelX, y: 0, z: 0 },
       gyroYaw: update.gyroZ,
+      lat: update.lat,
+      lng: update.lng,
       accelAvailable: update.accelAvailable,
       gyroAvailable: update.gyroAvailable,
       backgroundLocationAvailable: update.backgroundLocationAvailable,
@@ -427,6 +449,9 @@ export class DrivingSDK {
     // Latch, never reset: a healthy accelerometer that goes stale in the last seconds of
     // a trip must not arrive as `false`, which is the signature of missing hardware.
     this.currentTripData.accelAvailable ||= update.accelAvailable;
+    // Not latched, unlike the flag above: this one is a running share of the trip so
+    // far, and the freshest reading is the whole point of it.
+    this.currentTripData.accelCoverage = update.accelCoverage;
     this.currentTripData.accelInitFailed = update.accelInitFailed;
 
     // Gate: ignore GPS ticks below 3 km/h — coordinate jitter when stationary otherwise
@@ -470,12 +495,15 @@ export class DrivingSDK {
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
 
+  // Bluetooth-specific, and deliberately not routed through the strategy: a settings screen
+  // asking "which devices can I pick" is asking about Bluetooth, not about whatever the
+  // active strategy happens to be. Both already answer empty/false off Android.
   public async getAvailableDevices() {
-    return this.btManager.getBondedDevices();
+    return getBondedDevices();
   }
 
   public async getBTSupportStatus() {
-    return this.btManager.getBTSupportStatus();
+    return getBTSupportStatus();
   }
 
   public getStatus() {
@@ -486,12 +514,15 @@ export class DrivingSDK {
     };
   }
 
+  // Drive the auto-start/auto-end flow without a physical device. They call the handlers
+  // directly rather than going through the strategy: faking the trigger is a debugging need
+  // of the SDK, not behaviour every strategy should have to implement.
   public simulateBluetoothConnection() {
-    this.btManager.simulateConnect();
+    this.handleDriveDetected();
   }
 
   public simulateBluetoothDisconnection() {
-    this.btManager.simulateDisconnect();
+    this.handleDriveLost();
   }
 
   public debugAddDistance(km: number) {
@@ -515,9 +546,9 @@ export class DrivingSDK {
   /** Ends the staged session and flushes it to disk. Leaves sensors running if a real trip is active or validating. */
   public async stopRawRecording(): Promise<void> {
     await this.rawRecorder.stop();
-    // A BT-triggered trip may be mid-validation (isValidating, before isTripActive
+    // An automatically started trip may be mid-validation (isValidating, before isTripActive
     // flips) when a calibration session starts — stopping sensors here would silently
-    // kill that trip's confirmation. Same two-flag check as handleBluetoothConnect.
+    // kill that trip's confirmation. Same two-flag check as handleDriveDetected.
     if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
   }
 
