@@ -7,6 +7,7 @@ from pydantic import EmailStr, Field, field_validator
 from app.models.enums import BusinessMembershipRole, Language, UserRole
 from app.schemas._base import CamelModel
 from app.schemas.friend import FriendshipStatus
+from app.services.scoring import CONFIG
 
 
 class UserOut(CamelModel):
@@ -22,6 +23,17 @@ class UserOut(CamelModel):
     license_year: int | None = None
     points: int
     total_points: int
+    driver_score: float
+
+    @field_validator("driver_score", mode="before")
+    @classmethod
+    def _default_driver_score(cls, value: float | None) -> float:
+        """The DB column is nullable (a brand-new driver has no row value
+        yet), but the wire contract isn't — same prior trips.py:488 already
+        uses for a driver with no completed trips (CAR-85).
+        """
+        return value if value is not None else CONFIG.prior_score
+
     # Derived, never stored (CAR-73): reserved is the sum of points_cost over
     # this driver's live vouchers, available is points minus that sum. Not on
     # the User model, so users_service.profile_out fills these in after

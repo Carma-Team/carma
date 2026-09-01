@@ -3,7 +3,13 @@
 Spec: docs/scoring.md. This module owns the trip score, the driver score and
 points. The `version` on ScoringConfig is stamped onto every trip row
 (`trips.scoring_version`) so an old score stays interpretable after the formula
-moves; it is not a name for the engine.
+moves; it is not a name for the engine. It is a flat `<year>-<month>-<subject>`
+identifier, not semver (CAR-199) — bump it whenever identical input would score
+differently, and pick a subject slug describing what changed. Forensic only:
+`compute_driver_score` deliberately blends trips scored under different
+versions with no adjustment, the same way CMT and Root do — a trip's score is
+frozen at scoring time, and the EWMA half-life is what fades an old formula's
+influence out.
 
 July 2026 recalibration: the decay constants were re-fit from the live fleet's
 recency-weighted rate distributions — the initial estimates produced a bimodal
@@ -24,7 +30,7 @@ What is NOT yet available, and how this module copes until it is:
     phone-to-vehicle rotation exists, weighted counts collapse to raw counts
     (each event weight 1.0). `event_severity()` is implemented and tested now
     so the downstream math is unchanged the day that value arrives.
-  * Speeding against posted limits arrived in 2.3.0 (CAR-222). It is measured as
+  * Speeding against posted limits arrived in 2026-08-posted-limit (CAR-222). It is measured as
     a share of distance rather than as weighted minutes, so `k_speed` is a new
     constant on a new scale and not a re-tuning of the old one. The weight is
     still redistributed ("Blending the five") on any trip the map cannot cover.
@@ -36,6 +42,9 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
+
+WeakestFactor = Literal["braking", "acceleration", "cornering", "speeding", "distraction"]
 
 
 @dataclass(frozen=True)
@@ -46,7 +55,7 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2.3.0"
+    version: str = "2026-08-posted-limit"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
@@ -203,6 +212,7 @@ class TripScoreV2:
     sub_cornering: float
     sub_speeding: float
     sub_distraction: float
+    weakest_factor: WeakestFactor | None
     version: str
 
 
@@ -264,6 +274,7 @@ def compute_trip_score(
     sub_speed = _subscore(r_speed, config.k_speed)
     sub_distraction = _subscore(r_distraction, config.k_distraction)
 
+    weighted_candidates: list[tuple[WeakestFactor, float, float]]
     if has_speed_data:
         score = (
             config.w_distraction * sub_distraction
@@ -272,6 +283,13 @@ def compute_trip_score(
             + config.w_accel * sub_accel
             + config.w_corner * sub_corner
         )
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction),
+            ("speeding", sub_speed, config.w_speed),
+            ("braking", sub_brake, config.w_brake),
+            ("acceleration", sub_accel, config.w_accel),
+            ("cornering", sub_corner, config.w_corner),
+        ]
     else:
         score = (
             config.w_distraction_nospeed * sub_distraction
@@ -279,6 +297,38 @@ def compute_trip_score(
             + config.w_accel_nospeed * sub_accel
             + config.w_corner_nospeed * sub_corner
         )
+        # Speeding is excluded, not just zero-weighted: sub_speed is still
+        # computed above but carries no weight here, so naming it would blame
+        # a behaviour that cost nothing.
+        weighted_candidates = [
+            ("distraction", sub_distraction, config.w_distraction_nospeed),
+            ("braking", sub_brake, config.w_brake_nospeed),
+            ("acceleration", sub_accel, config.w_accel_nospeed),
+            ("cornering", sub_corner, config.w_corner_nospeed),
+        ]
+
+    # Named factor is the largest *weighted* loss, weight * (100 - subscore) —
+    # the exact counterfactual the composite implies on a full-length trip,
+    # since perfecting one behaviour raises the score by precisely that
+    # amount (the short-trip blend below makes it inexact there). Candidate
+    # order above must stay descending by weight so a tie resolves to the
+    # higher-weighted behaviour; asserted here so a retuned weight fails loudly
+    # instead of silently reordering the tie-break. A trip where every
+    # candidate's subscore is above 90 (or every loss is zero) means there is
+    # nothing worth naming.
+    assert all(
+        a[2] >= b[2] for a, b in zip(weighted_candidates, weighted_candidates[1:], strict=False)
+    ), "weighted_candidates must stay sorted by descending weight for the tie-break to hold"
+    weakest_factor: WeakestFactor | None = None
+    best_loss = 0.0
+    min_subscore = 100.0
+    for name, subscore, weight in weighted_candidates:
+        min_subscore = min(min_subscore, subscore)
+        loss = weight * (100.0 - subscore)
+        if loss > best_loss:
+            weakest_factor, best_loss = name, loss
+    if weakest_factor is not None and min_subscore > 90.0:
+        weakest_factor = None
 
     # Too little exposure to judge — blend 50/50 with the driver's standing.
     if rolling_score is not None and (distance_km < config.short_trip_km or duration_min < config.short_trip_min):
@@ -291,6 +341,7 @@ def compute_trip_score(
         sub_cornering=round(sub_corner * 10) / 10,
         sub_speeding=round(sub_speed * 10) / 10,
         sub_distraction=round(sub_distraction * 10) / 10,
+        weakest_factor=weakest_factor,
         version=config.version,
     )
 
