@@ -14,6 +14,7 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.limiter import limiter
 from app.routers.auth import SENSITIVE_LIMIT
 from app.schemas.business_join_request import (
+    BusinessJoinRequestConflictResponse,
     BusinessJoinRequestIn,
     BusinessJoinRequestOut,
     BusinessJoinRequestStatusOut,
@@ -29,6 +30,18 @@ router = APIRouter(prefix="/api/business/join-requests", tags=["business-join-re
     response_model_by_alias=True,
     status_code=status.HTTP_201_CREATED,
     summary="Submit a business registration request for admin review",
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "model": BusinessJoinRequestConflictResponse,
+            "description": (
+                "One of three conflicts already exists, told apart by `detail.code`: "
+                "`ALREADY_HAS_PENDING_REQUEST` (the caller already has a pending request), "
+                "`REGISTRATION_NUMBER_PENDING` (another applicant's pending request already "
+                "claims this registration number), or `REGISTRATION_NUMBER_TAKEN` (the "
+                "registration number already belongs to an approved business)."
+            ),
+        },
+    },
 )
 @limiter.limit(SENSITIVE_LIMIT)
 async def submit_join_request(
