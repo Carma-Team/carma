@@ -608,6 +608,23 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ gyroAvailable: true });
   });
 
+  // The availability flag alone is not enough: a consumer that classifies motion reads
+  // the value, and a gyro that died mid-trip kept reporting its last yaw forever — which
+  // a rail signal counts as a real framed sample. §3.1's unavailable ≠ zero has to cover
+  // unavailable ≠ last known too, or staleness is only advisory.
+  it('reports yawRateRadS: null once the gyroscope goes quiet, rather than freezing its last reading', () => {
+    jest.advanceTimersByTime(1000);
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.4 }); // gravity is still the (0,0,1) seed, so yaw about it is 0.4
+    sendFix({ t: 1100, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: 0.4 });
+
+    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS with no further sample — the gyro is gone
+    sendFix({ t: 6200, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: null, gyroAvailable: false });
+  });
+
   it('reports accelAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {
     jest.advanceTimersByTime(5000);
     sendFix({ t: 5100, speed: 20 });

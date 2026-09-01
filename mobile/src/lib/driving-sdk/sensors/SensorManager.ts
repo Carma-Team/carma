@@ -203,7 +203,7 @@ export class SensorManager {
   private onEvent: (event: DrivingEvent) => void;
   // Raw 10 Hz gyroscope tap. Exists so a second consumer can read rotation without
   // opening its own Gyroscope subscription — the sensor is already powered here, and
-  // the onUpdate bundle below only carries gyroZ at GPS rate (~2 s), far too coarse
+  // the onUpdate bundle below only carries yaw at GPS rate (~2 s), far too coarse
   // for anything sampling motion.
   private onGyroSample?: (sample: { x: number; y: number; z: number }) => void;
   // Raw 10 Hz accelerometer tap, symmetric to onGyroSample — same reasoning: this
@@ -461,7 +461,7 @@ export class SensorManager {
       timeDeltaS,
       longitudinalAccelG: this.vehicleFrameForce()?.longitudinal ?? null,
       lateralAccelG:      this.vehicleFrameForce()?.lateral ?? null,
-      yawRateRadS:        this.latestYawRateRadS,
+      yawRateRadS:        this.freshYawRate(),
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
       accelCoverage: this.accelCoverage(),
@@ -537,7 +537,7 @@ export class SensorManager {
       timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
       longitudinalAccelG: this.vehicleFrameForce()?.longitudinal ?? null,
       lateralAccelG:      this.vehicleFrameForce()?.lateral ?? null,
-      yawRateRadS:        this.latestYawRateRadS,
+      yawRateRadS:        this.freshYawRate(),
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
       accelCoverage: this.accelCoverage(),
@@ -635,9 +635,21 @@ export class SensorManager {
     this.windowHorizCount = 0;
   }
 
-  /** Latest sample's force in the vehicle frame, or null while the frame is unresolved. */
+  /**
+   * Latest sample's force in the vehicle frame, or null while the frame is unresolved —
+   * or while the accelerometer is stale. A sensor that stopped delivering leaves its last
+   * reading behind, and downstream this is a measured vehicle-frame force, not a cached
+   * one: §3.1's unavailable ≠ zero applies to unavailable ≠ *last known* just the same.
+   */
   private vehicleFrameForce() {
-    return this.latestHoriz2d ? this.vehicleFrame.resolve(this.latestHoriz2d) : null;
+    return this.latestHoriz2d && this.isSensorFresh(this.lastAccelSampleAtMs)
+      ? this.vehicleFrame.resolve(this.latestHoriz2d)
+      : null;
+  }
+
+  /** Yaw about gravity, or null once the gyroscope has gone stale — see above. */
+  private freshYawRate(): number | null {
+    return this.isSensorFresh(this.lastGyroSampleAtMs) ? this.latestYawRateRadS : null;
   }
 
   // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──

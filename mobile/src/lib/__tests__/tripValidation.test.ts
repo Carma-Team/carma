@@ -25,15 +25,15 @@ function advanceFraudTicks(
   manager: TripValidationManager,
   ticks: number,
   speedKmh: number,
-  accelX: number,
-  gyroZFn: (i: number) => number = () => 0
+  lateralAccelG: number,
+  yawRateFn: (i: number) => number = () => 0
 ): void {
   for (let i = 0; i < ticks; i++) {
     manager.updateSample({
       speedKmh,
       timestamp: Date.now(),
-      lateralAccelG: accelX,
-      yawRate: gyroZFn(i),
+      lateralAccelG,
+      yawRate: yawRateFn(i),
     });
     jest.advanceTimersByTime(1000);
   }

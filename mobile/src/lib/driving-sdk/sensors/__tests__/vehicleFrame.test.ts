@@ -148,9 +148,11 @@ describe('VehicleFrameEstimator', () => {
     expect(braking.longitudinal).toBeCloseTo(-0.4, 5);
     expect(braking.lateral).toBeCloseTo(0, 5);
 
-    // A pure cornering force, perpendicular to forward.
+    // A pure cornering force, perpendicular to forward. Lying face-up the phone's up axis
+    // is +Z and forward is +X, so left — up × forward — is +Y: this force is to the left,
+    // and the sign is asserted, not just the magnitude. peakLateralG's sign is on the wire.
     const cornering = estimator.resolve(projectHorizontal({ x: 0, y: 0.3, z: 0 }, basis))!;
-    expect(Math.abs(cornering.lateral)).toBeCloseTo(0.3, 5);
+    expect(cornering.lateral).toBeCloseTo(0.3, 5);
     expect(cornering.longitudinal).toBeCloseTo(0, 5);
   });
 
@@ -165,12 +167,16 @@ describe('VehicleFrameEstimator', () => {
     const flatBasis = teachForward(flatEstimator, FLAT, { x: 1, y: 0, z: 0 });
     const clipBasis = teachForward(clipEstimator, VENT_CLIP, { x: 1, y: 0, z: 0 });
 
-    // One cornering force on the car, expressed in each phone's own axes.
+    // One cornering force on the car — the same one — expressed in each phone's own axes.
+    // Left is up × forward, and the two mountings put "up" on different device axes: flat
+    // it is +Z, so left is +Y; in the clip it is +Y, so left is −Z. Feeding +Z there would
+    // be the car cornering the *other* way, which is why the signs are asserted directly
+    // rather than through Math.abs — that comparison passed on opposite forces.
     const flat = flatEstimator.resolve(projectHorizontal({ x: 0, y: 0.25, z: 0 }, flatBasis))!;
-    const clip = clipEstimator.resolve(projectHorizontal({ x: 0, y: 0, z: 0.25 }, clipBasis))!;
+    const clip = clipEstimator.resolve(projectHorizontal({ x: 0, y: 0, z: -0.25 }, clipBasis))!;
 
-    expect(Math.abs(flat.lateral)).toBeCloseTo(0.25, 5);
-    expect(Math.abs(clip.lateral)).toBeCloseTo(0.25, 5);
+    expect(flat.lateral).toBeCloseTo(0.25, 5);
+    expect(clip.lateral).toBeCloseTo(flat.lateral, 5);
     expect(flat.longitudinal).toBeCloseTo(0, 5);
     expect(clip.longitudinal).toBeCloseTo(0, 5);
   });
