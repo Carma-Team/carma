@@ -1,0 +1,77 @@
+.header {
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.createCard {
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.createRow {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.pendingSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: start;
+  padding: var(--space-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-sm);
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.createdPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.copyRow {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.copyRow input {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.backLink {
+  display: inline-block;
+  margin-top: var(--space-lg);
+}

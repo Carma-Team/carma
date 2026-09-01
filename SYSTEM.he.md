@@ -149,9 +149,6 @@ carma/                                # Carma-Team/carma (root של המונור
 │   ├── metro.config.js               # proxy ל-localhost:3000
 │   └── app.json
 │
-├── mock-server/                      # Express + db.json mock — deprecated (offline-dev בלבד)
-│   └── local-server/
-│
 ├── scripts/
 │   ├── dev.ps1                       # פקודה אחת ל-local dev (DB + server + Metro)
 │   └── smoke.sh                      # smoke test end-to-end

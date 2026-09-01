@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings whatever the checkout platform does.
+# This repo is developed on Windows and its scripts run in Linux containers,
+# where a CRLF shebang line fails with "bad interpreter: /bin/sh^M" - a failure
+# that never reproduces on the machine that produced it.
+*.sh text eol=lf

@@ -9,7 +9,7 @@
  * verdict is unreachable from device axes today (CAR-167), and the wire format has to
  * keep working for the day CAR-156 makes it reachable again.
  */
-import { TransportMode } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { fraudApi, type FraudEventPayload } from '@/services/api/fraud.api';
 import { request } from '@/services/api/client';
 

@@ -1,5 +1,5 @@
 // ─── Mocks ────────────────────────────────────────────────────────────────────
-// Same shape as BluetoothManager.test.ts: Platform sits behind a getter so every
+// Same shape as auto-trip-detection/__tests__/bluetoothDetection.test.ts: Platform sits behind a getter so every
 // branch runs without re-importing the module under test. openSettings stays a bare
 // jest.fn so the test can assert the promise is passed through, not re-wrapped.
 //

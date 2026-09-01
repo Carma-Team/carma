@@ -139,6 +139,16 @@ is used as a proxy. One delta is emitted per second via `onInteractionData`
   `pushGyroSample()`, the veto is skipped and the decision falls back to
   acceleration alone — the behavior every version before #138 has.
 - **Glass-tap proxy:** a single sample above **1.8 g** total magnitude flags a touch-epoch transient, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
+- **Paired-peak tap signature:** reported as `gyroTapPairs` on the motion features, and
+  independent of everything above — it changes no decision the manager makes. A jolt
+  through the suspension drives mostly the vertical accelerometer axis; a finger on glass
+  produces a small *rotational* kick on both in-plane axes at once, because the hand's
+  grip resists it. A pair is both X and Y between **0.2 and 0.7 rad/s** on the same
+  sample, counted on the sample that enters the band rather than on every sample inside
+  it; a tap is two pairs within **400 ms**. The Z axis is excluded on purpose — in a flat
+  mounting it is the vehicle's own yaw, and including it would let a turn qualify.
+  The 10 Hz feed puts a floor of 100 ms under the repeat gap, so the tightest gaps the
+  method describes cannot be resolved at this sample rate.
 - **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the combined threshold, so one pickup can produce more than one event.
 
 ```mermaid
@@ -159,7 +169,8 @@ flowchart TD
 > validated against real drive data** — the rotation threshold most of all,
 > since no drive-test data backs it yet (tracked as CAR-183). The glass-tap
 > proxy also cannot distinguish a finger tap from a sharp road bump. Treat
-> all of these as indicative until calibrated.
+> all of these as indicative until calibrated. The tap-signature band and repeat gap are
+> the patent's own worked example and carry the same caveat.
 
 ---
 

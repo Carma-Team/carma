@@ -7,7 +7,7 @@
  * score (the weight of the evidence that fired) and a confidence (the weight of the
  * evidence that could be evaluated at all). See docs/fraud-detection.md §3.3–§3.4.
  */
-import { TransportMode } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 
 // ─── Thresholds (docs/fraud-detection.md §3.3) ───────────────────────────────
 const WINDOW_SIZE = 60;

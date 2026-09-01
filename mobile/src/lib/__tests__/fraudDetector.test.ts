@@ -9,7 +9,7 @@
  * and the cases below are what they have to get right.
  */
 import { FraudDetector } from '@/lib/FraudDetector';
-import { TransportMode } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 
 /**
  * A car holding 80 km/h on a motorway, whatever the phone is clipped to. Almost no

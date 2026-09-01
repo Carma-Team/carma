@@ -53,6 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // `services/auth.py::login_with_password`. No follow-up refresh needed
     // just to downgrade it.
     setSession({ accessToken: res.token, user: res.user });
+    // Settles `bootstrapPhase`, not just outrun by `session` taking priority
+    // below — a login this successful is itself proof the bootstrap question
+    // ("is there a live session?") has a real, current answer, so a *later*
+    // sign-out or session rejection must fall through to 'unauthenticated',
+    // never resurface whatever transient failure the tab's original mount
+    // happened to hit (CAR-118 review item 5).
+    setBootstrapPhase('done');
+  }, []);
+
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    // Same short-lived-from-the-start reasoning as `login` above — `authApi`
+    // sends `X-Requested-With` uniformly, so `/api/auth/register` already
+    // recognizes this as a browser call (see
+    // `services/auth.py::register_with_password`) and mints the right TTL
+    // and refresh cookie without a follow-up refresh.
+    const res = await authApi.register(name, email, password);
+    setSession({ accessToken: res.token, user: res.user });
+    setBootstrapPhase('done');
   }, []);
 
   const logout = useCallback(async () => {
@@ -69,18 +87,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const status: AuthStatus =
-    bootstrapPhase === 'pending'
+  // A live `session` is checked before `bootstrapPhase` — not after — so a
+  // `login`/`register` call that lands after a *transient* bootstrap failure
+  // (an already-mounted app, `status: 'error'`, still showing the sign-in
+  // form) reaches 'authenticated' immediately. Neither of those sets
+  // `bootstrapPhase` themselves; without this ordering the stale 'error' from
+  // the earlier, unrelated bootstrap attempt would keep overriding a session
+  // that is genuinely live. `session` itself is never set from a stale
+  // response — `setSession`/`applyRefreshSuccess`/`applyRefreshRejection`
+  // already guard that (see `lib/auth/refresh.ts`'s captured lineage).
+  const status: AuthStatus = session
+    ? 'authenticated'
+    : bootstrapPhase === 'pending'
       ? 'loading'
       : bootstrapPhase === 'error'
         ? 'error'
-        : session
-          ? 'authenticated'
-          : 'unauthenticated';
+        : 'unauthenticated';
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user: session?.user ?? null, login, logout, retry }),
-    [status, session, login, logout, retry],
+    () => ({ status, user: session?.user ?? null, login, register, logout, retry }),
+    [status, session, login, register, logout, retry],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

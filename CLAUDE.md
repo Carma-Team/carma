@@ -1,6 +1,6 @@
 # CARMA — Monorepo Instructions
 
-CARMA is a mobile platform that rates driving behavior in real time to improve road safety through gamification. An npm-workspaces monorepo: a React Native (Expo) client, a FastAPI + PostgreSQL server, and a local mock server for development.
+CARMA is a mobile platform that rates driving behavior in real time to improve road safety through gamification. An npm-workspaces monorepo: a React Native (Expo) client and a FastAPI + PostgreSQL server.
 
 **Guiding principle — keep it simple.** Build what is needed now, never for hypothetical requirements. Before adding a layer, a config flag, or a file, ask whether removing something solves it instead. Readable beats clever. Genuine complexity — sensor fusion, fraud detection, scoring — stays visible and well-named rather than hidden behind indirection. When in doubt, choose the simpler solution.
 
@@ -121,7 +121,7 @@ The server's OpenAPI schema is the contract of record. `mobile/src/types/index.t
 
 ## `mobile/src/lib/driving-sdk/` — hard boundary
 
-A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `BluetoothManager`, `SensorManager`, `PhoneUsageManager`, `DrivingSDK` (`index.ts`), `types.ts`.
+A generic sensor wrapper (GPS, IMU, Bluetooth) that will be extracted as a standalone npm package. It holds hardware abstraction only: `SensorManager`, `PhoneUsageManager`, `auto-trip-detection/`, `DrivingSDK` (`index.ts`), `types.ts`.
 
 **Never add CARMA logic there** — trip validation, fraud thresholds, gamification levels, scoring formulas, business constants. Those consume SDK events from `mobile/src/lib/` directly: `FraudDetector.ts`, `TripValidationManager.ts`, `gamification.ts`.
 

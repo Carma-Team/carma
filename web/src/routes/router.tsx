@@ -1,34 +1,91 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
-import { HomePage } from '@/pages/HomePage';
 import { RedemptionPage } from '@/pages/RedemptionPage';
+import { RewardsPage } from '@/pages/RewardsPage';
+import { PermissionsPage } from '@/pages/PermissionsPage';
+import { InvitationsPage } from '@/pages/InvitationsPage';
+import { AcceptInvitationPage } from '@/pages/AcceptInvitationPage';
+import { AcceptInvitationEntryPage } from '@/pages/AcceptInvitationEntryPage';
+import { CreateAccountPage } from '@/pages/CreateAccountPage';
 import { ComingSoonPage } from '@/pages/ComingSoonPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
+import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
 import { ProtectedRoute } from './ProtectedRoute';
+import { RequireBusinessRole } from './RequireBusinessRole';
+import { RequireAdmin } from './RequireAdmin';
+import { LandingRoute } from './LandingRoute';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
 // unknown path still renders inside the sidebar/header chrome, not a blank
-// page. /rewards and /business-profile render ComingSoonPage until their own
-// tickets (CAR-202, business profile) land; /redemption is CAR-68.
+// page. /business-profile renders ComingSoonPage until its own ticket lands;
+// /redemption is CAR-68, /rewards is CAR-202. CAR-116 wraps the four real
+// business routes in one `RequireBusinessRole` allowing all three roles —
+// a null/ambiguous membership (no membership, or more than one — CAR-258
+// fails closed rather than guessing) must not reach any of them, while the
+// per-role differences within a route (e.g. /rewards' manage actions) are
+// each page's own job. 404 sits outside that gate on purpose: an unknown
+// path is not a permission question, and stays reachable exactly as before.
 // /register and /register/status (CAR-203) sit outside ProtectedRoute like
 // /sign-in — the one part of this app that must work with no session at all.
+// /permissions (CAR-117) gets its own `RequireBusinessRole`, allowing OWNER
+// only — a narrower gate than the four routes above it, which every role in
+// the matrix can at least reach.
+// /admin/business-requests (CAR-255) sits beside those business-role gates,
+// not inside one — ADMIN is a system role unrelated to any business
+// membership, so it gets its own `RequireAdmin` reading `user.role` instead
+// of `businessMembershipRole`. This is UX only; `CurrentAdmin` on the CAR-77
+// endpoints is the actual boundary (see RequireAdmin's own comment).
+// / itself sits outside every role gate above (see LandingRoute) — it is
+// the one route both an ADMIN and a business role land on straight out of
+// sign-in, so it resolves the role split itself rather than living inside
+// a gate built for only one side of it.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
+  { path: '/create-account', element: <CreateAccountPage /> },
   { path: '/register', element: <BusinessRegistrationPage /> },
   { path: '/register/status', element: <BusinessRequestStatusPage /> },
+  // CAR-118's recipient side sits outside ProtectedRoute like /sign-in and
+  // /create-account: an invitation link must work for someone with no
+  // session at all, and the page itself decides what an unauthenticated
+  // visitor sees (a sign-in/create-account choice) versus an authenticated
+  // one (the business/role preview).
+  // The token travels as a URL *fragment* (`#TOKEN`), not a path segment —
+  // see `services/business_invitations.py::_link`'s docstring. A single
+  // fixed path, read via `location.hash` inside the page, not `:token`.
+  { path: '/business-invite', element: <AcceptInvitationPage /> },
+  { path: '/accept-invite', element: <AcceptInvitationEntryPage /> },
   {
     element: <ProtectedRoute />,
     children: [
       {
         element: <AppShell />,
         children: [
-          { path: '/', element: <HomePage /> },
-          { path: '/redemption', element: <RedemptionPage /> },
-          { path: '/rewards', element: <ComingSoonPage /> },
-          { path: '/business-profile', element: <ComingSoonPage /> },
+          // /  (CAR-255 review) sits outside this gate now — LandingRoute
+          // does its own role check, because it is the one route an ADMIN
+          // must also reach (see its own comment for why).
+          { path: '/', element: <LandingRoute /> },
+          {
+            element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
+            children: [
+              { path: '/redemption', element: <RedemptionPage /> },
+              { path: '/rewards', element: <RewardsPage /> },
+              { path: '/business-profile', element: <ComingSoonPage /> },
+            ],
+          },
+          {
+            element: <RequireBusinessRole allow={['OWNER']} />,
+            children: [
+              { path: '/permissions', element: <PermissionsPage /> },
+              { path: '/permissions/invitations', element: <InvitationsPage /> },
+            ],
+          },
+          {
+            element: <RequireAdmin />,
+            children: [{ path: '/admin/business-requests', element: <BusinessRequestsReviewPage /> }],
+          },
           { path: '*', element: <NotFoundPage /> },
         ],
       },
