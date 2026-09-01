@@ -52,11 +52,14 @@ type Step =
   | { kind: 'verifying' }
   | { kind: 'submitting' }
   | { kind: 'success' }
-  // The server's 409s on submission cannot be told apart without relying on
-  // its free-text `detail` (unstable — see the CAR-203 hand-off's backend
-  // contract note), so this covers every conflict honestly instead of
-  // claiming it is specifically the applicant's own pending request.
-  | { kind: 'submitConflict' }
+  // `reason` mirrors `submitJoinRequest`'s CAR-264 outcomes. `'unknown'`
+  // covers the old collapsed `conflict` outcome — a 409 whose `code` is
+  // missing or unrecognized — and gets the same honest, non-specific
+  // message that used to cover every conflict.
+  | {
+      kind: 'submitConflict';
+      reason: 'already_has_pending_request' | 'registration_number_pending' | 'registration_number_taken' | 'unknown';
+    }
   | { kind: 'error'; messageKey: 'rateLimitedMessage' | 'networkErrorMessage' | 'submitErrorMessage' };
 
 export function BusinessRegistrationPage() {
@@ -155,8 +158,14 @@ export function BusinessRegistrationPage() {
     const submitResult = await submitJoinRequest(payload, result.accessToken);
     if (submitResult.outcome === 'ok') {
       setStep({ kind: 'success' });
+    } else if (
+      submitResult.outcome === 'already_has_pending_request' ||
+      submitResult.outcome === 'registration_number_pending' ||
+      submitResult.outcome === 'registration_number_taken'
+    ) {
+      setStep({ kind: 'submitConflict', reason: submitResult.outcome });
     } else if (submitResult.outcome === 'conflict') {
-      setStep({ kind: 'submitConflict' });
+      setStep({ kind: 'submitConflict', reason: 'unknown' });
     } else if (submitResult.outcome === 'rate_limited') {
       setStep({ kind: 'error', messageKey: 'rateLimitedMessage' });
     } else if (submitResult.outcome === 'network_error') {
@@ -196,11 +205,19 @@ export function BusinessRegistrationPage() {
   }
 
   if (step.kind === 'submitConflict') {
+    const keySuffix =
+      step.reason === 'already_has_pending_request'
+        ? 'AlreadyPending'
+        : step.reason === 'registration_number_pending'
+          ? 'NumberPending'
+          : step.reason === 'registration_number_taken'
+            ? 'NumberTaken'
+            : '';
     return (
       <main className={styles.page}>
         <Card className={styles.centered}>
-          <Heading level={1}>{t('businessRegistration.submitConflictTitle')}</Heading>
-          <Text variant="body">{t('businessRegistration.submitConflictMessage')}</Text>
+          <Heading level={1}>{t(`businessRegistration.submitConflict${keySuffix}Title`)}</Heading>
+          <Text variant="body">{t(`businessRegistration.submitConflict${keySuffix}Message`)}</Text>
           <Link to="/register/status" className={styles.statusLink}>
             {t('businessRegistration.checkStatusLink')}
           </Link>

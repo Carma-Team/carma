@@ -159,6 +159,12 @@ export type TranslationMap = {
     pendingTitle: string;
     pendingMessage: string;
     pendingNotApprovalNote: string;
+    submitConflictAlreadyPendingTitle: string;
+    submitConflictAlreadyPendingMessage: string;
+    submitConflictNumberPendingTitle: string;
+    submitConflictNumberPendingMessage: string;
+    submitConflictNumberTakenTitle: string;
+    submitConflictNumberTakenMessage: string;
     submitConflictTitle: string;
     submitConflictMessage: string;
     checkStatusPrompt: string;

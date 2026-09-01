@@ -383,7 +383,7 @@ describe('BusinessRegistrationPage', () => {
     expect(geocodeAddress).not.toHaveBeenCalled();
   });
 
-  it('shows an honest, generic conflict message on a 409 — never claims it is specifically the applicant\'s own pending request', async () => {
+  it('shows an honest, generic conflict message when the 409 has no recognized code — never claims a specific reason it cannot back up', async () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
     vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
     vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
@@ -395,10 +395,54 @@ describe('BusinessRegistrationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'לא הצלחנו לשלוח את הבקשה' })).toBeInTheDocument());
-    // The server cannot say which of its three 409 reasons this was — the
-    // page must not fabricate certainty it doesn't have (see the CAR-203
-    // backend contract note in lib/api/businessRegistration.ts).
-    expect(screen.queryByText(/כבר יש (לכם )?בקשה/)).not.toBeInTheDocument();
+    // A missing or unrecognized `code` (CAR-292's fallback case) must not be
+    // shown as if it were one of the three documented, specific reasons.
+    expect(screen.queryByText(/כבר יש (לכם )?בקשה ממתינה/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+  });
+
+  it('shows the specific "you already have a pending request" message for the ALREADY_HAS_PENDING_REQUEST conflict', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+    vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+    vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
+    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'already_has_pending_request' });
+
+    renderPage();
+    await fillContinueAndConfirmLocation();
+    fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'כבר יש לכם בקשה ממתינה' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+  });
+
+  it('shows the specific "registration number already pending" message for the REGISTRATION_NUMBER_PENDING conflict', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+    vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+    vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
+    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'registration_number_pending' });
+
+    renderPage();
+    await fillContinueAndConfirmLocation();
+    fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'מספר העסק הזה כבר ממתין לבדיקה' })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
+  });
+
+  it('shows the specific "registration number already registered" message for the REGISTRATION_NUMBER_TAKEN conflict', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'found', lat: 32.0648, lng: 34.7748 });
+    vi.mocked(startPhoneVerification).mockResolvedValue({ outcome: 'ok', expiresInSeconds: 300 });
+    vi.mocked(verifyOtp).mockResolvedValue({ outcome: 'ok', accessToken: 'jwt-1', user: USER });
+    vi.mocked(submitJoinRequest).mockResolvedValue({ outcome: 'registration_number_taken' });
+
+    renderPage();
+    await fillContinueAndConfirmLocation();
+    fireEvent.change(screen.getByLabelText('קוד אימות'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'אימות ושליחת הבקשה' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'מספר העסק הזה כבר רשום' })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' })).toBeInTheDocument();
   });
 

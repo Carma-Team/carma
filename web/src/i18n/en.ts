@@ -149,6 +149,13 @@ const en: TranslationMap = {
     pendingTitle: 'Request received',
     pendingMessage: 'Your business registration request has been submitted and is pending review.',
     pendingNotApprovalNote: "This isn't an approval — we'll review the request and let you know.",
+    submitConflictAlreadyPendingTitle: 'You already have a pending request',
+    submitConflictAlreadyPendingMessage: "We're already reviewing a request from you. Check its status below.",
+    submitConflictNumberPendingTitle: 'This registration number is already pending review',
+    submitConflictNumberPendingMessage:
+      'Another request for this registration number is already being reviewed. If that request is yours, check its status below.',
+    submitConflictNumberTakenTitle: 'This registration number is already registered',
+    submitConflictNumberTakenMessage: 'This registration number already belongs to an approved business on CARMA.',
     submitConflictTitle: "Couldn't submit this request",
     submitConflictMessage:
       'This registration number may already be attached to a pending request, or may already belong to a registered business. If you already applied, check your request status below.',
