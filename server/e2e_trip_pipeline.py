@@ -24,10 +24,12 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from app.config import settings
+
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = "http://localhost:3000"
-SIGNING_KEY = "CARMA-TRIP-HMAC-KEY-V1__REPLACE_VIA_APP_ATTESTATION"
+SIGNING_KEY = settings.trip_signing_secret
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,9 +38,9 @@ def _hmac_hex(key: str, message: str) -> str:
     return _hmac.new(key.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
-def ph_sign(digest: dict) -> str:
+def sign(digest: dict) -> str:
     canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
-    return f"ph:{_hmac_hex(SIGNING_KEY, canonical)}"
+    return _hmac_hex(SIGNING_KEY, canonical)
 
 
 def make_digest(
@@ -86,7 +88,7 @@ def make_payload(
         "riskMultiplier": risk_multiplier,
         "penalties": penalties,
         "telemetryDigest": digest,
-        "payloadSignature": ph_sign(digest),
+        "payloadSignature": sign(digest),
     }
     return body, key
 
