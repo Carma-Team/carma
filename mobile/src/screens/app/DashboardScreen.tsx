@@ -13,6 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { availableBalance, formatDistance } from '@/lib/utils';
+import { badgeCount } from '@/lib/notifications';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -44,15 +45,8 @@ export default function DashboardScreen() {
       friendsApi.getIncoming()
         .then(d => { if (alive) setPendingRequests(d.requests.length); })
         .catch(() => {});
-      // `friend_requested` is deliberately not counted here. The server emits it for the
-      // same event that puts a request in the incoming queue, so counting both lit two
-      // badges in this header for one thing that happened, cleared on two screens. The
-      // notification itself stays — the requests screen is the action queue, the
-      // notifications screen is the history — only the indicator was duplicated.
       notificationsApi.list()
-        .then(rows => {
-          if (alive) setUnreadNotifications(rows.filter(n => !n.readAt && n.type !== 'friend_requested').length);
-        })
+        .then(rows => { if (alive) setUnreadNotifications(badgeCount(rows)); })
         .catch(() => {});
       return () => { alive = false; };
     }, []),
