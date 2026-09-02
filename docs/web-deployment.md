@@ -27,9 +27,7 @@ real HTTP 200 on a deep-link reload. (CAR-285)
 
 ## Public URL
 
-`https://carma-business.<environment>.germanywestcentral.azurecontainerapps.io`
-- the exact hostname is assigned when the Container App is created and is
-recorded on CAR-285.
+`https://carma-business.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io`
 
 ## What the workflow does
 
