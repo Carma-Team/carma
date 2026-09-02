@@ -152,8 +152,12 @@ const he = {
     availablePoints: 'נקודות זמינות', reservedPoints: 'נקודות שמורות לשוברים פעילים',
     balanceAfter: 'יישארו לך',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
+    // הפרדה בין מה שאפשר לקנות למה שכבר נקנה — קטגוריה היא סיווג של הפרס, לא של הבעלות
+    tabStore: 'חנות', tabMyVouchers: 'השוברים שלי',
+    noVouchers: 'עדיין לא רכשת שוברים',
     voucher: {
       title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      expired: 'פג תוקף', cancelled: 'בוטל',
       cancel: 'ביטול השובר',
       cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
       cancelSuccess: 'השובר בוטל והנקודות שוחררו',

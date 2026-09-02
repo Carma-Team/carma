@@ -16,7 +16,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('react-native-qrcode-svg', () => 'QRCode')
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }))
 jest.mock('@/services/api/rewards.api', () => ({
-  rewardsApi: { list: jest.fn(), redeem: jest.fn(), cancel: jest.fn() },
+  rewardsApi: { list: jest.fn(), redeem: jest.fn(), cancel: jest.fn(), myVouchers: jest.fn() },
 }))
 
 // The `mock` prefix is load-bearing: `jest.mock` is hoisted above these declarations,
@@ -208,5 +208,52 @@ describe('MarketplaceScreen batching', () => {
   it('offers nothing to expand for a catalog that already fits', async () => {
     await renderCatalog(6)
     expect(moreButton()).toBeNull()
+  })
+})
+
+describe('MarketplaceScreen owned vouchers', () => {
+  const owned = (code: string, status: Voucher['status'], createdAt: string): Voucher =>
+    ({ ...voucher(code), id: `v-${code}`, status, isUsed: status === 'used', createdAt }) as Voucher
+
+  async function openVouchers(vouchers: Voucher[]) {
+    mocked.list.mockResolvedValue({ rewards: [reward], vouchers: [] })
+    mocked.myVouchers.mockResolvedValue({ vouchers })
+    render(<MarketplaceScreen />)
+    await act(async () => {})
+    await act(async () => {
+      fireEvent.press(screen.getByText(he.marketplace.tabMyVouchers))
+    })
+  }
+
+  it('lists vouchers the catalog never returns, spent ones included', async () => {
+    await openVouchers([owned('SPENT1', 'used', '2026-01-01T00:00:00Z')])
+
+    expect(mocked.myVouchers).toHaveBeenCalled()
+    expect(screen.getByText(/SPENT1/)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.used)).toBeTruthy()
+  })
+
+  it('names expired and cancelled by their own state instead of calling them active', async () => {
+    await openVouchers([
+      owned('GONE1', 'expired', '2026-01-01T00:00:00Z'),
+      owned('DROP1', 'cancelled', '2026-01-02T00:00:00Z'),
+    ])
+
+    expect(screen.getByText(he.marketplace.voucher.expired)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.cancelled)).toBeTruthy()
+    expect(screen.queryByText(he.marketplace.voucher.active)).toBeNull()
+  })
+
+  it('says so when the driver owns nothing yet', async () => {
+    await openVouchers([])
+    expect(screen.getByText(he.marketplace.noVouchers)).toBeTruthy()
+  })
+
+  it('opens the voucher it was tapped on', async () => {
+    await openVouchers([owned('LIVE01', 'pending', '2026-01-01T00:00:00Z')])
+
+    fireEvent.press(screen.getByText(/LIVE01/))
+
+    expect(screen.getByTestId('voucher-modal-code')).toHaveTextContent('LIVE01')
   })
 })

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { View, ScrollView, ActivityIndicator } from 'react-native'
+import { View, ScrollView, ActivityIndicator, Text, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
 import { CategoryFilter } from '@/components/marketplace/CategoryFilter'
+import { VoucherList } from '@/components/marketplace/VoucherList'
 import { RedeemConfirmSheet } from '@/components/marketplace/RedeemConfirmSheet'
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader'
 import { Button } from '@/components/ui/Button'
@@ -43,10 +44,13 @@ export default function MarketplaceScreen() {
   const { user, patchUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
+  const [view, setView] = useState<'store' | 'vouchers'>('store')
   const [category, setCategory] = useState('all')
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
   const [rewards, setRewards] = useState<Reward[]>([])
   const [vouchers, setVouchers] = useState<Voucher[]>([])
+  const [myVouchers, setMyVouchers] = useState<Voucher[]>([])
+  const [loadingVouchers, setLoadingVouchers] = useState(false)
   const [loading, setLoading] = useState(true)
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null)
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null)
@@ -92,6 +96,26 @@ export default function MarketplaceScreen() {
   }, [category, addToast, t])
 
   useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  /**
+   * Loads every voucher the driver owns, in any state.
+   *
+   * [server] rewardsApi.myVouchers() → GET /api/vouchers
+   *
+   * Deliberately not folded into loadCatalog: the catalog reloads on every category
+   * change, and this list does not depend on the category at all. The catalog's own
+   * voucher side-car carries only the live ones, which is why it cannot serve here.
+   */
+  useEffect(() => {
+    if (view !== 'vouchers') return
+    let live = true
+    setLoadingVouchers(true)
+    rewardsApi.myVouchers()
+      .then(data => { if (live) setMyVouchers(data.vouchers) })
+      .catch(() => { if (live) addToast({ type: 'error', message: t('marketplace.loadFailed') }) })
+      .finally(() => { if (live) setLoadingVouchers(false) })
+    return () => { live = false }
+  }, [view, addToast, t])
 
   /**
    * Redeems a reward: reserves the user's points and creates a voucher.
@@ -172,6 +196,10 @@ export default function MarketplaceScreen() {
     try {
       await rewardsApi.cancel(voucher.id)
       setVouchers(prev => prev.filter(v => v.id !== voucher.id))
+      // The owned list keeps it and restates it as cancelled, rather than dropping it
+      // the way the card's live strip does — a driver looking at their own vouchers
+      // should see the one that just went away, not a list that silently shrank.
+      setMyVouchers(prev => prev.map(v => (v.id === voucher.id ? { ...v, status: 'cancelled' } : v)))
       // Mirror of the redemption: the points the voucher held go back to spendable.
       patchUser(prev => ({
         availablePoints: availableBalance(prev) + voucher.pointsCost,
@@ -212,6 +240,31 @@ export default function MarketplaceScreen() {
         {/* Header Section */}
         <MarketplaceHeader available={available} reserved={user.reservedPoints || 0} />
 
+        {/* What is on sale versus what this driver already owns. Kept out of the
+            category row on purpose: a category classifies the reward, not the
+            ownership, and one row doing both is harder to read than two. */}
+        <View style={COMMON_STYLES.tabsContainer}>
+          {([['store', 'marketplace.tabStore'], ['vouchers', 'marketplace.tabMyVouchers']] as const).map(([key, labelKey]) => (
+            <TouchableOpacity
+              key={key}
+              onPress={() => setView(key)}
+              style={[COMMON_STYLES.tab, view === key && COMMON_STYLES.tabActive]}
+            >
+              <Text style={[COMMON_STYLES.tabText, view === key && COMMON_STYLES.tabTextActive]}>
+                {t(labelKey)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {view === 'vouchers' ? (
+          loadingVouchers ? (
+            <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
+          ) : (
+            <VoucherList vouchers={myVouchers} onVoucherPress={setSelectedVoucher} />
+          )
+        ) : (
+        <>
         <CategoryFilter
           categories={categories}
           selectedCategory={category}
@@ -252,6 +305,8 @@ export default function MarketplaceScreen() {
               </Button>
             )}
           </View>
+        )}
+        </>
         )}
       </ScrollView>
 
