@@ -18,7 +18,6 @@ interface ActiveTripMonitorProps {
       HARD_BRAKE: number;
       AGGRESSIVE_ACCEL: number;
       SHARP_TURN: number;
-      SWERVE: number;
     };
   };
   onEnd: () => void;

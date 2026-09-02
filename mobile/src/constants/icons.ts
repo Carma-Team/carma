@@ -32,7 +32,6 @@ export const ICONS = {
   hardBrake:      'alert-circle'              as IoniconName,
   aggressiveAccel:'trending-up'               as IoniconName,
   sharpTurn:      'git-branch'                as IoniconName,
-  swerve:         'swap-horizontal'           as IoniconName,
   phoneUsage:     'phone-portrait'            as IoniconName,
 
   // ─── Actions ────────────────────────────────────────────────────────────────
@@ -50,7 +49,9 @@ export const ICONS = {
   inactive:       'close-circle'              as IoniconName,
   car:            'car-sport'                 as IoniconName,
   flash:          'flash'                     as IoniconName,
-  openInMaps:     'navigate-outline'          as IoniconName,
+  // Distinct from the GPS arrow the current-location control uses — the two sat side
+  // by side on the trip map and read as the same button (CAR-241).
+  openInMaps:     'map-outline'               as IoniconName,
 
   // ─── Profile section tabs ───────────────────────────────────────────────────
   achievements:   'trophy'                    as IoniconName,
@@ -63,6 +64,11 @@ export const ICONS = {
   noRewards:      'gift'                      as IoniconName,
   noNotifs:       'notifications'             as IoniconName,
   noLocation:     'location'                  as IoniconName,
+  // Week-over-week direction on the dashboard trend card. Chevrons rather than
+  // arrows: the arrow glyphs read as navigation everywhere else in this app.
+  trendUp:        'chevron-up'                as IoniconName,
+  trendDown:      'chevron-down'              as IoniconName,
+  trendFlat:      'remove'                    as IoniconName,
   // Trip waiting to reach the server — not an error, so no warning triangle.
   notSent:        'cloud-offline'             as IoniconName,
 } as const;

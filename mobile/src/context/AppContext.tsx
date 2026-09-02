@@ -142,7 +142,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tripState, setTripState] = useState<TripState>(INITIAL_TRIP_STATE)
   const [lastTripSummary, setLastTripSummary] = useState<TripSummary | null>(null)
   const [btDevice, setBtDeviceState] = useState<BluetoothTarget>(null)
-  const [userLevelState, setUserLevelState] = useState<GamificationLevel>(() => levelDisplay(1))
+  // Derived, not tracked: a level held beside the user is a second copy that can
+  // disagree with `user.level`, and the offline trip path is where it did (CAR-263).
+  // Every write that moved this state also wrote the level it came from.
+  const userLevelState = useMemo<GamificationLevel>(() => levelDisplay(user?.level ?? 1), [user?.level])
 
   /**
    * Applies a partial change to the user against whatever the state holds now.
@@ -182,6 +185,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // the generic library with its own trip-validation rules, per the driving-sdk
   // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
   const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
+  // Bumped on every identity change — login, driver switch, logout. An async path
+  // copies it on entry and drops its write if the number moved while it awaited;
+  // without that, a request the previous driver started lands on the current one.
+  const sessionRef = useRef(0)
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
@@ -340,29 +347,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem('carma_trips', JSON.stringify(updatedTrips));
 
     if (user) {
-      // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
-      const currentPoints = user.totalPoints ?? user.points ?? 0;
-      const newTotalPoints = currentPoints + earnedPoints;
-      // The server resolved the level when it saved the trip — including the
-      // driver-score cap, which no amount of local arithmetic can reproduce
-      // (#37). Only fall back to a points lookup if the save never landed.
-      const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
-
-      const levelChange = detectLevelChange(user.level ?? newLevel, newLevel);
-      if (levelChange) {
-        const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
-        console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
-      }
-      setUserLevelState(levelDisplay(newLevel));
-
       // Totals are re-derived from the state at write time, not from the `user` this
       // callback closed over: saving the trip is a round trip to the server, and a
       // settings change made while it ran would otherwise be rolled back here.
       patchUser(prev => {
+        // Single source of truth: prefer totalPoints (persisted accumulator), fall back to points
         const earnedFrom = prev.totalPoints ?? prev.points ?? 0;
+        const newTotalPoints = earnedFrom + earnedPoints;
+        // The server resolved the level when it saved the trip — including the
+        // driver-score cap, which no amount of local arithmetic can reproduce
+        // (#37). Only fall back to a points lookup if the save never landed, and
+        // then off the total this same write is producing: derived out here it came
+        // from the snapshot the callback closed over, so an update landing while the
+        // save was in flight paired a fresh total with an older level (CAR-263).
+        const newLevel = savedTrip?.userLevel ?? getLevelByPoints(newTotalPoints);
+
+        const levelChange = detectLevelChange(prev.level ?? newLevel, newLevel);
+        if (levelChange) {
+          const direction = levelChange.to > levelChange.from ? 'LEVEL_UP' : 'LEVEL_DOWN';
+          console.log(`[Gamification] ${direction}: ${levelChange.from} -> ${levelChange.to}`);
+        }
+
         return {
-          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1)
-          totalPoints: earnedFrom + earnedPoints,  // Dashboard/Profile UI reads this
+          points: newTotalPoints,       // spec field (5.3.1.1)
+          totalPoints: newTotalPoints,  // Dashboard/Profile UI reads this
           // What the trip earned is spendable immediately. Without this the store's
           // balance stays on the pre-trip number until the next full user refresh,
           // since reserved points are the only other thing that moves it.
@@ -387,6 +395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
     SyncManager.onTripSynced = (localId: string, serverTrip: Trip) => {
+      const gen = sessionRef.current;
       setRecentTrips(prev => {
         const updated = prev.map(t =>
           t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
@@ -398,8 +407,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
+        // The totals belong to whoever was signed in when the trip synced.
+        if (gen !== sessionRef.current) return;
         patchUser(freshUser);
-        setUserLevelState(levelDisplay(freshUser.level ?? 1));
       }).catch(() => {});
     };
   }, [patchUser]);
@@ -429,12 +439,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadInitialData() {
+      const gen = sessionRef.current;
       const serverOnline = await pingServer();
       try {
-        const [l, u, t, btId, btName, token, levelsRes] = await Promise.all([
+        const [l, u, btId, btName, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
-          AsyncStorage.getItem('carma_trips'),
           AsyncStorage.getItem('carma_bt_device_id'),
           AsyncStorage.getItem('carma_bt_device_name'),
           AsyncStorage.getItem('carma_token'),
@@ -457,13 +467,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Saved token found — validate against server and refresh data
           try {
             const freshUser = await authApi.me();
+            // Restoring the stored session is only right while it is still the one
+            // signed in. A logout during startup ends it, and nothing below may put
+            // the account back into state or storage.
+            if (gen !== sessionRef.current) return;
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
-            setUserLevelState(levelDisplay(merged.level ?? 1));
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
 
             const serverData = await tripsApi.list();
+            if (gen !== sessionRef.current) return;
             setRecentTrips(serverData.trips);
             await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
           } catch {
@@ -472,8 +486,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setUserState(null);
             setRecentTrips([]);
           }
-        } else if (t) {
-          setRecentTrips(JSON.parse(t));
         }
         SyncManager.flushQueue().catch(() => {});
       } catch (e) {
@@ -512,14 +524,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setUser = useCallback(async (u: AppUser | null) => {
+    // The single writer of "who is signed in", so the single place that ends a
+    // session for every async path holding the previous number.
+    sessionRef.current++;
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
-      await AsyncStorage.removeItem('carma_user');
-      await AsyncStorage.removeItem('carma_token');
+      // carma_trips goes with the session. Left behind, the offline fallback hands
+      // the next driver on the handset the previous driver's trips.
+      await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
     } else {
       setUserState(u);
-      setUserLevelState(levelDisplay(u.level ?? 1));
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
     }
   }, []);
@@ -538,13 +553,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Trips are fetched here and not in setUser: every partial write to the user
     // (points after a redeem, the drive mode toggle) goes through setUser too, and
     // used to drag a full trip list refetch along with it.
+
+    // Read after setUser, which is the call that bumped the session for this login.
+    const gen = sessionRef.current;
     try {
       const serverData = await tripsApi.list();
+      if (gen !== sessionRef.current) return;
       setRecentTrips(serverData.trips);
       await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
     } catch {
       const cached = await AsyncStorage.getItem('carma_trips');
-      if (cached) setRecentTrips(JSON.parse(cached));
+      if (gen !== sessionRef.current || !cached) return;
+      // Filtered even after the logout wipe: a driver who never logged out leaves
+      // the cache in place, and the next one must not be shown its rows.
+      setRecentTrips((JSON.parse(cached) as Trip[]).filter(t => t.userId === data.user.id));
     }
   }, [setUser]);
 
