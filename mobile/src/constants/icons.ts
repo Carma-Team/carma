@@ -32,7 +32,6 @@ export const ICONS = {
   hardBrake:      'alert-circle'              as IoniconName,
   aggressiveAccel:'trending-up'               as IoniconName,
   sharpTurn:      'git-branch'                as IoniconName,
-  swerve:         'swap-horizontal'           as IoniconName,
   phoneUsage:     'phone-portrait'            as IoniconName,
 
   // ─── Actions ────────────────────────────────────────────────────────────────

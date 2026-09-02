@@ -126,10 +126,6 @@ const MS2_PER_G = 9.81;
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
 // Defined in types.ts so a TripValidator can apply the same cutoff to GPS speed.
 
-// SWERVE is in the event enum but nothing here detects it. The detector that was
-// written for it was never verified on a drive and is not scheduled — it lives in
-// docs/disabled-swerve-detection.md, with what restoring it would take.
-
 export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;

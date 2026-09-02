@@ -50,7 +50,6 @@ export enum DrivingEventType {
   HARD_BRAKE      = 'HARD_BRAKE',       // EVT_BRAKE   — spec §א table 1
   AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL', // EVT_ACCEL   — spec §א table 1
   SHARP_TURN      = 'SHARP_TURN',        // EVT_TURN    — spec §א table 1
-  SWERVE          = 'SWERVE',            // EVT_SWERVE  — spec §א table 1
   PHONE_USAGE     = 'PHONE_USAGE'        // not in spec table — detected separately
 }
 
