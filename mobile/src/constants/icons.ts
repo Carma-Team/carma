@@ -49,7 +49,9 @@ export const ICONS = {
   inactive:       'close-circle'              as IoniconName,
   car:            'car-sport'                 as IoniconName,
   flash:          'flash'                     as IoniconName,
-  openInMaps:     'navigate-outline'          as IoniconName,
+  // Distinct from the GPS arrow the current-location control uses — the two sat side
+  // by side on the trip map and read as the same button (CAR-241).
+  openInMaps:     'map-outline'               as IoniconName,
 
   // ─── Profile section tabs ───────────────────────────────────────────────────
   achievements:   'trophy'                    as IoniconName,
