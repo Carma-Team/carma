@@ -118,6 +118,11 @@ export class RawSampleRecorder {
   // this cap and cadence; move to file.open() + writeBytes if sessions get longer.
   private lines: string[] = [];
   private lastFlushedCount = 0;
+  // Buffer length at which the next flush is attempted. Advances on every attempt,
+  // successful or not: keyed off lastFlushedCount instead, a failed flush would leave
+  // the interval permanently crossed and rewrite the whole file on every sample after
+  // it — a synchronous write at 20 Hz for the rest of the session.
+  private nextFlushAt = FLUSH_EVERY_LINES;
   // Survives past stop() — exportAsync() shares the last completed recording, not
   // necessarily one that's still "active" (session is null again by the time you export).
   private lastFilePath: string | null = null;
@@ -145,6 +150,7 @@ export class RawSampleRecorder {
     const sessionId = `session_${Date.now()}`;
     this.lines = [];
     this.lastFlushedCount = 0;
+    this.nextFlushAt = FLUSH_EVERY_LINES;
     // Joined by the File constructor, never by string concatenation: Directory.uri
     // already ends in a slash on Android and does not on iOS, so a hand-built path
     // is right on exactly one platform.
@@ -173,16 +179,27 @@ export class RawSampleRecorder {
     return this.session;
   }
 
-  /** Flushes whatever is still buffered and ends the session. */
+  /**
+   * Flushes whatever is still buffered and ends the session.
+   *
+   * Throws if that last flush fails, and leaves the session running when it does:
+   * this is the one flush with no next attempt behind it, so the samples only exist
+   * in memory. Reporting success would clear them and point Export at a truncated
+   * file — or, for a session under one flush interval, at an empty one. A caller
+   * that catches this can retry stop() with the buffer intact.
+   */
   public async stop(): Promise<RawRecordingSession | null> {
     const session = this.session;
     if (!session) return null;
+    if (!this.flush(session.filePath)) {
+      throw new Error('[RawSampleRecorder] Could not write the session — it is still recording');
+    }
     this.session = null;
     this.magSub?.remove();
     this.magSub = null;
-    this.flush(session.filePath);
     this.lines = [];
     this.lastFlushedCount = 0;
+    this.nextFlushAt = FLUSH_EVERY_LINES;
     this.lastFilePath = session.filePath;
     return session;
   }
@@ -203,26 +220,32 @@ export class RawSampleRecorder {
     if (!this.session) return; // no-op outside an active session — callers wire this unconditionally
     if (this.lines.length >= MAX_SESSION_LINES) return;
     this.lines.push(JSON.stringify(sample));
-    if (this.lines.length - this.lastFlushedCount >= FLUSH_EVERY_LINES) {
+    if (this.lines.length >= this.nextFlushAt) {
+      this.nextFlushAt = this.lines.length + FLUSH_EVERY_LINES;
       this.flush(this.session.filePath);
     }
   }
 
   /**
-   * Writes the buffer to disk. Never throws: a failed flush (disk full, file
-   * removed underneath us) must not tear down a running sensor callback or lose
-   * the samples still in memory — the next flush retries the whole buffer, because
-   * the flushed mark only advances on a write that actually landed.
+   * Writes the buffer to disk and reports whether it landed. Never throws: a failed
+   * flush (disk full, file removed underneath us) must not tear down a running sensor
+   * callback or lose the samples still in memory — the next flush retries the whole
+   * buffer, because the flushed mark only advances on a write that actually landed.
+   *
+   * The return value is what lets stop() tell a saved session from a lost one; a
+   * mid-session flush has a next attempt to fall back on and ignores it.
    */
-  private flush(filePath: string): void {
-    if (this.lines.length === this.lastFlushedCount) return;
+  private flush(filePath: string): boolean {
+    if (this.lines.length === this.lastFlushedCount) return true;
     try {
       const { File } = fs();
       const file = new File(filePath);
       file.write(this.lines.join('\n'));
       this.lastFlushedCount = this.lines.length;
+      return true;
     } catch (err) {
       console.error('[RawSampleRecorder] Flush failed — samples kept for the next attempt', err);
+      return false;
     }
   }
 

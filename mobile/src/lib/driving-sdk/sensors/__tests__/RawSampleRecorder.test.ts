@@ -238,12 +238,48 @@ describe('RawSampleRecorder', () => {
     for (let i = 0; i < 1000; i++) recorder.pushAccelSample(i, 0, 0);
     expect(fs.get(session.filePath)).toBe(''); // the failed flush wrote nothing
 
-    // The flushed mark never advanced, so the very next sample re-crosses the interval
-    // and the retry carries everything the failed flush was holding, not just the new one.
-    recorder.pushAccelSample(1000, 0, 0);
+    // The retry comes one full interval later, not on the very next sample, and it
+    // carries everything the failed flush was holding rather than only the new lines.
+    for (let i = 1000; i < 2000; i++) recorder.pushAccelSample(i, 0, 0);
 
-    expect(fs.get(session.filePath)!.split('\n')).toHaveLength(1001);
+    expect(fs.get(session.filePath)!.split('\n')).toHaveLength(2000);
     expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  // A flush that keeps failing must not turn into a whole-file rewrite per sample.
+  it('attempts one flush per interval while writes keep failing, not one per sample', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    recorder.start('handheld', 'ios');
+
+    mockFileWrite.mockImplementation(() => { throw new Error('disk full'); });
+    for (let i = 0; i < 3000; i++) recorder.pushAccelSample(i, 0, 0);
+
+    expect(mockFileWrite).toHaveBeenCalledTimes(3);
+    // clearAllMocks() clears calls but not implementations, so put the default back
+    // rather than leaking a throwing write into every test after this one.
+    mockFileWrite.mockImplementation(() => undefined);
+    errorSpy.mockRestore();
+  });
+
+  // The last flush has no next attempt behind it, so a failure there is data loss and
+  // must be reported rather than swallowed the way a mid-session one is.
+  it('throws from stop() when the final flush fails, and keeps the session recording', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    recorder.start('handheld', 'ios');
+    recorder.pushAccelSample(1, 2, 3);
+
+    mockFileWrite.mockImplementationOnce(() => { throw new Error('disk full'); });
+    await expect(recorder.stop()).rejects.toThrow();
+
+    // Still recording, buffer intact, subscription alive — so Stop can be retried.
+    expect(recorder.isRecording()).toBe(true);
+    expect(mockMagRemove).not.toHaveBeenCalled();
+
+    const session = await recorder.stop();
+
+    expect(session).not.toBeNull();
+    expect(fs.get(session!.filePath)!.split('\n')).toHaveLength(1);
     errorSpy.mockRestore();
   });
 

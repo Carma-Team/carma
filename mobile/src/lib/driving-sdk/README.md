@@ -319,7 +319,7 @@ need.
 | Method | Description |
 |---|---|
 | `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Called while a session is already running, it leaves that session alone |
-| `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage |
+| `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage. Throws if that write fails, leaving the session recording so the caller can retry rather than losing the tail silently |
 | `exportRawRecording()` | Shares the most recent recording via the OS share sheet, falling back to the newest file on disk when none was made in this app run; `RawExportFailure` on failure |
 | `listRawRecordings()` | Every recording on disk, newest first — including sessions from earlier app runs |
 
