@@ -13,6 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { availableBalance, formatDistance } from '@/lib/utils';
+import { badgeCount } from '@/lib/notifications';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -25,6 +26,11 @@ export default function DashboardScreen() {
   const { t, lang } = useTranslation();
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
+  // Tri-state, and each state matters. null = the first stats response has not landed,
+  // so the hero shows a placeholder rather than a score that for a new driver is the
+  // fleet prior. false = a measured zero. true also covers a failed stats call: losing
+  // the request must not hide the score of a driver who does have history.
+  const [hasMeasuredHistory, setHasMeasuredHistory] = useState<boolean | null>(null);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -40,7 +46,7 @@ export default function DashboardScreen() {
         .then(d => { if (alive) setPendingRequests(d.requests.length); })
         .catch(() => {});
       notificationsApi.list()
-        .then(rows => { if (alive) setUnreadNotifications(rows.filter(n => !n.readAt).length); })
+        .then(rows => { if (alive) setUnreadNotifications(badgeCount(rows)); })
         .catch(() => {});
       return () => { alive = false; };
     }, []),
@@ -52,8 +58,12 @@ export default function DashboardScreen() {
       .then(d => {
         setCurrentStreak(d.stats.currentStreak);
         setBestStreak(d.stats.bestStreak);
+        setHasMeasuredHistory(d.stats.totalTrips > 0);
       })
-      .catch(err => console.error('Stats error:', err));
+      .catch(err => {
+        console.error('Stats error:', err);
+        setHasMeasuredHistory(true);
+      });
   }, []);
 
   // Re-fetch after a trip completes so a streak earned just now doesn't wait for app restart.
@@ -65,8 +75,12 @@ export default function DashboardScreen() {
       .then(d => {
         setCurrentStreak(d.stats.currentStreak);
         setBestStreak(d.stats.bestStreak);
+        setHasMeasuredHistory(d.stats.totalTrips > 0);
       })
-      .catch(err => console.error('Stats error:', err));
+      .catch(err => {
+        console.error('Stats error:', err);
+        setHasMeasuredHistory(true);
+      });
   }, [lastTripSummary]);
 
   // Controls whether the post-trip summary modal is visible
@@ -119,9 +133,14 @@ export default function DashboardScreen() {
         />
 
         {/* Level & Points Card */}
+        {/* The deployed profile can omit the score altogether (CAR-296), and a missing
+            one rounds to NaN rather than to anything a null check would catch. A score
+            that cannot be rendered is not an earned one, so it takes the same
+            placeholder as a driver with no measured history. */}
         <DashboardHero
           user={user}
-          avgScore={Math.round(user.driverScore)}
+          driverScore={Math.round(user.driverScore)}
+          hasMeasuredHistory={Number.isFinite(user.driverScore) && (hasMeasuredHistory ?? false)}
           lang={lang}
         />
 

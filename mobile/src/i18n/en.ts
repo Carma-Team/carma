@@ -51,7 +51,7 @@ const en: TranslationMap = {
   dashboard: {
     welcome: 'Hello', yourScore: 'Your Score', startTrip: 'Start Trip',
     noTrips: 'No trips yet', noTripsDesc: 'Start your first trip!',
-    recentTrips: 'Recent Trips', viewAll: 'View All',
+    recentTrips: 'Recent Trips', viewAll: 'View All', showMore: 'Show more',
     totalDistance: 'Total Distance', totalTrips: 'Trips',
     avgScore: 'Avg Score', pointsToNextLevel: 'Points to next level',
   },
