@@ -55,7 +55,7 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2026-08-posted-limit"
+    version: str = "2026-09-speeding-calibrated"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
@@ -66,16 +66,21 @@ class ScoringConfig:
     # constant has nothing to do with the 0.012 that preceded it - that one
     # priced severity-weighted minutes per 100 km against a flat 130 km/h.
     #
-    # Anchored, not fitted (CAR-102 owns the fit): 1% of distance just over the
-    # buffer scores 95, 10% scores 61. The reference behind those is the UBI
-    # literature's average driver, who spends 2.4% of distance above the posted
-    # limit (Guillen et al., percentile charts for speeding), so an ordinary
-    # driver should land in the 90s and the spread should come from the tail.
-    # `scripts/calibrate_speeding.py` replaces this with a real number, and it
-    # matters more than when this constant was first written: severity bands
-    # multiply the rate by up to 8, so k is doing a far wider job than the two
-    # anchors alone describe.
-    k_speed: float = 0.05
+    # Fitted against our own drivers, 2026-09, replacing the UBI-literature
+    # anchor this shipped with. `scripts/calibrate_speeding.py` over the live
+    # fleet put the severity-weighted share of distance over the limit at 7.75%
+    # for the median trip and 40.69% at p90, which is far above the 2.4% the
+    # literature reports for an average driver - Israeli young drivers speed
+    # more than the Spanish UBI cohort the anchor came from, and the anchor was
+    # charging the median driver as if they were the p90.
+    #
+    # Anchored on the same rule the harsh-event constants use: the p90-worst
+    # trip lands near 50. That gives 0.693 / 0.4069, and puts the median trip at
+    # 88 and p99 at 35 - bad, but never at a floor where improving stops paying.
+    #
+    # Provisional on sample size, not on method: 22 scored trips against the 200
+    # CAR-102 asks for. Re-run the script at 200 before treating this as settled.
+    k_speed: float = 0.017
     # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
     # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
     k_distraction: float = 0.0035

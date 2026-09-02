@@ -555,8 +555,12 @@ class TestSpeedingSubscore:
                 duration_min=30.0,
             ).sub_speeding
 
-        assert 94.0 <= sub(0.01) <= 96.0
-        assert 59.0 <= sub(0.10) <= 63.0
+        # The percentiles the live fleet actually produced (2026-09): the median
+        # trip and the p90-worst. p90 near 50 is the rule every decay constant
+        # here is anchored on, so a change to k_speed has to move this test and
+        # say why.
+        assert 86.0 <= sub(0.0775) <= 90.0
+        assert 48.0 <= sub(0.4069) <= 52.0
 
     def test_identical_speeding_costs_the_same_urban_and_on_a_motorway(self) -> None:
         # The bias the old per-100 km rate carried: the same share of distance
