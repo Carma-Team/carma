@@ -33,6 +33,7 @@ import { ApiError } from '@/services/api/client'
 import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
+import { availableBalance } from '@/lib/utils'
 import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import { signTelemetryDigest } from '@/lib/telemetrySigning'
 import he from '@/i18n/he'
@@ -255,7 +256,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         severity: e.severity,
         speedKmh: e.speedKmh,
         location: e.location,
-        peakG: e.peakG,
+        peakLongitudinalG: e.peakLongitudinalG,
+        peakLateralG: e.peakLateralG,
         durationMs: e.durationMs,
       })),
     };
@@ -357,8 +359,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patchUser(prev => {
         const earnedFrom = prev.totalPoints ?? prev.points ?? 0;
         return {
-          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1) + Marketplace reads this
+          points: earnedFrom + earnedPoints,       // spec field (5.3.1.1)
           totalPoints: earnedFrom + earnedPoints,  // Dashboard/Profile UI reads this
+          // What the trip earned is spendable immediately. Without this the store's
+          // balance stays on the pre-trip number until the next full user refresh,
+          // since reserved points are the only other thing that moves it.
+          availablePoints: availableBalance(prev) + earnedPoints,
           totalDistance: (prev.totalDistance || 0) + finalState.distanceKm,
           level: newLevel,
         };

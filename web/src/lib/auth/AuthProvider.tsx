@@ -62,6 +62,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBootstrapPhase('done');
   }, []);
 
+  const loginWithOtp = useCallback(async (phone: string, code: string) => {
+    // Same reasoning as `login` above — `authApi.loginWithOtp` sends
+    // `X-Requested-With` uniformly, so `/api/auth/otp/login` (CAR-265)
+    // already recognizes this as a browser call and mints the short web TTL
+    // and refresh cookie without a follow-up refresh.
+    const res = await authApi.loginWithOtp(phone, code);
+    setSession({ accessToken: res.token, user: res.user });
+    setBootstrapPhase('done');
+  }, []);
+
   const register = useCallback(async (name: string, email: string, password: string) => {
     // Same short-lived-from-the-start reasoning as `login` above — `authApi`
     // sends `X-Requested-With` uniformly, so `/api/auth/register` already
@@ -105,8 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : 'unauthenticated';
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user: session?.user ?? null, login, register, logout, retry }),
-    [status, session, login, register, logout, retry],
+    () => ({ status, user: session?.user ?? null, login, loginWithOtp, register, logout, retry }),
+    [status, session, login, loginWithOtp, register, logout, retry],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

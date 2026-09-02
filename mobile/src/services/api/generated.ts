@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/otp/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in with phone + OTP, establishing a CAR-217 browser session (CAR-265) */
+        post: operations["otp_login_api_auth_otp_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password/reset/request": {
         parameters: {
             query?: never;
@@ -1100,6 +1117,29 @@ export interface components {
             reviewerNote: string | null;
         };
         /**
+         * BusinessJoinRequestConflictOut
+         * @description The `detail` body of a 409 from `POST /join-requests`. `code` is the
+         *     stable discriminator a client branches on; `message` is for display only
+         *     and carries no contract — see CAR-264.
+         */
+        BusinessJoinRequestConflictOut: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "ALREADY_HAS_PENDING_REQUEST" | "REGISTRATION_NUMBER_PENDING" | "REGISTRATION_NUMBER_TAKEN";
+            /** Message */
+            message: string;
+        };
+        /**
+         * BusinessJoinRequestConflictResponse
+         * @description Documents the actual FastAPI error envelope so it appears in the
+         *     generated OpenAPI schema instead of only in code comments.
+         */
+        BusinessJoinRequestConflictResponse: {
+            detail: components["schemas"]["BusinessJoinRequestConflictOut"];
+        };
+        /**
          * BusinessJoinRequestIn
          * @description Submission payload. No `phone`, no `userId` — both come from the caller's
          *     own OTP-verified session (`CurrentUser`), never from the request body.
@@ -1943,6 +1983,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
             /** Routewaypoints */
             routeWaypoints?: {
                 [key: string]: unknown;
@@ -2013,6 +2055,8 @@ export interface components {
             pointsCapped: boolean;
             /** Userlevel */
             userLevel?: number | null;
+            /** Weakestfactor */
+            weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
         };
         /** TripSingle */
         TripSingle: {
@@ -2063,6 +2107,8 @@ export interface components {
             points: number;
             /** Totalpoints */
             totalPoints: number;
+            /** Driverscore */
+            driverScore: number;
             /**
              * Availablepoints
              * @default 0
@@ -2373,6 +2419,39 @@ export interface operations {
         };
     };
     otp_verify_api_auth_otp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpVerifyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    otp_login_api_auth_otp_login_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3373,6 +3452,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessJoinRequestOut"];
+                };
+            };
+            /** @description One of three conflicts already exists, told apart by `detail.code`: `ALREADY_HAS_PENDING_REQUEST` (the caller already has a pending request), `REGISTRATION_NUMBER_PENDING` (another applicant's pending request already claims this registration number), or `REGISTRATION_NUMBER_TAKEN` (the registration number already belongs to an approved business). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessJoinRequestConflictResponse"];
                 };
             };
             /** @description Validation Error */

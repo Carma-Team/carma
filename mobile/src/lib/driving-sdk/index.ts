@@ -435,8 +435,8 @@ export class DrivingSDK {
     this.validationManager.updateSample({
       speedKmh: update.currentSpeed,
       timestamp: Date.now(),
-      accel: { x: update.accelX, y: 0, z: 0 },
-      gyroYaw: update.gyroZ,
+      lateralAccelG: update.lateralAccelG,
+      yawRate: update.yawRateRadS,
       lat: update.lat,
       lng: update.lng,
       accelAvailable: update.accelAvailable,

@@ -34,7 +34,7 @@ SENSITIVE_LIMIT = "5/minute"
 # poor proxy for a person — mobile carriers put thousands of subscribers behind
 # one address via CGNAT, so 5/minute there is a shared budget a household can
 # exhaust by accident. Brute force is held off per (account, address) instead
-# (`services.auth._backoff_active`), which makes a guesser wait without giving a
+# (`services.auth._reserve_attempt`), which makes a guesser wait without giving a
 # stranger a way to make the account's owner wait.
 # The OTP routes keep the tight limit: each one spends money on an SMS.
 CREDENTIAL_LIMIT = "20/minute"
@@ -128,6 +128,19 @@ async def otp_request(request: Request, dto: OtpRequestIn, db: DbSession) -> Otp
 @limiter.limit(SENSITIVE_LIMIT)
 async def otp_verify(request: Request, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
     return await auth_service.verify_otp(db, dto, client_ip(request))
+
+
+@router.post(
+    "/otp/login",
+    response_model=AuthOut,
+    response_model_by_alias=True,
+    summary="Sign in with phone + OTP, establishing a CAR-217 browser session (CAR-265)",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def otp_login(request: Request, response: Response, dto: OtpVerifyIn, db: DbSession) -> AuthOut:
+    return await auth_service.login_with_otp(
+        db, dto, client_ip(request), response, is_browser=is_browser_request(request)
+    )
 
 
 # ─── Forgotten password (CAR-60) ─────────────────────────────────────────────

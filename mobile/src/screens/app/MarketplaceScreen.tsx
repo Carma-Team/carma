@@ -5,37 +5,38 @@ import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
 import { CategoryFilter } from '@/components/marketplace/CategoryFilter'
 import { RedeemConfirmSheet } from '@/components/marketplace/RedeemConfirmSheet'
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader'
-import { MarketplaceTabs } from '@/components/marketplace/MarketplaceTabs'
-import { VoucherList } from '@/components/marketplace/VoucherList'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
 import { ApiError } from '@/services/api/client'
 import { sortByAvailability } from '@/lib/rewardStock'
+import { availableBalance, formatDuration } from '@/lib/utils'
 import { COLORS, COMMON_STYLES } from '@/constants/theme'
 import { REWARD_CATEGORIES, type IoniconName } from '@/constants/icons'
 import type { Reward, Voucher } from '@/types'
 
-type Tab = 'rewards' | 'vouchers'
-
 // The redemption codes the server sends inside a 409 detail. Branching on the code
 // and not on the message is the server's own contract — the message is English prose.
-const REDEEM_ERROR_KEYS: Record<string, string> = {
-  REWARD_OUT_OF_STOCK: 'marketplace.redeemOutOfStock',
-  REWARD_CAMPAIGN_ENDED: 'marketplace.redeemCampaignEnded',
+// `withWait` is the phrasing for when the server also said how long — a separate
+// string and not an appended one, so the translator places the duration inside the
+// sentence. Only these two codes ever carry a wait, and even they can arrive without.
+const REDEEM_ERRORS: Record<string, { plain: string; withWait?: string }> = {
+  REWARD_OUT_OF_STOCK:      { plain: 'marketplace.redeemOutOfStock' },
+  REWARD_CAMPAIGN_ENDED:    { plain: 'marketplace.redeemCampaignEnded' },
+  VOUCHER_REISSUE_COOLDOWN: { plain: 'marketplace.redeemCooldown', withWait: 'marketplace.redeemCooldownWait' },
+  VOUCHER_LIMIT_REACHED:    { plain: 'marketplace.redeemAtCap',    withWait: 'marketplace.redeemAtCapWait' },
 }
 
 /**
  * Rewards store screen.
- * Shows a list of redeemable rewards and the user's already-redeemed vouchers.
- * Rewards can be filtered by category.
+ * Shows a list of redeemable rewards, each card carrying the live vouchers already
+ * issued against it. Rewards can be filtered by category.
  */
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
   const { user, patchUser, addToast } = useApp()
   const { t, lang } = useTranslation()
 
-  const [tab, setTab] = useState<Tab>('rewards')
   const [category, setCategory] = useState('all')
   const [rewards, setRewards] = useState<Reward[]>([])
   const [vouchers, setVouchers] = useState<Voucher[]>([])
@@ -43,6 +44,7 @@ export default function MarketplaceScreen() {
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null)
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null)
   const [redeeming, setRedeeming] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   const categories = [
     // Bilingual data-record pattern (labelHe/labelEn), same as REWARD_CATEGORIES below — not a hardcoded-copy violation. See docs/i18n.md.
@@ -75,7 +77,7 @@ export default function MarketplaceScreen() {
       .catch(() => {
         // Without this the screen sits on an empty list with no explanation —
         // and the 409 refresh below would reject inside a catch block.
-        if (load === latestLoad.current) addToast({ type: 'error', message: t('common.error') })
+        if (load === latestLoad.current) addToast({ type: 'error', message: t('marketplace.loadFailed') })
       })
       .finally(() => {
         if (load === latestLoad.current) setLoading(false)
@@ -85,29 +87,60 @@ export default function MarketplaceScreen() {
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   /**
-   * Redeems a reward: deducts the user's points and creates a voucher.
+   * Redeems a reward: reserves the user's points and creates a voucher.
    * Called only after the user confirms in RedeemConfirmSheet.
    *
    * [server] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
    *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock voucher
    *   - USE_REAL_SERVER=true  → POST to the real server
    *
-   * On success: adds the voucher to the list, updates points in AppContext,
-   * shows a success toast, and switches to the vouchers tab.
+   * On success: adds the voucher to the list, updates points in AppContext and
+   * shows a success toast. The new voucher appears on the reward's own card.
    */
+  /**
+   * Which of two things went wrong, in the driver's terms: the server answered and
+   * refused, or it was never reached at all. One means the action was considered and
+   * declined, the other that it did not happen — and both say what is true of the
+   * voucher and the points now, since neither leaves them half-moved.
+   */
+  function failureMessage(e: unknown, refusedKey: string, unreachableKey: string): string {
+    return t(e instanceof ApiError ? refusedKey : unreachableKey)
+  }
+
+  /**
+   * Toast text for a refused redemption. The named reasons win; two of them come with
+   * the wait the server itself computed, and the app never derives a duration of its
+   * own or says anything about timing when the server sent none.
+   */
+  function redeemErrorMessage(e: unknown): string {
+    const reason = e instanceof ApiError ? REDEEM_ERRORS[e.code ?? ''] : undefined
+    if (!reason || !(e instanceof ApiError)) {
+      return failureMessage(e, 'marketplace.redeemRefused', 'marketplace.redeemUnreachable')
+    }
+    return reason.withWait && e.retryAfterSeconds
+      ? t(reason.withWait).replace('{wait}', formatDuration(e.retryAfterSeconds, lang))
+      : t(reason.plain)
+  }
+
   async function confirmRedeem() {
     if (!selectedReward || !user) return
     setRedeeming(true)
     try {
       const data = await rewardsApi.redeem(selectedReward.id)
       setVouchers(prev => [data.voucher, ...prev])
-      patchUser(prev => ({ points: (prev.points || 0) - selectedReward.costPoints }))
+      // Issuing a voucher no longer spends the points, it holds them (CAR-73).
+      // The total stays put; only the split between available and reserved moves.
+      patchUser(prev => ({
+        availablePoints: availableBalance(prev) - selectedReward.costPoints,
+        reservedPoints: (prev.reservedPoints || 0) + selectedReward.costPoints,
+      }))
       addToast({ type: 'success', message: t('marketplace.redeemSuccess') })
       setSelectedReward(null)
-      setTab('vouchers')
+      // Straight into the voucher: the code and the QR are the whole point of having
+      // redeemed, and leaving it closed asks the driver to go find what they just bought.
+      setSelectedVoucher(data.voucher)
     } catch (e) {
-      const key = e instanceof ApiError ? REDEEM_ERROR_KEYS[e.code ?? ''] : undefined
-      addToast({ type: 'error', message: t(key ?? 'common.error') })
+      addToast({ type: 'error', message: redeemErrorMessage(e) })
       // A 409 means the catalog moved on while the sheet was open: the card was drawn
       // from a stock count that is no longer true. Close it and re-read, so a second
       // attempt is not on offer — sold out comes back disabled, and an ended campaign
@@ -121,58 +154,78 @@ export default function MarketplaceScreen() {
     }
   }
 
+  /**
+   * Cancels a voucher the driver no longer wants.
+   *
+   * [server] rewardsApi.cancel(id) → POST /api/vouchers/:id/cancel
+   */
+  async function cancelVoucher(voucher: Voucher) {
+    if (!user) return
+    setCancelling(true)
+    try {
+      await rewardsApi.cancel(voucher.id)
+      setVouchers(prev => prev.filter(v => v.id !== voucher.id))
+      // Mirror of the redemption: the points the voucher held go back to spendable.
+      patchUser(prev => ({
+        availablePoints: availableBalance(prev) + voucher.pointsCost,
+        reservedPoints: Math.max(0, (prev.reservedPoints || 0) - voucher.pointsCost),
+      }))
+      setSelectedVoucher(null)
+      addToast({ type: 'success', message: t('marketplace.voucher.cancelSuccess') })
+    } catch (e) {
+      addToast({
+        type: 'error',
+        message: failureMessage(e, 'marketplace.voucher.cancelRefused', 'marketplace.voucher.cancelUnreachable'),
+      })
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (!user) return null
+
+  const available = availableBalance(user)
+
+  // Only a pending voucher is live. Used, expired and cancelled ones are history:
+  // they hold no points and the card has no room for them.
+  const liveVouchers = vouchers.reduce<Record<string, Voucher[]>>((acc, v) => {
+    if (v.status === 'pending') (acc[v.rewardId] ??= []).push(v)
+    return acc
+  }, {})
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
 
         {/* Header Section */}
-        <MarketplaceHeader points={user.points || 0} />
+        <MarketplaceHeader available={available} reserved={user.reservedPoints || 0} />
 
-        {/* Navigation Tabs */}
-        <MarketplaceTabs
-          activeTab={tab}
-          onTabChange={setTab}
-          vouchersCount={vouchers.length}
+        <CategoryFilter
+          categories={categories}
+          selectedCategory={category}
+          onSelectCategory={setCategory}
+          lang={lang}
         />
 
-        {tab === 'rewards' && (
-          <>
-            <CategoryFilter
-              categories={categories}
-              selectedCategory={category}
-              onSelectCategory={setCategory}
-              lang={lang}
-            />
-
-            {loading ? (
-              <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
-            ) : (
-              <View style={{ gap: 10 }}>
-                {sortByAvailability(
-                  rewards.filter(r => category === 'all' || r.category === category)
-                )
-                  .map(r => (
-                    <RewardCard
-                      key={r.id}
-                      reward={r}
-                      userPoints={user.points || 0}
-                      onRedeem={setSelectedReward}
-                    />
-                  ))
-                }
-              </View>
-            )}
-          </>
-        )}
-
-        {tab === 'vouchers' && (
-          <VoucherList
-            vouchers={vouchers}
-            onVoucherPress={setSelectedVoucher}
-            lang={lang}
-          />
+        {loading ? (
+          <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
+        ) : (
+          <View style={{ gap: 10 }}>
+            {sortByAvailability(
+              rewards.filter(r => category === 'all' || r.category === category)
+            )
+              .map(r => (
+                <RewardCard
+                  key={r.id}
+                  reward={r}
+                  userPoints={available}
+                  vouchers={liveVouchers[r.id] ?? []}
+                  onRedeem={setSelectedReward}
+                  onVoucherPress={setSelectedVoucher}
+                />
+              ))
+            }
+          </View>
         )}
       </ScrollView>
 
@@ -180,6 +233,7 @@ export default function MarketplaceScreen() {
       {selectedReward && (
         <RedeemConfirmSheet
           reward={selectedReward}
+          availableAfter={available - selectedReward.costPoints}
           onConfirm={confirmRedeem}
           onCancel={() => setSelectedReward(null)}
           loading={redeeming}
@@ -191,6 +245,8 @@ export default function MarketplaceScreen() {
         open={!!selectedVoucher}
         voucher={selectedVoucher}
         onClose={() => setSelectedVoucher(null)}
+        onCancelVoucher={cancelVoucher}
+        cancelling={cancelling}
       />
     </View>
   )

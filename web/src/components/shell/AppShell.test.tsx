@@ -108,6 +108,52 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'מימושים' })).toHaveAttribute('href', '/redemption');
   });
 
+  // CAR-255: ADMIN is a system role, unrelated to business membership — the
+  // nav item must show for it regardless of businessMembershipRole, and stay
+  // hidden for every ordinary business role.
+  it('shows the Business Requests nav link only for an ADMIN', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { ...baseUser, role: 'ADMIN' as const, businessMembershipRole: null },
+      login: vi.fn(),
+      logout,
+      retry: vi.fn(),
+    });
+    renderShell();
+
+    expect(screen.getByRole('link', { name: 'בקשות הצטרפות עסקים' })).toHaveAttribute(
+      'href',
+      '/admin/business-requests',
+    );
+  });
+
+  it('hides the Business Requests nav link for a non-admin, even an OWNER', () => {
+    renderShell();
+
+    expect(screen.queryByText('בקשות הצטרפות עסקים')).not.toBeInTheDocument();
+  });
+
+  // CAR-255 review: a pure ADMIN has no business membership, so every
+  // business-only nav item — including the always-on Rewards/Redemption/
+  // Business Profile links every ordinary role gets — must not be
+  // advertised either; `RequireBusinessRole` refuses all of them regardless.
+  it('hides every business-only nav item for an ADMIN, keeping only Business Requests', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { ...baseUser, role: 'ADMIN' as const, businessMembershipRole: null },
+      login: vi.fn(),
+      logout,
+      retry: vi.fn(),
+    });
+    renderShell();
+
+    expect(screen.queryByText('הטבות')).not.toBeInTheDocument();
+    expect(screen.queryByText('מימושים')).not.toBeInTheDocument();
+    expect(screen.queryByText('פרטי העסק')).not.toBeInTheDocument();
+    expect(screen.queryByText('סקירה כללית')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument();
+  });
+
   it('signs out through the header control', () => {
     renderShell();
 

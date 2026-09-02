@@ -9,6 +9,8 @@ import type { Reward, Language } from '@/types';
 
 interface RedeemConfirmSheetProps {
   reward: Reward;
+  /** Spendable balance once this reward's points are reserved. */
+  availableAfter: number;
   onConfirm: () => void;
   onCancel: () => void;
   loading: boolean;
@@ -16,7 +18,7 @@ interface RedeemConfirmSheetProps {
 }
 
 export const RedeemConfirmSheet: React.FC<RedeemConfirmSheetProps> = ({
-  reward, onConfirm, onCancel, loading, lang,
+  reward, availableAfter, onConfirm, onCancel, loading, lang,
 }) => {
   const { t } = useTranslation();
   const cat = CATEGORY_CONFIG[reward.category] ?? DEFAULT_CATEGORY;
@@ -43,6 +45,9 @@ export const RedeemConfirmSheet: React.FC<RedeemConfirmSheetProps> = ({
           <Ionicons name={ICONS.points} size={14} color={COLORS.brandLight} style={{ marginEnd: 4 }} />
           <Text style={styles.confirmCost}>{reward.costPoints} {t('common.points')}</Text>
         </View>
+        <Text style={styles.balanceAfter}>
+          {t('marketplace.balanceAfter')} {availableAfter.toLocaleString()} {t('common.points')}
+        </Text>
 
         <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm} disabled={loading}>
           <Text style={styles.confirmBtnText}>
@@ -79,6 +84,7 @@ const styles = StyleSheet.create({
   confirmTitle:   { ...TYPOGRAPHY.h3, textAlign: 'center' },
   confirmCostRow: { flexDirection: 'row', alignItems: 'center' },
   confirmCost:    { color: COLORS.brandLight, fontSize: 15 },
+  balanceAfter:   { color: COLORS.textMuted, fontSize: 12, textAlign: 'center' },
   confirmBtn:     {
     backgroundColor: COLORS.brand, borderRadius: 12,
     paddingHorizontal: 32, paddingVertical: 14, marginTop: 8,

@@ -489,6 +489,9 @@ async def test_concurrent_saves_cannot_exceed_the_daily_points_cap(db_session: A
         # both racers awarded 2 or 3 would be the bug rounding in our favour.
         assert sorted((first.points, second.points)) == [0, headroom]
         assert first.points_capped and second.points_capped, "both saves were cut by the cap and must say so"
+        # CAR-185: `_scoring_trip()` is clean (0 for every behaviour input), so
+        # the save response must carry the field with nothing worth naming.
+        assert first.weakest_factor is None and second.weakest_factor is None
     finally:
         await _cleanup(db_session, user)
 
