@@ -8,6 +8,7 @@ import { StatsGrid } from '@/components/ui/StatsGrid';
 import { TripSummaryModal } from '@/components/driving/TripSummaryModal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { RecentTripsSection } from '@/components/dashboard/RecentTripsSection';
+import { WeeklyTrendCard } from '@/components/dashboard/WeeklyTrendCard';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
@@ -143,6 +144,9 @@ export default function DashboardScreen() {
           hasMeasuredHistory={Number.isFinite(user.driverScore) && (hasMeasuredHistory ?? false)}
           lang={lang}
         />
+
+        {/* Week-over-week trend — above the grid, which is all-time totals */}
+        <WeeklyTrendCard trips={recentTrips} />
 
         {/* Quick Summary Grid */}
         <StatsGrid

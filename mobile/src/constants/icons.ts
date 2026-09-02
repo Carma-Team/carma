@@ -62,6 +62,11 @@ export const ICONS = {
   noRewards:      'gift'                      as IoniconName,
   noNotifs:       'notifications'             as IoniconName,
   noLocation:     'location'                  as IoniconName,
+  // Week-over-week direction on the dashboard trend card. Chevrons rather than
+  // arrows: the arrow glyphs read as navigation everywhere else in this app.
+  trendUp:        'chevron-up'                as IoniconName,
+  trendDown:      'chevron-down'              as IoniconName,
+  trendFlat:      'remove'                    as IoniconName,
   // Trip waiting to reach the server — not an error, so no warning triangle.
   notSent:        'cloud-offline'             as IoniconName,
 } as const;

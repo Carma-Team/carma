@@ -51,6 +51,11 @@ const en: TranslationMap = {
   dashboard: {
     welcome: 'Hello', yourScore: 'Your Score', startTrip: 'Start Trip',
     noTrips: 'No trips yet', noTripsDesc: 'Start your first trip!',
+    thisWeek: 'This week',
+    weekTrips: 'trips',
+    weekVsLast: 'Compared with the seven days before',
+    weekNoTrips: 'No scored trips in the last seven days.',
+    weekNoComparison: 'first week',
     recentTrips: 'Recent Trips', viewAll: 'View All', showMore: 'Show more',
     totalDistance: 'Total Distance', totalTrips: 'Trips',
     avgScore: 'Avg Score', pointsToNextLevel: 'Points to next level',
