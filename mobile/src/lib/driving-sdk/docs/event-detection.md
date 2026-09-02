@@ -118,6 +118,12 @@ active — see the README's "Calibration recording" section and CAR-31).
 Neither tap affects motion-event detection above; both fire unconditionally
 at 10 Hz regardless of whether anything is currently listening.
 
+The magnetometer is deliberately not a tap. `SensorManager` never subscribes
+to it, because nothing here detects anything from it — so `RawSampleRecorder`
+owns that subscription itself, opening it in `start()` and removing it in
+`stop()`. A trip that runs without a staged session therefore holds no
+magnetometer subscription at all (CAR-295).
+
 ---
 
 ## Hand-held detection — `PhoneUsageManager`

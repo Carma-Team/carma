@@ -2,7 +2,7 @@ Current behaviour.
 
 # Driving SDK
 
-**Last updated: 2026-08-29**
+**Last updated: 2026-09-01**
 
 The `driving-sdk` is a **generic, sensor-layer library** for React Native (Expo). It wraps device hardware — GPS, accelerometer, gyroscope, and Bluetooth — and exposes a unified, event-driven API that any mobile application can consume.
 
@@ -48,7 +48,8 @@ Bluetooth features require a **development build** (`expo-dev-client`). They are
 The route map feature (`MapView`) also requires a development build — `react-native-maps` links a native module that is absent from Expo Go. The SDK degrades gracefully: map components show a fallback card when the native module is unavailable.
 
 Calibration recording (`startRawRecording`/`exportRawRecording`) writes to disk and
-shares via the OS share sheet — needs `expo-file-system` and `expo-sharing`.
+shares via the OS share sheet — needs `expo-file-system`, `expo-sharing` and
+`expo-sensors`.
 
 ```bash
 npx expo install react-native-bluetooth-classic
@@ -78,7 +79,7 @@ it, never the other way round.
 | `sensors/SensorManager.ts` | Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion that does not depend on how the phone is oriented in the vehicle. Also resolves the IMU into the vehicle's own frame and streams speed, distance and those vehicle-frame values to the SDK on every fix. |
 | `sensors/vehicleFrame.ts` | Resolves phone-frame IMU readings into the vehicle's frame: horizontal force split into signed longitudinal and lateral components, and angular rate about gravity. |
 | `sensors/PhoneUsageManager.ts` | Detects a phone actively held in the hand, using IMU variance, a glass-tap proxy and a paired gyroscope tap signature. Reports tap counts and hand-held seconds, and deliberately does not count a mounted phone running a navigation app in the background. |
-| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. |
+| `sensors/RawSampleRecorder.ts` | Records the full, unthinned accel/gyro/magnetometer/GPS sample stream to a file for a staged calibration session, tagged with a scenario and platform label. Accel, gyro and GPS are pushed in by `DrivingSDK`; the magnetometer is the one stream it subscribes to itself, for the length of the session only. |
 | `sensors/locationTask.ts` | Defines the TaskManager task that receives background location updates. Forwards each fix to the handler `SensorManager` registers, so distance keeps counting while the app is backgrounded or the phone is locked. |
 | `DeviceCapabilities.ts` | One-shot startup probe of what the device can actually do: which motion sensors it exposes, and whether its OS meets the floor recorded in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports what it finds and stops there — whether a missing sensor blocks the user is a host-app decision. |
 
@@ -189,7 +190,6 @@ The primary way to consume driving events. Each listener fires only when **all**
 | `HARD_BRAKE` | GPS (IMU cross-confirm) | Deceleration ≥ `motionThresholds.brakeThresholdMs2` (default 2.7 m/s²) |
 | `AGGRESSIVE_ACCEL` | GPS (IMU cross-confirm) | Acceleration ≥ `motionThresholds.accelThresholdMs2` (default 3.0 m/s²) |
 | `SHARP_TURN` | GPS heading rate × speed (IMU cross-confirm) | Lateral accel ≥ `motionThresholds.turnThresholdMs2` (default 3.5 m/s²) |
-| `SWERVE` | — | **Defined but inert.** Its detection code is fully commented out; this type never fires. Re-enabling it is a deliberate future step, not a bug. |
 | `PHONE_USAGE` | Accelerometer + gyroscope variance | IMU variance indicates the phone is hand-held, whichever app is in front. Fires once per hand-held stretch, not once per second. See [`docs/event-detection.md`](./docs/event-detection.md) for the full detection logic. |
 
 `HARD_BRAKE` / `AGGRESSIVE_ACCEL` / `SHARP_TURN` are computed from GPS speed and heading — this works regardless of how the phone is mounted or oriented in the vehicle. The accelerometer only cross-confirms that the phone actually felt a matching force, rejecting pure GPS glitches. See [`docs/event-detection.md`](./docs/event-detection.md).
@@ -319,7 +319,7 @@ need.
 
 | Method | Description |
 |---|---|
-| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/GPS stream, tagged with caller-supplied labels |
+| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. The magnetometer (microtesla, requested at 10 Hz) is sampled only while a session is open — a normal trip subscribes to it not at all |
 | `stopRawRecording()` | Stops and flushes the session to an NDJSON file under app storage |
 | `exportRawRecording()` | Shares the last completed recording via the OS share sheet; `{ error: 'none-recorded' \| 'sharing-unavailable' }` on failure |
 

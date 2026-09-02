@@ -39,11 +39,30 @@ jest.mock('expo-sharing', () => ({
   shareAsync: (uri: string) => mockShareAsync(uri),
 }));
 
+const mockMagSetInterval = jest.fn((_ms: number) => undefined);
+const mockMagAddListener = jest.fn();
+const mockMagRemove = jest.fn();
+// Holds the callback the recorder registered, so a test can drive samples through it.
+// Must be `mock`-prefixed: jest.mock factories may not reference other out-of-scope names.
+let mockMagListener: ((s: { x: number; y: number; z: number }) => void) | null = null;
+
+jest.mock('expo-sensors', () => ({
+  Magnetometer: {
+    setUpdateInterval: (ms: number) => mockMagSetInterval(ms),
+    addListener: (cb: (s: { x: number; y: number; z: number }) => void) => {
+      mockMagAddListener();
+      mockMagListener = cb;
+      return { remove: () => mockMagRemove() };
+    },
+  },
+}));
+
 describe('RawSampleRecorder', () => {
   let recorder: RawSampleRecorder;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMagListener = null;
     recorder = new RawSampleRecorder();
   });
 
@@ -113,5 +132,43 @@ describe('RawSampleRecorder', () => {
 
     expect(mockShareAsync).not.toHaveBeenCalled();
     expect(result).toEqual({ error: 'sharing-unavailable' });
+  });
+
+  // CAR-295 - magnetometer, the one stream the recorder subscribes to itself.
+
+  it('serialises magnetometer samples alongside the pushed streams', async () => {
+    recorder.start('mounted', 'android');
+    recorder.pushAccelSample(1, 2, 3);
+    mockMagListener!({ x: 21.5, y: -8, z: 44.25 });
+
+    await recorder.stop();
+
+    const lines = mockFileWrite.mock.calls[0][0].split('\n').map((l: string) => JSON.parse(l));
+    expect(lines.map((l: any) => l.kind)).toEqual(['accel', 'mag']);
+    expect(lines[1].mag).toEqual({ x: 21.5, y: -8, z: 44.25 });
+    expect(mockMagSetInterval).toHaveBeenCalledWith(100);
+  });
+
+  it('opens no magnetometer subscription until a staged session starts', () => {
+    expect(mockMagAddListener).not.toHaveBeenCalled();
+
+    recorder.start('handheld', 'ios');
+
+    expect(mockMagAddListener).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the magnetometer subscription on stop, so it cannot outlive the session', async () => {
+    recorder.start('handheld', 'ios');
+    await recorder.stop();
+
+    expect(mockMagRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak a subscription when start() is called twice without a stop()', () => {
+    recorder.start('handheld', 'ios');
+    recorder.start('on-seat', 'ios');
+
+    expect(mockMagAddListener).toHaveBeenCalledTimes(2);
+    expect(mockMagRemove).toHaveBeenCalledTimes(1);
   });
 });
