@@ -290,7 +290,9 @@ subscore = 100 × exp(−k × rate)
 
 Speeding carries no warning either, since 2026-09. It is the only constant fitted against **our own drivers** rather than against a published average: `scripts/calibrate_speeding.py` replayed the live fleet and put the severity-weighted share of distance over the limit at **7.75% on the median trip and 40.69% at p90**. Anchoring p90 at 50 gives 0.017, which puts the median trip at 88 and the p99 trip at 35.
 
-That fleet is far faster than the literature the previous value came from, which reports 2.4% of distance above the limit for an average driver. The old anchor was charging our median driver as if they were our p90. The sample is still thin - 22 scored trips against the 200 CAR-102 asks for - so the method is settled and the number is not.
+That fleet is far faster than the literature the previous value came from, which reports 2.4% of distance above the limit for an average driver. The old anchor was charging our median driver as if they were our p90.
+
+**The sample is four team members driving their own cars**, 22 scored trips, two of whom account for 74% of them. Nobody in it is a newly licensed teenager, which is who the score is for and who is most likely to sit further out than any of us. The method is settled; the number describes the only real drivers available and should be re-fitted once the fleet contains the people it is meant to measure.
 
 Distraction carries no warning. It was never an event count — it has always been seconds per driving hour — and its constant is fitted against CMT's published US average rather than against our own detector. Two anchors nobody can re-derive from the curve: a driver at the US average of 82 seconds per driving hour scores 75, and the subscore reaches 50 at roughly 198.
 

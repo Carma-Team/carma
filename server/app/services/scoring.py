@@ -78,8 +78,15 @@ class ScoringConfig:
     # trip lands near 50. That gives 0.693 / 0.4069, and puts the median trip at
     # 88 and p99 at 35 - bad, but never at a floor where improving stops paying.
     #
-    # Provisional on sample size, not on method: 22 scored trips against the 200
-    # CAR-102 asks for. Re-run the script at 200 before treating this as settled.
+    # Provisional on *who* was measured, more than on how many. The 22 scored
+    # trips are four team members' own driving - two of us account for 74% of
+    # them - and we know the app is watching. The product is aimed at newly
+    # licensed teenagers, who are not in this sample at all and are the group
+    # most likely to sit further along the distribution than anyone here.
+    #
+    # So treat this as the best available description of real drivers, not as a
+    # fleet fit. CAR-102 wants 200 trips; what it actually needs is 200 trips
+    # from people the score is for.
     k_speed: float = 0.017
     # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
     # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
