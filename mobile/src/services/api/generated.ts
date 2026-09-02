@@ -1784,6 +1784,10 @@ export interface components {
          * OccupancyOut
          * @description Deliberately narrower than the full OccupancyRecord (driver-identification.md §3.3) —
          *     never exposes co_travel, likelihood, signals, or calibration_version to the client.
+         *
+         *     `points_reversed` and `appeal_available` are dropped from this Phase 1 version:
+         *     reversal (§4.3) has no implementation yet, and a hardcoded 0.0/false would answer a
+         *     question the server can't actually answer. They return once reversal exists.
          */
         OccupancyOut: {
             /** Tripid */
@@ -1791,10 +1795,6 @@ export interface components {
             verdict: components["schemas"]["OccupancyVerdict"];
             /** Excludedfromdriverscore */
             excludedFromDriverScore: boolean;
-            /** Pointsreversed */
-            pointsReversed: number;
-            /** Appealavailable */
-            appealAvailable: boolean;
         };
         /**
          * OccupancyVerdict

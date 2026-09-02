@@ -27,8 +27,6 @@ async def declare(db: AsyncSession, user_id: str, trip_id: str, dto: OccupancyDe
         trip_id=trip_id,
         verdict=verdict,
         excluded_from_driver_score=excluded,
-        points_reversed=0.0,
-        appeal_available=False,
     )
 
 
@@ -42,14 +40,10 @@ async def get(db: AsyncSession, user_id: str, trip_id: str) -> OccupancyOut:
             trip_id=trip_id,
             verdict=OccupancyVerdict.UNKNOWN,
             excluded_from_driver_score=False,
-            points_reversed=0.0,
-            appeal_available=False,
         )
 
     return OccupancyOut(
         trip_id=trip_id,
         verdict=OccupancyVerdict(row.verdict),
         excluded_from_driver_score=row.excluded_from_driver_score,
-        points_reversed=0.0,
-        appeal_available=False,
     )
