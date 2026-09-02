@@ -12,7 +12,7 @@ import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
-import { formatDistance } from '@/lib/utils';
+import { availableBalance, formatDistance } from '@/lib/utils';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -23,7 +23,6 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
-  const [avgScore, setAvgScore] = useState<number | null>(null);
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
   const [pendingRequests, setPendingRequests] = useState(0);
@@ -93,16 +92,6 @@ export default function DashboardScreen() {
     });
   };
 
-  // Compute average score across recent trips
-  useEffect(() => {
-    if (recentTrips && recentTrips.length > 0) {
-      const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
-      setAvgScore(Math.round(sum / recentTrips.length));
-    } else {
-      setAvgScore(null);
-    }
-  }, [recentTrips]);
-
   if (!user || isLoading) {
     return (
       <View style={[COMMON_STYLES.screen, COMMON_STYLES.center]}>
@@ -132,7 +121,7 @@ export default function DashboardScreen() {
         {/* Level & Points Card */}
         <DashboardHero
           user={user}
-          avgScore={avgScore}
+          avgScore={Math.round(user.driverScore)}
           lang={lang}
         />
 
@@ -143,7 +132,10 @@ export default function DashboardScreen() {
           items={[
             { icon: ICONS.trips,    value: recentTrips.length,                          label: t('stats.totalTrips') },
             { icon: ICONS.distance, value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
-            { icon: ICONS.points,   value: user.totalPoints.toLocaleString(),             label: t('common.points') },
+            // The spendable balance, not the lifetime total — the level progress
+            // above already carries the total, and this is the number a driver
+            // walks into the store with.
+            { icon: ICONS.points,   value: availableBalance(user).toLocaleString(),      label: t('marketplace.availablePoints') },
           ]}
         />
 

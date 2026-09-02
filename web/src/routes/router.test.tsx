@@ -8,6 +8,7 @@ import { setSession } from '@/lib/auth/session';
 import { listRewards } from '@/lib/api/rewards';
 import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/businessMembers';
 import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
+import { listBusinessRequests } from '@/lib/api/businessRequests';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -28,6 +29,11 @@ vi.mock('@/lib/api/businessMembers', async (importOriginal) => {
 vi.mock('@/lib/api/businessInvitations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/businessInvitations')>();
   return { ...actual, listInvitations: vi.fn(), previewInvitation: vi.fn(), acceptInvitation: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessRequests', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessRequests')>();
+  return { ...actual, listBusinessRequests: vi.fn() };
 });
 
 const businessUser = {
@@ -73,6 +79,58 @@ describe('routes', () => {
     vi.mocked(listInvitations).mockReset();
     vi.mocked(previewInvitation).mockReset();
     vi.mocked(acceptInvitation).mockReset();
+    vi.mocked(listBusinessRequests).mockReset();
+  });
+
+  // CAR-255: an ADMIN reaches the review page even with no business
+  // membership at all — ADMIN is a system role, not gated by
+  // `RequireBusinessRole`/CAR-258's membership resolution.
+  const adminUser = {
+    id: 'admin-1',
+    name: 'Admin',
+    email: 'admin@example.com',
+    role: 'ADMIN' as const,
+    businessId: null,
+    businessCategory: null,
+    businessName: null,
+    businessNameHe: null,
+    businessMembershipRole: null,
+    businessMembershipAmbiguous: false,
+  };
+
+  it('renders the real business-requests review page inside the shell at /admin/business-requests for an ADMIN', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: adminUser });
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [] });
+
+    renderAt('/admin/business-requests');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument());
+    expect(listBusinessRequests).toHaveBeenCalledExactlyOnceWith('pending');
+  });
+
+  it('fails closed at /admin/business-requests for an ordinary business OWNER, and never calls the admin API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+
+    renderAt('/admin/business-requests');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'בקשות הצטרפות עסקים' })).not.toBeInTheDocument();
+    expect(listBusinessRequests).not.toHaveBeenCalled();
+  });
+
+  // CAR-255 review: a fresh sign-in with no `from` location state lands
+  // every role at / (see SignInPage's default) — an ADMIN has no business
+  // membership to show a dashboard for, so it must not dead-end on
+  // RequireBusinessRole's access-restricted state the way it did before
+  // LandingRoute took over its own role check.
+  it('redirects an ADMIN landing at / straight to the business-requests review page, not an access-restricted dead end', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: adminUser });
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [] });
+
+    renderAt('/');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {

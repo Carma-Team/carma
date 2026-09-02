@@ -9,7 +9,10 @@ import type { AuthUser } from './types';
 
 vi.mock('./authApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./authApi')>();
-  return { ...actual, authApi: { refresh: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn() } };
+  return {
+    ...actual,
+    authApi: { refresh: vi.fn(), login: vi.fn(), loginWithOtp: vi.fn(), register: vi.fn(), logout: vi.fn() },
+  };
 });
 
 const USER: AuthUser = {
@@ -37,6 +40,8 @@ function Probe() {
           future test with a rejecting `authApi.login` surfaces as this
           component's own state rather than an unhandled rejection. */}
       <button onClick={() => ctx.login('biz@carma.app', 'CorrectHorse1').catch(() => {})}>login</button>
+      {/* CAR-265: same swallow-and-surface-as-state convention as login above. */}
+      <button onClick={() => ctx.loginWithOtp('+972501234567', '123456').catch(() => {})}>loginWithOtp</button>
       {/* Same swallow-and-surface-as-state convention as login above —
           CreateAccountPage is the real consumer and already awaits + catches
           a rejected register() in its own handleSubmit. */}
@@ -62,6 +67,7 @@ describe('AuthProvider', () => {
     setSession(null);
     vi.mocked(authApi.refresh).mockReset();
     vi.mocked(authApi.login).mockReset();
+    vi.mocked(authApi.loginWithOtp).mockReset();
     vi.mocked(authApi.register).mockReset();
     vi.mocked(authApi.logout).mockReset();
   });
@@ -264,6 +270,38 @@ describe('AuthProvider', () => {
     // so the assertion is on what `register()` left behind in the store —
     // nothing — not on an unhandled rejection.
     await waitFor(() => expect(authApi.register).toHaveBeenCalledOnce());
+    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
+    expect(getSession()).toBeNull();
+  });
+
+  // CAR-265: the phone+OTP door must establish the exact same kind of session
+  // `login` does — proven through the real provider and session store, same
+  // as `register` above.
+  it('loginWithOtp moves status to authenticated using the token it itself returned', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again')); // the bootstrap-on-mount call
+    vi.mocked(authApi.loginWithOtp).mockResolvedValue({ token: 'tok-web-short-lived', user: USER });
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+
+    fireEvent.click(screen.getByText('loginWithOtp'));
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    expect(authApi.loginWithOtp).toHaveBeenCalledWith('+972501234567', '123456');
+    expect(authApi.refresh).toHaveBeenCalledTimes(1); // just the bootstrap attempt, nothing after
+    expect(getSession()?.accessToken).toBe('tok-web-short-lived');
+  });
+
+  it('a rejected loginWithOtp leaves the session unauthenticated rather than half-set', async () => {
+    vi.mocked(authApi.refresh).mockRejectedValue(new AuthApiError(401, 'Session expired — sign in again'));
+    vi.mocked(authApi.loginWithOtp).mockRejectedValue(new AuthApiError(401, 'Invalid or expired code'));
+
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'));
+
+    fireEvent.click(screen.getByText('loginWithOtp'));
+
+    await waitFor(() => expect(authApi.loginWithOtp).toHaveBeenCalledOnce());
     expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated');
     expect(getSession()).toBeNull();
   });
