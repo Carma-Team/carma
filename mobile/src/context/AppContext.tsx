@@ -185,6 +185,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // the generic library with its own trip-validation rules, per the driving-sdk
   // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
   const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
+  // Bumped on every identity change — login, driver switch, logout. An async path
+  // copies it on entry and drops its write if the number moved while it awaited;
+  // without that, a request the previous driver started lands on the current one.
+  const sessionRef = useRef(0)
   const tripRef = useRef(tripState)
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
@@ -389,6 +393,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
     SyncManager.onTripSynced = (localId: string, serverTrip: Trip) => {
+      const gen = sessionRef.current;
       setRecentTrips(prev => {
         const updated = prev.map(t =>
           t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
@@ -400,6 +405,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
       authApi.me().then(freshUser => {
+        // The totals belong to whoever was signed in when the trip synced.
+        if (gen !== sessionRef.current) return;
         patchUser(freshUser);
       }).catch(() => {});
     };
@@ -430,12 +437,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadInitialData() {
+      const gen = sessionRef.current;
       const serverOnline = await pingServer();
       try {
-        const [l, u, t, btId, btName, token, levelsRes] = await Promise.all([
+        const [l, u, btId, btName, token, levelsRes] = await Promise.all([
           AsyncStorage.getItem('carma_lang'),
           AsyncStorage.getItem('carma_user'),
-          AsyncStorage.getItem('carma_trips'),
           AsyncStorage.getItem('carma_bt_device_id'),
           AsyncStorage.getItem('carma_bt_device_name'),
           AsyncStorage.getItem('carma_token'),
@@ -458,12 +465,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Saved token found — validate against server and refresh data
           try {
             const freshUser = await authApi.me();
+            // Restoring the stored session is only right while it is still the one
+            // signed in. A logout during startup ends it, and nothing below may put
+            // the account back into state or storage.
+            if (gen !== sessionRef.current) return;
             const merged = { ...JSON.parse(u), ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
 
             const serverData = await tripsApi.list();
+            if (gen !== sessionRef.current) return;
             setRecentTrips(serverData.trips);
             await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
           } catch {
@@ -472,8 +484,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setUserState(null);
             setRecentTrips([]);
           }
-        } else if (t) {
-          setRecentTrips(JSON.parse(t));
         }
         SyncManager.flushQueue().catch(() => {});
       } catch (e) {
@@ -512,11 +522,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setUser = useCallback(async (u: AppUser | null) => {
+    // The single writer of "who is signed in", so the single place that ends a
+    // session for every async path holding the previous number.
+    sessionRef.current++;
     if (!u) {
       setUserState(null);
       setRecentTrips([]);
-      await AsyncStorage.removeItem('carma_user');
-      await AsyncStorage.removeItem('carma_token');
+      // carma_trips goes with the session. Left behind, the offline fallback hands
+      // the next driver on the handset the previous driver's trips.
+      await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
     } else {
       setUserState(u);
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
@@ -537,13 +551,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Trips are fetched here and not in setUser: every partial write to the user
     // (points after a redeem, the drive mode toggle) goes through setUser too, and
     // used to drag a full trip list refetch along with it.
+
+    // Read after setUser, which is the call that bumped the session for this login.
+    const gen = sessionRef.current;
     try {
       const serverData = await tripsApi.list();
+      if (gen !== sessionRef.current) return;
       setRecentTrips(serverData.trips);
       await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
     } catch {
       const cached = await AsyncStorage.getItem('carma_trips');
-      if (cached) setRecentTrips(JSON.parse(cached));
+      if (gen !== sessionRef.current || !cached) return;
+      // Filtered even after the logout wipe: a driver who never logged out leaves
+      // the cache in place, and the next one must not be shown its rows.
+      setRecentTrips((JSON.parse(cached) as Trip[]).filter(t => t.userId === data.user.id));
     }
   }, [setUser]);
 
