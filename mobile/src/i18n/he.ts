@@ -60,6 +60,12 @@ const he = {
     weekNoTrips: 'אין נסיעות מדורגות בשבעת הימים האחרונים.',
     weekNoComparison: 'שבוע ראשון',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
+    // מצב הבחירה למחיקה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
+    deleteTrips: 'מחיקת נסיעות',
+    selectAll: 'בחירת הכל',
+    clearSelection: 'ניקוי הבחירה',
+    selectedCount: 'נבחרו {count}',
+    deleteSelectedConfirm: 'למחוק את הנסיעות שנבחרו? הפעולה מסתירה אותן במכשיר הזה בלבד.',
     totalDistance: 'מרחק כולל', totalTrips: 'נסיעות',
     avgScore: 'ציון ממוצע', pointsToNextLevel: 'נקודות לרמה הבאה',
   },
@@ -225,9 +231,6 @@ const he = {
     disable: 'ביטול',
     driveModeFailed: 'לא הצלחנו לעדכן את מצב הנסיעה. נסו שוב.',
     selectDevice: 'בחירת מכשיר Bluetooth',
-    dataManagement: 'ניהול נתונים',
-    clearHistory: 'איפוס היסטוריית נסיעות',
-    clearHistoryConfirm: 'למחוק את כל היסטוריית הנסיעות המקומית?',
     version: 'גרסה',
   },
   stats: {
@@ -247,8 +250,8 @@ const he = {
     yes: 'כן', no: 'לא',
     done: 'סיום', points: 'נקודות', level: 'רמה', score: 'ציון', noData: 'אין נתונים',
     seeAll: 'ראה הכל',
-    historyCleared: 'ההיסטוריה נמחקה',
-    historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
+    tripsDeleted: 'הנסיעות נמחקו',
+    tripsDeletedDesc: 'הנסיעות שנבחרו הוסרו מההיסטוריה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
   deviceGate: {
