@@ -171,3 +171,42 @@ describe('MarketplaceScreen cancellation', () => {
     expect(mocked.cancel).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('MarketplaceScreen batching', () => {
+  // Distinct titles are what the assertions count — the card renders `titleHe` under
+  // HE, so a numbered title gives every card a label of its own to match on.
+  const catalog = (n: number): Reward[] =>
+    Array.from({ length: n }, (_, i) => ({ ...reward, id: `r${i}`, titleHe: `פרס ${i}` }))
+
+  async function renderCatalog(n: number) {
+    mocked.list.mockResolvedValue({ rewards: catalog(n), vouchers: [] })
+    render(<MarketplaceScreen />)
+    await act(async () => {})
+  }
+
+  const cardCount = () => screen.queryAllByText(/^פרס \d+$/).length
+  const moreButton = () => screen.queryByText(he.dashboard.showMore)
+
+  it('shows at most the first batch on entry', async () => {
+    await renderCatalog(15)
+    expect(cardCount()).toBe(6)
+  })
+
+  it('appends a batch on each press and stops at the end of the catalog', async () => {
+    await renderCatalog(15)
+
+    fireEvent.press(moreButton()!)
+    expect(cardCount()).toBe(12)
+
+    // The last press lands on a partial batch — the button goes once the catalog is
+    // exhausted, not once a press has been made.
+    fireEvent.press(moreButton()!)
+    expect(cardCount()).toBe(15)
+    expect(moreButton()).toBeNull()
+  })
+
+  it('offers nothing to expand for a catalog that already fits', async () => {
+    await renderCatalog(6)
+    expect(moreButton()).toBeNull()
+  })
+})

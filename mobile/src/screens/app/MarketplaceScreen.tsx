@@ -5,6 +5,7 @@ import { RewardCard, VoucherModal } from '@/components/marketplace/RewardCard'
 import { CategoryFilter } from '@/components/marketplace/CategoryFilter'
 import { RedeemConfirmSheet } from '@/components/marketplace/RedeemConfirmSheet'
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader'
+import { Button } from '@/components/ui/Button'
 import { useApp } from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { rewardsApi } from '@/services/api/rewards.api'
@@ -27,6 +28,11 @@ const REDEEM_ERRORS: Record<string, { plain: string; withWait?: string }> = {
   VOUCHER_LIMIT_REACHED:    { plain: 'marketplace.redeemAtCap',    withWait: 'marketplace.redeemAtCapWait' },
 }
 
+// How many reward cards render before the driver asks for more, and how many each
+// press adds. Smaller than the dashboard's 5-trip batch is not the goal — a reward
+// card is roughly twice the height of a trip row, so 6 fills about the same screen.
+const BATCH_SIZE = 6
+
 /**
  * Rewards store screen.
  * Shows a list of redeemable rewards, each card carrying the live vouchers already
@@ -38,6 +44,7 @@ export default function MarketplaceScreen() {
   const { t, lang } = useTranslation()
 
   const [category, setCategory] = useState('all')
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
   const [rewards, setRewards] = useState<Reward[]>([])
   const [vouchers, setVouchers] = useState<Voucher[]>([])
   const [loading, setLoading] = useState(true)
@@ -193,6 +200,11 @@ export default function MarketplaceScreen() {
     return acc
   }, {})
 
+  const catalog = sortByAvailability(
+    rewards.filter(r => category === 'all' || r.category === category)
+  )
+  const visibleRewards = catalog.slice(0, visibleCount)
+
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={COMMON_STYLES.scrollContent}>
@@ -203,7 +215,12 @@ export default function MarketplaceScreen() {
         <CategoryFilter
           categories={categories}
           selectedCategory={category}
-          onSelectCategory={setCategory}
+          onSelectCategory={key => {
+            // A new category is a new list; carrying the old page depth over would
+            // open it already scrolled past its first screen of rewards.
+            setCategory(key)
+            setVisibleCount(BATCH_SIZE)
+          }}
           lang={lang}
         />
 
@@ -211,20 +228,29 @@ export default function MarketplaceScreen() {
           <ActivityIndicator color={COLORS.brand} style={{ marginTop: 24 }} />
         ) : (
           <View style={{ gap: 10 }}>
-            {sortByAvailability(
-              rewards.filter(r => category === 'all' || r.category === category)
-            )
-              .map(r => (
-                <RewardCard
-                  key={r.id}
-                  reward={r}
-                  userPoints={available}
-                  vouchers={liveVouchers[r.id] ?? []}
-                  onRedeem={setSelectedReward}
-                  onVoucherPress={setSelectedVoucher}
-                />
-              ))
-            }
+            {visibleRewards.map(r => (
+              <RewardCard
+                key={r.id}
+                reward={r}
+                userPoints={available}
+                vouchers={liveVouchers[r.id] ?? []}
+                onRedeem={setSelectedReward}
+                onVoucherPress={setSelectedVoucher}
+              />
+            ))}
+            {/* The whole catalog is already in memory from loadCatalog, so this only
+                grows how many cards render. Slicing a prefix keeps the cards already
+                on screen in place instead of reshuffling them. */}
+            {catalog.length > visibleCount && (
+              <Button
+                variant="ghost"
+                size="md"
+                fullWidth
+                onPress={() => setVisibleCount(count => count + BATCH_SIZE)}
+              >
+                {t('dashboard.showMore')}
+              </Button>
+            )}
           </View>
         )}
       </ScrollView>
