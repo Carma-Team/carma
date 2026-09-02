@@ -13,8 +13,8 @@
  *   UNIQUE idempotency_key so retries after timeout are safe.
  * - Double-enqueue guard: if `localTripId` is already in the queue it is not added again.
  * - A transient failure never deletes a trip — it only delays the next attempt.
- *   A trip queued past MAX_QUEUE_AGE_MS is abandoned (removed from the queue) but not
- *   deleted from the device: onTripAbandoned flags it locally. See docs/trip-sync-queue.md.
+ *   Retention policy and the value of MAX_FAILURES_BEFORE_DROP are open questions:
+ *   see docs/trip-sync-queue.md.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Trip } from '@/types';
@@ -36,11 +36,10 @@ const RATE_LIMITED = 429;
 // on every single foreground return, which is what used to cost battery.
 export const BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
-// 30 days, tied to our own reward/voucher cycle rather than any published telematics
-// standard — no vendor publishes a local-queue TTL. Age, not attempt count: attempts
-// only accrue on app-foreground, so a fixed count means a different span of real time
-// for every driver. See docs/trip-sync-queue.md §4.
-export const MAX_QUEUE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// PLACEHOLDER — not a calibrated number, and deliberately far beyond any plausible
+// outage. It exists so local storage has *some* bound while the real retention policy
+// is decided; nothing in the project documents one today. See docs/trip-sync-queue.md.
+export const MAX_FAILURES_BEFORE_DROP = 50;
 
 // ─── Module-level flush mutex ─────────────────────────────────────────────────
 // Prevents concurrent flushes if AppState fires multiple 'active' events quickly.
@@ -70,9 +69,6 @@ function backoffMsFor(step: number): number {
 export const SyncManager = {
   // AppContext wires this to update recentTrips with the server-assigned ID
   onTripSynced: undefined as ((localId: string, serverTrip: Trip) => void) | undefined,
-
-  // AppContext wires this to flag the local trip as syncFailed instead of losing it
-  onTripAbandoned: undefined as ((localId: string) => void) | undefined,
 
   // ─── enqueue ───────────────────────────────────────────────────────────────
   // Appends a trip to the persistent queue. Idempotent: duplicate localTripId is ignored.
@@ -122,12 +118,11 @@ export const SyncManager = {
         const item = withRetryState(items[i]);
         const now = Date.now();
 
-        // The only thing that removes an item from the queue outright. Age, not attempt
-        // count — see MAX_QUEUE_AGE_MS above. The trip itself is not deleted: onTripAbandoned
-        // flags it locally so it stays visible instead of disappearing with no trace.
-        if (now - Date.parse(item.queuedAt) >= MAX_QUEUE_AGE_MS) {
-          console.warn(`[SyncManager] Abandoning ${item.id} — queued past the ${MAX_QUEUE_AGE_MS}ms retention bound`);
-          this.onTripAbandoned?.(item.id);
+        // The only count that deletes anything. A trip reaches this having failed to
+        // upload MAX_FAILURES_BEFORE_DROP times for reasons the server called permanent
+        // on none of them — an outcome we have no policy for yet.
+        if (item.failures >= MAX_FAILURES_BEFORE_DROP) {
+          console.warn(`[SyncManager] Dropping ${item.id} — ${item.failures} failed uploads`);
           continue;
         }
 
