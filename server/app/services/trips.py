@@ -337,6 +337,15 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
         raise HTTPException(403, "Invalid payload signature")
 
 
+def _opt_bool(value: Any) -> bool | None:
+    """A digest value that is absent stays unknown; anything else is a real answer.
+
+    `bool(None)` would turn "this SDK did not report" into "the sensor was dead",
+    which is the distinction CAR-228 exists to keep.
+    """
+    return None if value is None else bool(value)
+
+
 def _level_cap(driver_score: float) -> int:
     """Highest level a driver may display at their current driver score (#37).
 
@@ -650,6 +659,12 @@ async def save(
         scored_screen_secs = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
         distance = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
         digest_duration = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
+        # IMU health is signed too, so the digest is the only source once one is
+        # present. Reading the top-level copy would let a client sign an honest
+        # "sensor was dead" and assert healthy hardware alongside it. A digest
+        # predating CAR-189 carries neither key, which is unknown, not false.
+        accel_available = _opt_bool(d.get("accelAvailable"))
+        accel_init_failed = _opt_bool(d.get("accelInitFailed"))
     else:
         scored_hard_brakes = dto.hard_brakes or 0
         scored_aggressive_accels = dto.aggressive_accels or 0
@@ -658,6 +673,10 @@ async def save(
         scored_screen_secs = dto.screen_interaction_seconds or 0
         distance = dto.distance_km or 0.0
         digest_duration = duration or 0
+        # Unsigned payload: nothing here is trustworthy anyway, so the top-level
+        # copy is no worse than the counts beside it.
+        accel_available = dto.accel_available
+        accel_init_failed = dto.accel_init_failed
 
     # Server-side GPS cross-check (v2.1): the waypoint trace is an independent
     # witness against client under-detection. Merged counts only ever go UP —
@@ -733,6 +752,8 @@ async def save(
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
+        accel_available=accel_available,
+        accel_init_failed=accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
         payload_signature=dto.payload_signature,
         route_waypoints=dto.route_waypoints,
