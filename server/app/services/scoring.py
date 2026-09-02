@@ -24,12 +24,12 @@ it values sourced from the signed telemetry digest (the oracle) and persists the
 results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
-  * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
-    sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
-    horizontal magnitude, not the per-axis vehicle-frame value the curve maps
-    (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
-    to raw counts (each event weight 1.0). `event_severity()` is implemented and
-    tested now so the downstream math is unchanged the day that value arrives.
+  * Per-event severity (peak_g, speed_at_event) — the client has sent peak_g
+    since #48, but it arrives as an unsigned horizontal magnitude, not the
+    per-axis vehicle-frame value the curve maps (CAR-156). Until a
+    phone-to-vehicle rotation exists, weighted counts collapse to raw counts
+    (each event weight 1.0). `event_severity()` is implemented and tested now
+    so the downstream math is unchanged the day that value arrives.
   * Speeding against posted limits arrived in 2026-08-posted-limit (CAR-222). It is measured as
     a share of distance rather than as weighted minutes, so `k_speed` is a new
     constant on a new scale and not a re-tuning of the old one. The weight is
@@ -175,11 +175,11 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # ─── Stage 1 — continuous severity weight (ready for the SDK) ──────────────────
 
 
-def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
-    """Continuous severity weight for one kinematic event.
+def event_severity(event_type: str, peak_g: float) -> float:
+    """Continuous severity weight for one kinematic event, force alone.
 
-    Ranges from 1.0 at the detection threshold to 3.0 for an extreme, sustained
-    event. Replaces tier counting so there is no threshold to game.
+    Ranges from 1.0 at the detection threshold to 3.0 for an extreme event.
+    Replaces tier counting so there is no threshold to game.
 
     Speed is deliberately not an input. It is already scored as its own component
     at weight 0.25, so scaling event severity by it charged a hard brake at
@@ -198,9 +198,7 @@ def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     """
     g_min, g_max = _SEVERITY_RANGES[event_type]
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
-    g_factor = g_norm**1.5 + 1.0
-    duration_factor = 1.0 + min(duration_ms / 2000.0, 0.5)
-    return float(g_factor * duration_factor)
+    return float(g_norm**1.5 * 2.0 + 1.0)
 
 
 # ─── Stages 3–5 — trip score ───────────────────────────────────────────────────
