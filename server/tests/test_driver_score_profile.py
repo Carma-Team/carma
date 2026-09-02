@@ -22,7 +22,6 @@ async def _driver(db: AsyncSession) -> User:
         password_hash="x",
         name="Score Probe",
         role=UserRole.DRIVER,
-        city="חיפה",
         language=Language.HE,
         is_private=True,
         drive_mode_enabled=True,

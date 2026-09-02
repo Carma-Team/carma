@@ -215,6 +215,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The canonical Israeli settlement list. Public: registration reads it before a token exists.
+         * @description Deliberately unauthenticated.
+         *
+         *     Registration is the first consumer and runs before a token exists; wiring the
+         *     picker to the authenticated leaderboard endpoint is what left it empty for
+         *     every registering user (CAR-224). No new abuse surface: `middlewares/
+         *     rate_limit.py` counts before authentication, so the per-IP floor already
+         *     covers this route, and the response is public reference data with no PII.
+         */
+        get: operations["list_cities_api_cities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/me": {
         parameters: {
             query?: never;
@@ -722,7 +748,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cities available to the leaderboard filter. `countries` is always a single entry. */
+        /** Cities that have a driver on the board. The whole canonical list is GET /api/cities. */
         get: operations["get_locations_api_leaderboard_locations_get"];
         put?: never;
         post?: never;
@@ -1354,6 +1380,32 @@ export interface components {
         BusinessVoucherResponse: {
             voucher: components["schemas"]["BusinessVoucherOut"];
         };
+        /** CitiesOut */
+        CitiesOut: {
+            country: components["schemas"]["CountryOut"];
+            /** Cities */
+            cities: components["schemas"]["CityOut"][];
+        };
+        /**
+         * CityOut
+         * @description A settlement, carrying every label rather than one chosen for the caller.
+         *
+         *     Both names ship on every response on purpose. There is no language
+         *     negotiation anywhere in this server, and the convention the rest of the API
+         *     already follows is to send both and let the client pick (`title`/`title_he`
+         *     on rewards, `name`/`name_he` on businesses). It also keeps the city list a
+         *     single cacheable document: choosing server-side would need `Vary:
+         *     Accept-Language` and one cache entry per language for data that is identical
+         *     apart from which field the client reads.
+         */
+        CityOut: {
+            /** Code */
+            code: string;
+            /** Namehe */
+            nameHe: string;
+            /** Nameen */
+            nameEn: string;
+        };
         /** ContactMatchOut */
         ContactMatchOut: {
             /** Phonehash */
@@ -1362,14 +1414,26 @@ export interface components {
             id: string;
             /** Name */
             name?: string | null;
-            /** City */
-            city?: string | null;
+            city?: components["schemas"]["CityOut"] | null;
             /**
              * Friendstatus
              * @default none
              * @enum {string}
              */
             friendStatus: "none" | "pending" | "accepted" | "blocked";
+        };
+        /**
+         * CountryOut
+         * @description CARMA operates in one country, so this is a constant, not a table.
+         *
+         *     It is shaped like CityOut and not a bare string for the same reason the
+         *     cities are: `COUNTRY = "ישראל"` used to be sent to the English build too.
+         */
+        CountryOut: {
+            /** Namehe */
+            nameHe: string;
+            /** Nameen */
+            nameEn: string;
         };
         /** DrivingStats */
         DrivingStats: {
@@ -1438,8 +1502,7 @@ export interface components {
             id: string;
             /** Name */
             name?: string | null;
-            /** City */
-            city?: string | null;
+            city?: components["schemas"]["CityOut"] | null;
         };
         /**
          * FraudDetection
@@ -1516,8 +1579,7 @@ export interface components {
             fromUserName: string | null;
             /** Fromuserlevel */
             fromUserLevel: number;
-            /** Fromusercity */
-            fromUserCity: string | null;
+            fromUserCity: components["schemas"]["CityOut"] | null;
             /**
              * Createdat
              * Format: date-time
@@ -1586,8 +1648,7 @@ export interface components {
             id: string;
             /** Name */
             name?: string | null;
-            /** City */
-            city?: string | null;
+            city?: components["schemas"]["CityOut"] | null;
             /** Level */
             level: number;
         };
@@ -1631,8 +1692,7 @@ export interface components {
             id: string;
             /** Name */
             name: string | null;
-            /** City */
-            city: string | null;
+            city: components["schemas"]["CityOut"] | null;
             /** Level */
             level: number;
             /** Avatarurl */
@@ -1681,17 +1741,18 @@ export interface components {
          * LocationsOut
          * @description Filter options for the leaderboard's city picker.
          *
-         *     Shaped as countries + cities-per-country because the client was written
-         *     against a mock server that had both. CARMA operates in one country, so
-         *     `countries` is a single fixed entry — see leaderboard.COUNTRY.
+         *     Only cities that actually have a driver on the board, so a filter choice can
+         *     never come back empty. That is the difference from `GET /api/cities`, which
+         *     serves the whole canonical list for registration to pick from.
+         *
+         *     The old countries + cities-per-country shape is gone with CAR-218: it came
+         *     from a retired mock server, and its values were bare labels that could only
+         *     be right in one language.
          */
         LocationsOut: {
-            /** Countries */
-            countries: string[];
-            /** Citiesbycountry */
-            citiesByCountry: {
-                [key: string]: string[];
-            };
+            country: components["schemas"]["CountryOut"];
+            /** Cities */
+            cities: components["schemas"]["CityOut"][];
         };
         /** LoginIn */
         LoginIn: {
@@ -1758,7 +1819,12 @@ export interface components {
             language?: components["schemas"]["Language"] | null;
             /** Age */
             age?: number | null;
-            /** City */
+            /** Citycode */
+            cityCode?: string | null;
+            /**
+             * City
+             * @deprecated
+             */
             city?: string | null;
         };
         /** OtpRequestIn */
@@ -1818,7 +1884,12 @@ export interface components {
             password: string;
             /** Phone */
             phone?: string | null;
-            /** City */
+            /** Citycode */
+            cityCode?: string | null;
+            /**
+             * City
+             * @deprecated
+             */
             city?: string | null;
             /** Age */
             age?: number | null;
@@ -2088,7 +2159,12 @@ export interface components {
             language?: components["schemas"]["Language"] | null;
             /** Age */
             age?: number | null;
-            /** City */
+            /** Citycode */
+            cityCode?: string | null;
+            /**
+             * City
+             * @deprecated
+             */
             city?: string | null;
             /** Isprivate */
             isPrivate?: boolean | null;
@@ -2111,8 +2187,7 @@ export interface components {
             avatarUrl?: string | null;
             /** Age */
             age?: number | null;
-            /** City */
-            city?: string | null;
+            city?: components["schemas"]["CityOut"] | null;
             /** Licenseyear */
             licenseYear?: number | null;
             /** Points */
@@ -2578,6 +2653,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LevelsListOut"];
+                };
+            };
+        };
+    };
+    list_cities_api_cities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CitiesOut"];
                 };
             };
         };
@@ -3607,8 +3702,8 @@ export interface operations {
         parameters: {
             query?: {
                 type?: "national" | "city" | "friends";
-                /** @description Only with type=city. Defaults to the caller's own city. */
-                city?: string | null;
+                /** @description A CBS settlement code. Only with type=city. Defaults to the caller's own city. */
+                cityCode?: string | null;
             };
             header?: never;
             path?: never;
