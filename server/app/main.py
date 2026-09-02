@@ -29,6 +29,7 @@ from app.routers import (
     business_invitations,
     business_join_requests,
     business_memberships,
+    cities,
     dev_recordings,
     fraud,
     friends,
@@ -128,6 +129,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(auth.router)
 app.include_router(levels.router)
+app.include_router(cities.router)
 app.include_router(users.router)
 app.include_router(users.stats_router)
 app.include_router(trips.router)

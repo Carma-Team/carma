@@ -336,6 +336,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           aiInsight: null,
           pointsCapped: false,
           pendingSync: true,
+          // Not server-only: the SDK measured these during the trip we just
+          // ended, and they are already in the payload queued for sync. Writing
+          // null would report a healthy sensor as unknown until the save lands.
+          accelAvailable: lastTripDataRef.current?.accelAvailable ?? null,
+          accelInitFailed: lastTripDataRef.current?.accelInitFailed ?? null,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');

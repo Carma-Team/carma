@@ -67,6 +67,11 @@ export interface Voucher extends Omit<Schemas['VoucherOut'], 'status'> {
   status: 'pending' | 'used' | 'expired' | 'cancelled';
 }
 
+// ─── City (CAR-218) ───────────────────────────────────────────────────────────
+// A settlement is a reference row with a name per language, never a bare label.
+export type City = Schemas['CityOut'];
+
+
 // ─── Leaderboard ──────────────────────────────────────────────────────────────
 export type LeaderboardType = 'friends' | 'city' | 'national';
 

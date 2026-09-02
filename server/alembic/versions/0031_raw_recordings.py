@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0031_raw_recordings"
-down_revision: str | None = "0030_scoring_version_flat_ids"
+down_revision: str | None = "0027_city_reference"
 branch_labels: str | None = None
 depends_on: str | None = None
 
