@@ -36,12 +36,13 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0027_city_reference"
-# Re-pointed from 0026 after 0028_road_segments landed on develop. Both were
+# Re-pointed twice now, most recently onto 0027_trip_imu_health: develop keeps
+# gaining migrations while this waits for review, and each one becomes the head. Both were
 # written off 0026, which git cannot see as a conflict and which only breaks
 # once both are merged - the "One alembic head" job in ci-server.yml is what
 # catches it (CAR-160). The filename still says 0027 because alembic sequences
 # on `revision`, not on the name.
-down_revision: str | None = "0028_road_segments"
+down_revision: str | None = "0027_trip_imu_health"
 branch_labels: str | None = None
 depends_on: str | None = None
 
