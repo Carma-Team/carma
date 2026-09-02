@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { ErrorState } from '@/components/ui';
@@ -20,9 +20,21 @@ export function RequireBusinessRole({ allow }: { allow: BusinessMembershipRole[]
   const { t } = useTranslation();
 
   if (!hasBusinessRole(user?.businessMembershipRole, allow)) {
+    // An account with no business membership at all — never one that
+    // already belongs somewhere, which the accept flow's own server-side
+    // check refuses regardless — may simply have been told an invitation
+    // code rather than sent the link (CAR-118 review's manual-code
+    // discoverability gap): this is the one dead end in the app such an
+    // account could otherwise land on with no way forward.
+    const eligibleForInvitation = user !== null && user.businessMembershipRole == null && !user.businessMembershipAmbiguous;
     return (
       <div style={{ padding: 'var(--space-lg)' }}>
         <ErrorState title={t('common.accessRestrictedTitle')} message={t('common.accessRestrictedMessage')} />
+        {eligibleForInvitation && (
+          <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
+            {t('invitations.haveCodeLinkLabel')}
+          </Link>
+        )}
       </div>
     );
   }

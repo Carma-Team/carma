@@ -26,15 +26,15 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            path = request.url.path
-            level = logging.DEBUG if path.startswith(_QUIET_PREFIXES) else logging.INFO
+            path = redact_path(request)
+            level = logging.DEBUG if request.url.path.startswith(_QUIET_PREFIXES) else logging.INFO
             log.log(
                 level,
                 "http.request",
                 extra={
                     "event": "http.request",
                     "method": request.method,
-                    "path": redact_path(path),
+                    "path": path,
                     "status": status,
                     "duration_ms": duration_ms,
                     "user_id": user_id_ctx.get() or "-",

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Heading } from './Typography';
 import styles from './Dialog.module.css';
 
@@ -26,6 +26,9 @@ export function Dialog({
   ...rest
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  // The dialog's own accessible name — without it, a screen reader announces
+  // a native <dialog> as unlabelled even though it has a visible title.
+  const titleId = useId();
 
   useEffect(() => {
     const node = ref.current;
@@ -40,9 +43,14 @@ export function Dialog({
       className={[styles.dialog, className].filter(Boolean).join(' ')}
       onClose={onClose}
       onCancel={onClose}
+      aria-labelledby={title ? titleId : undefined}
       {...rest}
     >
-      {title && <Heading level={2}>{title}</Heading>}
+      {title && (
+        <Heading level={2} id={titleId}>
+          {title}
+        </Heading>
+      )}
       <div className={styles.body}>{children}</div>
       <button type="button" className={styles.closeButton} onClick={onClose} aria-label={closeLabel}>
         ×
