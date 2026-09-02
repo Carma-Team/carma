@@ -26,14 +26,19 @@ export const SENSOR_STALE_MS = 5000;
 export interface ValidationSample {
   speedKmh: number;
   timestamp: number;          // Date.now()
-  accel?: { x: number; y: number; z: number };  // read only by validators that classify motion
-  gyroYaw?: number;
+  // Vehicle-frame readings, read only by validators that classify motion. Both are
+  // null when the frame could not be resolved — no GPS heading, gravity not converged,
+  // or the forward direction not yet learned. Null is "not measured", which never
+  // satisfies a threshold; 0 would be a claim of no force (docs/fraud-detection.md §3.2).
+  lateralAccelG?: number | null;  // signed, positive to the left of travel
+  yawRate?: number | null;        // rad/s about gravity, signed — not the device Z axis
   // Present only on ticks that carried a GPS fix. A validator that gates on where the
   // journey is happening reads these; one that does not simply ignores them.
   lat?: number;
   lng?: number;
-  // accel/gyroYaw are 0 when their sensor was never registered — these say whether
-  // that 0 is a live reading. docs/fraud-detection.md §3.1: unavailable ≠ zero.
+  // Whether the underlying sensor was live at all. Distinct from the frame being
+  // unresolvable: a live sensor with an unknown frame is still a working sensor.
+  // §3.1: unavailable ≠ zero.
   accelAvailable?: boolean;
   gyroAvailable?: boolean;
   // false means background/"Always" location permission was denied, so automatic
@@ -45,7 +50,6 @@ export enum DrivingEventType {
   HARD_BRAKE      = 'HARD_BRAKE',       // EVT_BRAKE   — spec §א table 1
   AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL', // EVT_ACCEL   — spec §א table 1
   SHARP_TURN      = 'SHARP_TURN',        // EVT_TURN    — spec §א table 1
-  SWERVE          = 'SWERVE',            // EVT_SWERVE  — spec §א table 1
   PHONE_USAGE     = 'PHONE_USAGE'        // not in spec table — detected separately
 }
 
@@ -58,8 +62,15 @@ export interface DrivingEvent {
     latitude: number;
     longitude: number;
   };
-  // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE.
-  peakG?: number;      // reserved for a single vehicle-frame axis once a phone→vehicle rotation stage exists; not populated until then
+  // Motion events (HARD_BRAKE/AGGRESSIVE_ACCEL/SHARP_TURN) only — absent on PHONE_USAGE,
+  // and absent on a motion event whose vehicle frame could not be resolved. Signed
+  // physical measurements in g, in the vehicle's own frame: positive longitudinal is
+  // forward, so a brake is negative; positive lateral is to the left of travel.
+  //
+  // Measurements, not a score. Turning these into a severity is the scoring engine's
+  // job — a curve belongs with the consumer, not in a sensor library (§6).
+  peakLongitudinalG?: number;
+  peakLateralG?: number;
   durationMs?: number; // how long the signal stayed above the IMU cross-confirm threshold
 }
 
@@ -174,12 +185,22 @@ export interface SensorUpdate {
   distanceKm: number;
   currentSpeed: number;
   timeDeltaS: number;
-  accelX: number;
-  gyroZ: number;
-  // Whether accelX/gyroZ are live readings vs. an unavailable sensor's default —
-  // docs/fraud-detection.md §3.1: unavailable is not the same as zero.
+  // Vehicle-frame readings, resolved inside the SDK so nothing downstream has to know
+  // how the phone is sitting. Null means the frame could not be resolved — never 0,
+  // which would read as a measured absence of force (docs/fraud-detection.md §3.2).
+  longitudinalAccelG: number | null; // signed, positive forward
+  lateralAccelG: number | null;      // signed, positive to the left of travel
+  yawRateRadS: number | null;        // signed, about gravity — not the device's Z axis
+  // Whether the sensors themselves are live. A live sensor whose frame is unresolved
+  // reports true here and null above; the two answer different questions (§3.1).
   accelAvailable: boolean;
   gyroAvailable: boolean;
+  // Fraction (0–1) of the measured window in which the accelerometer actually
+  // delivered samples. `accelAvailable` answers "right now" and latches over a trip,
+  // which cannot separate a sensor that quit halfway from one that never started —
+  // this can. 0 with accelAvailable false is "never delivered anything"; a value
+  // strictly between 0 and 1 is an outage the trip lived through.
+  accelCoverage: number;
   // Whether accelerometer *registration* itself threw — distinct from
   // accelAvailable=false (no such hardware). Unlike accelAvailable/gyroAvailable
   // this one is CARMA-agnostic trip metadata, not a fraud-detection input, so it
@@ -212,6 +233,9 @@ export interface TripData {
                                     // (per-second samples arrive via onInteractionData)
   accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
                              // why — see accelInitFailed
+  accelCoverage: number;     // 0–1 share of the trip the accelerometer actually delivered
+                             // samples for. The three fields answer different questions:
+                             // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
 

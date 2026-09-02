@@ -141,7 +141,10 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
       >
         <Ionicons name={ICONS.openInMaps} size={18} color={COLORS.text} />
       </TouchableOpacity>
-      <MapView style={styles.map} initialRegion={region}>
+      {/* Android pops a native directions toolbar over the map when a marker is
+          tapped, which is a second control that looks like ours and goes to the same
+          place. Our own button above is the one route out (CAR-241). */}
+      <MapView style={styles.map} initialRegion={region} toolbarEnabled={false}>
         <Polyline
           coordinates={coordinates}
           strokeColor={COLORS.brand}

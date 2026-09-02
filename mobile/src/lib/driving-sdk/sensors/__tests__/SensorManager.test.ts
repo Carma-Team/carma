@@ -55,9 +55,6 @@ import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 const MS2_PER_G = 9.81;
-// Mirrors SensorManager's own LPF_ALPHA — not imported, same reasoning as MS2_PER_G above.
-const LPF_ALPHA = 0.9;
-
 // Deliberately not DEFAULT_MOTION_THRESHOLDS — see file header.
 const THRESHOLDS = {
   brakeThresholdMs2: 2.7,
@@ -255,13 +252,13 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
-    // code this event still fires (imuConfirms fails open when accelAvailable is
-    // false), and feedStrongForce() never reaching a real subscription would leave
-    // onUpdate's accelX at 0. A nonzero accelX is what only the fix makes possible.
+    // code this event still fires, because imuConfirms fails open when accelAvailable
+    // is false. The flag is what separates the two: it can only be true if the
+    // subscription was established and feedStrongForce() reached it.
     const [event] = events();
     expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-    expect(lastUpdate.accelX).toBeGreaterThan(0);
+    expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
   it('fails closed — not open — when accelerometer registration itself throws', async () => {
@@ -281,6 +278,54 @@ describe('SensorManager', () => {
     // Hardware present, registration threw — the outward flag must say so, not "no hardware" (CAR-189).
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  // ── Accelerometer coverage over the window ─────────────────────────────────
+  // `accelAvailable` is a boolean about right now, and it latches over a trip — so a
+  // sensor that quit halfway reads exactly like one that ran the whole way. These
+  // three cases are the three answers the fraction has to keep apart.
+
+  /** Delivers `n` samples at the 10 Hz the subscription requests. */
+  function feedAccelFor(n: number) {
+    for (let i = 0; i < n; i++) {
+      jest.advanceTimersByTime(100);
+      mockAccelHandler?.({ x: 0, y: 0, z: 1 });
+    }
+  }
+
+  const coverage = () => onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].accelCoverage;
+
+  it('reports full coverage while the accelerometer keeps delivering', () => {
+    feedAccelFor(20); // 2 s of samples over a 2 s window
+
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBeCloseTo(1, 2);
+  });
+
+  it('reports partial coverage for a sensor that goes quiet mid-window', () => {
+    feedAccelFor(10);           // 1 s live
+    jest.advanceTimersByTime(10_000); // 10 s of silence — well past SENSOR_STALE_MS
+    feedAccelFor(10);           // it comes back
+
+    sendFix({ t: 0, speed: 20 });
+
+    // The outage is not retroactively credited when the sensor returns, so the
+    // fraction stays far from 1 — and it is not 0 either, which is the whole point.
+    expect(coverage()).toBeGreaterThan(0);
+    expect(coverage()).toBeLessThan(0.25);
+  });
+
+  it('reports zero coverage when there is no accelerometer at all', async () => {
+    manager.stop();
+    mockAccelAvailable = false;
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    jest.advanceTimersByTime(2000);
+    sendFix({ t: 0, speed: 20 });
+
+    expect(coverage()).toBe(0);
   });
 
   // ── Lateral: turns ─────────────────────────────────────────────────────────
@@ -346,13 +391,14 @@ describe('SensorManager', () => {
 
       expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
 
-      // An event firing here doesn't prove gravity was removed — since CAR-156
-      // dropped peakG, nothing on the event does. onUpdate's accelX still carries
-      // the gravity-removed dynamic X (this.latestAccelX): if removal broke, it
-      // would report c.gravity.x + c.force.x instead of just c.force.x, scaled
-      // down by one sample of the LPF_ALPHA gravity EMA settling toward the force.
+      // The event fires from the same applied magnitude in all four mountings, which
+      // is the invariance being pinned. That gravity was actually removed, and that
+      // the surviving force lands on the right vehicle axis, is checked directly
+      // against the geometry in sensors/__tests__/vehicleFrame.test.ts — the update
+      // here carries vehicle-frame values, which are deliberately null until enough
+      // GPS evidence has resolved the forward direction.
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-      expect(lastUpdate.accelX).toBeCloseTo(c.force.x * LPF_ALPHA, 5);
+      expect(lastUpdate.lateralAccelG).toBeNull();
     }
   });
 
@@ -560,6 +606,23 @@ describe('SensorManager', () => {
 
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ gyroAvailable: true });
+  });
+
+  // The availability flag alone is not enough: a consumer that classifies motion reads
+  // the value, and a gyro that died mid-trip kept reporting its last yaw forever — which
+  // a rail signal counts as a real framed sample. §3.1's unavailable ≠ zero has to cover
+  // unavailable ≠ last known too, or staleness is only advisory.
+  it('reports yawRateRadS: null once the gyroscope goes quiet, rather than freezing its last reading', () => {
+    jest.advanceTimersByTime(1000);
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.4 }); // gravity is still the (0,0,1) seed, so yaw about it is 0.4
+    sendFix({ t: 1100, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: 0.4 });
+
+    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS with no further sample — the gyro is gone
+    sendFix({ t: 6200, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: null, gyroAvailable: false });
   });
 
   it('reports accelAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {

@@ -87,7 +87,7 @@ export function registerMockNetwork() {
     if (account) {
       // Asked before the defaults below, so an account that has its own trips can
       // say so instead of being overruled by the empty list every session gets.
-      const result = account.handleRequest(method, cleanPath, parseBody(init));
+      const result = account.handleRequest?.(method, cleanPath, parseBody(init));
       if (result) {
         console.log(`[mock] ${method} ${cleanPath} → ${account.email}`);
         return mockResponse(result.status, result.data);

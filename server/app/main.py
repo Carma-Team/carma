@@ -117,10 +117,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Redacted before it ever reaches the logger or the response — CAR-76's
-    # invitation token lives in the path itself, so logging or echoing the raw
-    # path back would leak it into logs and to whoever triggered the 500.
-    path = redact_path(request.url.path)
+    path = redact_path(request)
     logging.getLogger(__name__).exception("%s %s", request.method, path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

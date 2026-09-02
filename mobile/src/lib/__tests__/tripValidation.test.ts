@@ -19,20 +19,21 @@ function advanceTicks(manager: TripValidationManager, ticks: number, speedKmh: n
 }
 
 // Provides full sensor data per tick — required for Rule 3 fraud signal evaluation.
-// gyroZFn: optional per-tick yaw value; defaults to constant 0.
+// Both sensor values are vehicle-frame quantities: signed lateral force in g, and yaw
+// rate about gravity in rad/s. yawRateFn is per-tick; it defaults to a constant 0.
 function advanceFraudTicks(
   manager: TripValidationManager,
   ticks: number,
   speedKmh: number,
-  accelX: number,
-  gyroZFn: (i: number) => number = () => 0
+  lateralAccelG: number,
+  yawRateFn: (i: number) => number = () => 0
 ): void {
   for (let i = 0; i < ticks; i++) {
     manager.updateSample({
       speedKmh,
       timestamp: Date.now(),
-      accel: { x: accelX, y: 0, z: 0 },
-      gyroYaw: gyroZFn(i),
+      lateralAccelG,
+      yawRate: yawRateFn(i),
     });
     jest.advanceTimersByTime(1000);
   }
@@ -230,11 +231,12 @@ describe('edge cases', () => {
 
 describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
 
-  // The fixture that used to prove rejection now proves the opposite. These numbers are
-  // a car at a steady 80 km/h with the phone upright in a vent clip — the mounting turns
-  // real cornering force off the phone's X axis and real yaw off its Z — and they are
-  // identical to the train profile. Signals 2 and 3 cannot separate the two from device
-  // axes, so they report UNKNOWN and the trip is confirmed (CAR-167).
+  // CAR-167's case, now that the values arriving here are vehicle-frame rather than
+  // device axes: how the phone is clipped no longer decides the verdict. A car holding
+  // 80 km/h on a motorway really does produce almost no lateral force, so signal 2 says
+  // "rail-like" and the score reaches 0.75 — above the 0.70 gate. Signal 3 is what
+  // separates it, exactly as docs/fraud-detection.md §3.4 says: the driver's
+  // micro-steering keeps the yaw variance well above a fixed rail alignment's.
   test('a vent-clipped car on a motorway is confirmed, not rejected as rail travel', () => {
     const m = new TripValidationManager();
     const confirmed = jest.fn();
@@ -243,8 +245,10 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
     m.onFraudSuspected = fraudSuspected;
     m.start();
 
-    // Speed alternates ±0.1 around 80 → variance ≈ 0.01 (far below 8 km/h²)
-    advanceFraudTicks(m, 30, 80, 0.01, () => 0.001); // accelX=0.01g, gyroZ=0.001 rad/s
+    // Speed alternates ±0.1 around 80 → variance ≈ 0.01 (far below 8 km/h²).
+    // Lateral 0.05 g is under the 0.12 g gate; yaw ±0.2 rad/s is a variance of 0.04,
+    // double the 0.02 rad²/s² gate.
+    advanceFraudTicks(m, 30, 80, 0.05, (i) => (i % 2 === 0 ? 0.2 : -0.2));
 
     expect(m.getState()).toBe(ValidationState.SCORING);
     expect(confirmed).toHaveBeenCalledTimes(1);
@@ -252,7 +256,31 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
 
     const { fraudEvaluation } = m.getDebugSnapshot();
     expect(fraudEvaluation.mode).toBe(TransportMode.UNKNOWN);
-    expect(fraudEvaluation.confidence).toBeCloseTo(0.40); // only signal 1 is evidence
+    expect(fraudEvaluation.signals.noLateralForce).toBe(true);
+    expect(fraudEvaluation.signals.noHeadingChange).toBe(false);
+    // Every signal was evaluable, which is what the frame bought.
+    expect(fraudEvaluation.confidence).toBeCloseTo(1.0);
+    expect(fraudEvaluation.score).toBeCloseTo(0.75);
+    m.stop();
+  });
+
+  // The mirror image, and the reason signals 2 and 3 are worth restoring: a fixed
+  // alignment with no cornering and no micro-steering is the one profile that satisfies
+  // all three, and it is the only way TRAIN can be reached.
+  test('a rail profile is classified as rail travel', () => {
+    const m = new TripValidationManager();
+    const fraudSuspected = jest.fn();
+    m.onFraudSuspected = fraudSuspected;
+    m.start();
+
+    advanceFraudTicks(m, 30, 80, 0.01, () => 0.001);
+
+    // Read the verdict from the callback, not from a later snapshot: raising it resets
+    // the window (report-once, §3.6), so by the time the snapshot is taken there is no
+    // verdict left to inspect.
+    expect(fraudSuspected).toHaveBeenCalled();
+    const [evaluation] = fraudSuspected.mock.calls[0];
+    expect(evaluation.mode).toBe(TransportMode.TRAIN);
     m.stop();
   });
 
@@ -272,8 +300,8 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
       m.updateSample({
         speedKmh: speeds[i % speeds.length],
         timestamp: Date.now(),
-        accel:   { x: 0.5, y: 0, z: 0 },
-        gyroYaw: i % 2 === 0 ? 0.5 : -0.5,
+        lateralAccelG: 0.5,
+        yawRate: i % 2 === 0 ? 0.5 : -0.5,
       });
       jest.advanceTimersByTime(1000);
     }
@@ -328,16 +356,19 @@ describe('Rule 3 — FraudDetector (transport-mode classification)', () => {
     const m = new TripValidationManager();
     m.start();
 
-    advanceFraudTicks(m, 20, 80, 0.01, () => 0.001);
+    // The car profile above, not the rail one — a rail profile would be declined here
+    // and the trip would never reach SCORING to begin with.
+    const carYaw = (i: number) => (i % 2 === 0 ? 0.2 : -0.2);
+    advanceFraudTicks(m, 20, 80, 0.05, carYaw);
     m.updateSample({ speedKmh: 5, timestamp: Date.now() });
     jest.advanceTimersByTime(1000);
     expect(m.getState()).toBe(ValidationState.IDLE);
 
     // 29 fresh samples: still short of a verdict, which only holds if the 20 were dropped.
-    advanceFraudTicks(m, 29, 80, 0.01, () => 0.001);
+    advanceFraudTicks(m, 29, 80, 0.05, carYaw);
     expect(m.getDebugSnapshot().fraudEvaluation.isReady).toBe(false);
 
-    advanceFraudTicks(m, 1, 80, 0.01, () => 0.001);
+    advanceFraudTicks(m, 1, 80, 0.05, carYaw);
     expect(m.getDebugSnapshot().fraudEvaluation.isReady).toBe(true);
     expect(m.getState()).toBe(ValidationState.SCORING);
     m.stop();

@@ -76,6 +76,8 @@ describe('RewardsPage', () => {
       status: 'authenticated',
       user: USER,
       login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
       logout: vi.fn(),
       retry: vi.fn(),
     } satisfies AuthContextValue);
@@ -413,6 +415,8 @@ describe('RewardsPage', () => {
       status: 'authenticated',
       user: { ...USER, businessMembershipRole: 'CASHIER' },
       login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
       logout: vi.fn(),
       retry: vi.fn(),
     } satisfies AuthContextValue);
@@ -431,6 +435,8 @@ describe('RewardsPage', () => {
       status: 'authenticated',
       user: { ...USER, businessMembershipRole: 'CASHIER' },
       login: vi.fn(),
+      loginWithOtp: vi.fn(),
+      register: vi.fn(),
       logout: vi.fn(),
       retry: vi.fn(),
     } satisfies AuthContextValue);

@@ -8,11 +8,13 @@ import { StatsGrid } from '@/components/ui/StatsGrid';
 import { TripSummaryModal } from '@/components/driving/TripSummaryModal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { RecentTripsSection } from '@/components/dashboard/RecentTripsSection';
+import { WeeklyTrendCard } from '@/components/dashboard/WeeklyTrendCard';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
-import { formatDistance } from '@/lib/utils';
+import { availableBalance, formatDistance } from '@/lib/utils';
+import { badgeCount } from '@/lib/notifications';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -23,9 +25,13 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user, recentTrips, isLoading, tripState, startTrip, lastTripSummary, setLastTripSummary } = useApp();
   const { t, lang } = useTranslation();
-  const [avgScore, setAvgScore] = useState<number | null>(null);
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
+  // Tri-state, and each state matters. null = the first stats response has not landed,
+  // so the hero shows a placeholder rather than a score that for a new driver is the
+  // fleet prior. false = a measured zero. true also covers a failed stats call: losing
+  // the request must not hide the score of a driver who does have history.
+  const [hasMeasuredHistory, setHasMeasuredHistory] = useState<boolean | null>(null);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -41,7 +47,7 @@ export default function DashboardScreen() {
         .then(d => { if (alive) setPendingRequests(d.requests.length); })
         .catch(() => {});
       notificationsApi.list()
-        .then(rows => { if (alive) setUnreadNotifications(rows.filter(n => !n.readAt).length); })
+        .then(rows => { if (alive) setUnreadNotifications(badgeCount(rows)); })
         .catch(() => {});
       return () => { alive = false; };
     }, []),
@@ -53,8 +59,12 @@ export default function DashboardScreen() {
       .then(d => {
         setCurrentStreak(d.stats.currentStreak);
         setBestStreak(d.stats.bestStreak);
+        setHasMeasuredHistory(d.stats.totalTrips > 0);
       })
-      .catch(err => console.error('Stats error:', err));
+      .catch(err => {
+        console.error('Stats error:', err);
+        setHasMeasuredHistory(true);
+      });
   }, []);
 
   // Re-fetch after a trip completes so a streak earned just now doesn't wait for app restart.
@@ -66,8 +76,12 @@ export default function DashboardScreen() {
       .then(d => {
         setCurrentStreak(d.stats.currentStreak);
         setBestStreak(d.stats.bestStreak);
+        setHasMeasuredHistory(d.stats.totalTrips > 0);
       })
-      .catch(err => console.error('Stats error:', err));
+      .catch(err => {
+        console.error('Stats error:', err);
+        setHasMeasuredHistory(true);
+      });
   }, [lastTripSummary]);
 
   // Controls whether the post-trip summary modal is visible
@@ -92,16 +106,6 @@ export default function DashboardScreen() {
       params: { tripId }
     });
   };
-
-  // Compute average score across recent trips
-  useEffect(() => {
-    if (recentTrips && recentTrips.length > 0) {
-      const sum = recentTrips.reduce((acc, trip) => acc + (trip.avgScore ?? trip.score ?? 0), 0);
-      setAvgScore(Math.round(sum / recentTrips.length));
-    } else {
-      setAvgScore(null);
-    }
-  }, [recentTrips]);
 
   if (!user || isLoading) {
     return (
@@ -130,11 +134,19 @@ export default function DashboardScreen() {
         />
 
         {/* Level & Points Card */}
+        {/* The deployed profile can omit the score altogether (CAR-296), and a missing
+            one rounds to NaN rather than to anything a null check would catch. A score
+            that cannot be rendered is not an earned one, so it takes the same
+            placeholder as a driver with no measured history. */}
         <DashboardHero
           user={user}
-          avgScore={avgScore}
+          driverScore={Math.round(user.driverScore)}
+          hasMeasuredHistory={Number.isFinite(user.driverScore) && (hasMeasuredHistory ?? false)}
           lang={lang}
         />
+
+        {/* Week-over-week trend — above the grid, which is all-time totals */}
+        <WeeklyTrendCard trips={recentTrips} />
 
         {/* Quick Summary Grid */}
         <StatsGrid
@@ -143,7 +155,10 @@ export default function DashboardScreen() {
           items={[
             { icon: ICONS.trips,    value: recentTrips.length,                          label: t('stats.totalTrips') },
             { icon: ICONS.distance, value: formatDistance(user.totalDistance || 0, lang), label: t('stats.totalDistance') },
-            { icon: ICONS.points,   value: user.totalPoints.toLocaleString(),             label: t('common.points') },
+            // The spendable balance, not the lifetime total — the level progress
+            // above already carries the total, and this is the number a driver
+            // walks into the store with.
+            { icon: ICONS.points,   value: availableBalance(user).toLocaleString(),      label: t('marketplace.availablePoints') },
           ]}
         />
 

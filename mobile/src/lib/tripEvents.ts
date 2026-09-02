@@ -21,7 +21,6 @@ const EVENT_LABEL_KEY: Record<DrivingEventType, string> = {
   [DrivingEventType.HARD_BRAKE]:       'trip.hardBrakes',
   [DrivingEventType.AGGRESSIVE_ACCEL]: 'trip.aggressiveAccels',
   [DrivingEventType.SHARP_TURN]:       'trip.sharpTurns',
-  [DrivingEventType.SWERVE]:           'trip.swerve',
   [DrivingEventType.PHONE_USAGE]:      'trip.phoneUsage',
 };
 

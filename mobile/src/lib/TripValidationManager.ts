@@ -24,8 +24,11 @@ export class TripValidationManager implements TripValidator {
   private continuousAboveThresholdMs = 0;
   private continuousBelowThresholdMs = 0;
   private latestSpeedKmh       = 0;
-  private latestLateralAccelG  = 0;  // gravity-removed X-axis (g-units) — Rule 3 Signal B
-  private latestGyroZ          = 0;  // yaw rate (rad/s) — Rule 3 Signal C
+  // Vehicle-frame readings from the SDK, null until it can resolve the frame. Null is
+  // carried through to the detector rather than flattened to 0 — a signal computed from
+  // an unresolvable frame is UNKNOWN, not false (docs/fraud-detection.md §3.1-§3.2).
+  private latestLateralAccelG: number | null = null;  // signed, vehicle frame — Rule 3 Signal B
+  private latestYawRateRadS:   number | null = null;  // signed, about gravity — Rule 3 Signal C
   private ticker: ReturnType<typeof setInterval> | null = null;
   private fraudDetector        = new FraudDetector();
   // Wall-clock receipt time of the last sample. GPS speed has no availability flag of
@@ -80,11 +83,11 @@ export class TripValidationManager implements TripValidator {
     // taken, and a stalled producer keeps re-sending an old one.
     this.lastSampleAtMs = Date.now();
     this.latestSpeedKmh = sample.speedKmh;
-    if (sample.accel) {
-      this.latestLateralAccelG = sample.accel.x;
+    if (sample.lateralAccelG !== undefined) {
+      this.latestLateralAccelG = sample.lateralAccelG;
     }
-    if (sample.gyroYaw !== undefined) {
-      this.latestGyroZ = sample.gyroYaw;
+    if (sample.yawRate !== undefined) {
+      this.latestYawRateRadS = sample.yawRate;
     }
     // CAR-23: fired once, off the first fix. Synchronous, so there is no window in
     // which the answer lands after the session it belongs to has already stopped.
@@ -114,7 +117,7 @@ export class TripValidationManager implements TripValidator {
       state: this.state,
       latestSpeedKmh: this.latestSpeedKmh,
       latestLateralAccelG: this.latestLateralAccelG,
-      latestGyroZ: this.latestGyroZ,
+      latestYawRateRadS: this.latestYawRateRadS,
       continuousAboveThresholdMs: this.continuousAboveThresholdMs,
       continuousBelowThresholdMs: this.continuousBelowThresholdMs,
       startThresholdMs: START_THRESHOLD_MS,
@@ -161,7 +164,7 @@ export class TripValidationManager implements TripValidator {
           // First fraud sample: collected at the IDLE→PRE_TRIP boundary so that
           // we have exactly MIN_SAMPLES_TO_EVALUATE samples when Rule 1 is checked.
           if (this.isClassifying()) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
+            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
           }
           this.setState(ValidationState.PRE_TRIP);
         }
@@ -172,7 +175,7 @@ export class TripValidationManager implements TripValidator {
           this.continuousAboveThresholdMs += TICK_INTERVAL_MS;
           const classifying = this.isClassifying();
           if (classifying) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
+            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
           }
 
           if (this.continuousAboveThresholdMs >= START_THRESHOLD_MS) {
@@ -225,7 +228,7 @@ export class TripValidationManager implements TripValidator {
           // journey: the verdict below suppresses classification, and only a genuine
           // stop re-arms it.
           if (this.isClassifying()) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestGyroZ);
+            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
             const fraud = this.fraudDetector.evaluate();
             if (this.shouldDecline(fraud)) {
               this.fraudClassificationSuppressed = true;
@@ -269,8 +272,8 @@ export class TripValidationManager implements TripValidator {
     this.continuousAboveThresholdMs = 0;
     this.continuousBelowThresholdMs = 0;
     this.latestSpeedKmh      = 0;
-    this.latestLateralAccelG = 0;
-    this.latestGyroZ         = 0;
+    this.latestLateralAccelG = null;
+    this.latestYawRateRadS   = null;
     this.lastSampleAtMs      = 0;
     this.fraudDetector.reset();
     this.regionChecked = false;

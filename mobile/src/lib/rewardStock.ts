@@ -1,7 +1,7 @@
 /**
  * @file rewardStock.ts
  * @owner Shaun (CEO) — business logic and the rewards domain
- * @brief The reward-stock rules the business screens and the marketplace share.
+ * @brief The reward-stock rules the marketplace uses.
  * Formats the "left out of allocated" line, parses the stock field where blank means no cap,
  * and decides what counts as sold out — for the card that disables it and the list that sorts it down.
  *

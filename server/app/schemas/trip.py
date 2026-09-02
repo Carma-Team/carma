@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import AliasChoices, Field, model_validator
 
 from app.schemas._base import CamelModel
-from app.services.scoring import risk_multiplier_earned
+from app.services.scoring import WeakestFactor, risk_multiplier_earned
 
 _log = logging.getLogger("carma.trips")
 
@@ -154,9 +154,20 @@ class TripOut(CamelModel):
     # the driver-score cap (#37), which the client cannot reproduce from points
     # alone. Save-response only, like points_capped; None on list/detail reads.
     user_level: int | None = None
+    # The behaviour with the largest weighted score loss (scoring.md §3.5), or
+    # None when the winner's subscore is above 90 — nothing worth naming. The
+    # ranking, not the sentence: the client writes the copy. Save-response
+    # only, like points_capped and user_level; None on list/detail reads.
+    weakest_factor: WeakestFactor | None = None
 
     @classmethod
-    def from_orm_trip(cls, trip: Any, points_capped: bool = False, user_level: int | None = None) -> TripOut:
+    def from_orm_trip(
+        cls,
+        trip: Any,
+        points_capped: bool = False,
+        user_level: int | None = None,
+        weakest_factor: WeakestFactor | None = None,
+    ) -> TripOut:
         return cls.model_validate(
             {
                 "id": trip.id,
@@ -185,6 +196,7 @@ class TripOut(CamelModel):
                 "idempotency_key": trip.idempotency_key,
                 "points_capped": points_capped,
                 "user_level": user_level,
+                "weakest_factor": weakest_factor,
             }
         )
 

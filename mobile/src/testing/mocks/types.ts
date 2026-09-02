@@ -1,9 +1,10 @@
 import type { AppUser } from '@/types';
 
 /**
- * One mock account: a fixed login plus how it answers its own domain endpoints.
- * `handleRequest` returns null for anything it doesn't recognize, so
- * registerMockNetwork can fall through cleanly instead of guessing.
+ * One mock account: a fixed login plus, optionally, how it answers its own domain
+ * endpoints. `handleRequest` returns null for anything it doesn't recognize, so
+ * registerMockNetwork can fall through cleanly instead of guessing; an account that
+ * omits it entirely is served by the shared defaults alone.
  */
 export interface MockAccount {
   email: string;
@@ -11,5 +12,5 @@ export interface MockAccount {
   /** Synthetic bearer token — never a real JWT, just an identity marker. */
   token: string;
   user: AppUser;
-  handleRequest(method: string, path: string, body: unknown): { status: number; data: unknown } | null;
+  handleRequest?(method: string, path: string, body: unknown): { status: number; data: unknown } | null;
 }

@@ -33,7 +33,6 @@ function makePayload(localTripId: string): ValidTripPayload {
     hardBrakes: 1,
     aggressiveAccels: 0,
     sharpTurns: 2,
-    swerves: 0,
     touchEpochs: 0,
     screenInteractionSeconds: 0,
     penalties: 9,
