@@ -1,8 +1,65 @@
-# CARMA
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/Logos/PNG/CARMA%20White.png">
+    <img alt="CARMA" src="docs/brand/Logos/PNG/CARMA%20Clean.png" width="280">
+  </picture>
+</p>
 
-CARMA is a mobile platform that rates driving behavior in real time. Drivers earn a CARMA Score from GPS and IMU sensor data, and turn safe driving into points they can redeem with partner businesses.
+<p align="center">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white">
+  <img alt="PostgreSQL 16" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white">
+  <img alt="React Native" src="https://img.shields.io/badge/React_Native-0.81-61DAFB?logo=react&logoColor=black">
+  <img alt="Expo" src="https://img.shields.io/badge/Expo-54-000020?logo=expo&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white">
+</p>
 
-**New here?** Install the [prerequisites](#prerequisites--one-time-install), run `.\scripts\setup.ps1` once, then `.\scripts\dev.ps1` every day. Everything else on this page is detail.
+CARMA is a mobile platform for young drivers in Israel that rates driving behavior in real time. Drivers earn a CARMA Score from GPS and IMU sensor data, and turn safe driving into points they can redeem with partner businesses.
+
+<p align="center">
+  <img src="screenshots/1.JPG" width="170">
+  <img src="screenshots/2.JPG" width="170">
+  <img src="screenshots/3.JPG" width="170">
+  <img src="screenshots/4.JPG" width="170">
+</p>
+<p align="center"><sub>The app in action</sub></p>
+
+---
+
+## Contents
+
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Repository Map](#repository-map)
+- [Further Reading](#further-reading)
+- [Team](#team)
+
+---
+
+## Key Features
+
+- **Real-time CARMA Score.** Computed server-side from GPS and IMU telemetry, weighted across five components and checked against published telematics baselines (CMT, US crash-rate data). See [docs/scoring.md](docs/scoring.md).
+- **Transport-mode detection.** A sliding-window classifier scores speed, lateral acceleration, and yaw rate to tell private-car driving apart from walking, cycling, or riding as a passenger, before a trip is ever scored.
+- **Gamification and rewards.** CARMA points convert into levels and QR-coded vouchers redeemable at partner businesses, with a live leaderboard.
+- **Hebrew and English, RTL by default.** The app ships right-to-left for Israeli drivers, with a language switch that flips direction live. See [docs/i18n.md](docs/i18n.md).
+
+---
+
+## Architecture
+
+CARMA runs entirely in the cloud. The mobile app is the only piece that lives on a personal device. The backend and the database do not.
+
+- The app (React Native / Expo) collects GPS and IMU telemetry during a trip and uploads it once the trip ends.
+- A FastAPI backend on Azure Container Apps is the only place a trip is ever scored. The formula never runs on the phone, so nobody can inflate their own score by patching the app.
+- PostgreSQL (Azure Database for PostgreSQL, with PostGIS for trip geometry) stores everything: trips, scores, the leaderboard, the rewards marketplace.
+
+```mermaid
+flowchart LR
+    A["GPS + IMU sensors"] --> B["CARMA mobile app<br/>React Native / Expo"]
+    B -->|trip telemetry| C["FastAPI backend<br/>Azure Container Apps"]
+    C -->|score, rewards, leaderboard| B
+    C <--> D[("PostgreSQL + PostGIS<br/>Azure Database")]
+```
 
 ---
 
@@ -12,187 +69,53 @@ CARMA is a mobile platform that rates driving behavior in real time. Drivers ear
 
 | Folder | What it is | Technology |
 |---|---|---|
-| `server/` | Backend — API, DB, business logic | Python / FastAPI / PostgreSQL |
+| `server/` | Backend: API, DB, business logic | Python / FastAPI / PostgreSQL |
 | `mobile/` | Mobile app | React Native / Expo |
+| `web/` | Business-facing web app | React / Vite / TypeScript |
 | `docs/` | How the system works today | Markdown |
 | `scripts/` | `setup.ps1`, `dev.ps1`, `dev-tunnel.ps1`, `smoke.sh` | PowerShell |
 | `.github/` | CI and deployment workflows | GitHub Actions |
 | `.claude/` | Rules for AI assistants working in this repo | Markdown |
-| `screenshots/` | App screenshots used in docs and decks | PNG |
+| `screenshots/` | App screenshots used in docs and decks | JPG / PNG |
 
 ### Root documents
 
 | File | What it holds |
 |---|---|
-| `SYSTEM.md` / `SYSTEM.he.md` | Full system reference — schema, API, deployment. English and Hebrew. |
+| `SYSTEM.md` / `SYSTEM.he.md` | Full system reference: schema, API, deployment. English and Hebrew. |
 | `CHANGELOG.md` | Every change to the HTTP contract and shared behaviour. |
-| `CLAUDE.md` | The working contract for AI assistants. Written for agents, not for onboarding. |
+| `CLAUDE.md` | The team's engineering contract: branches, CI gates, definition of done, Linear issue tracking. Also the working contract for AI coding assistants. |
 
 ### Product & non-engineering
 
 | Folder | What it holds |
 |---|---|
-| `Hub/` | Entrepreneurship-workshop material — pitch deck, business model canvas, product requirements. No code depends on it. |
-
----
-
-## Prerequisites — One-Time Install
-
-| Tool | For which part | Download |
-|---|---|---|
-| **Docker Desktop** | Backend + DB | docker.com |
-| **Python 3.12** | Backend | python.org |
-| **Node.js 20+** | Mobile | nodejs.org |
-| **Android Studio** | Mobile (includes Android SDK + AVD) | developer.android.com/studio |
-
-> **Backend only?** You only need Docker + Python.
-
----
-
-## First-Time Setup
-
-**One-time per machine — run as Administrator:**
-
-```powershell
-.\scripts\setup.ps1
-```
-
-The script installs and configures:
-
-- Docker Desktop, Python 3.12, Node.js (via winget if missing)
-- `ANDROID_HOME`, `JAVA_HOME`, `PATH` — persistent env vars
-- Python venv + all dependencies
-- `.env` created from `.env.example`
-- Migrations + seed of demo data
-
-> **Start Docker Desktop before you run it.** If Docker is not running, the script skips migrations and the seed, prints a warning, and still exits looking successful. You then get an app with no data and a login that fails. If that happens, start Docker and run:
->
-> ```powershell
-> cd server
-> .venv\Scripts\activate
-> alembic upgrade head
-> python -m app.seed
-> ```
-
-**Safe to re-run.** When everything is already installed it skips every step and prints `Everything already set up — run .\scripts\dev.ps1`.
-
-### Demo credentials
-
-`python -m app.seed` creates these accounts. All of them work in the app immediately.
-
-| Account | Email | Password |
-|---|---|---|
-| Investor-demo primary | `ofridan@gmail.com` | `Dan1234` |
-| Test driver | `daniel@carma.app` | `password123` |
-| Demo protagonist | `yoni@carma.app` | `Yoni1234` |
-
-Every seeded leaderboard driver also uses `password123`.
-
----
-
-## Daily Workflow
-
-### Full stack — backend + mobile + emulator
-
-```powershell
-.\scripts\dev.ps1
-```
-
-The script starts, in order:
-
-1. Docker Desktop, if it is not already running
-2. The Android emulator (always with `-no-snapshot-load`)
-3. PostgreSQL, the FastAPI server on port 3000, and Expo Metro on port 8081
-
-Once it is up, press **`a`** in the Metro window to open the app on the emulator.
-
-> **This is a dev build, not Expo Go.** The app depends on native modules (`expo-dev-client`, sensors, Bluetooth), so scanning the QR code with Expo Go will not work. Use the emulator, or install the dev build on a device.
-
-### Backend only — without mobile
-
-```powershell
-cd server
-docker compose up db          # Window 1 — PostgreSQL
-.venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000   # Window 2 — API
-```
-
-- API docs: http://localhost:3000/api/docs
-- Health: http://localhost:3000/health
-
-### Which server the app talks to
-
-One file decides: [mobile/src/constants/serverConfig.ts](mobile/src/constants/serverConfig.ts).
-
-| `USE_REAL_SERVER` | Requests go to |
-|---|---|
-| `true` *(current setting)* | `STAGING_SERVER_URL` — the deployed Azure server |
-| `false` | Metro's `/api/*` proxy → your local FastAPI on port 3000 |
-
-**It is `true` today.** Your local server can be running perfectly and the app will still be reading cloud data — set the flag to `false` when you want the emulator to hit your own backend.
-
----
-fa
-## Environment Traps
-
-Facts that cost hours and cannot be guessed from the code.
-
-- **Two Alembic heads fail ~78 unrelated tests.** After switching branches or merging, the failures name missing columns and never mention migrations. Run `alembic upgrade head`, and confirm `alembic heads` returns exactly one, before debugging any missing-column error.
-- **Tests share the development database.** Fixtures left behind by another branch break tests that have nothing to do with your change.
-- **No Docker, no database.** Postgres runs in Docker; nothing server-side works without it.
-- **Never run `alembic revision --autogenerate` to "set up" a fresh database.** The migrations are already written — `alembic upgrade head` is the whole job. Generating one manufactures the second head described above.
-- - **TypeScript is pinned in `mobile/`.** Install from `mobile/` so your local version matches the one the workspace builds against.
-
----
-
-## Working Here
-
-### Definition of done
-
-A change is done when every surface it touched passes locally. CI is the last line of defense, not the first.
-
-| Touched | Must be green |
-|---|---|
-| `mobile/**` | `npx tsc --noEmit` · `npm run lint` · `npm test -- --no-coverage` |
-| `server/**` | `mypy app` · `ruff check .` · `pytest` |
-| An API contract or DTO | Both rows above — and `server/app/schemas/` and `mobile/src/types/index.ts` are synced **by hand** |
-
-### Branches
-
-- **`main`** — deployable. Merged from `develop` at deliberate milestones only. Never commit directly.
-- **`develop`** — daily integration. Keep it green.
-- **`feature/*`** — anything over ~30 minutes or touching more than 2 files. Merges into `develop` freely.
-
-**The author merges, not the reviewer** — only the author knows what else is in flight. Approve means "this is yours to land."
-
-### Issues — Linear only
-
-Every issue lives in Linear and is referred to by its `CAR-` number. **Never open a GitHub issue** — the sync creates in one direction only, so a GitHub issue silently mints a Linear twin with a different number. Search Linear before opening anything, put the `CAR-` id in the branch name or PR title (`ofridan/car-39-...`), and give every issue an assignee.
-
----
-
-## Architecture
-
-```
-                       ┌─ USE_REAL_SERVER = true ──→ Azure Container App ──→ PostgreSQL
-mobile (Expo dev build)┤
-                       └─ USE_REAL_SERVER = false ─→ Metro :8081 /api/* proxy
-                                                          │
-                                                          ↓
-                                                   FastAPI :3000 ──→ PostgreSQL :5432
-                                                                        (Docker)
-```
+| `Hub/` | Entrepreneurship-workshop material: pitch deck, business model canvas, product requirements. No code depends on it. |
 
 ---
 
 ## Further Reading
 
+The technical depth lives here, not in this file.
+
 | Document | What it answers |
 |---|---|
-| [SYSTEM.md](SYSTEM.md) | The full reference — schema, every endpoint, auth flows, CI/CD, Azure. |
+| [SYSTEM.md](SYSTEM.md) | The full reference: schema, every endpoint, auth flows, CI/CD, Azure. |
 | [docs/scoring.md](docs/scoring.md) | How the CARMA Score is actually computed. |
-| [docs/fraud-detection.md](docs/fraud-detection.md) | The anti-fraud architecture we build toward — threat model, gates, contracts. |
-| [docs/RFC-001-Hybrid-Validation.md](docs/RFC-001-Hybrid-Validation.md) | *History, not current behaviour.* Why trip validation was split between client and server in May 2026. Parts are superseded — the banner says which. |
+| [docs/fraud-detection.md](docs/fraud-detection.md) | The anti-fraud architecture we build toward: threat model, gates, contracts. |
+| [docs/RFC-001-Hybrid-Validation.md](docs/RFC-001-Hybrid-Validation.md) | *History, not current behaviour.* Why trip validation was split between client and server in May 2026. Parts are superseded. The banner says which. |
 | [docs/i18n.md](docs/i18n.md) | Hebrew / English handling. |
+| [docs/development.md](docs/development.md) | Running the stack on your own machine, for anyone changing `server/` or `mobile/` code. |
 | [mobile/STRUCTURE.md](mobile/STRUCTURE.md) | What belongs in every folder under `mobile/src/`. Read before adding a file. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the API contract, and when. |
+
+---
+
+## Team
+
+| Role | Owner |
+|---|---|
+| CPO: scoring formula, roadmap, anti-fraud mechanics, app security | Dan |
+| CTO: database, infrastructure, CI/CD, monorepo integrity | Naveh |
+| CEO: business-logic API endpoints, third-party integrations | Shaun |
+| Mobile & Frontend Lead: screens, UI, driving SDK | May |

@@ -29,6 +29,7 @@ from app.config import settings
 from app.core.security import create_access_token
 from app.models import Business, BusinessJoinRequest, BusinessJoinRequestStatus, BusinessMembership, User
 from app.models.enums import BusinessCategory, BusinessMembershipRole, UserRole
+from app.services import business as business_service
 from app.services import business_join_requests as svc
 
 LIST_URL = "/api/admin/business-requests"
@@ -320,6 +321,64 @@ async def test_applicant_already_owning_a_business_is_refused(
         assert len(businesses) == 1, "the second approval must not create a second Business"
     finally:
         await _cleanup(db_session, admin.id, applicant.id)
+
+
+@pytest.mark.asyncio
+async def test_applicant_who_already_belongs_to_a_business_elsewhere_is_refused_and_creates_no_business(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """CAR-118 review's bounded-correction round, item 2: an applicant who
+    already holds a membership somewhere else — e.g. accepted a business
+    invitation as MANAGER/CASHIER before ever submitting a registration —
+    must be refused the same way `accept_invitation` refuses the reverse
+    ordering. `test_applicant_already_owning_a_business_is_refused` above
+    only catches the narrower case (`Business.owner_user_id`); this is the
+    shared `business_service.assert_membership_allowed` invariant, which
+    also catches a plain non-owner membership.
+    """
+    admin = await _make_user(db_session, role=UserRole.ADMIN)
+    admin_id = admin.id
+    admin_token = _token(admin)
+    applicant = await _make_user(db_session, role=UserRole.DRIVER)
+    applicant_id = applicant.id
+    other_business = Business(
+        name="Other Business", category=BusinessCategory.FOOD, location_lat=32.07, location_lng=34.78
+    )
+    db_session.add(other_business)
+    await db_session.commit()
+    other_business_id = other_business.id
+    db_session.add(
+        BusinessMembership(user_id=applicant_id, business_id=other_business_id, role=BusinessMembershipRole.CASHIER)
+    )
+    await db_session.commit()
+    try:
+        request = await _make_request(db_session, applicant)
+        request_id = request.id
+        r = await db_api_client.post(f"{LIST_URL}/{request_id}/approve", headers=_auth(admin_token))
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"]["code"] == business_service.INCOMPATIBLE_BUSINESS
+
+        # `assert_membership_allowed` rolled back the shared session inside
+        # the request above, expiring every attribute on every object in it —
+        # every id read from here on is one captured before that call, never
+        # a live attribute, or this trips a lazy load outside the async
+        # context that can service one (`MissingGreenlet`).
+        refreshed = await db_session.get(BusinessJoinRequest, request_id)
+        assert refreshed is not None
+        assert refreshed.status == BusinessJoinRequestStatus.PENDING, "a refused approval must not be left APPROVED"
+
+        businesses = (await db_session.scalars(select(Business).where(Business.owner_user_id == applicant_id))).all()
+        assert businesses == [], "no Business row may survive a refused approval — the flush must have rolled back"
+
+        memberships = (
+            await db_session.scalars(select(BusinessMembership).where(BusinessMembership.user_id == applicant_id))
+        ).all()
+        assert len(memberships) == 1, "the applicant must end with exactly the one membership they already had"
+    finally:
+        await db_session.execute(delete(BusinessMembership).where(BusinessMembership.user_id == applicant_id))
+        await db_session.execute(delete(Business).where(Business.id == other_business_id))
+        await db_session.commit()
+        await _cleanup(db_session, admin_id, applicant_id)
 
 
 @pytest.mark.asyncio

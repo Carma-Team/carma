@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, SPACING, COMMON_STYLES } from '@/constants';
-import { BluetoothDevice } from '@/lib/driving-sdk/BluetoothManager';
+import { BluetoothDevice } from '@/lib/driving-sdk';
 
 type BTStatus = {
   nativeAvailable: boolean;
@@ -35,7 +35,11 @@ export default function BluetoothSettings() {
       const status = await sdk.getBTSupportStatus();
       setBTStatus(status);
 
-      const available = await sdk.getAvailableDevices();
+      // Only ask for the list once the status call says the permission is there. Both
+      // calls request permissions of their own, so on a refusal the driver was shown the
+      // same system dialog twice in a row — and the second answer could not have changed
+      // the empty list anyway. renderEmpty already explains the refusal from `status`.
+      const available = status.permissionsGranted ? await sdk.getAvailableDevices() : [];
       setDevices(available);
     } catch (error) {
       console.error('Failed to load BT settings', error);

@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring, telemetry
+from app.services import levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -103,7 +103,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "HARD_BRAKE": EventType.HARD_BRAKE,
     "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
     "SHARP_TURN": EventType.SHARP_TURN,
-    "SWERVE": EventType.SWERVE,
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
@@ -301,13 +300,13 @@ def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
         raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
-def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
+def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str, enforced: bool) -> None:
     """Verify the telemetry digest's HMAC.
 
-    Three paths still accept an unverified payload (issue #24). Each is audited so
-    the rate of unsigned traffic can be measured before enforcement is switched on
-    — flipping any of these to a hard reject without that data would 403 every
-    client already in the field.
+    Three paths still accept an unverified payload (issue #24), audited so the rate
+    of unsigned traffic could be measured before enforcement switched on. `enforced`
+    (CAR-13 phase 2, `TRIP_SIGNATURE_ENFORCED`) turns each of those three into a 403
+    instead — default off, so merging this changes no request outcome.
 
     Note the ceiling on what enforcement buys: the mobile signing key is currently
     hardcoded in the app bundle, so a verified signature proves the payload came
@@ -316,12 +315,18 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     """
     if not signature:
         audit("trips.signature.absent", reason="no-signature-sent")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if not secret:
         audit("trips.signature.unenforced", reason="trip-signing-secret-unset")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
@@ -466,7 +471,7 @@ async def _compute_score(
     level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
-) -> tuple[float, float, float, bool]:
+) -> tuple[float, float, float, bool, scoring.WeakestFactor | None]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
@@ -474,10 +479,10 @@ async def _compute_score(
     (peak_g arrives as an unsigned magnitude, not a vehicle-frame axis) so
     weighted counts equal raw counts. Speeding and the
     telemetry confidence come from the server-side GPS analysis (`gps`): the
-    speeding weight is time-over-threshold against a conservative absolute
-    limit, and the confidence caps how far above the rolling score a trip can
-    land when the trace is too sparse to prove clean driving (v2.1).
-    Returns (trip_score, driver_score, points, points_capped).
+    speeding ratio is the share of judged distance above the road's posted
+    limit plus a buffer, and the confidence caps how far above the rolling
+    score a trip can land when the trace is too sparse to prove clean driving.
+    Returns (trip_score, driver_score, points, points_capped, weakest_factor).
     """
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
@@ -492,7 +497,7 @@ async def _compute_score(
         w_accel=aggressive_accels,
         w_corner=sharp_turns,
         w_distraction=w_distraction,
-        w_speed=gps.speeding_weight,
+        speeding_ratio=gps.speeding_ratio,
         distance_km=distance_km,
         duration_min=duration_seconds / 60.0,
         driving_min_above_threshold=exposure_min,
@@ -561,7 +566,7 @@ async def _compute_score(
         risk_multiplier=risk_multiplier,
         level_multiplier=level_multiplier,
     )
-    return trip_score, driver_score, points, round(points) < round(points_uncapped)
+    return trip_score, driver_score, points, round(points) < round(points_uncapped), trip_v2.weakest_factor
 
 
 async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
@@ -618,7 +623,12 @@ async def save(
     # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
     _check_timestamp_drift(dto.telemetry_digest)
-    _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
+    _verify_signature(
+        dto.telemetry_digest,
+        dto.payload_signature,
+        settings.trip_signing_secret,
+        settings.trip_signature_enforced,
+    )
 
     start = dto.start_time or datetime.now(UTC)
     if start.tzinfo is None:
@@ -653,7 +663,10 @@ async def save(
     # witness against client under-detection. Merged counts only ever go UP —
     # the server adds missed events, never erases reported ones — so a client
     # cannot lower its penalty by suppressing detection.
-    gps = telemetry.analyze(dto.route_waypoints, digest_duration)
+    # Posted limits first: the analyzer needs them to judge speed against
+    # anything better than the national maximum (CAR-222).
+    limits = await speed_limits.resolve(db, dto.route_waypoints)
+    gps = telemetry.analyze(dto.route_waypoints, digest_duration, speed_limits=limits)
     scored_hard_brakes = max(scored_hard_brakes, gps.hard_brakes)
     scored_aggressive_accels = max(scored_aggressive_accels, gps.aggressive_accels)
     scored_sharp_turns = max(scored_sharp_turns, gps.sharp_turns)
@@ -678,7 +691,7 @@ async def save(
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
 
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
+    score_v2, new_driver_score, points_v2, points_capped, weakest_factor = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -821,4 +834,6 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
+    return TripOut.from_orm_trip(
+        trip, points_capped=points_capped, user_level=level_after, weakest_factor=weakest_factor
+    )

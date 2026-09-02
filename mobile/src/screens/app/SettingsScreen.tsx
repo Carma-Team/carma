@@ -260,20 +260,9 @@ export default function SettingsScreen() {
                 <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
               </View>
               <Card style={styles.settingCard}>
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => router.push('/(business)')}
-                >
-                  <View style={styles.linkContent}>
-                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
-                    <Text style={styles.linkText}>Open Business Dashboard</Text>
-                  </View>
-                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
                 {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
                 <TouchableOpacity
-                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  style={[styles.linkButton, { opacity: 0.5 }]}
                   onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
                 >
                   <View style={styles.linkContent}>

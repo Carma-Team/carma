@@ -31,9 +31,11 @@ from app.models import Business, BusinessInvitation, BusinessMembership, Busines
 from app.schemas.business_invitation import (
     BusinessInvitationAcceptOut,
     BusinessInvitationIn,
+    BusinessInvitationListItem,
     BusinessInvitationOut,
     BusinessInvitationPreviewOut,
 )
+from app.services.business import assert_membership_allowed, lock_user_for_membership_change
 
 _TOKEN_LEN = 10
 _INVITABLE_ROLES = {"manager": BusinessMembershipRole.MANAGER, "cashier": BusinessMembershipRole.CASHIER}
@@ -68,7 +70,12 @@ def _new_token() -> str:
 
 
 def _link(token: str) -> str:
-    return f"{settings.invite_base_url.rstrip('/')}/business-invite/{token}"
+    """A URL fragment, not a path segment. `#{token}` never leaves the
+    browser — it is not sent in the HTTP request line at all, to this server
+    or to any CDN/proxy in front of it, so it cannot appear in a web-host
+    access log the way a path segment inevitably would. `AcceptInvitationPage`
+    reads it via `location.hash`, not `useParams`."""
+    return f"{settings.invite_base_url.rstrip('/')}/business-invite#{token}"
 
 
 def _unknown_invitation() -> HTTPException:
@@ -129,6 +136,34 @@ async def create_invitation(
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not allocate an invitation token")
 
 
+async def list_pending_invitations(db: AsyncSession, business: Business) -> list[BusinessInvitationListItem]:
+    """The OWNER-facing list (CAR-118) — same "pending" predicate
+    `revoke_invitation` and `accept_invitation` race against, so a row shown
+    here is exactly a row still capable of being redeemed or revoked."""
+    now = datetime.now(UTC)
+    rows = (
+        await db.scalars(
+            select(BusinessInvitation)
+            .where(
+                BusinessInvitation.business_id == business.id,
+                BusinessInvitation.redeemed_at.is_(None),
+                BusinessInvitation.revoked_at.is_(None),
+                BusinessInvitation.expires_at > now,
+            )
+            .order_by(BusinessInvitation.created_at.desc())
+        )
+    ).all()
+    return [
+        BusinessInvitationListItem(
+            id=row.id,
+            role="manager" if row.role == BusinessMembershipRole.MANAGER else "cashier",
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+        )
+        for row in rows
+    ]
+
+
 async def revoke_invitation(db: AsyncSession, business: Business, invitation_id: str) -> None:
     """Immediate, and safe against a concurrent `accept_invitation`.
 
@@ -184,27 +219,58 @@ async def revoke_invitation(db: AsyncSession, business: Business, invitation_id:
         )
 
 
-async def _valid_invitation(db: AsyncSession, token: str) -> BusinessInvitation:
-    invitation = await db.scalar(
+async def _lookup_invitation(db: AsyncSession, token: str) -> BusinessInvitation | None:
+    invitation: BusinessInvitation | None = await db.scalar(
         select(BusinessInvitation)
         .where(BusinessInvitation.token_hash == _hash(token))
         .options(selectinload(BusinessInvitation.business))
     )
+    return invitation
+
+
+async def _invitation_for(db: AsyncSession, token: str, current_user_id: str) -> BusinessInvitation:
+    """A pending invitation, *or* one this exact recipient already redeemed.
+
+    The second case is what makes both `preview_invitation` and
+    `accept_invitation` replay-safe (CAR-118 review's bounded-correction
+    round, item 3): a lost accept response, a rejected refresh, a sign-in, a
+    remount, or a hard reload all land back here with no client-side memory
+    of what happened, and `redeemed_by_user_id` — written in the same
+    transaction as the membership it names, so it is exactly as authoritative
+    as the membership itself — is what lets this recipient's *own* replay
+    recover instead of dead-ending into "unknown invitation." A token redeemed
+    by someone else stays unknown, revealing nothing about who holds it or
+    what it named.
+    """
+    invitation = await _lookup_invitation(db, token)
     if invitation is None:
         raise _unknown_invitation()
+    if invitation.redeemed_at is not None:
+        if invitation.redeemed_by_user_id == current_user_id:
+            return invitation
+        raise _unknown_invitation()
     now = datetime.now(UTC)
-    if invitation.redeemed_at is not None or invitation.revoked_at is not None or invitation.expires_at <= now:
+    if invitation.revoked_at is not None or invitation.expires_at <= now:
         raise _unknown_invitation()
     return invitation
 
 
-async def preview_invitation(db: AsyncSession, token: str) -> BusinessInvitationPreviewOut:
+def _accept_out(invitation: BusinessInvitation) -> BusinessInvitationAcceptOut:
+    role_str = "manager" if invitation.role == BusinessMembershipRole.MANAGER else "cashier"
+    return BusinessInvitationAcceptOut(business_id=invitation.business_id, role=role_str)
+
+
+async def preview_invitation(db: AsyncSession, current_user_id: str, token: str) -> BusinessInvitationPreviewOut:
     """What an authenticated recipient sees before deciding to accept.
 
     Requires only `CurrentUser` — the recipient has no membership yet, so this
-    must not sit behind `current_business`.
+    must not sit behind `current_business`. Answers just as well for an
+    invitation this exact recipient already redeemed (see `_invitation_for`)
+    — a remounted or reloaded page must be able to show the business and role
+    again, not dead-end into "invalid invitation" for a membership that
+    already exists.
     """
-    invitation = await _valid_invitation(db, token)
+    invitation = await _invitation_for(db, token, current_user_id)
     role_str = "manager" if invitation.role == BusinessMembershipRole.MANAGER else "cashier"
     return BusinessInvitationPreviewOut(
         business_id=invitation.business_id,
@@ -215,13 +281,21 @@ async def preview_invitation(db: AsyncSession, token: str) -> BusinessInvitation
 
 
 async def accept_invitation(db: AsyncSession, current: User, token: str) -> BusinessInvitationAcceptOut:
-    invitation = await _valid_invitation(db, token)
+    invitation = await _invitation_for(db, token, current.id)
+    if invitation.redeemed_at is not None:
+        # This exact recipient already redeemed this exact token — a safe,
+        # deterministic replay (see `_invitation_for`), not a second
+        # consumption: neither `BusinessInvitation` nor `BusinessMembership`
+        # is touched again.
+        return _accept_out(invitation)
 
-    existing = await db.scalar(
-        select(BusinessMembership).where(
-            BusinessMembership.user_id == current.id, BusinessMembership.business_id == invitation.business_id
-        )
-    )
+    # Held for the rest of this transaction — serializes this check-then-write
+    # against every other membership-creating path for the same user (see the
+    # lock's own docstring), so the two queries below see a picture that
+    # cannot change out from under them before the commit at the end.
+    await lock_user_for_membership_change(db, current.id)
+
+    existing = await assert_membership_allowed(db, current.id, invitation.business_id)
     if existing is not None:
         # Neither the invitation nor the membership table is touched — the
         # ticket is explicit that this must change nothing.
@@ -252,6 +326,13 @@ async def accept_invitation(db: AsyncSession, current: User, token: str) -> Busi
     if redeemed.rowcount == 0:
         # Lost the race — someone else redeemed or revoked it a moment ago.
         # Indistinguishable from unknown, same as every other invalid state.
+        # (Two truly concurrent attempts from this *same* recipient racing
+        # this exact UPDATE is not this branch's problem to solve — the
+        # sequential replay `_invitation_for` already handles above, before
+        # this UPDATE is even attempted, is what CAR-118 review's durable-
+        # recovery requirement is actually about: a retried request reaching
+        # the server after the earlier one already committed, not two
+        # requests genuinely in flight at the same instant.)
         await db.rollback()
         raise _unknown_invitation()
 

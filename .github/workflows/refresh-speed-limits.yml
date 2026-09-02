@@ -1,0 +1,130 @@
+name: refresh speed limits
+
+# Reloads the posted-limit map (CAR-222) from OpenStreetMap, monthly.
+#
+# Roads get built, resurfaced and re-signed, and OSM's maxspeed coverage keeps
+# improving. A map loaded once and never refreshed slowly stops describing the
+# country it is scoring drivers against, and nothing about that failure is
+# visible: the component keeps returning numbers, they are just increasingly the
+# wrong ones.
+#
+# It runs the loader as a Container Apps job from the deployed image, exactly the
+# way deploy.yml runs migrations. That is deliberate and is the reason this
+# workflow holds no database credentials: the runner never needs a Postgres
+# password or a hole in the server's firewall. Everything it can do, it does
+# through OIDC against Azure.
+#
+# Skipped silently when AZURE_CLIENT_ID is unset, so forks and a bare clone stay
+# green - same contract as deploy.yml.
+#
+# The job is created once, by hand, because it holds a copy of the database
+# secret and a workflow that can mint that is a workflow that can leak it.
+#
+# Run this from PowerShell, or from Git Bash with MSYS_NO_PATHCONV=1 exported.
+# Git Bash rewrites the "/bin/sh" below into "C:/Program Files/Git/usr/bin/sh",
+# which Azure stores verbatim; the container then dies on create with a path
+# that cannot exist in Linux, and the execution sits until the replica deadline
+# reporting nothing but "Failed".
+#
+#   az containerapp job create \
+#     --name carma-load-speed-limits --resource-group carma-rg --environment carma-env \
+#     --trigger-type Manual --replica-timeout 3600 --replica-retry-limit 0 \
+#     --image carmaregistry3819.azurecr.io/carma-server:<any-existing-tag> \
+#     --cpu 2 --memory 4Gi \
+#     --registry-server carmaregistry3819.azurecr.io \
+#     --registry-username <acr-user> --registry-password <acr-password> \
+#     --secrets db-url=<same value as the app's db-url secret> \
+#     --env-vars DATABASE_URL=secretref:db-url JWT_SECRET=loader_does_not_sign_tokens \
+#     --command "/bin/sh" --args "scripts/refresh_speed_limits.sh"
+#
+# The script is invoked through sh rather than executed, so it does not depend on
+# the file keeping its executable bit through a Windows checkout. Passing "-c"
+# instead is a third way to lose an evening: az reads a leading dash as the start
+# of a new option and rejects the whole command.
+#
+# The CI identity also needs its own role assignment. Contributor is granted per
+# resource here, not over the resource group - carma-api and carma-migrate each
+# hold their own - so a new job starts with no permission and this workflow fails
+# on AuthorizationFailed until it is given one:
+#
+#   az role assignment create --assignee <carma-ci principal id> --role Contributor \
+#     --scope /subscriptions/<sub>/resourceGroups/carma-rg/providers/Microsoft.App/jobs/carma-load-speed-limits
+#
+# Sized larger than carma-migrate on purpose: it downloads a ~90 MB extract,
+# parses half a million road geometries and COPYs 320k rows. The hour-long
+# replica timeout is headroom, not an expectation - the load itself is minutes.
+#
+# JWT_SECRET is a throwaway for the same reason it is in the migration job:
+# app.config validates every setting on import, and the loader never signs a
+# token.
+
+on:
+  schedule:
+    # 03:00 UTC on the 1st. Off-peak in Israel, and Geofabrik publishes daily so
+    # the extract is always a fresh one.
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        run: |
+          if [ -n "$AZURE_CLIENT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AZURE_CLIENT_ID not set - speed limit refresh is skipped."
+          fi
+
+  refresh:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run the map loader
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -euo pipefail
+            RG=${{ secrets.AZURE_RESOURCE_GROUP }}
+            JOB=carma-load-speed-limits
+
+            EXEC=$(az containerapp job start \
+              --name "$JOB" --resource-group "$RG" --query name -o tsv)
+            echo "refresh run: $EXEC"
+
+            # `job start` returns as soon as the execution is queued. Waiting is
+            # the whole value of this step: an unreported failure here leaves the
+            # map silently stale, which is the failure mode the job exists to
+            # prevent.
+            for _ in $(seq 1 120); do
+              STATUS=$(az containerapp job execution show \
+                --name "$JOB" --resource-group "$RG" \
+                --job-execution-name "$EXEC" --query properties.status -o tsv)
+              case "$STATUS" in
+                Succeeded) echo "map refreshed"; exit 0 ;;
+                Failed|Cancelled)
+                  echo "::error::speed limit refresh $STATUS - the map is now stale, not broken."
+                  exit 1 ;;
+              esac
+              sleep 30
+            done
+            echo "::error::speed limit refresh did not finish within an hour."
+            exit 1

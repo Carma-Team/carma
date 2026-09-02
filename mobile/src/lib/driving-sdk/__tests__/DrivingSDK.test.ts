@@ -21,9 +21,9 @@ import {
   TripValidator,
   ValidationSample,
   SuspiciousActivityEvaluation,
-  TransportMode,
   SensorUpdate,
 } from '@/lib/driving-sdk/types';
+import { TransportMode } from '@/lib/transportMode';
 import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -41,16 +41,15 @@ let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
   | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
-let mockBtConnect: (() => void) | null = null;
-let mockBtDisconnect: (() => void) | null = null;
+let mockDetected: (() => void) | null = null;
+let mockLost: (() => void) | null = null;
 
 const mockSensorStart = jest.fn(async () => undefined);
 const mockSensorStop = jest.fn();
+const mockSensorResetCoverage = jest.fn();
 const mockPhoneStart = jest.fn();
 const mockPhoneStop = jest.fn();
-const mockBtSetTarget = jest.fn();
-const mockBtStartMonitoring = jest.fn();
-const mockBtStopMonitoring = jest.fn();
+const mockAutoEnable = jest.fn();
 const mockRawStart = jest.fn();
 const mockRawStop = jest.fn(async () => undefined);
 const mockRawPushAccel = jest.fn();
@@ -68,6 +67,7 @@ jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
     }
     async start() { return mockSensorStart(); }
     stop() { return mockSensorStop(); }
+    resetSensorCoverage() { return mockSensorResetCoverage(); }
   },
 }));
 
@@ -100,20 +100,23 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
   },
 }));
 
-jest.mock('@/lib/driving-sdk/BluetoothManager', () => ({
-  BluetoothManager: class {
-    constructor(onConnect: any, onDisconnect: any) {
-      mockBtConnect = onConnect;
-      mockBtDisconnect = onDisconnect;
+jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
+  AutoDriveModeManager: class {
+    constructor(onDetected: any, onLost: any) {
+      mockDetected = onDetected;
+      mockLost = onLost;
     }
-    setTargetDevice(id: string | null) { return mockBtSetTarget(id); }
-    startMonitoring() { return mockBtStartMonitoring(); }
-    stopMonitoring() { return mockBtStopMonitoring(); }
-    async getBondedDevices() { return []; }
-    async getBTSupportStatus() { return { supported: true }; }
-    simulateConnect() { mockBtConnect?.(); }
-    simulateDisconnect() { mockBtDisconnect?.(); }
+    enable(target: string | null) { return mockAutoEnable(target); }
   },
+}));
+
+// Stateless Bluetooth queries the SDK re-exports. Mocked here only to keep the native
+// module out of this suite — their own behaviour is covered in bluetoothDevices.test.ts.
+jest.mock('@/lib/driving-sdk/auto-trip-detection/bluetoothDevices', () => ({
+  getBondedDevices: jest.fn(async () => []),
+  getBTSupportStatus: jest.fn(async () => ({
+    nativeAvailable: true, btAvailable: true, btEnabled: true, permissionsGranted: true,
+  })),
 }));
 
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
@@ -210,10 +213,12 @@ describe('DrivingSDK', () => {
       distanceKm: 0,
       currentSpeed: 0,
       timeDeltaS: 2,
-      accelX: 0,
-      gyroZ: 0,
+      longitudinalAccelG: 0,
+      lateralAccelG: 0,
+      yawRateRadS: 0,
       accelAvailable: true,
       gyroAvailable: true,
+      accelCoverage: 1,
       accelInitFailed: false,
       backgroundLocationAvailable: true,
       ...update,
@@ -236,8 +241,8 @@ describe('DrivingSDK', () => {
     mockAccelPassthrough = null;
     mockPhoneEmit = null;
     mockPhoneInteraction = null;
-    mockBtConnect = null;
-    mockBtDisconnect = null;
+    mockDetected = null;
+    mockLost = null;
     jest.clearAllMocks();
 
     onTripStart = jest.fn();
@@ -655,10 +660,10 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ currentSpeed: 30, gyroZ: 0.2, accelX: 1.1 });
+    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1 });
 
     expect(validator.samples).toHaveLength(1);
-    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, gyroYaw: 0.2 });
+    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, yawRate: 0.2, lateralAccelG: 1.1 });
     expect(instance.getStatus().isActive).toBe(false);
   });
 
@@ -666,7 +671,7 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ accelX: 0, gyroZ: 0, accelAvailable: false, gyroAvailable: false });
+    sendSensorUpdate({ lateralAccelG: null, yawRateRadS: null, accelAvailable: false, gyroAvailable: false });
 
     expect(validator.samples[0]).toMatchObject({ accelAvailable: false, gyroAvailable: false });
   });
@@ -830,21 +835,21 @@ describe('DrivingSDK', () => {
 
   // ── Target device wiring ───────────────────────────────────────────────────
 
-  it('starts monitoring when a target device is set and stops when it is cleared', () => {
+  // Whether a target arms or disarms detection is the manager's rule, asserted in its own
+  // suite. What belongs here is only that the SDK forwards what it was given, unchanged.
+  it('forwards a target device to detection, and forwards clearing it too', () => {
     sdk.updateTargetDevice('AA:BB:CC:DD:EE:FF');
-    expect(mockBtSetTarget).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
-    expect(mockBtStartMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
 
     sdk.updateTargetDevice(null);
-    expect(mockBtStopMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith(null);
   });
 
-  it('monitors from construction when a target device comes in through config', () => {
+  it('arms detection from construction when a target device comes in through config', () => {
     jest.clearAllMocks();
     new DrivingSDK({ targetBluetoothId: 'AA:BB:CC:DD:EE:FF' });
 
-    expect(mockBtSetTarget).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
-    expect(mockBtStartMonitoring).toHaveBeenCalledTimes(1);
+    expect(mockAutoEnable).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
   });
 
   // ── Debug seam ─────────────────────────────────────────────────────────────
@@ -905,13 +910,13 @@ describe('DrivingSDK', () => {
     expect(mockSensorStop).not.toHaveBeenCalled();
   });
 
-  it('leaves sensors running on stopRawRecording if a BT trip is still validating (not yet active)', async () => {
-    // Mirrors handleBluetoothConnect: isValidating can be true before isTripActive
+  it('leaves sensors running on stopRawRecording if an auto-started trip is still validating (not yet active)', async () => {
+    // Mirrors handleDriveDetected: isValidating can be true before isTripActive
     // flips. StubValidator never auto-confirms, so this pins that state — the default
     // validator confirms synchronously and would collapse straight to isTripActive.
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
-    mockBtConnect?.();
+    mockDetected?.();
     await flush();
     mockSensorStop.mockClear();
 
@@ -939,15 +944,15 @@ describe('DrivingSDK', () => {
     expect(mockSensorStop).not.toHaveBeenCalled();
   });
 
-  it('leaves sensors running on BT disconnect mid-validation if a raw-recording session is still active', async () => {
+  it('leaves sensors running when detection is lost mid-validation if a raw-recording session is still active', async () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
-    mockBtConnect?.();
+    mockDetected?.();
     await flush();
     await instance.startRawRecording('handheld', 'ios');
     mockSensorStop.mockClear();
 
-    mockBtDisconnect?.();
+    mockLost?.();
 
     expect(mockSensorStop).not.toHaveBeenCalled();
   });

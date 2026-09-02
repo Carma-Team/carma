@@ -13,6 +13,7 @@ from datetime import date, timedelta
 
 from app.services.scoring import (
     CONFIG,
+    MAX_SPEEDING_RATIO,
     TripHistoryPoint,
     compute_driver_score,
     compute_points,
@@ -25,20 +26,20 @@ from app.services.scoring import (
 
 
 class TestEventSeverity:
-    def test_at_threshold_is_one_times_factors(self) -> None:
-        # peak_g at g_min → g_factor=1.0; short duration → duration_factor=1.0
-        s = event_severity("brake", peak_g=0.30, duration_ms=0)
+    def test_at_threshold_is_one(self) -> None:
+        # peak_g at g_min → g_norm=0 → severity=1.0
+        s = event_severity("brake", peak_g=0.30)
         assert s == 1.0
 
-    def test_extreme_sustained_event_caps_at_three(self) -> None:
-        # g_norm=1 → g_factor=2; duration≥2000ms → ×1.5 ⇒ 3.0 cap
-        s = event_severity("brake", peak_g=0.80, duration_ms=5000)
+    def test_extreme_event_caps_at_three(self) -> None:
+        # g_norm=1 → severity=1 + 2 = 3.0 cap
+        s = event_severity("brake", peak_g=0.80)
         assert math.isclose(s, 3.0)
 
     def test_superlinear_in_g(self) -> None:
-        mid = event_severity("brake", peak_g=0.45, duration_ms=0)
-        # halfway in g (0.45 of 0.30–0.60): g_norm=0.5 → 0.5^1.5+1 ≈ 1.3536
-        assert math.isclose(mid, 0.5**1.5 + 1.0)
+        mid = event_severity("brake", peak_g=0.45)
+        # halfway in g (0.45 of 0.30–0.60): g_norm=0.5 → 0.5^1.5 * 2 + 1 ≈ 1.7071
+        assert math.isclose(mid, 0.5**1.5 * 2.0 + 1.0)
 
 
 # ─── trip score ─────────────────────────────────────────────────────────────────
@@ -123,6 +124,100 @@ class TestComputeTripScore:
             duration_min=60.0,
         )
         assert 0.0 < worse.score < bad.score
+
+
+class TestWeakestFactor:
+    """CAR-185: the behaviour with the largest weighted score loss,
+    weight * (100 - subscore) — the counterfactual the composite implies,
+    not merely whichever subscore happens to be lowest."""
+
+    def test_higher_weight_beats_lower_subscore(self) -> None:
+        # 6 sharp turns / 20km / 30min: cornering subscore ~69.8, weighted loss ~3.0.
+        # 40s handling / 30min driving: distraction subscore ~75.6, weighted loss ~7.3.
+        # Cornering's subscore is lower, but distraction costs more — weight 0.30 vs 0.10.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=6,
+            w_distraction=40,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_cornering < r.sub_distraction
+        assert r.weakest_factor == "distraction"
+
+    def test_clean_trip_names_nothing(self) -> None:
+        r = compute_trip_score(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        assert r.weakest_factor is None
+
+    def test_speeding_excluded_when_no_speed_data(self) -> None:
+        # A catastrophic speeding ratio must never surface when the weight set
+        # that dropped it (has_speed_data=False) is the one in effect — the
+        # candidate list omits it entirely rather than scoring it at weight 0.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=6,
+            w_distraction=0,
+            speeding_ratio=MAX_SPEEDING_RATIO,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=False,
+        )
+        assert r.weakest_factor == "cornering"
+
+    def test_tie_breaks_toward_the_higher_weighted_behaviour(self) -> None:
+        # Constructed so braking's weighted loss (~5.0) is a hair above
+        # acceleration's (~4.999999) while acceleration's *subscore* is the
+        # lower of the two — a lowest-subscore rule would name acceleration.
+        # Fixed candidate order (descending weight) makes braking's win
+        # deterministic rather than a coin flip on near-equal float loss.
+        r = compute_trip_score(
+            w_brake=15.982337358432273,
+            w_accel=18.430227641280425,
+            w_corner=0,
+            w_distraction=0,
+            distance_km=100.0,
+            duration_min=60.0,
+            has_speed_data=True,
+        )
+        assert r.sub_acceleration < r.sub_braking
+        assert r.weakest_factor == "braking"
+
+    def test_winner_above_90_not_suppressed_when_loser_below_90(self) -> None:
+        # 5 sharp turns / 20km / 30min: cornering subscore ~74.1 (below 90, loss ~2.59).
+        # 14s phone handling / 30min: distraction subscore ~90.7 (above 90, loss ~2.79).
+        # Distraction's weighted loss is larger so it is the winner, but because
+        # cornering sits below 90, the trip is not clean and weakest_factor must
+        # not be suppressed to None.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=5,
+            w_distraction=14,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_distraction > 90.0
+        assert r.sub_cornering < 90.0
+        assert r.weakest_factor == "distraction"
+
+    def test_all_subscores_above_90_suppresses_weakest_factor(self) -> None:
+        # Minor handling: distraction subscore ~96.5 (> 90), all others 100.
+        # Every candidate is > 90, so naming is suppressed.
+        r = compute_trip_score(
+            w_brake=0,
+            w_accel=0,
+            w_corner=0,
+            w_distraction=5,
+            distance_km=20.0,
+            duration_min=30.0,
+            has_speed_data=True,
+        )
+        assert r.sub_distraction > 90.0
+        assert r.weakest_factor is None
 
 
 # ─── driver score ───────────────────────────────────────────────────────────────
@@ -432,3 +527,72 @@ class TestClientSeverityIsNotScored:
             "(CAR-155), and the events array is unsigned so a client could set its own. "
             "Lift this guard in CAR-157, once severity is sourced from the signed digest."
         )
+
+
+# ─── speeding subscore (CAR-222) ────────────────────────────────────────────────
+
+
+class TestSpeedingSubscore:
+    """Speeding's rate is a percentage of distance, not a per-100 km event rate."""
+
+    def test_clean_trip_scores_a_hundred(self) -> None:
+        r = compute_trip_score(
+            w_brake=0, w_accel=0, w_corner=0, w_distraction=0, speeding_ratio=0.0, distance_km=20.0, duration_min=30.0
+        )
+        assert r.sub_speeding == 100.0
+
+    def test_curve_matches_its_stated_anchors(self) -> None:
+        # The two numbers k_speed was chosen against, asserted so a change to the
+        # constant has to change this test and say why.
+        def sub(ratio: float) -> float:
+            return compute_trip_score(
+                w_brake=0,
+                w_accel=0,
+                w_corner=0,
+                w_distraction=0,
+                speeding_ratio=ratio,
+                distance_km=20.0,
+                duration_min=30.0,
+            ).sub_speeding
+
+        assert 94.0 <= sub(0.01) <= 96.0
+        assert 59.0 <= sub(0.10) <= 63.0
+
+    def test_identical_speeding_costs_the_same_urban_and_on_a_motorway(self) -> None:
+        # The bias the old per-100 km rate carried: the same share of distance
+        # over the limit must cost the same on a 6 km errand and a 60 km commute.
+        def sub(distance_km: float, duration_min: float) -> float:
+            return compute_trip_score(
+                w_brake=0,
+                w_accel=0,
+                w_corner=0,
+                w_distraction=0,
+                speeding_ratio=0.2,
+                distance_km=distance_km,
+                duration_min=duration_min,
+            ).sub_speeding
+
+        assert sub(6.0, 20.0) == sub(60.0, 40.0)
+
+    def test_ratio_is_clamped_to_the_heaviest_band(self) -> None:
+        # The weighted ratio tops out at the heaviest band's weight, so a caller
+        # cannot drive the subscore below what "every metre at 30+ over" means.
+        args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        assert compute_trip_score(speeding_ratio=99.0, **args).sub_speeding == (  # type: ignore[arg-type]
+            compute_trip_score(speeding_ratio=MAX_SPEEDING_RATIO, **args).sub_speeding  # type: ignore[arg-type]
+        )
+        assert compute_trip_score(speeding_ratio=-1.0, **args).sub_speeding == 100.0  # type: ignore[arg-type]
+
+    def test_a_band_multiplies_what_the_same_distance_costs(self) -> None:
+        # 10% of distance at the mildest band against 10% at the heaviest.
+        args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        mild = compute_trip_score(speeding_ratio=0.10, **args).sub_speeding  # type: ignore[arg-type]
+        gross = compute_trip_score(speeding_ratio=0.80, **args).sub_speeding  # type: ignore[arg-type]
+        assert gross < mild / 2
+
+    def test_speeding_moves_the_composite_by_its_weight(self) -> None:
+        args = dict(w_brake=0, w_accel=0, w_corner=0, w_distraction=0, distance_km=20.0, duration_min=30.0)
+        clean = compute_trip_score(speeding_ratio=0.0, has_speed_data=True, **args)  # type: ignore[arg-type]
+        speeding = compute_trip_score(speeding_ratio=0.3, has_speed_data=True, **args)  # type: ignore[arg-type]
+        expected = CONFIG.w_speed * (clean.sub_speeding - speeding.sub_speeding)
+        assert math.isclose(clean.score - speeding.score, expected, abs_tol=0.2)

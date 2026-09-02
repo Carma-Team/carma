@@ -25,12 +25,69 @@ from app.services import rewards as rewards_service
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
+# CAR-118 review item 3 (and its follow-up bounded-correction round, item 2):
+# until business switching exists, one account may hold a membership in at
+# most one business — every path that creates a `BusinessMembership` shares
+# this one code and this one check, so there is exactly one place that
+# invariant can drift.
+INCOMPATIBLE_BUSINESS = "INCOMPATIBLE_BUSINESS"
+
 
 def _parse_category(value: str) -> BusinessCategory:
     category = _CATEGORY_BY_STR.get(value.lower())
     if category is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category '{value}'")
     return category
+
+
+async def lock_user_for_membership_change(db: AsyncSession, user_id: str) -> None:
+    """Serializes every path that creates or gates on this user's business
+    memberships against every other one — invitation acceptance
+    (`business_invitations.py::accept_invitation`) and business-registration
+    approval (`business_join_requests.py::approve_join_request`, via
+    `ensure_owner_membership`) both call this first, before checking or
+    writing `BusinessMembership`. Without it, two concurrent requests for the
+    same user — one on each path — can each pass their own "no conflicting
+    membership yet" check before either commits, landing the account in the
+    two-business state CAR-118's own invariant exists to prevent. Always the
+    same single resource (this user's own row, held only for the rest of the
+    caller's transaction), so there is nothing for two callers to deadlock
+    over.
+    """
+    await db.execute(select(User.id).where(User.id == user_id).with_for_update())
+
+
+async def assert_membership_allowed(db: AsyncSession, user_id: str, business_id: str) -> BusinessMembership | None:
+    """The one cross-business invariant every membership-creating path shares
+    — `accept_invitation` and `ensure_owner_membership` alike call this right
+    after `lock_user_for_membership_change`, never invent their own copy of
+    the same query.
+
+    Returns the existing row when this user is already a member of *this*
+    business (the caller's own job to treat as idempotent — accept_invitation
+    reports it as a named conflict, `ensure_owner_membership` silently no-ops),
+    or `None` when there is nothing yet and creating a fresh membership is
+    safe. Raises when a membership exists for a *different* business — a
+    structured 409 the caller does not need to build itself, since every
+    caller reacts to it the same way: refuse, touch nothing else.
+
+    Rolls back before raising: `ensure_owner_membership` runs after its
+    caller's own `db.flush()` (CAR-77's new `Business` row, not yet
+    committed) — this must undo that half-created row rather than leave it
+    dangling once the exception propagates past the caller with no commit of
+    its own to land it.
+    """
+    memberships = (await db.scalars(select(BusinessMembership).where(BusinessMembership.user_id == user_id))).all()
+    existing = next((m for m in memberships if m.business_id == business_id), None)
+    if existing is not None:
+        return existing
+    if memberships:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": INCOMPATIBLE_BUSINESS, "message": "This account already belongs to a different business"},
+        )
+    return None
 
 
 async def list_memberships(db: AsyncSession, user_id: str) -> list[BusinessMembership]:
@@ -61,13 +118,17 @@ async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: s
     otherwise the owner it just created has no membership row and
     `current_business` refuses them with a 403 on their very first request.
     Idempotent so a re-run (e.g. `seed.py` against an already-seeded database)
-    does not trip the table's `UNIQUE(user_id, business_id)`.
+    does not trip the table's `UNIQUE(user_id, business_id)`. Locks the user
+    row first (see `lock_user_for_membership_change`) and shares
+    `assert_membership_allowed` with `accept_invitation` — the same guard, so
+    this and an invitation acceptance racing for the same user cannot both
+    pass their own pre-check before either commits, and an applicant who
+    already belongs to a business via an accepted invitation cannot also be
+    approved to own a second one (CAR-118 review's bounded-correction round,
+    item 2).
     """
-    existing = await db.scalar(
-        select(BusinessMembership).where(
-            BusinessMembership.business_id == business_id, BusinessMembership.user_id == user_id
-        )
-    )
+    await lock_user_for_membership_change(db, user_id)
+    existing = await assert_membership_allowed(db, user_id, business_id)
     if existing is None:
         db.add(BusinessMembership(business_id=business_id, user_id=user_id, role=BusinessMembershipRole.OWNER))
 

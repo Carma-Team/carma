@@ -6,7 +6,6 @@
 carma/
 ├── mobile/                   ← React Native / Expo (carma-app)
 ├── server/                   ← FastAPI + PostgreSQL
-├── mock-server/local-server/ ← Express dev mock
 └── .github/workflows/        ← CI/CD
 ```
 
