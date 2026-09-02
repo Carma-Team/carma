@@ -16,16 +16,17 @@ line is a sample, and the upload route refuses anything else:
 {"kind":"session_start","version":1,"sessionId":"session_1724608000000","startedAt":1724608000000,"scenario":"mounted","platform":"ios","deviceModel":"iPhone 14"}
 {"t":1724608000100,"kind":"accel","accel":{"x":0.01,"y":-0.02,"z":0.98}}
 {"t":1724608000100,"kind":"gyro","gyro":{"x":0,"y":0,"z":0.004}}
+{"t":1724608000100,"kind":"mag","mag":{"x":21.4,"y":-8.1,"z":43.9}}
 {"t":1724608002000,"kind":"location","location":{"lat":32.07,"lng":34.78,"speed":12.4,"accuracy":5}}
 ```
 
-That is the format CAR-212 settled. Channels are raw only - accelerometer at
-10 Hz, gyroscope at 10 Hz, location every 2 s - with no derived signals or
-fired events, so detection logic can be re-run offline against drives already
-collected instead of re-driving when a threshold moves. A scenario that
-changes mid-drive is a `marker` line rather than a new session.
+That is the format CAR-212 settled. Channels are raw only - accelerometer,
+gyroscope and magnetometer at a requested 10 Hz, location every 2 s - with no
+derived signals or fired events, so detection logic can be re-run offline
+against drives already collected instead of re-driving when a threshold moves.
+A scenario that changes mid-drive is a `marker` line rather than a new session.
 
-A recording is roughly 1.1 MB for ten minutes, about 110 KB gzipped.
+A recording is roughly 1.6 MB for ten minutes, about 160 KB gzipped.
 
 ## Upload
 

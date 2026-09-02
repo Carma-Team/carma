@@ -8,8 +8,8 @@ find it", and a container listing is not that.
 The table ships empty and nothing reads it but the internal upload route, so a
 database that never receives a drive behaves exactly as it does today.
 
-Revision ID: 0029_raw_recordings
-Revises: 0028_road_segments
+Revision ID: 0031_raw_recordings
+Revises: 0030_scoring_version_flat_ids
 Create Date: 2026-08-31 00:00:00.000000
 """
 
@@ -19,8 +19,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0029_raw_recordings"
-down_revision: str | None = "0028_road_segments"
+revision: str = "0031_raw_recordings"
+down_revision: str | None = "0030_scoring_version_flat_ids"
 branch_labels: str | None = None
 depends_on: str | None = None
 

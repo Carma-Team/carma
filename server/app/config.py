@@ -81,9 +81,10 @@ class Settings(BaseSettings):
     recording_blob_connection_string: str | None = None
     recording_blob_container: str = "raw-recordings"
     recording_local_dir: str = "var/raw-recordings"
-    # A 10-minute staged drive is ~1.1 MB of NDJSON at the recorder's 10 Hz
-    # accelerometer, 10 Hz gyroscope and 0.5 Hz location. 32 MB is roughly five
-    # hours, so it refuses a runaway file without ever refusing a real drive.
+    # A 10-minute staged drive is ~1.6 MB of NDJSON at the recorder's 10 Hz
+    # accelerometer, gyroscope and magnetometer plus 0.5 Hz location. 32 MB is
+    # roughly three hours, so it refuses a runaway file without ever refusing a
+    # real drive.
     recording_max_bytes: int = Field(default=32 * 1024 * 1024, gt=0)
 
     applicationinsights_connection_string: str | None = None
