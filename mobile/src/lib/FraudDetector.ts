@@ -102,7 +102,7 @@ export interface FraudEvaluation {
    *  SPEED_THRESHOLD_KMH, and SensorManager hard-zeros a stale fix rather than
    *  freezing it, so a stale GPS reading never reaches this buffer. */
   sensorAvailability: {
-    gps: boolean;
+    gps: boolean | null;
     accelerometer: boolean | null;
     gyroscope: boolean | null;
   };
@@ -172,7 +172,7 @@ export class FraudDetector {
       return {
         score: 0, confidence: 0, isReady: false, mode: TransportMode.UNKNOWN,
         signals: { constantHighSpeed: null, noLateralForce: null, noHeadingChange: null },
-        sensorAvailability: { gps: false, accelerometer: null, gyroscope: null },
+        sensorAvailability: { gps: null, accelerometer: null, gyroscope: null },
         telemetry: { avgSpeedKmh: 0, maxLateralAccelG: 0, yawVariance: 0 },
       };
     }

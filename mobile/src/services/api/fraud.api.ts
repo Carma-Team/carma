@@ -38,7 +38,7 @@ export interface FraudEventPayload {
   confidence?: number;
   /** Per-sensor availability so a stored report explains its own unknowns. Same optionality as `signals`. */
   sensorAvailability?: {
-    gps: boolean;
+    gps: boolean | null;
     accelerometer: boolean | null;
     gyroscope: boolean | null;
   };
