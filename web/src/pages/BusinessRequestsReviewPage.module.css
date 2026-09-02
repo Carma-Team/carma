@@ -1,0 +1,101 @@
+.header {
+  margin-bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.filterRow {
+  margin-top: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.filterLabel {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-muted);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: start;
+  padding: var(--space-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table td {
+  padding: var(--space-sm);
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.businessCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 999px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-label);
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.statusBadge[data-status='pending'] {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.statusBadge[data-status='approved'] {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.statusBadge[data-status='rejected'] {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-faint);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.textarea {
+  padding-block: var(--space-sm);
+  padding-inline: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  resize: vertical;
+  min-height: 5rem;
+  width: 100%;
+}
+
+.textarea:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.dialogActions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}

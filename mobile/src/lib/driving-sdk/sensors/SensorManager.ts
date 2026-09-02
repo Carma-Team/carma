@@ -3,7 +3,8 @@
  * @owner May Hajbi — driving-sdk maintainer
  * @brief Detects hard braking, aggressive acceleration and sharp turns from a GPS+IMU fusion
  * that does not depend on how the phone is oriented in the vehicle.
- * Also streams speed, distance and raw IMU values to the SDK on every fix.
+ * Also resolves the IMU into the vehicle's own frame and streams speed, distance and
+ * those vehicle-frame values to the SDK on every fix.
  *
  * @description
  * Detects EVT_BRAKE / EVT_ACCEL / EVT_TURN using a lightweight GPS+IMU fusion that
@@ -30,9 +31,16 @@
  * m/s², a cleaner signal than raw phone accelerometer) and are not directly
  * comparable to those g-values.
  *
- * - Gyroscope (raw z): fraud-detection telemetry only. The full 10 Hz accelerometer and
- *   gyroscope streams are also offered to optional `onAccelSample`/`onGyroSample`
- *   consumers, so nothing else has to subscribe to a sensor this class already keeps powered.
+ * **Vehicle frame.** Both IMU streams are resolved out of the phone's own axes before
+ * they leave this class: horizontal force into signed longitudinal and lateral, and
+ * angular rate about gravity rather than about the device's Z axis. The geometry lives in
+ * `vehicleFrame.ts`; the forward direction is learned from agreement between GPS speed
+ * changes and the force felt over them, and is relearned when the phone moves. Where the
+ * frame cannot be resolved the value is `null`, never 0 (docs/fraud-detection.md §3.2).
+ *
+ * - The full 10 Hz accelerometer and gyroscope streams are also offered raw to optional
+ *   `onAccelSample`/`onGyroSample` consumers, so nothing else has to subscribe to a
+ *   sensor this class already keeps powered.
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
@@ -41,6 +49,10 @@ import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
 import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
+import {
+  Horizontal2D, HorizontalBasis, VehicleFrameEstimator, horizontalBasis,
+  projectHorizontal, yawRateAboutGravity,
+} from '@/lib/driving-sdk/sensors/vehicleFrame';
 
 // ─── EMA for gravity isolation ────────────────────────────────────────────────
 // Slow-moving component tracks static gravity so phone tilt isn't read as a force.
@@ -114,10 +126,6 @@ const MS2_PER_G = 9.81;
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
 // Defined in types.ts so a TripValidator can apply the same cutoff to GPS speed.
 
-// SWERVE is in the event enum but nothing here detects it. The detector that was
-// written for it was never verified on a drive and is not scheduled — it lives in
-// docs/disabled-swerve-detection.md, with what restoring it would take.
-
 export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;
@@ -138,6 +146,11 @@ export class SensorManager {
   // turns "was available at start()" into "is available right now" (§3.1).
   private lastAccelSampleAtMs = 0;
   private lastGyroSampleAtMs = 0;
+  // Coverage accounting: wall-clock milliseconds the accelerometer actually delivered
+  // samples for, against the wall clock it was asked to. A single boolean cannot
+  // separate a sensor that died halfway from one that never started; the ratio can.
+  private coverageWindowStartMs = 0;
+  private accelLiveMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
   // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
@@ -149,9 +162,20 @@ export class SensorManager {
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
   private gravity = { x: 0, y: 0, z: 1 };
 
-  // Latest raw sensor values — bundled into onUpdate at GPS rate for fraud detection
-  private latestAccelX = 0; // gravity-removed lateral component (g) — fraud telemetry
-  private latestGyroZ  = 0; // yaw rate (rad/s) — fraud telemetry only
+  // Latest vehicle-frame readings — bundled into onUpdate at GPS rate. Every one of
+  // these is null until the frame resolves, never 0: a frame that cannot be resolved
+  // is an absence of measurement, and a 0 here would read as "no force" (§3.1/§3.2).
+  private latestHoriz2d: Horizontal2D | null = null;
+  private latestYawRateRadS: number | null = null;
+  // Resolves phone-frame horizontal force into the vehicle's longitudinal/lateral axes.
+  // Learns forward from ordinary driving; restarts itself when the phone moves.
+  private vehicleFrame = new VehicleFrameEstimator();
+  private latestBasis: HorizontalBasis | null = null;
+  // Horizontal force summed over the current GPS window, and its sample count. Their
+  // mean is one observation for the forward estimate, paired with the window's own
+  // GPS-measured longitudinal acceleration.
+  private windowHorizSum: Horizontal2D = { a: 0, b: 0 };
+  private windowHorizCount = 0;
 
   // GPS-window state for brake/accel/turn detection
   private motionPrevMs = 0;
@@ -161,6 +185,10 @@ export class SensorManager {
   // motion evaluation — the IMU's contribution to cross-confirmation (CAR-156: no
   // longer reported as severity, the magnitude isn't a vehicle-frame axis).
   private peakHorizAccelMs2 = 0;
+  // The peak's own horizontal vector, kept unresolved. Resolving it at emission time
+  // rather than when it was sampled lets the window that *taught* the estimator its
+  // forward direction be the first window to report vehicle-frame values.
+  private peakHoriz2d: Horizontal2D | null = null;
   private aboveConfirmSinceMs: number | null = null;
   // Start of the streak that produced peakHorizAccelMs2, not just whichever
   // streak happens to run longest — a rough road can out-last the actual brake.
@@ -171,7 +199,7 @@ export class SensorManager {
   private onEvent: (event: DrivingEvent) => void;
   // Raw 10 Hz gyroscope tap. Exists so a second consumer can read rotation without
   // opening its own Gyroscope subscription — the sensor is already powered here, and
-  // the onUpdate bundle below only carries gyroZ at GPS rate (~2 s), far too coarse
+  // the onUpdate bundle below only carries yaw at GPS rate (~2 s), far too coarse
   // for anything sampling motion.
   private onGyroSample?: (sample: { x: number; y: number; z: number }) => void;
   // Raw 10 Hz accelerometer tap, symmetric to onGyroSample — same reasoning: this
@@ -201,17 +229,23 @@ export class SensorManager {
     this.gravity = { x: 0, y: 0, z: 1 };
     this.lastValidSpeedMs = 0;
     this.lastValidSpeedAtMs = 0;
-    this.latestAccelX = 0;
-    this.latestGyroZ  = 0;
+    this.latestHoriz2d = null;
+    this.latestYawRateRadS = null;
+    this.latestBasis = null;
+    this.vehicleFrame.reset();
+    this.windowHorizSum = { a: 0, b: 0 };
+    this.windowHorizCount = 0;
     this.accelAvailable = false;
     this.gyroAvailable  = false;
     this.lastAccelSampleAtMs = 0;
     this.lastGyroSampleAtMs  = 0;
+    this.resetSensorCoverage();
     this.backgroundLocationAvailable = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
     this.peakHorizAccelMs2 = 0;
+    this.peakHoriz2d = null;
     this.aboveConfirmSinceMs = null;
     this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
@@ -329,7 +363,10 @@ export class SensorManager {
         Gyroscope.setUpdateInterval(100);
         this.lastGyroSampleAtMs = Date.now(); // grace period, see accel above
         this.gyroSub = Gyroscope.addListener(data => {
-          this.latestGyroZ = data.z;
+          // Yaw is rotation about gravity, not about the device's Z axis — those agree
+          // only for a phone lying perfectly flat, which is the assumption CAR-167 was
+          // filed against. Null while gravity has not converged.
+          this.latestYawRateRadS = yawRateAboutGravity(data, this.gravity);
           this.lastGyroSampleAtMs = Date.now();
           this.onGyroSample?.(data);
         });
@@ -418,10 +455,12 @@ export class SensorManager {
       distanceKm:   distance,
       currentSpeed: effectiveSpeedMs * 3.6,
       timeDeltaS,
-      accelX:       this.latestAccelX,
-      gyroZ:        this.latestGyroZ,
+      longitudinalAccelG: this.vehicleFrameForce()?.longitudinal ?? null,
+      lateralAccelG:      this.vehicleFrameForce()?.lateral ?? null,
+      yawRateRadS:        this.freshYawRate(),
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
       lat:          loc.coords.latitude,
@@ -458,6 +497,29 @@ export class SensorManager {
   }
 
   /**
+   * Restarts the coverage window without touching the subscriptions. A consumer that
+   * keeps sensors running across a phase boundary — validation into a confirmed trip —
+   * calls this so the fraction it later reads describes that phase and not the wait
+   * before it. `start()` calls it too, so the common case needs nothing.
+   */
+  public resetSensorCoverage(): void {
+    this.coverageWindowStartMs = Date.now();
+    this.accelLiveMs = 0;
+  }
+
+  /**
+   * Fraction of the current window (0–1) during which the accelerometer was
+   * delivering samples. 0 means it never delivered one — the same value a device
+   * with no accelerometer reports, which `accelAvailable`/`accelInitFailed` are
+   * there to tell apart. Anything between 0 and 1 is a sensor that stopped partway.
+   */
+  private accelCoverage(): number {
+    const windowMs = Date.now() - this.coverageWindowStartMs;
+    if (windowMs <= 0) return 0;
+    return Math.min(1, this.accelLiveMs / windowMs);
+  }
+
+  /**
    * Speed-only update, emitted when the GPS stream has gone quiet long enough for the
    * held speed to expire. Not routed through handleLocation on purpose: there is no
    * new position, so there is no distance, no waypoint and no motion-event evaluation
@@ -469,10 +531,12 @@ export class SensorManager {
       distanceKm:   0,
       currentSpeed: 0,
       timeDeltaS:   SPEED_TICK_INTERVAL_MS / 1000,
-      accelX:       this.latestAccelX,
-      gyroZ:        this.latestGyroZ,
+      longitudinalAccelG: this.vehicleFrameForce()?.longitudinal ?? null,
+      lateralAccelG:      this.vehicleFrameForce()?.lateral ?? null,
+      yawRateRadS:        this.freshYawRate(),
       accelAvailable: this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs),
       gyroAvailable:  this.gyroAvailable && this.isSensorFresh(this.lastGyroSampleAtMs),
+      accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
     });
@@ -497,9 +561,12 @@ export class SensorManager {
       this.motionPrevSpeedMs = speedMs;
       this.motionPrevHeadingDeg = headingDeg >= 0 ? headingDeg : null;
       this.peakHorizAccelMs2 = 0;
+      this.peakHoriz2d = null;
       this.aboveConfirmSinceMs = null;
       this.peakStreakStartMs = null;
       this.peakDurationMs = 0;
+      this.windowHorizSum = { a: 0, b: 0 };
+      this.windowHorizCount = 0;
       return;
     }
 
@@ -516,10 +583,28 @@ export class SensorManager {
 
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
+
+    // Teach the frame before reading it. This window's own speed change is evidence of
+    // which way forward points, and folding it in first is what lets the very window
+    // that completes the estimate be the first one to report vehicle-frame values.
+    if (this.windowHorizCount > 0 && this.latestBasis) {
+      this.vehicleFrame.observe(
+        { a: this.windowHorizSum.a / this.windowHorizCount, b: this.windowHorizSum.b / this.windowHorizCount },
+        aLong,
+        this.latestBasis,
+      );
+    }
+    // Null until the frame resolves — §3.2 requires an unresolvable frame to report
+    // nothing rather than a number in the phone's own axes.
+    const peak = this.peakHoriz2d ? this.vehicleFrame.resolve(this.peakHoriz2d) : null;
+    const peakFields = peak
+      ? { peakLongitudinalG: peak.longitudinal, peakLateralG: peak.lateral }
+      : {};
+
     if (aLong <= -this.thresholds.brakeThresholdMs2 && imuConfirms) {
-      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.HARD_BRAKE, timestamp: new Date(), durationMs: imuPeakDurationMs, ...peakFields });
     } else if (aLong >= this.thresholds.accelThresholdMs2 && imuConfirms) {
-      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), durationMs: imuPeakDurationMs });
+      this.onEvent({ type: DrivingEventType.AGGRESSIVE_ACCEL, timestamp: new Date(), durationMs: imuPeakDurationMs, ...peakFields });
     }
 
     // ── Lateral: sharp turn — orientation-free via GPS heading rate × speed ──
@@ -529,7 +614,7 @@ export class SensorManager {
       const yawRate = (Math.abs(dHead) * Math.PI / 180) / dt;    // rad/s
       const aLat = speedMs * yawRate;                            // m/s²
       if (aLat >= this.thresholds.turnThresholdMs2 && imuConfirms) {
-        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), durationMs: imuPeakDurationMs });
+        this.onEvent({ type: DrivingEventType.SHARP_TURN, timestamp: new Date(), durationMs: imuPeakDurationMs, ...peakFields });
       }
     }
 
@@ -538,9 +623,29 @@ export class SensorManager {
     this.motionPrevSpeedMs = speedMs;
     if (headingDeg >= 0) this.motionPrevHeadingDeg = headingDeg;
     this.peakHorizAccelMs2 = 0;
+    this.peakHoriz2d = null;
     this.aboveConfirmSinceMs = null;
     this.peakStreakStartMs = null;
     this.peakDurationMs = 0;
+    this.windowHorizSum = { a: 0, b: 0 };
+    this.windowHorizCount = 0;
+  }
+
+  /**
+   * Latest sample's force in the vehicle frame, or null while the frame is unresolved —
+   * or while the accelerometer is stale. A sensor that stopped delivering leaves its last
+   * reading behind, and downstream this is a measured vehicle-frame force, not a cached
+   * one: §3.1's unavailable ≠ zero applies to unavailable ≠ *last known* just the same.
+   */
+  private vehicleFrameForce() {
+    return this.latestHoriz2d && this.isSensorFresh(this.lastAccelSampleAtMs)
+      ? this.vehicleFrame.resolve(this.latestHoriz2d)
+      : null;
+  }
+
+  /** Yaw about gravity, or null once the gyroscope has gone stale — see above. */
+  private freshYawRate(): number | null {
+    return this.isSensorFresh(this.lastGyroSampleAtMs) ? this.latestYawRateRadS : null;
   }
 
   // ─── Accelerometer handler — cross-confirm + fraud telemetry (CAR-156: no severity) ──
@@ -556,18 +661,37 @@ export class SensorManager {
     const dynY = data.y - this.gravity.y;
     const dynZ = data.z - this.gravity.z;
 
-    this.latestAccelX = dynX; // expose lateral component for fraud telemetry (unchanged)
     this.onAccelSample?.(data); // raw, pre-gravity-removal — see onAccelSample doc
-    this.lastAccelSampleAtMs = Date.now();
 
-    // Step 3: orientation-invariant horizontal magnitude.
-    // Project out the component along gravity (vertical); what remains is horizontal,
-    // and its magnitude does not depend on the phone's yaw — so brake/accel/turn
-    // forces are captured regardless of how the phone is mounted.
-    const gMag = Math.sqrt(this.gravity.x ** 2 + this.gravity.y ** 2 + this.gravity.z ** 2) || 1;
-    const vertComp = (dynX * this.gravity.x + dynY * this.gravity.y + dynZ * this.gravity.z) / gMag;
-    const dynMagSq = dynX ** 2 + dynY ** 2 + dynZ ** 2;
-    const horizMs2 = Math.sqrt(Math.max(0, dynMagSq - vertComp ** 2)) * MS2_PER_G; // g → m/s²
+    // Credit the span since the previous sample, but only if the sensor was still
+    // considered live across it. A gap wider than SENSOR_STALE_MS is exactly the
+    // stretch this metric exists to subtract — crediting it would erase the outage
+    // the moment the sensor came back.
+    const sampleAtMs = Date.now();
+    const gapMs = sampleAtMs - this.lastAccelSampleAtMs;
+    if (this.lastAccelSampleAtMs !== 0 && gapMs < SENSOR_STALE_MS) this.accelLiveMs += gapMs;
+    this.lastAccelSampleAtMs = sampleAtMs;
+
+    // Step 3: project out the component along gravity (vertical); what remains is the
+    // horizontal force. Its magnitude does not depend on the phone's yaw — so
+    // brake/accel/turn forces are captured regardless of how the phone is mounted —
+    // and its direction within that plane is what the vehicle frame resolves.
+    const basis = horizontalBasis(this.gravity);
+    this.latestBasis = basis;
+    if (!basis) {
+      // Gravity has not converged. There is no horizontal plane to speak of yet, so
+      // there is nothing to measure — not a zero measurement.
+      this.latestHoriz2d = null;
+      return;
+    }
+    const horiz = projectHorizontal({ x: dynX, y: dynY, z: dynZ }, basis);
+    this.latestHoriz2d = horiz;
+    const horizMs2 = Math.hypot(horiz.a, horiz.b) * MS2_PER_G; // g → m/s²
+
+    // One window's worth of horizontal force; detectMotionEvents pairs its mean with
+    // the GPS-measured speed change to teach the estimator which way is forward.
+    this.windowHorizSum = { a: this.windowHorizSum.a + horiz.a, b: this.windowHorizSum.b + horiz.b };
+    this.windowHorizCount++;
 
     // Track the continuous streak at/above the cross-confirm threshold first, so a
     // peak recorded on this sample can capture the streak it actually belongs to.
@@ -580,6 +704,7 @@ export class SensorManager {
 
     if (horizMs2 > this.peakHorizAccelMs2) {
       this.peakHorizAccelMs2 = horizMs2;
+      this.peakHoriz2d = horiz;
       this.peakStreakStartMs = this.aboveConfirmSinceMs;
     }
 

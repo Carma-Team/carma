@@ -1,8 +1,8 @@
 /**
  * @file RawSampleRecorder.ts
  * @owner May Hajbi — driving-sdk maintainer
- * @brief Records the full, unthinned accel/gyro/GPS sample stream to a file for a
- * staged calibration session, tagged with a scenario and platform label.
+ * @brief Records the full, unthinned accel/gyro/magnetometer/GPS sample stream to a
+ * file for a staged calibration session, tagged with a scenario and platform label.
  * @description
  * Nothing else in the SDK persists raw samples — SensorManager and PhoneUsageManager
  * hold only rolling windows of a few samples and discard them, and TripData carries
@@ -12,17 +12,27 @@
  * event. Trip recording is untouched — this class is never wired into startTrip/stopTrip.
  * `scenario`/`platform` are caller-supplied plain strings; the SDK has no opinion on
  * what labels the host app uses.
+ *
+ * The magnetometer is the one stream this class subscribes to itself rather than
+ * receiving through a push* method. The accel and gyro taps exist because SensorManager
+ * already holds those subscriptions open for event detection, so a second consumer taps
+ * them instead of powering the same sensor twice. Nothing in the SDK detects anything
+ * from the magnetometer, so there is no such subscription to tap — owning it here ties
+ * its lifetime to the staged session rather than to every trip, which is what keeps a
+ * normal trip free of magnetometer subscriptions (CAR-295).
  */
 import { Directory, File, Paths } from 'expo-file-system';
+import { Magnetometer } from 'expo-sensors';
 import * as Sharing from 'expo-sharing';
 
-export type RawSampleKind = 'accel' | 'gyro' | 'location';
+export type RawSampleKind = 'accel' | 'gyro' | 'mag' | 'location';
 
 export interface RawSample {
   t: number; // Date.now() ms, stamped per-sample — not batched under one shared tick
   kind: RawSampleKind;
   accel?: { x: number; y: number; z: number };
   gyro?: { x: number; y: number; z: number };
+  mag?: { x: number; y: number; z: number }; // microtesla
   location?: { lat: number; lng: number; speed: number | null; accuracy: number | null };
 }
 
@@ -49,6 +59,9 @@ export class RawSampleRecorder {
   // Survives past stop() — exportAsync() shares the last completed recording, not
   // necessarily one that's still "active" (session is null again by the time you export).
   private lastFilePath: string | null = null;
+  // Structurally typed rather than imported: expo-sensors' subscription type has moved
+  // between SDK versions, and `remove` is the only member this class ever calls.
+  private magSub: { remove: () => void } | null = null;
 
   public start(scenario: string, platform: string): RawRecordingSession {
     const sessionId = `session_${Date.now()}`;
@@ -64,6 +77,19 @@ export class RawSampleRecorder {
       startedAt: Date.now(),
       filePath: `${dir.uri}/${sessionId}.ndjson`,
     };
+
+    // Requested at 10 Hz, the same as the accel and gyro streams, so magnetometer samples
+    // interleave on one timeline instead of needing to be resampled before analysis. It is
+    // a request, not a guarantee: a staged Android session measured 8.6 Hz against the
+    // accelerometer's 9.3 in the same window. Ask for a shorter interval only if the
+    // rail-detection research needs more band than that leaves.
+    // No isAvailableAsync() check: a handset without a magnetometer simply produces no
+    // 'mag' lines, and absence is the honest report — zeros would not be.
+    this.magSub?.remove(); // a start() with no matching stop() must not leak the old one
+    Magnetometer.setUpdateInterval(100);
+    this.magSub = Magnetometer.addListener(({ x, y, z }) => {
+      this.push({ t: Date.now(), kind: 'mag', mag: { x, y, z } });
+    });
     return this.session;
   }
 
@@ -72,6 +98,8 @@ export class RawSampleRecorder {
     const session = this.session;
     if (!session) return null;
     this.session = null;
+    this.magSub?.remove();
+    this.magSub = null;
     const file = new File(session.filePath);
     file.create({ overwrite: true });
     file.write(this.lines.join('\n'));

@@ -15,7 +15,16 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "downloading $EXTRACT_URL"
+# Two ceilings, because this download is the slowest part of the job by an order
+# of magnitude: the first real run pulled ~90 MB from Geofabrik in 20 minutes,
+# while every database step after it finished inside 45 seconds.
+#
+# --max-time is the hard stop, generous against that 20-minute baseline.
+# --speed-limit/--speed-time is what makes a genuine stall fail in two minutes
+# instead of forty-five: without either, a hung connection sat until the job's
+# one-hour deadline and reported nothing but "Failed".
 curl --fail --silent --show-error --location --retry 3 --retry-delay 10 \
+  --max-time 2700 --speed-limit 10240 --speed-time 120 \
   -o "$WORK_DIR/extract.zip" "$EXTRACT_URL"
 
 # Only the two layers the loader reads. The full extract carries twenty.

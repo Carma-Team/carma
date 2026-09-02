@@ -103,7 +103,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "HARD_BRAKE": EventType.HARD_BRAKE,
     "AGGRESSIVE_ACCEL": EventType.AGGRESSIVE_ACCEL,
     "SHARP_TURN": EventType.SHARP_TURN,
-    "SWERVE": EventType.SWERVE,
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
@@ -301,13 +300,13 @@ def _check_timestamp_drift(digest: dict[str, Any] | None) -> None:
         raise HTTPException(401, "Stale timestamp — possible replay attack")
 
 
-def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str) -> None:
+def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secret: str, enforced: bool) -> None:
     """Verify the telemetry digest's HMAC.
 
-    Three paths still accept an unverified payload (issue #24). Each is audited so
-    the rate of unsigned traffic can be measured before enforcement is switched on
-    — flipping any of these to a hard reject without that data would 403 every
-    client already in the field.
+    Three paths still accept an unverified payload (issue #24), audited so the rate
+    of unsigned traffic could be measured before enforcement switched on. `enforced`
+    (CAR-13 phase 2, `TRIP_SIGNATURE_ENFORCED`) turns each of those three into a 403
+    instead — default off, so merging this changes no request outcome.
 
     Note the ceiling on what enforcement buys: the mobile signing key is currently
     hardcoded in the app bundle, so a verified signature proves the payload came
@@ -316,12 +315,18 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     """
     if not signature:
         audit("trips.signature.absent", reason="no-signature-sent")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if signature.startswith("ph:"):
         audit("trips.signature.bypass", reason="ph-placeholder-sprint1")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if not secret:
         audit("trips.signature.unenforced", reason="trip-signing-secret-unset")
+        if enforced:
+            raise HTTPException(403, "payloadSignature required")
         return
     if digest is None:
         raise HTTPException(403, "payloadSignature sent but telemetryDigest is missing")
@@ -330,6 +335,15 @@ def _verify_signature(digest: dict[str, Any] | None, signature: str | None, secr
     if not _hmac.compare_digest(expected, signature):
         audit("trips.signature.rejected", reason="digest-mismatch")
         raise HTTPException(403, "Invalid payload signature")
+
+
+def _opt_bool(value: Any) -> bool | None:
+    """A digest value that is absent stays unknown; anything else is a real answer.
+
+    `bool(None)` would turn "this SDK did not report" into "the sensor was dead",
+    which is the distinction CAR-228 exists to keep.
+    """
+    return None if value is None else bool(value)
 
 
 def _level_cap(driver_score: float) -> int:
@@ -466,7 +480,7 @@ async def _compute_score(
     level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
-) -> tuple[float, float, float, bool]:
+) -> tuple[float, float, float, bool, scoring.WeakestFactor | None]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
@@ -477,7 +491,7 @@ async def _compute_score(
     speeding ratio is the share of judged distance above the road's posted
     limit plus a buffer, and the confidence caps how far above the rolling
     score a trip can land when the trace is too sparse to prove clean driving.
-    Returns (trip_score, driver_score, points, points_capped).
+    Returns (trip_score, driver_score, points, points_capped, weakest_factor).
     """
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
@@ -561,7 +575,7 @@ async def _compute_score(
         risk_multiplier=risk_multiplier,
         level_multiplier=level_multiplier,
     )
-    return trip_score, driver_score, points, round(points) < round(points_uncapped)
+    return trip_score, driver_score, points, round(points) < round(points_uncapped), trip_v2.weakest_factor
 
 
 async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
@@ -618,7 +632,12 @@ async def save(
     # Gate ordering: plausibility (422) → drift (401) → HMAC (403) → score → persist
     _validate_plausibility(dto)
     _check_timestamp_drift(dto.telemetry_digest)
-    _verify_signature(dto.telemetry_digest, dto.payload_signature, settings.trip_signing_secret)
+    _verify_signature(
+        dto.telemetry_digest,
+        dto.payload_signature,
+        settings.trip_signing_secret,
+        settings.trip_signature_enforced,
+    )
 
     start = dto.start_time or datetime.now(UTC)
     if start.tzinfo is None:
@@ -640,6 +659,12 @@ async def save(
         scored_screen_secs = max(0, int(float(d.get("screenInteractionSeconds", 0) or 0)))
         distance = max(0.0, float(d.get("distanceKm", 0.0) or 0.0))
         digest_duration = max(int(float(d.get("durationSeconds", 0) or 0)), duration or 0)
+        # IMU health is signed too, so the digest is the only source once one is
+        # present. Reading the top-level copy would let a client sign an honest
+        # "sensor was dead" and assert healthy hardware alongside it. A digest
+        # predating CAR-189 carries neither key, which is unknown, not false.
+        accel_available = _opt_bool(d.get("accelAvailable"))
+        accel_init_failed = _opt_bool(d.get("accelInitFailed"))
     else:
         scored_hard_brakes = dto.hard_brakes or 0
         scored_aggressive_accels = dto.aggressive_accels or 0
@@ -648,6 +673,10 @@ async def save(
         scored_screen_secs = dto.screen_interaction_seconds or 0
         distance = dto.distance_km or 0.0
         digest_duration = duration or 0
+        # Unsigned payload: nothing here is trustworthy anyway, so the top-level
+        # copy is no worse than the counts beside it.
+        accel_available = dto.accel_available
+        accel_init_failed = dto.accel_init_failed
 
     # Server-side GPS cross-check (v2.1): the waypoint trace is an independent
     # witness against client under-detection. Merged counts only ever go UP —
@@ -681,7 +710,7 @@ async def save(
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
 
-    score_v2, new_driver_score, points_v2, points_capped = await _compute_score(
+    score_v2, new_driver_score, points_v2, points_capped, weakest_factor = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -723,6 +752,8 @@ async def save(
         start_location=dto.start_location,
         end_location=dto.end_location,
         ai_insight=dto.ai_insight,
+        accel_available=accel_available,
+        accel_init_failed=accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
         payload_signature=dto.payload_signature,
         route_waypoints=dto.route_waypoints,
@@ -824,4 +855,6 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
+    return TripOut.from_orm_trip(
+        trip, points_capped=points_capped, user_level=level_after, weakest_factor=weakest_factor
+    )

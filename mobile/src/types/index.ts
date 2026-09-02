@@ -31,7 +31,6 @@ export type MessageOut = Schemas['MessageOut'];
 
 // ─── Trip ─────────────────────────────────────────────────────────────────────
 export type Trip = Schemas['TripOut'] & {
-  swerves?: number;                  // EVT_SWERVE — spec §א Table 1
   // Route map data — only returned by GET /api/trips/:id (not the list endpoint).
   // The schema types waypoints as an opaque object; this is what the map reads.
   routeWaypoints?: { lat: number; lng: number; ts: number; speedKmh: number }[];

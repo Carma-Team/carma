@@ -4,8 +4,6 @@
 - Prod (ENV=production): JSON records that Application Insights parses automatically.
 - Every record carries a `request_id` set by `app.middlewares.request_id`.
 - `RedactFilter` blanks out password/code/token/qr_code if they ever leak.
-- `redact_path` blanks a secret that lives in the URL path itself (CAR-76's
-  invitation token), which `RedactFilter` cannot reach.
 """
 
 from __future__ import annotations
@@ -14,11 +12,39 @@ import logging
 import os
 import re
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 from pythonjsonlogger import jsonlogger
 
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
 user_id_ctx: ContextVar[str | None] = ContextVar("user_id", default=None)
+
+# Params masked wherever they appear in a route template, e.g. a voucher `code`
+# or an invitation `token` — see redact_path().
+_SENSITIVE_PATH_PARAMS = {"code", "token"}
+
+
+def redact_path(request: Request) -> str:
+    """The logged request path, with sensitive path-param values masked.
+
+    Rebuilt from the matched route's template (`/api/business/vouchers/{code}`)
+    rather than pattern-matched against the raw path, so a new route with a
+    `code` or `token` param is covered without anyone adding a pattern for it.
+    Falls back to the raw path when routing hasn't resolved (e.g. a 404).
+    """
+    route = request.scope.get("route")
+    if route is None:
+        return request.url.path
+
+    path_params = request.scope.get("path_params", {})
+    result: str = route.path
+    for name, value in path_params.items():
+        placeholder = "***" if name in _SENSITIVE_PATH_PARAMS else str(value)
+        result = result.replace("{" + name + "}", placeholder)
+    return result
 
 
 class ContextFilter(logging.Filter):
@@ -43,20 +69,6 @@ class RedactFilter(logging.Filter):
         if isinstance(record.msg, str):
             record.msg = _SENSITIVE_PATTERN.sub(r"\1=***", record.msg)
         return True
-
-
-# A request path that carries the secret itself, not a `key=value` pair —
-# `RedactFilter` above cannot help here, since a bare token in a URL segment
-# never takes the shape its pattern matches. CAR-76's invitation token lives in
-# the path (`/api/invitations/{token}`, `.../accept`), so anything that logs
-# `request.url.path` verbatim — `RequestLogMiddleware`'s structured field, the
-# unhandled-exception handler, an exported trace — must redact it first.
-_INVITATION_TOKEN_PATH = re.compile(r"^(/api/invitations/)[^/]+")
-
-
-def redact_path(path: str) -> str:
-    """A request path with its invitation token (if any) replaced by `***`."""
-    return _INVITATION_TOKEN_PATH.sub(r"\1***", path)
 
 
 def configure_logging() -> None:

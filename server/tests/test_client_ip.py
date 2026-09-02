@@ -162,7 +162,7 @@ def test_an_ipv4_caller_in_mapped_form_keeps_its_own_bucket(proxy_depth) -> None
 def test_something_that_is_not_an_address_is_bounded(proxy_depth) -> None:
     """`caller_ip` is a varchar(45); an oversized value must not reach it.
 
-    A failed INSERT would escape `_record_failure` as a 500 with the failure
+    A failed INSERT would escape `_reserve_attempt` as a 500 with the failure
     unrecorded — untracked guessing, and a 200-vs-500 oracle to go with it.
     """
     proxy_depth(2)

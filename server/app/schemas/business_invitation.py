@@ -16,6 +16,16 @@ class BusinessInvitationIn(CamelModel):
     role: InvitationRole
 
 
+class InvitationTokenIn(CamelModel):
+    """The recipient-side preview/accept payload (CAR-118 review item 1) —
+    the token travels in the request body, never the URL. A path segment (or
+    a query string) is a request *target*, which a CDN, load balancer, WAF,
+    or the web server's own access log can capture before this app ever sees
+    the request; a JSON body is not."""
+
+    token: str
+
+
 class BusinessInvitationOut(CamelModel):
     """Returned once, at creation — the only time the plaintext token exists
     outside the caller's own memory. Nothing later re-derives or re-displays it."""
@@ -42,8 +52,25 @@ class BusinessInvitationAcceptOut(CamelModel):
     role: InvitationRole
 
 
+class BusinessInvitationListItem(CamelModel):
+    """A pending invitation as the OWNER's list sees it (CAR-118) — never the
+    token or the URL. Both were returned once, at creation, and are not
+    re-derivable from `token_hash`; a list endpoint that could show them again
+    would be a second way to read a credential that is supposed to exist only
+    in whatever channel the OWNER already sent it through."""
+
+    id: str
+    role: InvitationRole
+    created_at: datetime
+    expires_at: datetime
+
+
 class BusinessInvitationCreateResponse(CamelModel):
     invitation: BusinessInvitationOut
+
+
+class BusinessInvitationListResponse(CamelModel):
+    invitations: list[BusinessInvitationListItem]
 
 
 class BusinessInvitationPreviewResponse(CamelModel):
