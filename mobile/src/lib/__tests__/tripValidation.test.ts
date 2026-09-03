@@ -390,6 +390,7 @@ describe('Rule 3 — report-once and the decline gate', () => {
     isReady: true,
     mode: TransportMode.TRAIN,
     signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: true },
+    sensorAvailability: { gps: true, accelerometer: true, gyroscope: true },
     telemetry: { avgSpeedKmh: 82, maxLateralAccelG: 0.02, yawVariance: 0.001 },
   };
 

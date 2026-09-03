@@ -1575,6 +1575,9 @@ export interface components {
             /** Detectedmode */
             detectedMode?: string | null;
             signals?: components["schemas"]["FraudSignals"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            sensorAvailability?: components["schemas"]["FraudSensorAvailability"] | null;
             telemetry?: components["schemas"]["FraudTelemetry"] | null;
             /** Maxspeedkmh */
             maxSpeedKmh?: number | null;
@@ -1594,6 +1597,18 @@ export interface components {
             reportedAt: string;
             /** Anomalyflags */
             anomalyFlags: string[];
+        };
+        /**
+         * FraudSensorAvailability
+         * @description Which sensors backed this verdict, so a stored report explains its own unknowns.
+         */
+        FraudSensorAvailability: {
+            /** Gps */
+            gps?: boolean | null;
+            /** Accelerometer */
+            accelerometer?: boolean | null;
+            /** Gyroscope */
+            gyroscope?: boolean | null;
         };
         /**
          * FraudSignals
