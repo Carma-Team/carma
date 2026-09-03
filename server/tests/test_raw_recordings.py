@@ -30,7 +30,13 @@ from app.services.recording_store import LocalRecordingStore
 URL = "/api/dev/recordings"
 
 
-def _ndjson(session_id: str = "session_1724608000000", *, scenario: str = "mounted", samples: int = 3) -> bytes:
+def _ndjson(
+    session_id: str = "session_1724608000000",
+    *,
+    scenario: str = "mounted",
+    samples: int = 3,
+    **header: object,
+) -> bytes:
     started = 1_724_608_000_000
     lines = [
         json.dumps(
@@ -42,6 +48,7 @@ def _ndjson(session_id: str = "session_1724608000000", *, scenario: str = "mount
                 "scenario": scenario,
                 "platform": "ios",
                 "deviceModel": "iPhone 14",
+                **header,
             }
         )
     ]
@@ -97,6 +104,34 @@ def test_parse_defaults_provenance_to_staged() -> None:
 def test_parse_refuses_a_file_it_cannot_index(data: bytes) -> None:
     with pytest.raises(svc.RecordingFormatError):
         svc.parse(data)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("scenario", "m" * 41),
+        ("platform", "i" * 21),
+        ("deviceModel", "d" * 81),
+        ("provenance", "p" * 21),
+    ],
+)
+def test_parse_refuses_a_header_field_wider_than_its_column(field: str, value: str) -> None:
+    """Reaching the INSERT with one of these would be a 500 on an upload that is
+    only malformed. The scenario case was a real gap: the charset check allowed 64
+    characters into a column holding 40."""
+    with pytest.raises(svc.RecordingFormatError, match=field):
+        svc.parse(_ndjson(**{field: value}))
+
+
+def test_parse_accepts_a_header_field_at_exactly_its_column_width() -> None:
+    parsed = svc.parse(_ndjson(scenario="m" * 40, platform="i" * 20))
+    assert parsed.scenario == "m" * 40
+
+
+def test_parse_counts_samples_past_a_trailing_newline() -> None:
+    """The recorder joins without one, but a file that picked one up on the way
+    through a share sheet must not be counted as holding an extra sample."""
+    assert svc.parse(_ndjson(samples=4) + b"\n").sample_count == 4
 
 
 def test_parse_refuses_a_path_traversing_label() -> None:

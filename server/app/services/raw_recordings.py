@@ -24,10 +24,23 @@ from app.services.recording_store import recording_store
 
 HEADER_KIND = "session_start"
 
-# Both go into the object path, so anything outside this set is refused rather
-# than escaped - a scenario label is a plain word the tester picks in the debug
-# menu, and there is no reason for one to contain a slash.
-_SAFE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# `session_id` and `scenario` both go into the object path, so anything outside
+# this set is refused rather than escaped - a scenario label is a plain word the
+# tester picks in the debug menu, and there is no reason for one to contain a
+# slash.
+_SAFE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+# Every string the header contributes to the index, with the width of the column
+# it lands in. Checked here rather than left to the INSERT: a header field one
+# character too long would otherwise reach Postgres and come back as a 500 on an
+# upload that is merely malformed. Keep in step with `models/raw_recording.py`.
+_MAX_LENGTHS = {
+    "sessionId": 64,
+    "scenario": 40,
+    "platform": 20,
+    "deviceModel": 80,
+    "provenance": 20,
+}
 
 
 class RecordingFormatError(ValueError):
@@ -51,20 +64,41 @@ class ParsedRecording:
     sample_count: int
 
 
+def _checked(key: str, value: str) -> str:
+    limit = _MAX_LENGTHS[key]
+    if len(value) > limit:
+        raise RecordingFormatError(f"session_start header field {key} is longer than {limit} characters")
+    return value
+
+
 def _require_str(header: dict[str, Any], key: str) -> str:
     value = header.get(key)
     if not isinstance(value, str) or not value:
         raise RecordingFormatError(f"session_start header is missing {key}")
-    return value
+    return _checked(key, value)
+
+
+def _optional_str(header: dict[str, Any], key: str, default: str | None) -> str | None:
+    value = header.get(key)
+    if not isinstance(value, str) or not value:
+        return default
+    return _checked(key, value)
 
 
 def parse(data: bytes) -> ParsedRecording:
-    lines = [line for line in data.split(b"\n") if line.strip()]
-    if not lines:
+    # Indices into the buffer rather than `data.split(b"\n")`: a 32 MB recording
+    # is ~350k lines, and splitting builds that many bytes objects so that three
+    # of them can be read. Only the trailing whitespace is walked here;
+    # find, rfind and count are each one pass in C over the original buffer.
+    end = len(data)
+    while end and data[end - 1] in b"\n\r \t":
+        end -= 1
+    if end == 0:
         raise RecordingFormatError("Recording is empty")
 
+    first_nl = data.find(b"\n", 0, end)
     try:
-        header = json.loads(lines[0])
+        header = json.loads(data[: first_nl if first_nl != -1 else end])
     except ValueError as e:
         raise RecordingFormatError("First line is not JSON") from e
     if not isinstance(header, dict) or header.get("kind") != HEADER_KIND:
@@ -84,31 +118,30 @@ def parse(data: bytes) -> ParsedRecording:
 
     # A header and nothing else is a session that recorded no samples. Storing it
     # would put a drive in the index that CAR-102 cannot fit anything against.
-    if len(lines) == 1:
+    if first_nl == -1:
         raise RecordingFormatError("Recording has a header but no samples")
 
     try:
-        last = json.loads(lines[-1])
+        last = json.loads(data[data.rfind(b"\n", 0, end) + 1 : end])
         last_t = float(last["t"])
     except (ValueError, KeyError, TypeError) as e:
         raise RecordingFormatError("Last line is not a timestamped sample") from e
-
-    device_model = header.get("deviceModel")
-    provenance = header.get("provenance")
 
     return ParsedRecording(
         session_id=session_id,
         scenario=scenario,
         platform=_require_str(header, "platform"),
-        device_model=device_model if isinstance(device_model, str) else None,
+        device_model=_optional_str(header, "deviceModel", None),
         # Anything arriving through the debug recorder is a staged drive by
         # construction; the field exists so a later self-reported or
         # transit-cross-referenced set can say so (docs/fraud-detection.md).
-        provenance=provenance if isinstance(provenance, str) else "staged",
+        provenance=_optional_str(header, "provenance", "staged") or "staged",
         format_version=version,
         started_at=datetime.fromtimestamp(started_ms / 1000, tz=UTC),
         duration_s=max(0, int((last_t - started_ms) / 1000)),
-        sample_count=len(lines) - 1,
+        # One newline per line break and no blank lines, so the count is
+        # exactly the number of sample lines following the header.
+        sample_count=data.count(b"\n", 0, end),
     )
 
 
@@ -178,9 +211,9 @@ def _reconcile(existing: RawRecording, digest: str) -> RawRecording:
 
 
 async def list_recordings(
-    db: AsyncSession, scenario: str | None = None, platform: str | None = None
+    db: AsyncSession, scenario: str | None = None, platform: str | None = None, limit: int = 100
 ) -> list[RawRecording]:
-    stmt = select(RawRecording).order_by(RawRecording.started_at.desc())
+    stmt = select(RawRecording).order_by(RawRecording.started_at.desc()).limit(limit)
     if scenario:
         stmt = stmt.where(RawRecording.scenario == scenario)
     if platform:

@@ -4417,6 +4417,7 @@ export interface operations {
             query?: {
                 scenario?: string | null;
                 platform?: string | null;
+                limit?: number;
             };
             header?: never;
             path?: never;

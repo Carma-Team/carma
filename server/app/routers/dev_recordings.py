@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 
 from app.config import settings
 from app.core.deps import CurrentAdmin, DbSession
@@ -21,17 +21,18 @@ async def _read_bounded(file: UploadFile) -> bytes:
     hashes, gzips and stores - and it tells the caller the file was refused
     instead of silently keeping a runaway one.
     """
-    chunks: list[bytes] = []
-    total = 0
+    # A bytearray rather than a list of chunks joined at the end: the join
+    # would hold the whole recording twice at once, which at the 32 MB cap is
+    # 64 MB for no gain.
+    buffer = bytearray()
     while chunk := await file.read(_CHUNK):
-        total += len(chunk)
-        if total > settings.recording_max_bytes:
+        if len(buffer) + len(chunk) > settings.recording_max_bytes:
             raise HTTPException(
                 status.HTTP_413_CONTENT_TOO_LARGE,
                 f"Recording exceeds {settings.recording_max_bytes} bytes",
             )
-        chunks.append(chunk)
-    return b"".join(chunks)
+        buffer += chunk
+    return bytes(buffer)
 
 
 @router.post(
@@ -65,13 +66,18 @@ async def upload_recording(
             "No durable recording store configured - set RECORDING_STORE=azure",
         )
 
-    data = await _read_bounded(file)
     try:
+        data = await _read_bounded(file)
         recording, created = await svc.store(db, data, uploaded_by=admin.id)
     except svc.RecordingFormatError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     except svc.RecordingConflictError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    finally:
+        # Anything over Starlette's spool threshold is a real temporary file on
+        # disk, and a recording is always over it. Closing is what deletes it,
+        # on the refusal paths as much as the happy one.
+        await file.close()
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return RawRecordingOut.model_validate(recording)
 
@@ -87,8 +93,9 @@ async def list_recordings(
     admin: CurrentAdmin,
     scenario: str | None = None,
     platform: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
 ) -> RawRecordingsOut:
     """What CAR-31 means by "somewhere the next person can find it" - the answer
     to "which drives do we already have" without listing a storage container."""
-    rows = await svc.list_recordings(db, scenario=scenario, platform=platform)
+    rows = await svc.list_recordings(db, scenario=scenario, platform=platform, limit=limit)
     return RawRecordingsOut(recordings=[RawRecordingOut.model_validate(r) for r in rows])
