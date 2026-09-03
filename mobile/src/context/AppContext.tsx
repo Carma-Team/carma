@@ -390,7 +390,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return finalState;
   }, [user, addToast, lang]);
 
-  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
+  // The SDK's onTripEnd is a synchronous callback, so the promise `processEndTrip`
+  // returns had nowhere to go and was dropped. `stopTrip` then resolved while the save
+  // and the score it waits for were still in flight, and every caller that awaited
+  // `endTrip` — the end-of-trip spinner among them — carried on without a score
+  // (CAR-301). Holding it here is what gives `endTrip` something to wait on.
+  const endInFlightRef = useRef<Promise<TripState | null> | null>(null);
+  const handleTripEnded = useCallback(() => {
+    endInFlightRef.current = processEndTrip();
+  }, [processEndTrip]);
+
+  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: handleTripEnded });
   useScoringEvents(sdk, setTripState);
   useFraudBinding(sdk, user, setTripState);
   useRegionBinding(sdk, setTripState, addToast, lang);
@@ -510,7 +520,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const endTrip = useCallback(async () => {
+    // `stopTrip` fires onTripEnd before it resolves, so the ref is populated by the
+    // time this reads it. Swallowed on purpose: processEndTrip already reports every
+    // failure it knows about, and an unexpected throw must still let the caller take
+    // its spinner down rather than leaving it up forever.
     await sdk.stopTrip();
+    try {
+      await endInFlightRef.current;
+    } catch (e) {
+      console.error('[AppContext] End-of-trip processing failed', e);
+    } finally {
+      endInFlightRef.current = null;
+    }
     return tripRef.current;
   }, [sdk]);
 
