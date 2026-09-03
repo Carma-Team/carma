@@ -7,23 +7,38 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, TYPOGRAPHY } from '@/constants/theme'
 
-interface LocationPickerProps {
+/**
+ * One choice. The label is what the reader sees; the value is what identifies it.
+ *
+ * They were once the same string, which meant callers had to resolve a pick back
+ * through a label-keyed map — and two settlements whose names match in the active
+ * language collapsed into one entry that resolved to whichever was built last
+ * (CAR-290).
+ */
+export interface LocationOption {
   value: string
-  options: string[]
+  label: string
+}
+
+interface LocationPickerProps {
+  /** The selected option's `value`, not its label. Empty means nothing is picked. */
+  value: string
+  options: LocationOption[]
   placeholder: string
-  onChange: (v: string) => void
+  onChange: (value: string) => void
   style?: StyleProp<ViewStyle>
 }
 
 export function LocationPicker({ value, options, placeholder, onChange, style }: LocationPickerProps) {
   const [open, setOpen] = useState(false)
   const insets = useSafeAreaInsets()
+  const selectedLabel = options.find(o => o.value === value)?.label ?? ''
 
   return (
     <>
       <TouchableOpacity onPress={() => setOpen(true)} style={[styles.trigger, style]}>
         <Text style={styles.triggerText} numberOfLines={1}>
-          {value || placeholder}
+          {selectedLabel || placeholder}
         </Text>
         {value ? (
           <TouchableOpacity onPress={() => onChange('')} hitSlop={8}>
@@ -43,19 +58,22 @@ export function LocationPicker({ value, options, placeholder, onChange, style }:
             </View>
             <FlatList
               data={options}
-              keyExtractor={o => o}
+              keyExtractor={o => o.value}
               showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.option, item === value && styles.optionActive]}
-                  onPress={() => { onChange(item); setOpen(false) }}
-                >
-                  <Text style={[styles.optionText, item === value && styles.optionTextActive]}>
-                    {item}
-                  </Text>
-                  {item === value && <Ionicons name="checkmark" size={16} color={COLORS.brand} />}
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                const selected = item.value === value
+                return (
+                  <TouchableOpacity
+                    style={[styles.option, selected && styles.optionActive]}
+                    onPress={() => { onChange(item.value); setOpen(false) }}
+                  >
+                    <Text style={[styles.optionText, selected && styles.optionTextActive]}>
+                      {item.label}
+                    </Text>
+                    {selected && <Ionicons name="checkmark" size={16} color={COLORS.brand} />}
+                  </TouchableOpacity>
+                )
+              }}
             />
           </View>
         </TouchableOpacity>
