@@ -104,14 +104,19 @@ class ScoringConfig:
 
     # Driver score ("The driver's own score").
     ewma_halflife_days: float = 14.0
-    credibility_full_km: float = 300.0
+    # Threshold on *decayed* exposure (weighted_km below), not raw kilometres —
+    # undecayed credibility let old distance hold a driver at full credibility
+    # long after it had decayed out of the average, so a couple of fresh trips
+    # were left to fully determine the score. 200 is the steady-state weighted
+    # km at this half-life for a driver holding ~300 raw km/month (the geometric
+    # series Σ 0.5^(t/14) converges to ≈20.7×daily_km).
+    credibility_full_weighted_km: float = 200.0
     prior_score: float = 75.0
     # Most exposure one trip can contribute, so that "no single trip may have a
     # major impact on the overall score" (CMT, US12071140B2 — their worked example
-    # caps a 200-mile trip's behaviours at a 100-mile threshold). 30 km is a tenth
-    # of the credibility window above, which puts ten capped trips between a new
-    # driver and a fully proven one — the same window CMT state as their other
-    # option, "the last 10 trips".
+    # caps a 200-mile trip's behaviours at a 100-mile threshold): it puts several
+    # capped trips between a new driver and a fully proven one, the same idea
+    # CMT state as their other option, "the last 10 trips".
     trip_exposure_cap_km: float = 30.0
 
     # Streak ("Streaks"). A day clears the bar when its distance-weighted average
@@ -390,17 +395,19 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 
     weighted_score = 0.0
     weighted_km = 0.0
-    total_km = 0.0
     for h in history:
         decay = 0.5 ** (max(0.0, h.age_days) / config.ewma_halflife_days)
         exposure = min(max(0.0, h.distance_km), config.trip_exposure_cap_km)
         w = exposure * decay
         weighted_score += h.trip_score * w
         weighted_km += w
-        total_km += exposure
 
     driver_raw = weighted_score / weighted_km if weighted_km > 0 else config.prior_score
-    credibility = min(total_km / config.credibility_full_km, 1.0)
+    # Credibility keys off the same decayed sum as the average, not a separate
+    # undecayed total — otherwise old exposure can hold credibility at 1.0 long
+    # after it has decayed out of driver_raw, letting a couple of fresh trips
+    # fully determine the score (the bug a wider query window would have hit).
+    credibility = min(weighted_km / config.credibility_full_weighted_km, 1.0)
     score = credibility * driver_raw + (1.0 - credibility) * config.prior_score
     return round(_clamp(score, 0.0, 100.0) * 10) / 10
 

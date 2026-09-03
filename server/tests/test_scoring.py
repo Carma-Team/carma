@@ -228,9 +228,9 @@ class TestComputeDriverScore:
         assert compute_driver_score([]) == CONFIG.prior_score
 
     def test_cold_start_blends_toward_prior(self) -> None:
-        # One 50 km trip counts as 30 → credibility 30/300, mostly the 75 prior.
+        # One 50 km trip counts as 30 → credibility 30/200, mostly the 75 prior.
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=50.0, age_days=0.0)])
-        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_km
+        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_weighted_km
         assert math.isclose(score, round((cred * 100.0 + (1 - cred) * 75.0) * 10) / 10)
 
     def test_full_credibility_ignores_prior(self) -> None:
@@ -273,7 +273,19 @@ class TestComputeDriverScore:
         """The cap applies to credibility too. One stretch of motorway is one drive,
         not a proven record — the score stays near the cold-start prior."""
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0)])
-        assert math.isclose(score, 77.5, abs_tol=0.1)
+        assert math.isclose(score, 78.75, abs_tol=0.1)
+
+    def test_stale_exposure_does_not_grant_credibility(self) -> None:
+        """Credibility keys off decayed exposure, not a raw lifetime total. A
+        trip old enough to have decayed out of the average must not still be
+        propping up credibility — otherwise one fresh trip would fully decide
+        the score, exactly the "single trip fully determines it" bug a raw-km
+        threshold reopens once trips outlive a few half-lives."""
+        stale = TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=1000.0)
+        fresh = TripHistoryPoint(trip_score=50.0, distance_km=10.0, age_days=0.0)
+        score = compute_driver_score([stale, fresh])
+        cred = 10.0 / CONFIG.credibility_full_weighted_km
+        assert math.isclose(score, round((cred * 50.0 + (1 - cred) * 75.0) * 10) / 10, abs_tol=0.1)
 
 
 # ─── points engine ──────────────────────────────────────────────────────────────
