@@ -40,13 +40,13 @@ Each queued trip carries two independent counters:
 - **`backoffStep`** — how far into the backoff schedule this trip is. Grows on every
   transient failure and stops at the longest interval. It controls *when* the next attempt
   happens and nothing else.
-- **`failures`** — how many times this trip has genuinely failed to upload. Recorded for
-  observability; nothing reads it to decide whether to drop the trip (see §4 — that is
-  governed by `queuedAt` alone).
+- **`failures`** — how many times this trip has genuinely failed to upload. It is the only
+  counter that can delete a trip.
 
 They are not derivable from one another, because **a 429 advances the backoff but does not
 count as a failure**. A rate limit is the server rationing capacity shared with every other
-driver behind the same carrier NAT; it is not this trip's fault.
+driver behind the same carrier NAT; it is not this trip's fault, and it must not bring the
+trip closer to deletion.
 
 **Backoff schedule:** 1 minute → 5 minutes → 15 minutes → 1 hour, then held at 1 hour. On a
 429 the server's `Retry-After` replaces the scheduled interval, falling back to the schedule
@@ -57,22 +57,19 @@ is launched or foregrounded, so finer granularity would add steps without changi
 
 ## 4. Retention bound
 
-A trip is held in the queue for up to 30 days (`MAX_QUEUE_AGE_MS`), measured from `queuedAt`
-— the moment it was enqueued — not from the number of times an upload was attempted. An
-attempt count would mean a different span of real time for every driver, since attempts only
-accrue on app launch or foreground return; age reads a timestamp that is already stored and
-does not depend on how often the app is opened.
+A trip is dropped from the queue once it has failed to upload `MAX_FAILURES_BEFORE_DROP = 50`
+times (`mobile/src/services/sync/SyncManager.ts`). It is deleted and a warning is logged — the
+driver is not shown that it happened. The value is a placeholder, chosen to sit far beyond any
+plausible outage while still bounding local storage; it was never calibrated (see CAR-138,
+which stopped it from being five).
 
-30 days is tied to CARMA's own reward and voucher cycle, not to a published telematics
-standard — no vendor publishes a retention bound for a local upload queue.
-
-When a trip crosses the bound, it is removed from the sync queue but not deleted from the
-device: `SyncManager` calls `onTripAbandoned`, and `AppContext` flags the trip `syncFailed`
-in local storage. The trip stops being retried and stays out of the driver's synced history,
-but the record itself survives.
+CAR-166 has since settled what replaces it: the bound becomes the trip's age in the queue
+(`queuedAt`), not its attempt count, at 30 days — and a trip that crosses it is abandoned, not
+deleted, so the record survives on the device even though it stops being retried. That decision
+is not implemented yet; §4 will change again when it lands.
 
 ---
 
-*Related: CAR-138 (stopped the queue silently deleting a trip after five transient
-failures), CAR-166 (settled the bound in this section), CAR-126 (server-side rate limiting —
-the source of the 429 case), RFC-001 §6 (idempotency and the 422 contract).*
+*Related: CAR-138 (the fix described here), CAR-166 (the retention-bound decision, not yet
+implemented), CAR-126 (server-side rate limiting — the source of the 429 case), RFC-001 §6
+(idempotency and the 422 contract).*
