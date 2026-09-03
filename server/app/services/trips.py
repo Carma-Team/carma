@@ -31,10 +31,18 @@ from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
 
-# Driver-score aggregation window (scoring.md "The driver's own score") —
-# ~28-day effective window from a 14-day half-life, matching CMT's rolling
-# window; query a 30-day slice to cover the long tail.
-_DRIVER_SCORE_WINDOW_DAYS = 30
+# Driver-score aggregation window (scoring.md "The driver's own score"). Wider
+# than the anti-grind window below on purpose: credibility now keys off decayed
+# exposure (weighted_km in compute_driver_score), not a raw total, so a trip
+# past a few half-lives contributes almost nothing either way — widening this
+# just gives an infrequent driver more chances to reach credibility, without
+# the old raw-km version's risk of stale distance propping the score up.
+_DRIVER_SCORE_WINDOW_DAYS = 60
+
+# Anti-grind economic ceiling's own window (scoring.md "Points"): a calendar
+# month, independent of the driver-score window above — coupling the two once
+# meant widening one silently doubled the other's earning rate.
+_POINTS_MONTH_WINDOW_DAYS = 30
 
 # How far back a streak can reach (scoring.md "Streaks"). Doubles as its expiry:
 # a gap longer than this leaves no history to walk back to, so the run ends.
@@ -543,10 +551,11 @@ async def _compute_score(
     today = now.astimezone(_TZ_IL).date()
     points_today = sum((pts or 0.0) for _s, _km, start, pts in rows if start.astimezone(_TZ_IL).date() == today)
     distance_today_km = sum((km or 0.0) for _s, km, start, _p in rows if start.astimezone(_TZ_IL).date() == today)
-    # Rolling-month total for the economic ceiling. `rows` already spans exactly
-    # the window, so this is free — but it does mean the ceiling's window is
-    # `_DRIVER_SCORE_WINDOW_DAYS`; move that and you move this.
-    points_month = sum((pts or 0.0) for _s, _km, _start, pts in rows)
+    # Rolling-month total for the economic ceiling, filtered out of `rows`
+    # rather than queried separately — `rows` already spans a superset of this
+    # window, so no second round trip is needed.
+    points_month_cutoff = now - timedelta(days=_POINTS_MONTH_WINDOW_DAYS)
+    points_month = sum((pts or 0.0) for _s, _km, start, pts in rows if start >= points_month_cutoff)
 
     points = scoring.compute_points(
         trip_score=trip_score,
