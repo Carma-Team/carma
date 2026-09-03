@@ -108,8 +108,10 @@ class ScoringConfig:
     # undecayed credibility let old distance hold a driver at full credibility
     # long after it had decayed out of the average, so a couple of fresh trips
     # were left to fully determine the score. 200 is the steady-state weighted
-    # km at this half-life for a driver holding ~300 raw km/month (the geometric
-    # series Σ 0.5^(t/14) converges to ≈20.7×daily_km).
+    # km at this half-life for an assumed ~300 raw km/month baseline driver (no
+    # fleet data behind that figure yet — the geometric series Σ 0.5^(t/14)
+    # converges to ≈20.7×daily_km, so it should move once usage data replaces
+    # the guess).
     credibility_full_weighted_km: float = 200.0
     prior_score: float = 75.0
     # Most exposure one trip can contribute, so that "no single trip may have a
