@@ -77,6 +77,20 @@ class Settings(BaseSettings):
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
 
+    # Where staged calibration recordings land (CAR-213). Same shape as
+    # `sms_provider`: "local" writes under `recording_local_dir` so a plain
+    # `git clone` with no cloud account can still run the endpoint and its
+    # tests, "azure" is what the deployed server uses.
+    recording_store: Literal["local", "azure"] = "local"
+    recording_blob_connection_string: str | None = None
+    recording_blob_container: str = "raw-recordings"
+    recording_local_dir: str = "var/raw-recordings"
+    # A 10-minute staged drive is ~1.6 MB of NDJSON at the recorder's 10 Hz
+    # accelerometer, gyroscope and magnetometer plus 0.5 Hz location. 32 MB is
+    # roughly three hours, so it refuses a runaway file without ever refusing a
+    # real drive.
+    recording_max_bytes: int = Field(default=32 * 1024 * 1024, gt=0)
+
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
 
@@ -152,6 +166,14 @@ class Settings(BaseSettings):
                 "REFRESH_TOKEN_EXPIRES_DAYS — an access token that outlives its own "
                 "refresh token defeats the point of keeping it short-lived"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_recording_store(self) -> Settings:
+        """An "azure" store with no connection string fails at the first upload,
+        after the tester has already driven. Fail at startup instead."""
+        if self.recording_store == "azure" and not self.recording_blob_connection_string:
+            raise ValueError("RECORDING_STORE=azure requires RECORDING_BLOB_CONNECTION_STRING")
         return self
 
     @model_validator(mode="after")

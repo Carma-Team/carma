@@ -30,6 +30,7 @@ from app.routers import (
     business_join_requests,
     business_memberships,
     cities,
+    dev_recordings,
     fraud,
     friends,
     health,
@@ -150,6 +151,7 @@ app.include_router(leaderboard.router)
 app.include_router(friends.router)
 app.include_router(invites.router)
 app.include_router(notifications.router)
+app.include_router(dev_recordings.router)
 app.include_router(health.router)
 
 

@@ -981,6 +981,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dev/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The labelled drive set, newest first. Internal: admin accounts only.
+         * @description What CAR-31 means by "somewhere the next person can find it" - the answer
+         *     to "which drives do we already have" without listing a storage container.
+         */
+        get: operations["list_recordings_api_dev_recordings_get"];
+        put?: never;
+        /**
+         * Upload one staged calibration drive. Internal: admin accounts only.
+         * @description Admin-gated rather than open to any signed-in driver.
+         *
+         *     The recorder itself is a debug-menu tool a regular build never exposes, but
+         *     the endpoint is reachable in every environment, and an authenticated
+         *     stranger posting megabytes into the container would be a storage bill with
+         *     no owner. Whoever stages a calibration drive gets an admin account; that is
+         *     a smaller ask than a second permission model for one internal route.
+         */
+        post: operations["upload_recording_api_dev_recordings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1024,6 +1055,11 @@ export interface components {
             /** Token */
             token: string;
             user: components["schemas"]["UserOut"];
+        };
+        /** Body_upload_recording_api_dev_recordings_post */
+        Body_upload_recording_api_dev_recordings_post: {
+            /** File */
+            file: string;
         };
         /** BusinessInvitationAcceptOut */
         BusinessInvitationAcceptOut: {
@@ -1974,6 +2010,49 @@ export interface components {
             code: string;
             /** Newpassword */
             newPassword: string;
+        };
+        /**
+         * RawRecordingOut
+         * @description One staged calibration drive in the index (CAR-213).
+         *
+         *     `objectPath` is deliberately store-relative rather than a download URL. The
+         *     consumer is whoever works CAR-102, pulling files in bulk with Storage
+         *     Explorer or azcopy, not a client following a link - and a signed URL minted
+         *     here would expire long before an analysis run finishes.
+         */
+        RawRecordingOut: {
+            /** Sessionid */
+            sessionId: string;
+            /** Scenario */
+            scenario: string;
+            /** Platform */
+            platform: string;
+            /** Devicemodel */
+            deviceModel: string | null;
+            /** Provenance */
+            provenance: string;
+            /** Formatversion */
+            formatVersion: number;
+            /**
+             * Startedat
+             * Format: date-time
+             */
+            startedAt: string;
+            /** Durations */
+            durationS: number;
+            /** Samplecount */
+            sampleCount: number;
+            /** Bytesize */
+            byteSize: number;
+            /** Sha256 */
+            sha256: string;
+            /** Objectpath */
+            objectPath: string;
+        };
+        /** RawRecordingsOut */
+        RawRecordingsOut: {
+            /** Recordings */
+            recordings: components["schemas"]["RawRecordingOut"][];
         };
         /** RecentScore */
         RecentScore: {
@@ -4321,6 +4400,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_recordings_api_dev_recordings_get: {
+        parameters: {
+            query?: {
+                scenario?: string | null;
+                platform?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawRecordingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_recording_api_dev_recordings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_recording_api_dev_recordings_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawRecordingOut"];
+                };
             };
             /** @description Validation Error */
             422: {

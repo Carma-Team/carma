@@ -27,6 +27,7 @@ from app.models.notification import (
     Notification,
 )
 from app.models.otp import OtpCode
+from app.models.raw_recording import RawRecording
 from app.models.redemption import Redemption
 from app.models.refresh_token import RefreshToken
 from app.models.reward import Reward
@@ -56,6 +57,7 @@ __all__ = [
     "LoginFailure",
     "Notification",
     "OtpCode",
+    "RawRecording",
     "Redemption",
     "RedemptionStatus",
     "RefreshToken",
