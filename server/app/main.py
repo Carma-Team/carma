@@ -114,6 +114,11 @@ app.add_middleware(
     allow_credentials=settings.cors_allows_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    # `Retry-After` is not one of the seven headers a browser exposes to JS by
+    # default, so cross-origin it reaches the network tab and nothing else. Three
+    # web modules read it off a 429 to say how long the wait is; without this they
+    # silently get null and the UI can only say "try again later" (CAR-108).
+    expose_headers=["Retry-After"],
 )
 
 

@@ -535,6 +535,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/redemptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paged redemption history for the authenticated business — USED only by default */
+        get: operations["list_redemptions_api_business_redemptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Redemption performance snapshot for the authenticated business */
+        get: operations["stats_api_business_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/invitations": {
         parameters: {
             query?: never;
@@ -1303,6 +1337,46 @@ export interface components {
          * @enum {string}
          */
         BusinessMembershipRole: "OWNER" | "MANAGER" | "CASHIER";
+        /** BusinessRedemptionListOut */
+        BusinessRedemptionListOut: {
+            /** Redemptions */
+            redemptions: components["schemas"]["BusinessRedemptionOut"][];
+            /** Livevouchercount */
+            liveVoucherCount: number;
+            /** Nextcursor */
+            nextCursor: string | null;
+        };
+        /**
+         * BusinessRedemptionOut
+         * @description One settled row of a business's redemption history (CAR-79).
+         *
+         *     No driver identifier anywhere here — the same boundary `BusinessVoucherOut`
+         *     draws (CAR-78). `consumed_by_*` names the business staff member who
+         *     scanned it (CAR-75), never the driver who redeemed it.
+         */
+        BusinessRedemptionOut: {
+            /** Id */
+            id: string;
+            reward: components["schemas"]["RewardSummaryOut"];
+            /** Status */
+            status: string;
+            /** Pointscost */
+            pointsCost: number;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Settledat
+             * Format: date-time
+             */
+            settledAt: string;
+            /** Consumedbyuserid */
+            consumedByUserId: string | null;
+            /** Consumedbyname */
+            consumedByName: string | null;
+        };
         /**
          * BusinessRewardIn
          * @description Create payload for a business-owned reward.
@@ -1373,6 +1447,37 @@ export interface components {
         /** BusinessRewardResponse */
         BusinessRewardResponse: {
             reward: components["schemas"]["RewardOut"];
+        };
+        /**
+         * BusinessStatsOut
+         * @description Redemption performance snapshot for the authenticated business (CAR-81).
+         *
+         *     Every field is a database aggregate scoped to this business alone — nothing
+         *     here loads redemption rows into application memory, so the response stays
+         *     the same size no matter how many vouchers the business has ever issued.
+         */
+        BusinessStatsOut: {
+            /** Redemptionstoday */
+            redemptionsToday: number;
+            /** Redemptionslast30Days */
+            redemptionsLast30Days: number;
+            /** Livevouchers */
+            liveVouchers: number;
+            /** Totalpointscharged */
+            totalPointsCharged: number;
+            /** Vouchersissued */
+            vouchersIssued: number;
+            /** Vouchersredeemed */
+            vouchersRedeemed: number;
+            /**
+             * Issuedtoredeemedratio
+             * @description Redeemed vouchers divided by issued vouchers. A lower value means a larger share of issued vouchers were not redeemed. `null` when this business has not issued any vouchers yet — a ratio has no meaning against a zero denominator.
+             */
+            issuedToRedeemedRatio: number | null;
+            /** Toprewards */
+            topRewards: components["schemas"]["TopRewardOut"][];
+            /** Soldoutrewards */
+            soldOutRewards: components["schemas"]["SoldOutRewardOut"][];
         };
         /**
          * BusinessVoucherOut
@@ -1554,6 +1659,9 @@ export interface components {
             /** Detectedmode */
             detectedMode?: string | null;
             signals?: components["schemas"]["FraudSignals"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            sensorAvailability?: components["schemas"]["FraudSensorAvailability"] | null;
             telemetry?: components["schemas"]["FraudTelemetry"] | null;
             /** Maxspeedkmh */
             maxSpeedKmh?: number | null;
@@ -1573,6 +1681,18 @@ export interface components {
             reportedAt: string;
             /** Anomalyflags */
             anomalyFlags: string[];
+        };
+        /**
+         * FraudSensorAvailability
+         * @description Which sensors backed this verdict, so a stored report explains its own unknowns.
+         */
+        FraudSensorAvailability: {
+            /** Gps */
+            gps?: boolean | null;
+            /** Accelerometer */
+            accelerometer?: boolean | null;
+            /** Gyroscope */
+            gyroscope?: boolean | null;
         };
         /**
          * FraudSignals
@@ -2018,6 +2138,26 @@ export interface components {
             expiresAt: string | null;
         };
         /**
+         * RewardSummaryOut
+         * @description Just enough of a reward to show on a settled redemption row (CAR-79).
+         *
+         *     Deliberately not `RewardOut`: `available`/`stock` describe live inventory,
+         *     which a history row — possibly for an archived reward — has no business
+         *     computing.
+         */
+        RewardSummaryOut: {
+            /** Id */
+            id: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+            /** Imageicon */
+            imageIcon: string;
+            /** Category */
+            category: string;
+        };
+        /**
          * SaveTripIn
          * @description May's frontend posts a mix of snake_case and camelCase. Accept all variants.
          */
@@ -2076,9 +2216,35 @@ export interface components {
             /** Aiinsight */
             aiInsight?: string | null;
         };
+        /**
+         * SoldOutRewardOut
+         * @description A reward with no units left — same derived availability as CAR-47's `available`.
+         */
+        SoldOutRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+        };
         /** StatsOut */
         StatsOut: {
             stats: components["schemas"]["DrivingStats"];
+        };
+        /**
+         * TopRewardOut
+         * @description One entry of the most-redeemed-rewards ranking (CAR-81).
+         */
+        TopRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+            /** Redemptioncount */
+            redemptionCount: number;
         };
         /**
          * TripDetailOut
@@ -3382,6 +3548,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_redemptions_api_business_redemptions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                rewardId?: string | null;
+                from?: string | null;
+                to?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRedemptionListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_business_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessStatsOut"];
                 };
             };
         };

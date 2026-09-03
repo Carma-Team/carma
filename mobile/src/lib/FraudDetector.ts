@@ -97,6 +97,15 @@ export interface FraudEvaluation {
   isReady: boolean;
   mode: TransportMode;
   signals: FraudSignals;
+  /** Per-sensor availability so a stored report explains its own unknowns (§3.4).
+   *  GPS is reported unconditionally true: TripValidationManager only samples above
+   *  SPEED_THRESHOLD_KMH, and SensorManager hard-zeros a stale fix rather than
+   *  freezing it, so a stale GPS reading never reaches this buffer. */
+  sensorAvailability: {
+    gps: boolean | null;
+    accelerometer: boolean | null;
+    gyroscope: boolean | null;
+  };
   // Raw computed values — passed through to the API payload for Sean's analytics
   telemetry: {
     avgSpeedKmh: number;
@@ -114,22 +123,46 @@ export class FraudDetector {
   private accelBuffer  = new CircularBuffer(WINDOW_SIZE);
   private gyroBuffer   = new CircularBuffer(WINDOW_SIZE);
 
+  // Latest-tick availability, mirroring the granularity SensorManager itself reports
+  // at — not a second circular buffer recording every sample in the window. Reporting
+  // only (§6): it explains a `null` signal for the stored evidence, it does not gate
+  // the signal computation below, which already reads UNKNOWN off the resolved frame
+  // (NaN-filtered accels/gyros, MIN_FRAMED_SAMPLES). Starts UNKNOWN, not FALSE — an
+  // unwired caller has not reported absence, only silence.
+  private accelAvailable: boolean | null = null;
+  private gyroAvailable: boolean | null  = null;
+
   /**
-   * @param speedKmh      GPS ground speed. Frame-free.
-   * @param lateralAccelG Lateral force **in the vehicle's frame**, in g, signed positive
-   *                      to the left of travel. `null` when the SDK could not resolve the
-   *                      frame — stored as NaN and excluded from the window, so Signal 2
-   *                      reads UNKNOWN rather than "no force".
-   * @param yawRateRadS   Angular rate **about gravity**, in rad/s, signed. `null` under
-   *                      the same conditions, with the same meaning for Signal 3.
+   * @param speedKmh        GPS ground speed. Frame-free.
+   * @param lateralAccelG   Lateral force **in the vehicle's frame**, in g, signed positive
+   *                        to the left of travel. `null` when the SDK could not resolve the
+   *                        frame — stored as NaN and excluded from the window, so Signal 2
+   *                        reads UNKNOWN rather than "no force".
+   * @param yawRateRadS     Angular rate **about gravity**, in rad/s, signed. `null` under
+   *                        the same conditions, with the same meaning for Signal 3.
+   * @param accelAvailable  Whether this tick's accelerometer reading came from a live
+   *                        sensor rather than SensorManager's absent-sensor default.
+   *                        Defaults null (unknown): TripValidationManager doesn't pass
+   *                        real availability yet (May's follow-on, CAR-162 plan), and an
+   *                        unwired caller reporting `false` would assert "absent" — a
+   *                        claim it has no basis for — rather than "not yet reported."
+   * @param gyroAvailable   Same, for the gyroscope.
    */
-  addSample(speedKmh: number, lateralAccelG: number | null, yawRateRadS: number | null): void {
+  addSample(
+    speedKmh: number,
+    lateralAccelG: number | null,
+    yawRateRadS: number | null,
+    accelAvailable: boolean | null = null,
+    gyroAvailable: boolean | null = null,
+  ): void {
     this.speedBuffer.push(speedKmh);
     // NaN is the in-band "not measured" marker: the buffers are Float32Array for the
     // fixed memory, and every comparison against NaN is false, so an unresolved sample
     // cannot accidentally satisfy a threshold. `framed` below is what filters them out.
     this.accelBuffer.push(lateralAccelG === null ? NaN : Math.abs(lateralAccelG));
     this.gyroBuffer.push(yawRateRadS === null ? NaN : yawRateRadS);
+    this.accelAvailable = accelAvailable;
+    this.gyroAvailable = gyroAvailable;
   }
 
   evaluate(): FraudEvaluation {
@@ -139,6 +172,7 @@ export class FraudDetector {
       return {
         score: 0, confidence: 0, isReady: false, mode: TransportMode.UNKNOWN,
         signals: { constantHighSpeed: null, noLateralForce: null, noHeadingChange: null },
+        sensorAvailability: { gps: null, accelerometer: null, gyroscope: null },
         telemetry: { avgSpeedKmh: 0, maxLateralAccelG: 0, yawVariance: 0 },
       };
     }
@@ -183,6 +217,7 @@ export class FraudDetector {
 
     return {
       score, confidence, isReady: true, mode, signals,
+      sensorAvailability: { gps: true, accelerometer: this.accelAvailable, gyroscope: this.gyroAvailable },
       telemetry: { avgSpeedKmh, maxLateralAccelG, yawVariance },
     };
   }
@@ -191,6 +226,8 @@ export class FraudDetector {
     this.speedBuffer.reset();
     this.accelBuffer.reset();
     this.gyroBuffer.reset();
+    this.accelAvailable = null;
+    this.gyroAvailable = null;
   }
 
   // Var(X) = E[X²] − E[X]²  (single-pass, numerically stable for reasonable float ranges)

@@ -33,6 +33,12 @@ name: Deploy to Azure
 #   TRIP_SIGNING_SECRET            - secretref, 32+ chars; without it the trip
 #                                    scoring oracle is open to anyone (#24)
 #   TRUSTED_PROXY_COUNT=1          - set by this workflow, see the update step
+#   CORS_ORIGINS                   - the deployed business web origin, exactly.
+#                                    A wildcard here disables credentialed CORS
+#                                    and no browser session can sign in (CAR-108)
+#   REFRESH_COOKIE_SAMESITE=none   - the web app and the API are separate
+#                                    Container App hostnames; see CAR-108 and
+#                                    docs/web-deployment.md
 #   SMS_PROVIDER + TWILIO_*        - only when sending real SMS
 #   RECORDING_STORE=azure          - only to collect staged calibration drives
 #   RECORDING_BLOB_CONNECTION_STRING - secretref, the storage account holding

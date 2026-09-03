@@ -33,11 +33,15 @@ class Settings(BaseSettings):
     # the cookie and resets this window, so an active user is never signed out
     # by it; only real inactivity is.
     refresh_token_expires_days: int = Field(default=30, gt=0)
-    # "lax" is correct today — the web app and the API are same-site in every
-    # environment this runs in so far. If a future deploy puts them on
-    # different registrable domains, the browser will silently stop sending
-    # the cookie on fetch/XHR unless this becomes "none" (which also requires
-    # `refresh_cookie_secure`, see below — HTTPS only, no exception for dev).
+    # "lax" is right for local development, where the web app and the API are
+    # both on localhost and so same-site whatever ports they use. Production
+    # sets this to "none": `carma-business` and `carma-api` are two Container
+    # Apps, and while they happen to share a parent domain today, the browser
+    # decides same-site from the Public Suffix List, which does not list
+    # `azurecontainerapps.io` at all. Betting the session on that gap staying
+    # open is not worth it; "none" is correct either way, and CSRF is held by
+    # `core.deps.require_browser_header` rather than by SameSite. "none" also
+    # forces the cookie's Secure flag on, see `refresh_cookie_secure` below.
     refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
     otp_length: int = 6
