@@ -173,6 +173,102 @@ describe('RedemptionHistoryPage', () => {
     );
   });
 
+  it('selecting a reward sends its id and starts a fresh result set, not an appended one', async () => {
+    vi.mocked(listRedemptionHistory)
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'all-rewards-row' })],
+        liveVoucherCount: 0,
+        nextCursor: 'cursor-a',
+      })
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'r1-only-row' })],
+        liveVoucherCount: 0,
+        nextCursor: null,
+      });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Dana Levi')).toBeInTheDocument());
+    // A next page exists after the first fetch (nextCursor: 'cursor-a').
+    expect(screen.getByRole('button', { name: 'טען עוד' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('הטבה'), { target: { value: 'r1' } });
+
+    await waitFor(() =>
+      expect(listRedemptionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ rewardId: 'r1', cursor: null })),
+    );
+    // The old (unfiltered) page's row is gone — no leftover rows appended
+    // from before the reward filter was applied — and "load more" reflects
+    // the new filter's own (null) nextCursor rather than the old one's.
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2)); // header + 1 data row
+    expect(screen.getByText('הגעתם לסוף הרשימה.')).toBeInTheDocument();
+  });
+
+  it('changing the "from" date sends the start-of-day boundary and starts a fresh result set', async () => {
+    vi.mocked(listRedemptionHistory)
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'unfiltered-row' })],
+        liveVoucherCount: 0,
+        nextCursor: 'cursor-a',
+      })
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'from-filtered-row' })],
+        liveVoucherCount: 0,
+        nextCursor: null,
+      });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Dana Levi')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'טען עוד' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('מתאריך'), { target: { value: '2026-08-15' } });
+
+    // The local calendar day's first instant, not a UTC-midnight guess — the
+    // server rejects a naive value outright (`_require_aware`), so this must
+    // be the same construction the page itself uses, not a hardcoded literal
+    // that would only happen to match in one timezone.
+    const expectedFrom = new Date(2026, 7, 15, 0, 0, 0, 0).toISOString();
+    await waitFor(() =>
+      expect(listRedemptionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ from: expectedFrom, cursor: null })),
+    );
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
+    expect(screen.getByText('הגעתם לסוף הרשימה.')).toBeInTheDocument();
+  });
+
+  it('changing the "to" date sends the end-of-day boundary and starts a fresh result set', async () => {
+    vi.mocked(listRedemptionHistory)
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'unfiltered-row' })],
+        liveVoucherCount: 0,
+        nextCursor: 'cursor-a',
+      })
+      .mockResolvedValueOnce({
+        outcome: 'ok',
+        redemptions: [entry({ id: 'to-filtered-row' })],
+        liveVoucherCount: 0,
+        nextCursor: null,
+      });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Dana Levi')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'טען עוד' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('עד תאריך'), { target: { value: '2026-08-15' } });
+
+    // The local calendar day's last instant — same reasoning as the "from"
+    // boundary above, mirrored to the end of the selected day.
+    const expectedTo = new Date(2026, 7, 15, 23, 59, 59, 999).toISOString();
+    await waitFor(() =>
+      expect(listRedemptionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ to: expectedTo, cursor: null })),
+    );
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
+    expect(screen.getByText('הגעתם לסוף הרשימה.')).toBeInTheDocument();
+  });
+
   it('pages through with the server-provided cursor, appending rather than replacing', async () => {
     vi.mocked(listRedemptionHistory)
       .mockResolvedValueOnce({
