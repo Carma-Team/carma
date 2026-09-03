@@ -164,7 +164,14 @@ describe('RedemptionHistoryPage', () => {
     vi.mocked(listRedemptionHistory).mockResolvedValue({ outcome: 'ok', redemptions: [entry()], liveVoucherCount: 0, nextCursor: null });
 
     renderPage();
-    await waitFor(() => expect(listRedemptionHistory).toHaveBeenCalled());
+    // Waiting only for the mock to have been called is not the same as the
+    // page being ready — the call fires synchronously inside the effect,
+    // before the resolved promise's `.then` has committed the 'ready'
+    // render, so the status `<select>` below is not guaranteed to be in the
+    // DOM yet (this was the source of CI flakiness). Waiting for the row's
+    // own content is the same ready-state signal every other test in this
+    // file already uses (e.g. the "starts a fresh result set" test above).
+    await waitFor(() => expect(screen.getByText('Dana Levi')).toBeInTheDocument());
 
     fireEvent.change(screen.getByLabelText('סטטוס'), { target: { value: 'all' } });
 
