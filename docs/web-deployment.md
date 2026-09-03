@@ -89,8 +89,38 @@ A manual "Run workflow" dispatch is refused with a failed run, not a silent
 skip, if the selected ref is not `main`. The workflow enforces this itself,
 so nothing relies on whoever runs it remembering to pick the right branch.
 
-## Browser-origin configuration (CAR-108, owned by Naveh)
+## Browser-origin configuration
 
-The server's `CORS_ORIGINS` and refresh-cookie settings must include this
-app's origin before sign-in works from the deployed site. That production
-configuration is CAR-108, not this document.
+A browser session from the deployed site needs two settings on `carma-api`,
+both plain environment variables on the Container App:
+
+```
+CORS_ORIGINS=https://carma-business.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io
+REFRESH_COOKIE_SAMESITE=none
+```
+
+`CORS_ORIGINS` names that one origin and nothing else. It was `*` before, and
+a wildcard is not a permissive version of this - the CORS spec forbids pairing
+a wildcard with credentials, so the server refuses credentialed requests
+entirely while it is set (`config.cors_allows_credentials`). No other origin
+gets a credentialed session, preview URLs included.
+
+`REFRESH_COOKIE_SAMESITE=none` is what keeps the browser attaching the refresh
+cookie to `POST /api/auth/refresh` from the web app. `lax` would probably work
+too, and that is the problem: whether the two hostnames count as one site is
+decided by the Public Suffix List, which does not list `azurecontainerapps.io`
+at all, so today both reduce to that one registrable domain. Microsoft lists
+its other multi-tenant hosts there - `azurewebsites.net`,
+`azurestaticapps.net`, `azure-api.net` - and an entry for this one, depending
+on how it is written, could split the two apps into separate sites and drop
+every session with no deploy and no warning. `none` is correct either way and
+costs nothing here. It forces the Secure flag on, which production has anyway.
+
+Nothing about CSRF rests on SameSite here. `/api/auth/refresh` and
+`/api/auth/logout` require the `X-Requested-With` header
+(`core.deps.require_browser_header`), which forces a preflight that only an
+allow-listed origin can pass.
+
+The cookie the browser receives is `carma_refresh`, `HttpOnly`, `Secure`,
+`SameSite=None`, `Path=/api/auth`, 30 days. Mobile never sees any of this - it
+authenticates with a bearer token and sends no cross-origin request.
