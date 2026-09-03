@@ -16,9 +16,10 @@ interface TripCardProps {
 
 export function TripCard({ trip, onPress }: TripCardProps) {
   const { t, lang } = useTranslation()
-  const displayScore = trip.avgScore ?? trip.score ?? 0
+  const displayScore = trip.avgScore
   const grade = scoreToGrade(displayScore)
   const badgeVariant = { excellent: 'success', good: 'success', fair: 'warning', poor: 'danger' }[grade] as any
+  const eventCount = trip.hardBrakes + trip.aggressiveAccels + trip.sharpTurns
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
@@ -39,10 +40,13 @@ export function TripCard({ trip, onPress }: TripCardProps) {
           </View>
         </View>
 
-        {(trip.eventsArray?.length ?? 0) > 0 && (
+        {/* Summed from the three counters the trip actually carries. This row used
+            to read an `eventsArray` that nothing ever wrote, so it never appeared —
+            the count was on the row all along, in three fields (CAR-271). */}
+        {eventCount > 0 && (
           <View style={styles.events}>
             <Ionicons name={ICONS.flash} size={13} color={COLORS.textMuted} />
-            <Text style={styles.eventText}>{trip.eventsArray!.length} {t('trip.events')}</Text>
+            <Text style={styles.eventText}>{eventCount} {t('trip.events')}</Text>
           </View>
         )}
       </Card>

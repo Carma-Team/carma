@@ -310,7 +310,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const earnedPoints         = Math.round(serverPointsRaw);
 
     const newTrip: Trip = savedTrip
-      ? { ...savedTrip, score: savedTrip.avgScore }
+      ? savedTrip
       : {
           id: finalState.sessionId,
           userId: user?.id || 'guest',
@@ -319,7 +319,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           distanceKm: finalState.distanceKm,
           durationSeconds: finalState.durationSeconds,
           avgScore: serverScore,
-          score: serverScore,
           points: earnedPoints,
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
@@ -401,7 +400,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const gen = sessionRef.current;
       setRecentTrips(prev => {
         const updated = prev.map(t =>
-          t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
+          t.id === localId ? serverTrip : t
         );
         AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
         return updated;
