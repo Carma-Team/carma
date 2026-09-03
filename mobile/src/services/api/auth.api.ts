@@ -13,21 +13,17 @@
  */
 import { request } from './client';
 import type { AppUser, MessageOut, OtpSent } from '@/types';
+import type { components } from './generated';
 
 export interface AuthResponse {
   token: string;
   user: AppUser;
 }
 
-export interface RegisterPayload {
-  name: string;
-  email: string;
-  password: string;
-  phone?: string;
-  city?: string;
-  age?: number;
-  licenseYear?: number;
-}
+// Aliased from the generated schema, not hand-written. A local copy of a server
+// shape keeps compiling after the server changes: that is how LocationsOut went
+// a release out of date, and how `cityCode` would have been missed here (CAR-218).
+export type RegisterPayload = components['schemas']['RegisterIn'];
 
 export const authApi = {
   login: (email: string, password: string) =>
