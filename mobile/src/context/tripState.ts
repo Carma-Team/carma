@@ -24,7 +24,6 @@ export interface TripState {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
     SHARP_TURN: number;
-    SWERVE: number;
   };
 }
 
@@ -37,5 +36,5 @@ export const INITIAL_TRIP_STATE: TripState = {
   currentSpeedKmH: 0,
   touchEpochs: 0,
   screenInteractionSeconds: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 },
+  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0 },
 };

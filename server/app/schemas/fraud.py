@@ -21,6 +21,14 @@ class FraudSignals(CamelModel):
     no_heading_change: bool | None = None
 
 
+class FraudSensorAvailability(CamelModel):
+    """Which sensors backed this verdict, so a stored report explains its own unknowns."""
+
+    gps: bool | None = None
+    accelerometer: bool | None = None
+    gyroscope: bool | None = None
+
+
 class FraudTelemetry(CamelModel):
     """Window aggregates the gates were computed from — never raw sample traces."""
 
@@ -42,6 +50,10 @@ class FraudDetection(CamelModel):
     # server enum would 422 the first client that ships one of them.
     detected_mode: str | None = None
     signals: FraudSignals | None = None
+    # Weight of the evidence that could be evaluated at all (docs/fraud-detection.md
+    # §3.4) — distinct from fraud_score, which is the weight of the evidence that fired.
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    sensor_availability: FraudSensorAvailability | None = None
     telemetry: FraudTelemetry | None = None
     max_speed_kmh: float | None = None
     # Device clock at detection. Distinct from fraud_reports.reported_at, which is

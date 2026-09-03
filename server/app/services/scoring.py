@@ -24,12 +24,12 @@ it values sourced from the signed telemetry digest (the oracle) and persists the
 results into the shadow columns.
 
 What is NOT yet available, and how this module copes until it is:
-  * Per-event severity (peak_g, duration_ms, speed_at_event) — the client has
-    sent peak_g and duration_ms since #48, but peak_g arrives as an unsigned
-    horizontal magnitude, not the per-axis vehicle-frame value the curve maps
-    (CAR-156). Until a phone-to-vehicle rotation exists, weighted counts collapse
-    to raw counts (each event weight 1.0). `event_severity()` is implemented and
-    tested now so the downstream math is unchanged the day that value arrives.
+  * Per-event severity (peak_g, speed_at_event) — the client has sent peak_g
+    since #48, but it arrives as an unsigned horizontal magnitude, not the
+    per-axis vehicle-frame value the curve maps (CAR-156). Until a
+    phone-to-vehicle rotation exists, weighted counts collapse to raw counts
+    (each event weight 1.0). `event_severity()` is implemented and tested now
+    so the downstream math is unchanged the day that value arrives.
   * Speeding against posted limits arrived in 2026-08-posted-limit (CAR-222). It is measured as
     a share of distance rather than as weighted minutes, so `k_speed` is a new
     constant on a new scale and not a re-tuning of the old one. The weight is
@@ -55,7 +55,7 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2026-08-posted-limit"
+    version: str = "2026-09-speeding-calibrated"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
@@ -66,16 +66,28 @@ class ScoringConfig:
     # constant has nothing to do with the 0.012 that preceded it - that one
     # priced severity-weighted minutes per 100 km against a flat 130 km/h.
     #
-    # Anchored, not fitted (CAR-102 owns the fit): 1% of distance just over the
-    # buffer scores 95, 10% scores 61. The reference behind those is the UBI
-    # literature's average driver, who spends 2.4% of distance above the posted
-    # limit (Guillen et al., percentile charts for speeding), so an ordinary
-    # driver should land in the 90s and the spread should come from the tail.
-    # `scripts/calibrate_speeding.py` replaces this with a real number, and it
-    # matters more than when this constant was first written: severity bands
-    # multiply the rate by up to 8, so k is doing a far wider job than the two
-    # anchors alone describe.
-    k_speed: float = 0.05
+    # Fitted against our own drivers, 2026-09, replacing the UBI-literature
+    # anchor this shipped with. `scripts/calibrate_speeding.py` over the live
+    # fleet put the severity-weighted share of distance over the limit at 7.75%
+    # for the median trip and 40.69% at p90, which is far above the 2.4% the
+    # literature reports for an average driver - Israeli young drivers speed
+    # more than the Spanish UBI cohort the anchor came from, and the anchor was
+    # charging the median driver as if they were the p90.
+    #
+    # Anchored on the same rule the harsh-event constants use: the p90-worst
+    # trip lands near 50. That gives 0.693 / 0.4069, and puts the median trip at
+    # 88 and p99 at 35 - bad, but never at a floor where improving stops paying.
+    #
+    # Provisional on *who* was measured, more than on how many. The 22 scored
+    # trips are four team members' own driving - two of us account for 74% of
+    # them - and we know the app is watching. The product is aimed at newly
+    # licensed teenagers, who are not in this sample at all and are the group
+    # most likely to sit further along the distribution than anyone here.
+    #
+    # So treat this as the best available description of real drivers, not as a
+    # fleet fit. CAR-102 wants 200 trips; what it actually needs is 200 trips
+    # from people the score is for.
+    k_speed: float = 0.017
     # Not from the 2026-07 fleet fit: anchored on CMT's published US average of
     # 82 handling-seconds per driving hour, which must land near 75/100 (CAR-54).
     k_distraction: float = 0.0035
@@ -104,14 +116,21 @@ class ScoringConfig:
 
     # Driver score ("The driver's own score").
     ewma_halflife_days: float = 14.0
-    credibility_full_km: float = 300.0
+    # Threshold on *decayed* exposure (weighted_km below), not raw kilometres —
+    # undecayed credibility let old distance hold a driver at full credibility
+    # long after it had decayed out of the average, so a couple of fresh trips
+    # were left to fully determine the score. 200 is the steady-state weighted
+    # km at this half-life for an assumed ~300 raw km/month baseline driver (no
+    # fleet data behind that figure yet — the geometric series Σ 0.5^(t/14)
+    # converges to ≈20.7×daily_km, so it should move once usage data replaces
+    # the guess).
+    credibility_full_weighted_km: float = 200.0
     prior_score: float = 75.0
     # Most exposure one trip can contribute, so that "no single trip may have a
     # major impact on the overall score" (CMT, US12071140B2 — their worked example
-    # caps a 200-mile trip's behaviours at a 100-mile threshold). 30 km is a tenth
-    # of the credibility window above, which puts ten capped trips between a new
-    # driver and a fully proven one — the same window CMT state as their other
-    # option, "the last 10 trips".
+    # caps a 200-mile trip's behaviours at a 100-mile threshold): it puts several
+    # capped trips between a new driver and a fully proven one, the same idea
+    # CMT state as their other option, "the last 10 trips".
     trip_exposure_cap_km: float = 30.0
 
     # Streak ("Streaks"). A day clears the bar when its distance-weighted average
@@ -175,11 +194,11 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # ─── Stage 1 — continuous severity weight (ready for the SDK) ──────────────────
 
 
-def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
-    """Continuous severity weight for one kinematic event.
+def event_severity(event_type: str, peak_g: float) -> float:
+    """Continuous severity weight for one kinematic event, force alone.
 
-    Ranges from 1.0 at the detection threshold to 3.0 for an extreme, sustained
-    event. Replaces tier counting so there is no threshold to game.
+    Ranges from 1.0 at the detection threshold to 3.0 for an extreme event.
+    Replaces tier counting so there is no threshold to game.
 
     Speed is deliberately not an input. It is already scored as its own component
     at weight 0.25, so scaling event severity by it charged a hard brake at
@@ -198,9 +217,7 @@ def event_severity(event_type: str, peak_g: float, duration_ms: float) -> float:
     """
     g_min, g_max = _SEVERITY_RANGES[event_type]
     g_norm = _clamp((peak_g - g_min) / (g_max - g_min), 0.0, 1.0)
-    g_factor = g_norm**1.5 + 1.0
-    duration_factor = 1.0 + min(duration_ms / 2000.0, 0.5)
-    return float(g_factor * duration_factor)
+    return float(g_norm**1.5 * 2.0 + 1.0)
 
 
 # ─── Stages 3–5 — trip score ───────────────────────────────────────────────────
@@ -392,17 +409,19 @@ def compute_driver_score(history: list[TripHistoryPoint], config: ScoringConfig 
 
     weighted_score = 0.0
     weighted_km = 0.0
-    total_km = 0.0
     for h in history:
         decay = 0.5 ** (max(0.0, h.age_days) / config.ewma_halflife_days)
         exposure = min(max(0.0, h.distance_km), config.trip_exposure_cap_km)
         w = exposure * decay
         weighted_score += h.trip_score * w
         weighted_km += w
-        total_km += exposure
 
     driver_raw = weighted_score / weighted_km if weighted_km > 0 else config.prior_score
-    credibility = min(total_km / config.credibility_full_km, 1.0)
+    # Credibility keys off the same decayed sum as the average, not a separate
+    # undecayed total — otherwise old exposure can hold credibility at 1.0 long
+    # after it has decayed out of driver_raw, letting a couple of fresh trips
+    # fully determine the score (the bug a wider query window would have hit).
+    credibility = min(weighted_km / config.credibility_full_weighted_km, 1.0)
     score = credibility * driver_raw + (1.0 - credibility) * config.prior_score
     return round(_clamp(score, 0.0, 100.0) * 10) / 10
 

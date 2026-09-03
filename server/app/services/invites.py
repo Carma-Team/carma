@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.security import READABLE_ALPHABET
 from app.models import User
+from app.schemas.city import CityOut
 from app.schemas.invite import InviteLinkOut, InviterOut, RedeemInviteOut
 from app.services import friends
 
@@ -65,6 +66,11 @@ async def redeem(db: AsyncSession, current: User, code: str) -> RedeemInviteOut:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot redeem your own invite")
 
     return RedeemInviteOut(
-        inviter=InviterOut(id=inviter.id, name=inviter.name, city=inviter.city, level=inviter.level),
+        inviter=InviterOut(
+            id=inviter.id,
+            name=inviter.name,
+            city=CityOut.from_orm_city(inviter.city) if inviter.city else None,
+            level=inviter.level,
+        ),
         status=await friends.befriend(db, inviter.id, current.id),
     )

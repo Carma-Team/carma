@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { levelToIcon } from '@/lib/utils'
 import { useTranslation } from '@/hooks/useTranslation'
+import { cityLabel } from '@/lib/cityLabel'
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme'
 import type { FollowStatus, LeaderboardEntry } from '@/types'
 
@@ -59,7 +60,7 @@ export function LeaderboardRow({
   showRemoveButton = false,
   onRemove,
 }: LeaderboardRowProps) {
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
   const rankColor = RANK_COLORS[entry.rank]
   const followStatus: FollowStatus = entry.followStatus ?? 'none'
 
@@ -83,7 +84,7 @@ export function LeaderboardRow({
             <Text style={styles.youLabel}> ({t('leaderboard.you')})</Text>
           )}
         </View>
-        {entry.user?.city && <Text style={styles.city}>{entry.user.city}</Text>}
+        {entry.user?.city && <Text style={styles.city}>{cityLabel(entry.user.city, lang)}</Text>}
       </View>
       <Text style={styles.score}>{entry.score.toLocaleString()}</Text>
 
