@@ -39,6 +39,7 @@ export type TranslationMap = {
     navBusinessRequests: string;
     navOverview: string;
     navAnalytics: string;
+    navRedemptionHistory: string;
     comingSoonBadge: string;
   };
   home: {
@@ -431,5 +432,40 @@ export type TranslationMap = {
     notFoundMessage: string;
     networkErrorMessage: string;
     actionErrorMessage: string;
+  };
+  redemptionHistory: {
+    title: string;
+    subtitle: string;
+    loadingLabel: string;
+    loadErrorTitle: string;
+    loadErrorMessage: string;
+    retryButton: string;
+    forbiddenTitle: string;
+    forbiddenMessage: string;
+    emptyTitle: string;
+    emptyMessage: string;
+    filterStatusLabel: string;
+    filterStatusUsed: string;
+    filterStatusExpired: string;
+    filterStatusCancelled: string;
+    filterStatusAll: string;
+    filterRewardLabel: string;
+    filterRewardAll: string;
+    filterFromLabel: string;
+    filterToLabel: string;
+    rewardColumnLabel: string;
+    settledAtColumnLabel: string;
+    statusColumnLabel: string;
+    pointsCostColumnLabel: string;
+    memberColumnLabel: string;
+    memberUnknownLabel: string;
+    statusUsed: string;
+    statusExpired: string;
+    statusCancelled: string;
+    loadMoreButton: string;
+    loadingMoreLabel: string;
+    loadMoreErrorMessage: string;
+    loadMoreRetryButton: string;
+    endOfResultsLabel: string;
   };
 };
