@@ -17,6 +17,12 @@ interface TripCardProps {
 export function TripCard({ trip, onPress }: TripCardProps) {
   const { t, lang } = useTranslation()
   const displayScore = trip.avgScore ?? trip.score ?? 0
+  // A row we created ourselves carries zeros until the server scores it, so a grade
+  // badge on one reads as a real zero — the same distinction `tripSummary.ts` makes.
+  // Until there is a score to show, the card shows where the trip got to instead.
+  // `syncFailed` wins over `pendingSync`: a row that was given up on may still carry
+  // the flag it was queued with, and "given up" is the state that matters.
+  const syncState = trip.syncFailed ? 'failed' : trip.pendingSync ? 'pending' : null
   const grade = scoreToGrade(displayScore)
   const badgeVariant = { excellent: 'success', good: 'success', fair: 'warning', poor: 'danger' }[grade] as any
 
@@ -24,18 +30,33 @@ export function TripCard({ trip, onPress }: TripCardProps) {
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Card>
         <View style={styles.row}>
-          <Ionicons name={ICONS.noTrips} size={20} color={scoreToColor(displayScore)} />
+          <Ionicons
+            name={syncState ? ICONS.notSent : ICONS.noTrips}
+            size={20}
+            color={syncState === 'failed' ? COLORS.danger : syncState ? COLORS.textMuted : scoreToColor(displayScore)}
+          />
           <View style={styles.info}>
             <Text style={styles.title} numberOfLines={1}>
               {formatDate(trip.startTime, lang)}
             </Text>
             <Text style={styles.sub}>
-              {formatDistance(trip.distanceKm, lang)} · {displayScore} {t('dashboard.yourScore')}
+              {formatDistance(trip.distanceKm, lang)}
+              {syncState
+                ? ` · ${t(syncState === 'failed' ? 'trip.syncFailedDetail' : 'trip.syncPendingDetail')}`
+                : ` · ${displayScore} ${t('dashboard.yourScore')}`}
             </Text>
           </View>
           <View style={styles.right}>
-            <Badge variant={badgeVariant}>{Math.round(displayScore)}</Badge>
-            {!!trip.points && <Text style={styles.points}>+{Math.round(trip.points)} {t('common.points')}</Text>}
+            {syncState ? (
+              <Badge variant={syncState === 'failed' ? 'danger' : 'default'}>
+                {t(syncState === 'failed' ? 'trip.syncFailed' : 'trip.syncPending')}
+              </Badge>
+            ) : (
+              <>
+                <Badge variant={badgeVariant}>{Math.round(displayScore)}</Badge>
+                {!!trip.points && <Text style={styles.points}>+{Math.round(trip.points)} {t('common.points')}</Text>}
+              </>
+            )}
           </View>
         </View>
 
