@@ -552,6 +552,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Redemption performance snapshot for the authenticated business */
+        get: operations["stats_api_business_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/invitations": {
         parameters: {
             query?: never;
@@ -1396,6 +1413,37 @@ export interface components {
             reward: components["schemas"]["RewardOut"];
         };
         /**
+         * BusinessStatsOut
+         * @description Redemption performance snapshot for the authenticated business (CAR-81).
+         *
+         *     Every field is a database aggregate scoped to this business alone — nothing
+         *     here loads redemption rows into application memory, so the response stays
+         *     the same size no matter how many vouchers the business has ever issued.
+         */
+        BusinessStatsOut: {
+            /** Redemptionstoday */
+            redemptionsToday: number;
+            /** Redemptionslast30Days */
+            redemptionsLast30Days: number;
+            /** Livevouchers */
+            liveVouchers: number;
+            /** Totalpointscharged */
+            totalPointsCharged: number;
+            /** Vouchersissued */
+            vouchersIssued: number;
+            /** Vouchersredeemed */
+            vouchersRedeemed: number;
+            /**
+             * Issuedtoredeemedratio
+             * @description Redeemed vouchers divided by issued vouchers. A lower value means a larger share of issued vouchers were not redeemed. `null` when this business has not issued any vouchers yet — a ratio has no meaning against a zero denominator.
+             */
+            issuedToRedeemedRatio: number | null;
+            /** Toprewards */
+            topRewards: components["schemas"]["TopRewardOut"][];
+            /** Soldoutrewards */
+            soldOutRewards: components["schemas"]["SoldOutRewardOut"][];
+        };
+        /**
          * BusinessVoucherOut
          * @description VoucherOut's business-facing counterpart (CAR-78).
          *
@@ -2089,9 +2137,35 @@ export interface components {
             /** Aiinsight */
             aiInsight?: string | null;
         };
+        /**
+         * SoldOutRewardOut
+         * @description A reward with no units left — same derived availability as CAR-47's `available`.
+         */
+        SoldOutRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+        };
         /** StatsOut */
         StatsOut: {
             stats: components["schemas"]["DrivingStats"];
+        };
+        /**
+         * TopRewardOut
+         * @description One entry of the most-redeemed-rewards ranking (CAR-81).
+         */
+        TopRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+            /** Redemptioncount */
+            redemptionCount: number;
         };
         /**
          * TripDetailOut
@@ -3431,6 +3505,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_business_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessStatsOut"];
                 };
             };
         };

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 
 from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
+from app.schemas.business_stats import BusinessStatsOut
 from app.schemas.redemption import BusinessRedemptionListOut
 from app.schemas.reward import (
     BusinessRewardIn,
@@ -169,3 +170,16 @@ async def list_redemptions(
         cursor=cursor,
         limit=limit,
     )
+
+
+# ── Redemption statistics (CAR-81) ──────────────────────────────────────────
+
+
+@router.get(
+    "/stats",
+    response_model=BusinessStatsOut,
+    response_model_by_alias=True,
+    summary="Redemption performance snapshot for the authenticated business",
+)
+async def stats(membership: CurrentBusinessManager, db: DbSession) -> BusinessStatsOut:
+    return await business_service.redemption_stats(db, membership.business)
