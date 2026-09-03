@@ -16,7 +16,12 @@ jest.mock('@/services/api/friends.api', () => ({
   friendsApi: { sendRequest: jest.fn(), removeFriend: jest.fn() },
 }))
 
-const mockUser = { id: 'u1', city: 'תל אביב' } as AppUser
+const CITY = { code: 'IL-TA', nameHe: 'תל אביב', nameEn: 'Tel Aviv' }
+
+// Only the two members the screen reads. Cast through `unknown` rather than filled in:
+// the rest of AppUser has no bearing on paging, and listing it would rot on the next
+// schema change.
+const mockUser = { id: 'u1', city: CITY } as unknown as AppUser
 
 jest.mock('@/context/AppContext', () => ({
   useApp: () => ({ user: mockUser, addToast: jest.fn(), lang: 'HE', setLang: jest.fn() }),
@@ -32,15 +37,16 @@ const board = (n: number, myRank: number | null = null): LeaderboardOut =>
       userId: `u-${i}`,
       rank: i + 1,
       score: 100 - i,
+      distanceKm: 10,
       followStatus: 'none',
-      user: { id: `u-${i}`, name: `נהג ${i}`, level: 3, city: 'תל אביב' },
+      user: { id: `u-${i}`, name: `נהג ${i}`, level: 3, city: CITY, avatarUrl: null, isPrivate: false },
     })) as LeaderboardEntry[],
     currentUserId: 'u1',
     myRank,
   }) as LeaderboardOut
 
 async function renderBoard(n: number, myRank: number | null = null) {
-  mocked.getLocations.mockResolvedValue({ countries: [], citiesByCountry: {} })
+  mocked.getLocations.mockResolvedValue({ country: { nameHe: 'ישראל', nameEn: 'Israel' }, cities: [CITY] })
   mocked.get.mockResolvedValue(board(n, myRank))
   render(<LeaderboardScreen />)
   await act(async () => {})
