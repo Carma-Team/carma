@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { DrivingSDK, TripData } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, RawExportFailure } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
 import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
@@ -119,7 +119,7 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
-  exportRawRecording: () => Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }>
+  exportRawRecording: () => Promise<string | RawExportFailure>
   clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
