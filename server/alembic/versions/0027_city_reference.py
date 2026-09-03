@@ -16,10 +16,17 @@ and the transliteration is academic rather than the form anyone reads - BENE
 BERAQ, PETAH TIQWA. Those are corrected in the shipped file, keyed by Hebrew
 name; keying by code silently renamed four different cities when it was tried.
 
-The backfill matches on either language, because the column being replaced holds
-both. A value matching neither becomes NULL and the label is gone - accepted
-deliberately, since the alternative is keeping a column whose whole problem is
-that nothing can render it.
+The backfill matches on either language, because the column it reads holds both.
+A value matching neither becomes NULL - accepted deliberately, since the
+alternative is keeping a column whose whole problem is that nothing can render
+it.
+
+`users.city` is left standing, and dropping it is a migration of its own one
+release later. deploy.yml migrates before the rollout, so a drop here lands
+under the previous image while it is still serving, and that image maps `city`
+as a column: every `select(User)`, which is every authenticated request, would
+500 until the new revision takes traffic. It would also make the release
+irreversible, since this migration cannot be undone once the text is gone.
 
 Revision ID: 0027_city_reference
 Revises: 0026_business_invitations
@@ -104,23 +111,16 @@ def upgrade() -> None:
             ).bindparams(code=code, label=label)
         )
 
-    lost = (
+    unmatched = (
         op.get_bind()
         .execute(sa.text("SELECT count(*) FROM users WHERE city_code IS NULL AND btrim(coalesce(city, '')) <> ''"))
         .scalar_one()
     )
-    if lost:
-        print(f"CAR-218: {lost} user(s) had a city matching no CBS settlement; their label is dropped.")
-
-    op.drop_column("users", "city")
+    if unmatched:
+        print(f"CAR-218: {unmatched} user(s) had a city matching no CBS settlement; they end up with none.")
 
 
 def downgrade() -> None:
-    op.add_column("users", sa.Column("city", sa.String(80), nullable=True))
-    # Best effort: the Hebrew name is what most of these held, but a row that
-    # stored an English label comes back Hebrew. The original text is not
-    # recoverable - `upgrade` dropped it.
-    op.execute(sa.text("UPDATE users SET city = c.name_he FROM cities c WHERE users.city_code = c.code"))
     op.drop_constraint("fk_users_city_code", "users", type_="foreignkey")
     op.drop_index("ix_users_city_code", table_name="users")
     op.drop_column("users", "city_code")
