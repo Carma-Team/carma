@@ -30,6 +30,14 @@ export class TripValidationManager implements TripValidator {
   // an unresolvable frame is UNKNOWN, not false (docs/fraud-detection.md §3.1-§3.2).
   private latestLateralAccelG: number | null = null;  // signed, vehicle frame — Rule 3 Signal B
   private latestYawRateRadS:   number | null = null;  // signed, about gravity — Rule 3 Signal C
+  // Whether the readings above came from a live sensor this tick. Held alongside them
+  // and read at the same 1 Hz, because they answer for each other: a reading of 0 from a
+  // sensor that never delivered a sample is not a measurement of no force, and a
+  // subscription that was never established is unavailable, not zero
+  // (docs/fraud-detection.md §3.1). Null, not false, until a sample says otherwise —
+  // an unreported flag is silence, not a claim that the hardware is absent (CAR-272).
+  private latestAccelAvailable: boolean | null = null;
+  private latestGyroAvailable:  boolean | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
   private fraudDetector        = new FraudDetector();
   // Wall-clock receipt time of the last sample. GPS speed has no availability flag of
@@ -89,6 +97,14 @@ export class TripValidationManager implements TripValidator {
     if (sample.yawRate !== undefined) {
       this.latestYawRateRadS = sample.yawRate;
     }
+    // Guarded the same way as the readings themselves: a producer that does not report
+    // availability leaves the last answer standing rather than asserting absence.
+    if (sample.accelAvailable !== undefined) {
+      this.latestAccelAvailable = sample.accelAvailable;
+    }
+    if (sample.gyroAvailable !== undefined) {
+      this.latestGyroAvailable = sample.gyroAvailable;
+    }
     // CAR-23: fired once, off the first fix. Synchronous, so there is no window in
     // which the answer lands after the session it belongs to has already stopped.
     if (!this.regionChecked && sample.lat !== undefined && sample.lng !== undefined) {
@@ -118,6 +134,8 @@ export class TripValidationManager implements TripValidator {
       latestSpeedKmh: this.latestSpeedKmh,
       latestLateralAccelG: this.latestLateralAccelG,
       latestYawRateRadS: this.latestYawRateRadS,
+      latestAccelAvailable: this.latestAccelAvailable,
+      latestGyroAvailable: this.latestGyroAvailable,
       continuousAboveThresholdMs: this.continuousAboveThresholdMs,
       continuousBelowThresholdMs: this.continuousBelowThresholdMs,
       startThresholdMs: START_THRESHOLD_MS,
@@ -164,7 +182,10 @@ export class TripValidationManager implements TripValidator {
           // First fraud sample: collected at the IDLE→PRE_TRIP boundary so that
           // we have exactly MIN_SAMPLES_TO_EVALUATE samples when Rule 1 is checked.
           if (this.isClassifying()) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
+            this.fraudDetector.addSample(
+              this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS,
+              this.latestAccelAvailable, this.latestGyroAvailable,
+            );
           }
           this.setState(ValidationState.PRE_TRIP);
         }
@@ -175,7 +196,10 @@ export class TripValidationManager implements TripValidator {
           this.continuousAboveThresholdMs += TICK_INTERVAL_MS;
           const classifying = this.isClassifying();
           if (classifying) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
+            this.fraudDetector.addSample(
+              this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS,
+              this.latestAccelAvailable, this.latestGyroAvailable,
+            );
           }
 
           if (this.continuousAboveThresholdMs >= START_THRESHOLD_MS) {
@@ -225,7 +249,10 @@ export class TripValidationManager implements TripValidator {
           // journey: the verdict below suppresses classification, and only a genuine
           // stop re-arms it.
           if (this.isClassifying()) {
-            this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
+            this.fraudDetector.addSample(
+              this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS,
+              this.latestAccelAvailable, this.latestGyroAvailable,
+            );
             const fraud = this.fraudDetector.evaluate();
             if (this.fraudPolicy.decide(fraud) === FraudVerdict.DECLINE) {
               console.log(`[Validation] Rule 3 (mid-trip) — ${fraud.mode} detected (score=${fraud.score.toFixed(2)})`);
@@ -257,6 +284,8 @@ export class TripValidationManager implements TripValidator {
     this.latestSpeedKmh      = 0;
     this.latestLateralAccelG = null;
     this.latestYawRateRadS   = null;
+    this.latestAccelAvailable = null;
+    this.latestGyroAvailable  = null;
     this.lastSampleAtMs      = 0;
     this.fraudDetector.reset();
     // Neither the fraud suppression nor the region mark is cleared here. Both are set
