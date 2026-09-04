@@ -238,6 +238,7 @@ const en: TranslationMap = {
     totalTrips: 'Total Trips', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
     currentStreak: 'Current Streak', bestStreak: 'Best Streak',
+    streakInfo: 'Driving streak — the number of days in a row you have driven. One trip a day extends it, and a day without one resets it.',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
       // Indexed by Date.getDay() — Sunday first, matching the strip's week start.

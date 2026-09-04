@@ -242,6 +242,8 @@ const he = {
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
+    // שורה אחת, בטוסט. מה נספר ומה שומר עליו — בלי לפתוח מסך בשביל משפט
+    streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
       // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
