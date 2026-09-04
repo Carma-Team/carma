@@ -1,8 +1,11 @@
 import React, { useMemo } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { Card } from '@/components/ui/Card'
 import { COLORS, TYPOGRAPHY, SPACING } from '@/constants/theme'
+import { ICONS } from '@/constants/icons'
 import { scoreToColor } from '@/lib/utils'
+import { weeklyScoreTrend } from '@/lib/weeklyTrend'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import type { Trip, Language } from '@/types'
@@ -15,69 +18,46 @@ interface WeekScoreStripProps {
 const DAY_SIZE = 38
 const TODAY_SIZE = 42
 
-/** Local calendar day, not UTC — a trip at 01:00 belongs to the day the driver had. */
-function dayKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
-}
-
-/** The seven dates of the week the given day falls in, Sunday first. */
-function weekOf(today: Date): Date[] {
-  const sunday = new Date(today)
-  sunday.setDate(today.getDate() - today.getDay())
-  sunday.setHours(0, 0, 0, 0)
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(sunday)
-    d.setDate(sunday.getDate() + i)
-    return d
-  })
-}
-
 export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
   const text = (lang === 'HE' ? he : en).stats.chart
-  const today = new Date()
-  const todayKey = dayKey(today)
 
-  // Average per day, matching how the old trend chart bucketed: mean of that day's
-  // trip scores, not a distance- or duration-weighted one.
-  const scoreByDay = useMemo(() => {
-    const map = new Map<string, number[]>()
-    for (const trip of trips) {
-      const date = new Date(trip.startTime)
-      if (isNaN(date.getTime())) continue
-      const key = dayKey(date)
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(trip.avgScore ?? 0)
-    }
-    return new Map(
-      Array.from(map.entries()).map(([key, scores]) => [
-        key,
-        Math.round(scores.reduce((s, v) => s + v, 0) / scores.length),
-      ]),
-    )
-  }, [trips])
+  // Recomputed only when the trip list changes: the window ends on today, and a
+  // re-render inside the same day would not move it.
+  const { days, dayScores, thisWeek, delta } = useMemo(() => weeklyScoreTrend(trips), [trips])
+  // The window ends on today, so today is always the last circle.
+  const todayIndex = days.length - 1
 
-  const week = weekOf(today)
-  const dayScores = week.map(d => scoreByDay.get(dayKey(d)) ?? null)
-  const driven = dayScores.filter((s): s is number => s !== null)
-  // Mean of the day averages, so the header agrees with the circles below it rather
-  // than with a separate per-trip mean that would read as a different number.
-  const weekAvg = driven.length
-    ? Math.round(driven.reduce((s, v) => s + v, 0) / driven.length)
-    : null
+  const direction = delta === null || delta === 0 ? 'flat' : delta > 0 ? 'up' : 'down'
+  const deltaColor =
+    direction === 'up' ? COLORS.success : direction === 'down' ? COLORS.danger : COLORS.textMuted
 
   return (
     <Card style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{text.thisWeek}</Text>
-        <Text style={styles.avg}>
-          {text.weekAvg} {weekAvg ?? '—'}
-        </Text>
+        <View style={styles.avgBox}>
+          <Text style={styles.avg}>
+            {text.weekAvg} {thisWeek ?? '—'}
+          </Text>
+          {/* Only with both windows measured: an arrow against a week that was never
+              driven would read as a drop the driver did not have. */}
+          {delta !== null && (
+            <View style={styles.deltaBox} accessibilityLabel={`${text.vsLastWeek} ${delta}`}>
+              <Ionicons
+                name={direction === 'up' ? ICONS.trendUp : direction === 'down' ? ICONS.trendDown : ICONS.trendFlat}
+                size={14}
+                color={deltaColor}
+              />
+              <Text style={[styles.delta, { color: deltaColor }]}>{Math.abs(delta)}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={styles.row}>
-        {week.map((date, i) => {
+        {days.map((date, i) => {
           const score = dayScores[i]
-          const isToday = dayKey(date) === todayKey
+          const isToday = i === todayIndex
           const size = isToday ? TODAY_SIZE : DAY_SIZE
           const color = score !== null ? scoreToColor(score) : COLORS.border
           // Swap this for `${date.getDate()}/${date.getMonth() + 1}` to label the
@@ -113,6 +93,8 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
           )
         })}
       </View>
+
+      <Text style={styles.footnote}>{text.vsLastWeek}</Text>
     </Card>
   )
 }
@@ -126,7 +108,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   title: { ...TYPOGRAPHY.h3, fontSize: 14 },
+  avgBox: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   avg: { ...TYPOGRAPHY.caption, fontSize: 11 },
+  deltaBox: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  delta: { fontSize: 12, fontWeight: '700' },
 
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   dayCol: { alignItems: 'center' },
@@ -134,4 +119,5 @@ const styles = StyleSheet.create({
   score: { fontSize: 13, fontWeight: '800' },
   dayLabel: { ...TYPOGRAPHY.caption, fontSize: 10, marginTop: 4 },
   dayLabelToday: { color: COLORS.text, fontWeight: '800' },
+  footnote: { color: COLORS.textMuted, fontSize: 11, marginTop: 10 },
 })

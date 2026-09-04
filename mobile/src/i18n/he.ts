@@ -54,11 +54,6 @@ const he = {
   dashboard: {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
-    thisWeek: 'השבוע',
-    weekTrips: 'נסיעות',
-    weekVsLast: 'בהשוואה לשבעת הימים שלפני כן',
-    weekNoTrips: 'אין נסיעות מדורגות בשבעת הימים האחרונים.',
-    weekNoComparison: 'שבוע ראשון',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
     totalDistance: 'מרחק כולל', totalTrips: 'נסיעות',
     avgScore: 'ציון ממוצע', pointsToNextLevel: 'נקודות לרמה הבאה',
@@ -240,7 +235,9 @@ const he = {
     currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
     },
   },
