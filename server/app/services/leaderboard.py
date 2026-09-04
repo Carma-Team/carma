@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
-from app.models import User, UserRole
+from app.models import City, User, UserRole
+from app.schemas.city import CityOut
 from app.schemas.friend import FriendshipStatus
 from app.schemas.leaderboard import (
     LeaderboardEntry,
@@ -14,37 +15,29 @@ from app.schemas.leaderboard import (
     LocationsOut,
 )
 from app.services import friends
-
-# CARMA operates in Israel only. The client's filter UI carries a country
-# dimension inherited from the retired mock server; rather than model a country
-# nobody can vary, the one value is pinned here and the leaderboard filters on
-# city alone.
-COUNTRY = "ישראל"
+from app.services.cities import COUNTRY
 
 
 async def locations(db: AsyncSession) -> LocationsOut:
     """Cities that actually have a driver on the board, for the filter picker.
 
     Drawn from the same population the board itself shows, so picking a listed
-    city can never come back empty.
+    city can never come back empty. `GET /api/cities` is the other list: the
+    whole canonical register, for registration to pick from.
     """
-    cities = (
+    rows = (
         await db.scalars(
-            select(User.city)
-            .where(
-                User.role == UserRole.DRIVER,
-                User.is_private.is_(False),
-                User.city.is_not(None),
-                User.city != "",
-            )
+            select(City)
+            .join(User, User.city_code == City.code)
+            .where(User.role == UserRole.DRIVER, User.is_private.is_(False))
             .distinct()
-            .order_by(User.city)
+            .order_by(City.name_he)
         )
     ).all()
-    return LocationsOut(countries=[COUNTRY], cities_by_country={COUNTRY: [c for c in cities if c]})
+    return LocationsOut(country=COUNTRY, cities=[CityOut.from_orm_city(c) for c in rows])
 
 
-async def get(db: AsyncSession, current: User, type_: LeaderboardType, city: str | None = None) -> LeaderboardOut:
+async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code: str | None = None) -> LeaderboardOut:
     if type_ == "friends":
         # Everyone the user is actually friends with, plus themselves for context.
         ids = await friends.friend_ids(db, current.id)
@@ -62,9 +55,9 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city: str
         if type_ == "city":
             # An explicit ?city= wins, so the picker actually moves the board;
             # without one the caller's own city is still the sensible default.
-            target_city = city or current.city
+            target_city = city_code or current.city_code
             if target_city:
-                board_where.append(User.city == target_city)
+                board_where.append(User.city_code == target_city)
         users = (
             await db.scalars(
                 select(User).where(*board_where).order_by(User.total_points.desc(), User.created_at.asc()).limit(100)
@@ -85,7 +78,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city: str
             user=LeaderboardUserSummary(
                 id=u.id,
                 name=u.name,
-                city=u.city,
+                city=CityOut.from_orm_city(u.city) if u.city else None,
                 level=u.level,
                 avatar_url=u.avatar_url,
                 is_private=u.is_private,

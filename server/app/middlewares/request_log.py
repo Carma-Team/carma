@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.logging import user_id_ctx
+from app.core.logging import redact_path, user_id_ctx
 
 log = logging.getLogger("carma.http")
 
@@ -26,8 +26,8 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            path = request.url.path
-            level = logging.DEBUG if path.startswith(_QUIET_PREFIXES) else logging.INFO
+            path = redact_path(request)
+            level = logging.DEBUG if request.url.path.startswith(_QUIET_PREFIXES) else logging.INFO
             log.log(
                 level,
                 "http.request",

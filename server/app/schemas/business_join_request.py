@@ -10,6 +10,12 @@ from app.schemas._base import CamelModel
 
 JoinRequestStatus = Literal["none", "pending", "approved", "rejected"]
 
+BusinessJoinRequestConflictCode = Literal[
+    "ALREADY_HAS_PENDING_REQUEST",
+    "REGISTRATION_NUMBER_PENDING",
+    "REGISTRATION_NUMBER_TAKEN",
+]
+
 
 class BusinessJoinRequestIn(CamelModel):
     """Submission payload. No `phone`, no `userId` — both come from the caller's
@@ -33,6 +39,22 @@ class BusinessJoinRequestOut(CamelModel):
     @classmethod
     def from_orm_request(cls, request: BusinessJoinRequest) -> BusinessJoinRequestOut:
         return cls(id=request.id, status=request.status.value.lower(), created_at=request.created_at)
+
+
+class BusinessJoinRequestConflictOut(CamelModel):
+    """The `detail` body of a 409 from `POST /join-requests`. `code` is the
+    stable discriminator a client branches on; `message` is for display only
+    and carries no contract — see CAR-264."""
+
+    code: BusinessJoinRequestConflictCode
+    message: str
+
+
+class BusinessJoinRequestConflictResponse(CamelModel):
+    """Documents the actual FastAPI error envelope so it appears in the
+    generated OpenAPI schema instead of only in code comments."""
+
+    detail: BusinessJoinRequestConflictOut
 
 
 class BusinessJoinRequestStatusOut(CamelModel):

@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
 import { RedemptionPage } from '@/pages/RedemptionPage';
+import { RedemptionHistoryPage } from '@/pages/RedemptionHistoryPage';
 import { RewardsPage } from '@/pages/RewardsPage';
 import { PermissionsPage } from '@/pages/PermissionsPage';
 import { InvitationsPage } from '@/pages/InvitationsPage';
@@ -12,8 +13,10 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
+import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RequireBusinessRole } from './RequireBusinessRole';
+import { RequireAdmin } from './RequireAdmin';
 import { LandingRoute } from './LandingRoute';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
@@ -31,6 +34,15 @@ import { LandingRoute } from './LandingRoute';
 // /permissions (CAR-117) gets its own `RequireBusinessRole`, allowing OWNER
 // only — a narrower gate than the four routes above it, which every role in
 // the matrix can at least reach.
+// /admin/business-requests (CAR-255) sits beside those business-role gates,
+// not inside one — ADMIN is a system role unrelated to any business
+// membership, so it gets its own `RequireAdmin` reading `user.role` instead
+// of `businessMembershipRole`. This is UX only; `CurrentAdmin` on the CAR-77
+// endpoints is the actual boundary (see RequireAdmin's own comment).
+// / itself sits outside every role gate above (see LandingRoute) — it is
+// the one route both an ADMIN and a business role land on straight out of
+// sign-in, so it resolves the role split itself rather than living inside
+// a gate built for only one side of it.
 export const routes: RouteObject[] = [
   { path: '/sign-in', element: <SignInPage /> },
   { path: '/create-account', element: <CreateAccountPage /> },
@@ -52,10 +64,13 @@ export const routes: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
+          // /  (CAR-255 review) sits outside this gate now — LandingRoute
+          // does its own role check, because it is the one route an ADMIN
+          // must also reach (see its own comment for why).
+          { path: '/', element: <LandingRoute /> },
           {
             element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
             children: [
-              { path: '/', element: <LandingRoute /> },
               { path: '/redemption', element: <RedemptionPage /> },
               { path: '/rewards', element: <RewardsPage /> },
               { path: '/business-profile', element: <ComingSoonPage /> },
@@ -67,6 +82,17 @@ export const routes: RouteObject[] = [
               { path: '/permissions', element: <PermissionsPage /> },
               { path: '/permissions/invitations', element: <InvitationsPage /> },
             ],
+          },
+          {
+            // CAR-80: OWNER/MANAGER only, same as AppShell's nav link — a
+            // CASHIER must be refused here even via a direct URL, not just
+            // have the nav item hidden.
+            element: <RequireBusinessRole allow={['OWNER', 'MANAGER']} />,
+            children: [{ path: '/redemption-history', element: <RedemptionHistoryPage /> }],
+          },
+          {
+            element: <RequireAdmin />,
+            children: [{ path: '/admin/business-requests', element: <BusinessRequestsReviewPage /> }],
           },
           { path: '*', element: <NotFoundPage /> },
         ],

@@ -18,8 +18,11 @@ const user: AppUser = {
   language: 'HE',
   points: 999999,
   totalPoints: 999999,
-  availablePoints: 999999,
-  reservedPoints: 0,
+  driverScore: 92.5,
+  // Short of the total by exactly what the two seeded vouchers below hold, so the
+  // store opens on a session that already has something reserved to show.
+  availablePoints: 999999 - 1300,
+  reservedPoints: 1300,
   totalDistance: 12345,
   level: 10,
   isPrivate: false,
@@ -43,7 +46,24 @@ const rewards: Reward[] = [
   },
 ];
 
-let vouchers: Voucher[] = [];
+// One live voucher against each reward — enough to see the strip on a card, and to
+// reach the two-voucher ceiling on either one with a single redemption.
+const seedVoucher = (reward: Reward, code: string): Voucher => ({
+  id: `mock-voucher-seed-${reward.id}`,
+  userId: user.id,
+  rewardId: reward.id,
+  code,
+  qrData: `mock:${reward.id}`,
+  status: 'pending',
+  isUsed: false,
+  expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  redeemedAt: null,
+  createdAt: new Date().toISOString(),
+  pointsCost: reward.costPoints,
+  reward,
+});
+
+let vouchers: Voucher[] = [seedVoucher(rewards[0], 'SEEDA1'), seedVoucher(rewards[1], 'SEEDB2')];
 
 // ─── Trips ────────────────────────────────────────────────────────────────────
 // Four of them on purpose, so the trip-detail screen can be exercised end to end:
@@ -134,9 +154,15 @@ function mockTrip(
     startLocation: 'Tel Aviv',
     endLocation: 'Tel Aviv',
     aiInsight: null,
+    // These mocks stand for ordinary completed drives, so the sensor was live.
+    accelAvailable: true,
+    accelInitFailed: false,
     status: 'scored',
     pointsCapped: false,
     userLevel: user.level,
+    // Required by the contract with a server-side default, so a trip detail always
+    // has the array. Callers that want markers pass their own through `extra`.
+    events: [],
     ...extra,
   };
 }
@@ -259,11 +285,25 @@ function handleRequest(method: string, path: string, _body: unknown): { status: 
       reward,
     };
     vouchers = [voucher, ...vouchers];
+    // The real server holds the points rather than spending them, and only the
+    // split moves. Mirrored here so a reload does not hand the balance back.
+    user.availablePoints -= reward.costPoints;
+    user.reservedPoints  += reward.costPoints;
     return { status: 200, data: { voucher } };
   }
 
-  if (method === 'GET' && cleanPath.endsWith('/api/vouchers')) {
-    return { status: 200, data: { vouchers } };
+  const cancelMatch = cleanPath.match(/\/api\/vouchers\/([^/]+)\/cancel$/);
+  if (method === 'POST' && cancelMatch) {
+    const voucher = vouchers.find(v => v.id === cancelMatch[1]);
+    if (!voucher) return { status: 404, data: { detail: 'Voucher not found (mock)' } };
+    if (voucher.status !== 'pending') {
+      return { status: 409, data: { detail: 'Voucher is not cancellable (mock)' } };
+    }
+    const cancelled: Voucher = { ...voucher, status: 'cancelled' };
+    vouchers = vouchers.map(v => (v.id === cancelled.id ? cancelled : v));
+    user.availablePoints += voucher.pointsCost;
+    user.reservedPoints  -= voucher.pointsCost;
+    return { status: 200, data: { voucher: cancelled } };
   }
 
   return null;

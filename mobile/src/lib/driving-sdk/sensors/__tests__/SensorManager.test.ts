@@ -55,9 +55,6 @@ import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 // ─── Fixtures & helpers ───────────────────────────────────────────────────────
 
 const MS2_PER_G = 9.81;
-// Mirrors SensorManager's own LPF_ALPHA — not imported, same reasoning as MS2_PER_G above.
-const LPF_ALPHA = 0.9;
-
 // Deliberately not DEFAULT_MOTION_THRESHOLDS — see file header.
 const THRESHOLDS = {
   brakeThresholdMs2: 2.7,
@@ -255,13 +252,13 @@ describe('SensorManager', () => {
     sendFix({ t: 2000, speed: 14 });
 
     // typesFired() alone doesn't prove the accelerometer is live — on the pre-fix
-    // code this event still fires (imuConfirms fails open when accelAvailable is
-    // false), and feedStrongForce() never reaching a real subscription would leave
-    // onUpdate's accelX at 0. A nonzero accelX is what only the fix makes possible.
+    // code this event still fires, because imuConfirms fails open when accelAvailable
+    // is false. The flag is what separates the two: it can only be true if the
+    // subscription was established and feedStrongForce() reached it.
     const [event] = events();
     expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-    expect(lastUpdate.accelX).toBeGreaterThan(0);
+    expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
   it('fails closed — not open — when accelerometer registration itself throws', async () => {
@@ -394,14 +391,82 @@ describe('SensorManager', () => {
 
       expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
 
-      // An event firing here doesn't prove gravity was removed — since CAR-156
-      // dropped peakG, nothing on the event does. onUpdate's accelX still carries
-      // the gravity-removed dynamic X (this.latestAccelX): if removal broke, it
-      // would report c.gravity.x + c.force.x instead of just c.force.x, scaled
-      // down by one sample of the LPF_ALPHA gravity EMA settling toward the force.
+      // The event fires from the same applied magnitude in all four mountings, which
+      // is the invariance being pinned. That gravity was actually removed, and that
+      // the surviving force lands on the right vehicle axis, is checked directly
+      // against the geometry in sensors/__tests__/vehicleFrame.test.ts — the update
+      // here carries vehicle-frame values, which are deliberately null until enough
+      // GPS evidence has resolved the forward direction.
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
-      expect(lastUpdate.accelX).toBeCloseTo(c.force.x * LPF_ALPHA, 5);
+      expect(lastUpdate.lateralAccelG).toBeNull();
     }
+  });
+
+  // The four cases above apply their force perpendicular to gravity by construction,
+  // so the vertical component is ~0 in every one of them and the projection could be
+  // deleted without a single failure. This is the case that needs it: a force entirely
+  // along gravity leaves no horizontal component, so the IMU must not cross-confirm
+  // the GPS brake. Without the projection the raw magnitude (~0.45 g = 4.4 m/s²)
+  // clears IMU_CONFIRM_MS2 and the event fires.
+  it('does not cross-confirm a force that is purely vertical', async () => {
+    manager.stop();
+    onEvent.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    const gravity = { x: 0, y: 0, z: 1 };
+    settleGravity(gravity);
+    sendFix({ t: 0, speed: 20 });
+    mockAccelHandler?.(add(gravity, { x: 0, y: 0, z: 0.5 })); // straight down the gravity axis
+    sendFix({ t: 2000, speed: 14 });                          // −3.0 m/s², a real GPS brake
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  // ── Raw sample taps and GPS metadata passthrough ───────────────────────────
+
+  // The tap exists so RawSampleRecorder doesn't open a second Accelerometer
+  // subscription. It must carry the sample *before* gravity removal — the recorder's
+  // whole purpose is the unprocessed stream.
+  it('offers every accelerometer sample to onAccelSample, ungravity-removed', async () => {
+    const onAccelSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, undefined, onAccelSample);
+    await manager.start();
+
+    mockAccelHandler?.({ x: 0.1, y: 0.2, z: 1.0 });
+    mockAccelHandler?.({ x: 0.3, y: 0.4, z: 0.9 });
+
+    expect(onAccelSample).toHaveBeenCalledTimes(2);
+    expect(onAccelSample).toHaveBeenNthCalledWith(1, { x: 0.1, y: 0.2, z: 1.0 });
+    expect(onAccelSample).toHaveBeenNthCalledWith(2, { x: 0.3, y: 0.4, z: 0.9 });
+  });
+
+  it('offers every gyroscope sample to onGyroSample', async () => {
+    const onGyroSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, onGyroSample);
+    await manager.start();
+
+    mockGyroHandler?.({ x: 0.01, y: 0.02, z: 0.03 });
+
+    expect(onGyroSample).toHaveBeenCalledWith({ x: 0.01, y: 0.02, z: 0.03 });
+  });
+
+  // Horizontal accuracy is what the host uses to weigh a fix. `undefined` and a real
+  // 0 are different claims, so the null coalesce has to survive: expo reports null
+  // when accuracy is unknown, and that must not arrive as a confident 0 metres.
+  it('passes GPS accuracy through, and reports unknown accuracy as undefined', () => {
+    sendFix({ t: 0, speed: 20 });
+    expect(onUpdate.mock.calls[0][0].accuracy).toBe(5);
+
+    const noAccuracy = fix({ t: 2000, speed: 20 });
+    noAccuracy.coords.accuracy = null as any;
+    mockLocationHandler?.(noAccuracy);
+
+    const last = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(last.accuracy).toBeUndefined();
+    expect('accuracy' in last).toBe(true);
   });
 
   // ── GPS hygiene ────────────────────────────────────────────────────────────
@@ -608,6 +673,23 @@ describe('SensorManager', () => {
 
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ gyroAvailable: true });
+  });
+
+  // The availability flag alone is not enough: a consumer that classifies motion reads
+  // the value, and a gyro that died mid-trip kept reporting its last yaw forever — which
+  // a rail signal counts as a real framed sample. §3.1's unavailable ≠ zero has to cover
+  // unavailable ≠ last known too, or staleness is only advisory.
+  it('reports yawRateRadS: null once the gyroscope goes quiet, rather than freezing its last reading', () => {
+    jest.advanceTimersByTime(1000);
+    mockGyroHandler?.({ x: 0, y: 0, z: 0.4 }); // gravity is still the (0,0,1) seed, so yaw about it is 0.4
+    sendFix({ t: 1100, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: 0.4 });
+
+    jest.advanceTimersByTime(5000); // SENSOR_STALE_MS with no further sample — the gyro is gone
+    sendFix({ t: 6200, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0])
+      .toMatchObject({ yawRateRadS: null, gyroAvailable: false });
   });
 
   it('reports accelAvailable: false once the subscription goes quiet, even though isAvailableAsync() said the hardware was present', () => {
