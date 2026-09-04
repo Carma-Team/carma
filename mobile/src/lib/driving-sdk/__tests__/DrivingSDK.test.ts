@@ -42,6 +42,9 @@ let mockPhoneInteraction:
   | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockDetected: (() => void) | null = null;
+// The vehicle the detection layer reports as connected, driven per test — the SDK reads
+// it once at trip start to stamp the trip's vehicle key (CAR-310).
+let mockConnectedVehicleId: string | null = null;
 let mockLost: (() => void) | null = null;
 
 const mockSensorStart = jest.fn(async () => undefined);
@@ -107,6 +110,7 @@ jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
       mockLost = onLost;
     }
     enable(target: string | null) { return mockAutoEnable(target); }
+    getConnectedVehicleId() { return mockConnectedVehicleId; }
   },
 }));
 
@@ -243,6 +247,7 @@ describe('DrivingSDK', () => {
     mockPhoneInteraction = null;
     mockDetected = null;
     mockLost = null;
+    mockConnectedVehicleId = null;
     jest.clearAllMocks();
 
     onTripStart = jest.fn();
@@ -607,6 +612,51 @@ describe('DrivingSDK', () => {
     }
 
     expect(tripData()?.waypoints).toHaveLength(0);
+  });
+
+  // ── Vehicle key (CAR-310) ──────────────────────────────────────────────────
+
+  it('stamps the connected vehicle as an opaque key, never the address itself', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+    const hasher = jest.fn(() => 'deadbeefdeadbeefdeadbeefdeadbeef');
+    const withHasher = wire(new DrivingSDK({ vehicleKeyHasher: hasher }));
+
+    await startTripReady(withHasher);
+
+    expect(hasher).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
+    expect(tripData(withHasher)?.vehicleKeyHash).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
+  });
+
+  it('leaves the vehicle key null when nothing is connected', async () => {
+    const hasher = jest.fn(() => 'deadbeef');
+    const withHasher = wire(new DrivingSDK({ vehicleKeyHasher: hasher }));
+
+    await startTripReady(withHasher);
+
+    expect(hasher).not.toHaveBeenCalled();
+    expect(tripData(withHasher)?.vehicleKeyHash).toBeNull();
+  });
+
+  it('leaves the vehicle key null when the host injected no hasher', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+
+    await startTripReady();
+
+    expect(tripData()?.vehicleKeyHash).toBeNull();
+  });
+
+  // The binding is an extra; the trip is the product. A hasher that throws must not take
+  // the drive down with it.
+  it('saves the trip without a vehicle key when the hasher throws', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+    const withHasher = wire(new DrivingSDK({
+      vehicleKeyHasher: () => { throw new Error('no salt'); },
+    }));
+
+    await startTripReady(withHasher);
+
+    expect(withHasher.getStatus().isActive).toBe(true);
+    expect(tripData(withHasher)?.vehicleKeyHash).toBeNull();
   });
 
   // ── Phone interaction metrics ──────────────────────────────────────────────

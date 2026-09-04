@@ -36,6 +36,7 @@ import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
 import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import { signTelemetryDigest } from '@/lib/telemetrySigning'
+import { vehicleKeyHash } from '@/lib/vehicleKey'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
@@ -190,7 +191,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
   // the generic library with its own trip-validation rules, per the driving-sdk
   // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
-  const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
+  const sdk = useMemo(() => new DrivingSDK({
+    tripValidator: new TripValidationManager(),
+    // The salt is CARMA's, so the hashing is CARMA's — the SDK is handed the function and
+    // never the secret, the same shape the validator is injected in (CAR-310).
+    vehicleKeyHasher: vehicleKeyHash,
+  }), []);
   // Bumped on every identity change — login, driver switch, logout. An async path
   // copies it on entry and drops its write if the number moved while it awaited;
   // without that, a request the previous driver started lands on the current one.
@@ -260,6 +266,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       accelAvailable: lastTripDataRef.current?.accelAvailable,
       accelInitFailed: lastTripDataRef.current?.accelInitFailed,
       accelCoverage: lastTripDataRef.current?.accelCoverage,
+      vehicleKeyHash: lastTripDataRef.current?.vehicleKeyHash ?? null,
       telemetryDigest,
       payloadSignature,
       routeWaypoints: lastTripDataRef.current?.waypoints,

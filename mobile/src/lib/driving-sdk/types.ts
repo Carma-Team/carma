@@ -179,6 +179,11 @@ export interface SDKConfig {
   motionThresholds?: Partial<MotionThresholds>;
   // Custom trip-start/trip-end/fraud rules. Omit to use DefaultTripValidator.
   tripValidator?: TripValidator;
+  // Turns the connected vehicle's identifier into the opaque key the host wants stamped
+  // on the trip. Injected rather than computed here for the same reason `tripValidator`
+  // is: the salt is the host's secret and the SDK has no business holding one. Omit and
+  // `vehicleKeyHash` stays null.
+  vehicleKeyHasher?: (vehicleId: string) => string | null;
 }
 
 export interface RouteWaypoint {
@@ -249,6 +254,10 @@ export interface TripData {
                              // samples for. The three fields answer different questions:
                              // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
+  // The vehicle this trip was recorded in, as an opaque key from `vehicleKeyHasher`.
+  // Null means no vehicle was connected when the trip started, or the host injected no
+  // hasher — never an empty string, which would read as a vehicle whose key is blank.
+  vehicleKeyHash: string | null;
 }
 
 export type TripUpdateCallback = (data: Partial<TripData>) => void;
