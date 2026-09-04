@@ -127,6 +127,7 @@ const en: TranslationMap = {
     refresh: 'Refresh',
   },
   roadmap: {
+    pointsMultiplier: 'Points multiplier',
     title: 'Progress Roadmap', subtitle: 'Your path to safer driving',
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',
     perks: 'Perks', locked: 'Locked', unlocked: 'Unlocked',

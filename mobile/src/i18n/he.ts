@@ -132,6 +132,8 @@ const he = {
   roadmap: {
     title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהיגה בטוחה יותר',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
+    // המספר מגיע מהשרת, הניסוח לא — `perks` נשלח כפרוזה עברית ללא פרמטר שפה
+    pointsMultiplier: 'מכפיל נקודות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
     pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
