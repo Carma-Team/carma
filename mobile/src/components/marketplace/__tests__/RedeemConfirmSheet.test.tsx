@@ -19,6 +19,10 @@ const reward = {
 
 const props = {
   reward,
+  // What is left after the cost is taken off, computed by the screen above. The sheet
+  // is the last thing shown before points are spent, so this is half of what it exists
+  // to say — the cost is the other half.
+  availableAfter: 750,
   onConfirm: jest.fn(),
   onCancel: jest.fn(),
   loading: false,
@@ -31,11 +35,15 @@ describe('RedeemConfirmSheet', () => {
     props.onCancel.mockClear()
   })
 
-  // The point cost is the whole decision the sheet exists to present.
-  it('states what the reward costs before anything is spent', () => {
+  // What it costs and what is left afterwards are the whole decision the sheet exists
+  // to present, so both are asserted on the number rather than on the sheet rendering.
+  it('states what the reward costs and what is left before anything is spent', () => {
     render(<RedeemConfirmSheet {...props} />)
     expect(screen.getByText(reward.titleHe)).toBeOnTheScreen()
     expect(screen.getByText(`250 ${he.common.points}`)).toBeOnTheScreen()
+    expect(
+      screen.getByText(`${he.marketplace.balanceAfter} 750 ${he.common.points}`)
+    ).toBeOnTheScreen()
   })
 
   it('redeems on confirm', () => {
