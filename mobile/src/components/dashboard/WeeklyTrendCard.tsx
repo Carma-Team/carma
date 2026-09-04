@@ -12,6 +12,15 @@ interface WeeklyTrendCardProps {
   trips: Trip[];
 }
 
+/**
+ * The change, without a tail. `delta` carries one decimal now (CAR-313), so a whole
+ * number is shown as one and only a real fraction spends the extra character.
+ */
+function formatDelta(delta: number): string {
+  const size = Math.abs(delta)
+  return Number.isInteger(size) ? String(size) : size.toFixed(1)
+}
+
 export function WeeklyTrendCard({ trips }: WeeklyTrendCardProps) {
   const { t } = useTranslation();
   const { thisWeek, delta, tripsThisWeek } = weeklyScoreTrend(trips);
@@ -44,7 +53,7 @@ export function WeeklyTrendCard({ trips }: WeeklyTrendCardProps) {
                 color={deltaColor}
               />
               <Text style={[styles.delta, { color: deltaColor }]}>
-                {delta === null ? t('dashboard.weekNoComparison') : `${Math.abs(delta)}`}
+                {delta === null ? t('dashboard.weekNoComparison') : formatDelta(delta)}
               </Text>
             </View>
           </View>
