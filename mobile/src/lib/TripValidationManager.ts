@@ -1,7 +1,8 @@
 /**
  * @file TripValidationManager.ts
  * @owner May (Mobile & Frontend UI Lead) — the trip lifecycle wiring.
- *        The rules it enforces are Dan's: Rule 3 delegates entirely to `FraudDetector.ts`.
+ *        The rules it enforces are Dan's: Rule 3's evaluation comes from `FraudDetector.ts`
+ *        and its decision from `fraudPolicy.ts`. Neither is written here.
  * @brief CARMA's implementation of the SDK's generic `TripValidator` interface.
  * A 1 Hz state machine that decides when a trip starts (Rule 1), when it ends (Rule 2),
  * and runs the fraud check before confirming it and again while it runs (Rule 3).
@@ -9,8 +10,8 @@
  * movement genuinely stops, and a stale GPS sample suspends it entirely.
  */
 import { ValidationState, ValidationSample, SuspiciousActivityEvaluation, TripValidator, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
-import { TransportMode } from '@/lib/transportMode';
-import { FraudDetector, FRAUD_SCORE_THRESHOLD, FraudEvaluation } from '@/lib/FraudDetector';
+import { FraudDetector } from '@/lib/FraudDetector';
+import { FraudPolicy, FraudVerdict } from '@/lib/fraudPolicy';
 import { isRegionAllowed } from '@/lib/regionCheck';
 
 // ─── Thresholds (Appendix E) ──────────────────────────────────────────────────
@@ -35,16 +36,14 @@ export class TripValidationManager implements TripValidator {
   // its own, so freshness is the only thing that separates a live reading from the last
   // one before the fix was lost (docs/fraud-detection.md §3.1).
   private lastSampleAtMs       = 0;
-  // Set by any TRAIN verdict. While it is on, the vehicle has already been classified and
-  // no new verdict may be reached — otherwise a rejection drops the state machine back to
-  // IDLE while the train is still moving, the window refills, and the same journey files a
-  // report every 30 s for its whole duration (§3.6). Cleared only by a genuine stop.
-  // It also replaces the older fraudSuspectedFired: suppression already blocks the
-  // mid-trip path through isClassifying(), so a second once-per-session flag had nothing
-  // left to guard.
-  private fraudClassificationSuppressed = false;
+  // Rule 3's decision and its report-once latch. Owned by Dan; this class only asks it
+  // for a verdict and tells it when Rule 2's stop has been reached.
+  private fraudPolicy          = new FraudPolicy();
   // Region is checked once per trip, off the first sample that carries a fix. The
-  // answer can't change mid-trip in a way CARMA needs to react to twice.
+  // answer can't change mid-trip in a way CARMA needs to react to twice. Cleared in
+  // start(), not in reset(): a rejection resets the validator from inside the check
+  // itself, and clearing it there let the next sample carrying a fix run the gate a
+  // second time and reject the same trip twice (CAR-279).
   private regionChecked        = false;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────────
@@ -63,6 +62,7 @@ export class TripValidationManager implements TripValidator {
   public start(): void {
     if (this.ticker) return;
     this.reset();
+    this.regionChecked = false;
     this.ticker = setInterval(() => this.tick(), TICK_INTERVAL_MS);
     console.log('[Validation] Started — waiting for movement');
   }
@@ -133,7 +133,7 @@ export class TripValidationManager implements TripValidator {
   // narrowing them to fresh samples changes when a trip starts and ends, which is a wider
   // decision than the fraud path and is tracked separately.
   private isClassifying(): boolean {
-    return !this.fraudClassificationSuppressed
+    return !this.fraudPolicy.isSuppressed()
       && (Date.now() - this.lastSampleAtMs) < SENSOR_STALE_MS;
   }
 
@@ -145,11 +145,11 @@ export class TripValidationManager implements TripValidator {
         // genuinely stops. Re-entering PRE_TRIP below is exactly what re-fires it.
         // "Genuinely stops" is Rule 2's stop, tested with Rule 2's own comparison — a
         // second definition of stopped in the same class is a defect waiting to happen.
-        if (this.fraudClassificationSuppressed) {
+        if (this.fraudPolicy.isSuppressed()) {
           if (this.latestSpeedKmh < SPEED_THRESHOLD_KMH) {
             this.continuousBelowThresholdMs += TICK_INTERVAL_MS;
             if (this.continuousBelowThresholdMs >= END_THRESHOLD_MS) {
-              this.fraudClassificationSuppressed = false;
+              this.fraudPolicy.rearm();
               this.continuousBelowThresholdMs = 0;
               console.log('[Validation] Movement stopped — fraud classification re-armed');
             }
@@ -184,13 +184,10 @@ export class TripValidationManager implements TripValidator {
             // Rule 3: evaluate fraud BEFORE confirming the trip.
             // At this point the window has exactly MIN_SAMPLES_TO_EVALUATE (30) samples.
             const fraud = classifying ? this.fraudDetector.evaluate() : null;
-            if (fraud && this.shouldDecline(fraud)) {
+            if (fraud && this.fraudPolicy.decide(fraud) === FraudVerdict.DECLINE) {
               console.log(`[Validation] Rule 3 — ${fraud.mode} detected (score=${fraud.score.toFixed(2)}) — trip rejected`);
               this.continuousAboveThresholdMs = 0;
               this.fraudDetector.reset();
-              // §3.6: one report per journey. Without this the vehicle is still above the
-              // speed threshold on the very next tick and the whole 30 s detection re-arms.
-              this.fraudClassificationSuppressed = true;
               this.continuousBelowThresholdMs = 0;
               this.setState(ValidationState.IDLE);
               this.onFraudSuspected?.(fraud);
@@ -230,8 +227,7 @@ export class TripValidationManager implements TripValidator {
           if (this.isClassifying()) {
             this.fraudDetector.addSample(this.latestSpeedKmh, this.latestLateralAccelG, this.latestYawRateRadS);
             const fraud = this.fraudDetector.evaluate();
-            if (this.shouldDecline(fraud)) {
-              this.fraudClassificationSuppressed = true;
+            if (this.fraudPolicy.decide(fraud) === FraudVerdict.DECLINE) {
               console.log(`[Validation] Rule 3 (mid-trip) — ${fraud.mode} detected (score=${fraud.score.toFixed(2)})`);
               this.onFraudSuspected?.(fraud);
             }
@@ -249,19 +245,6 @@ export class TripValidationManager implements TripValidator {
     }
   }
 
-  // §3.5: the device may act unilaterally only on complete evidence — confidence 1.00
-  // with mode TRAIN. The confidence term is redundant today (TRAIN already requires both
-  // tri-state signals to be TRUE, which can only happen at full confidence) and is here
-  // so the rule keeps its shape if a later signal set makes partial confidence reachable.
-  // If it ever does, §3.5's other row — report at partial confidence, let the trip run —
-  // needs a reporting channel that does not abort the session; onFraudSuspected does.
-  private shouldDecline(fraud: FraudEvaluation): boolean {
-    return fraud.isReady
-      && fraud.score >= FRAUD_SCORE_THRESHOLD
-      && fraud.confidence === 1
-      && fraud.mode !== TransportMode.UNKNOWN;
-  }
-
   private setState(next: ValidationState): void {
     this.state = next;
     this.onStateChange?.(next);
@@ -276,10 +259,10 @@ export class TripValidationManager implements TripValidator {
     this.latestYawRateRadS   = null;
     this.lastSampleAtMs      = 0;
     this.fraudDetector.reset();
-    this.regionChecked = false;
-    // fraudClassificationSuppressed is deliberately not cleared here. A fraud abort stops
-    // the validator from inside the tick that raised the verdict, so clearing it on reset
-    // would undo the suppression in the same call that set it, and the next session would
-    // classify the same journey again. Only the re-arm branch clears it.
+    // Neither the fraud suppression nor the region mark is cleared here. Both are set
+    // from inside the very tick that then resets the validator, so clearing them on
+    // reset would undo them in the same call — and the same journey would be classified,
+    // or the same trip rejected, a second time. start() clears the region mark; only the
+    // re-arm branch lifts the suppression.
   }
 }
