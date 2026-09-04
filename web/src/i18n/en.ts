@@ -118,6 +118,7 @@ const en: TranslationMap = {
     otpNetworkError: 'Network error — check your connection and try again.',
   },
   businessRegistration: {
+    signInEntryLabel: 'Own a business? Register it on CARMA',
     title: 'Register your business',
     subtitle: 'Tell us about your business, verify your phone, and we will review your request.',
     nameLabel: 'Business name (English)',
