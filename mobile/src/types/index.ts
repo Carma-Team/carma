@@ -37,23 +37,33 @@ export type OtpSent = Schemas['OtpSent'];
 export type MessageOut = Schemas['MessageOut'];
 
 // ─── Trip ─────────────────────────────────────────────────────────────────────
-export type Trip = Schemas['TripOut'] & {
-  // Route map data — only returned by GET /api/trips/:id (not the list endpoint).
-  // The schema types waypoints as an opaque object; this is what the map reads.
+// The two members the schema genuinely cannot supply, and the only ones either trip
+// shape adds to it. Both fall under an exception the header names: the first is a
+// shape OpenAPI flattens, the second has no server existence at all.
+type TripClientFields = {
+  /**
+   * Flattened exception. `TripDetailOut.routeWaypoints` is typed as an opaque
+   * `{[key: string]: unknown}[]`, which says nothing about the four keys the map
+   * reads. Narrowed here rather than cast at each use.
+   * Only `GET /api/trips/:id` returns it; the list endpoint never does.
+   */
   routeWaypoints?: { lat: number; lng: number; ts: number; speedKmh: number }[];
-  // Local-only aliases (used by TripCard/TripDetailScreen for locally-created trips)
-  score?: number;
-  // Client-only. Set on the row we create ourselves when the save never landed, and
-  // gone once SyncManager swaps in the server's row. The schema requires avgScore and
-  // points, so that row carries zeros — this flag is what tells them apart from a
-  // trip the server actually scored zero.
+  /**
+   * Client-only exception. Set on the row we create ourselves when the save never
+   * landed, and gone once SyncManager swaps in the server's row. The schema requires
+   * avgScore and points, so that row carries zeros — this flag is what tells them
+   * apart from a trip the server actually scored zero.
+   */
   pendingSync?: boolean;
-  // Client-only. Set when the queue gives up on a row it has been carrying for too
-  // long (CAR-166). The trip stays on the device and is never sent — nothing here
-  // retries it, so it is a terminal state and not a slower `pendingSync`.
+  /**
+   * Client-only exception. Set when the queue gives up on a row it has been carrying
+   * for too long (CAR-166). The trip stays on the device and is never sent — nothing
+   * here retries it, so it is a terminal state and not a slower `pendingSync`.
+   */
   syncFailed?: boolean;
-  eventsArray?: any[];
 };
+
+export type Trip = Schemas['TripOut'] & TripClientFields;
 
 // Returned by GET /api/trips/:id only, never by the list endpoint. `type` arrives
 // lower-cased on the wire — use lib/tripEvents.ts to reach the SDK's enum. `severity`
@@ -61,9 +71,10 @@ export type Trip = Schemas['TripOut'] & {
 // same name, and nothing converts between them.
 export type TripEvent = Schemas['EventOut'];
 
-export interface TripDetail extends Trip {
-  events?: TripEvent[];
-}
+// Derived rather than `extends Trip` with a hand-written `events`: the copy declared
+// events optional while the contract requires it with a default, and nothing in CI
+// compares a hand-written type against the schema it is shadowing (CAR-271).
+export type TripDetail = Schemas['TripDetailOut'] & TripClientFields;
 
 // ─── Reward ───────────────────────────────────────────────────────────────────
 // `stock` is the total the business allocated; `available` is what is left of it

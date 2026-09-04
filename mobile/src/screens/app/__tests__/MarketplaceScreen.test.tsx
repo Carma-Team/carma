@@ -65,6 +65,12 @@ const voucher = (code: string): Voucher =>
 
 const mocked = rewardsApi as jest.Mocked<typeof rewardsApi>
 
+// The first test in this file mounts the whole screen and pulls in the QR component,
+// the icon set and the modal on a cold module cache. That lands under a second on its
+// own and has repeatedly crossed jest's 5s default when the suite runs in parallel, so
+// the gate failed on machine load rather than on anything the test asserts.
+jest.setTimeout(20000)
+
 /**
  * Renders and settles the catalog load, so the cards are on screen.
  *

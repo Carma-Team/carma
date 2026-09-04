@@ -19,7 +19,7 @@ interface TripCardProps {
 
 export function TripCard({ trip, onPress, selectable, selected }: TripCardProps) {
   const { t, lang } = useTranslation()
-  const displayScore = trip.avgScore ?? trip.score ?? 0
+  const displayScore = trip.avgScore
   // A row we created ourselves carries zeros until the server scores it, so a grade
   // badge on one reads as a real zero — the same distinction `tripSummary.ts` makes.
   // Until there is a score to show, the card shows where the trip got to instead.
@@ -28,6 +28,7 @@ export function TripCard({ trip, onPress, selectable, selected }: TripCardProps)
   const syncState = trip.syncFailed ? 'failed' : trip.pendingSync ? 'pending' : null
   const grade = scoreToGrade(displayScore)
   const badgeVariant = { excellent: 'success', good: 'success', fair: 'warning', poor: 'danger' }[grade] as any
+  const eventCount = trip.hardBrakes + trip.aggressiveAccels + trip.sharpTurns
 
   return (
     <TouchableOpacity
@@ -76,10 +77,13 @@ export function TripCard({ trip, onPress, selectable, selected }: TripCardProps)
           </View>
         </View>
 
-        {(trip.eventsArray?.length ?? 0) > 0 && (
+        {/* Summed from the three counters the trip actually carries. This row used
+            to read an `eventsArray` that nothing ever wrote, so it never appeared —
+            the count was on the row all along, in three fields (CAR-271). */}
+        {eventCount > 0 && (
           <View style={styles.events}>
             <Ionicons name={ICONS.flash} size={13} color={COLORS.textMuted} />
-            <Text style={styles.eventText}>{trip.eventsArray!.length} {t('trip.events')}</Text>
+            <Text style={styles.eventText}>{eventCount} {t('trip.events')}</Text>
           </View>
         )}
       </Card>
