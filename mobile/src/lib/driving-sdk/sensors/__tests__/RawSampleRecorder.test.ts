@@ -11,7 +11,9 @@ import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 // prunes and re-reads its own directory, so a mock that only records calls cannot
 // tell whether any of that works.
 const fs = new Map<string, string>();
-const mockFileWrite = jest.fn((_content: string) => undefined);
+// The recorder appends through a file handle rather than rewriting (CAR-304), so this
+// is what a flush now calls — once per flush, with only the lines added since the last.
+const mockFileAppend = jest.fn((_chunk: string) => undefined);
 const mockDirCreate = jest.fn((_opts?: { idempotent?: boolean }) => undefined);
 const mockFileCreate = jest.fn((_opts?: { overwrite?: boolean }) => undefined);
 
@@ -38,9 +40,26 @@ function MockFile(this: any, ...parts: (string | { uri: string })[]) {
     mockFileCreate(opts);
     fs.set(this.uri, '');
   };
-  this.write = (content: string) => {
-    mockFileWrite(content);
-    fs.set(this.uri, content);
+  // Bytes are decoded back with fromCharCode: every line this recorder writes is JSON,
+  // and the mock's `size` is in characters, so the two agree for the ASCII these tests
+  // use. A test that needs multi-byte behaviour would need a real UTF-8 decode here.
+  this.open = () => {
+    const uri = this.uri;
+    const handle = {
+      get size() { return (fs.get(uri) ?? '').length; },
+      offset: 0,
+      writeBytes: (bytes: Uint8Array) => {
+        // Built in a loop, not by spreading into fromCharCode: a retried flush carries
+        // the whole pending range, which is six figures of bytes and overflows the
+        // argument list.
+        let chunk = '';
+        for (let i = 0; i < bytes.length; i++) chunk += String.fromCharCode(bytes[i]);
+        mockFileAppend(chunk);
+        fs.set(uri, (fs.get(uri) ?? '').slice(0, handle.offset) + chunk);
+      },
+      close: () => undefined,
+    };
+    return handle;
   };
   this.delete = () => { fs.delete(this.uri); };
 }
@@ -120,17 +139,17 @@ describe('RawSampleRecorder', () => {
 
   it('drops samples pushed before start() or after stop()', async () => {
     recorder.pushAccelSample(1, 2, 3);
-    expect(mockFileWrite).not.toHaveBeenCalled();
+    expect(mockFileAppend).not.toHaveBeenCalled();
 
     const session = recorder.start('mounted', 'android');
     await recorder.stop();
     recorder.pushGyroSample(4, 5, 6);
     await recorder.stop();
 
-    // The file exists from start(), and stayed empty: the sample before start() and
-    // the one after stop() were both dropped, so no flush ever had anything to write.
-    expect(fs.get(session.filePath)).toBe('');
-    expect(mockFileWrite).not.toHaveBeenCalled();
+    // The header is the only line: the sample before start() and the one after stop()
+    // were both dropped, so the single flush had nothing else to write.
+    const lines = fs.get(session.filePath)!.split('\n').map((l) => JSON.parse(l));
+    expect(lines.map((l: any) => l.kind)).toEqual(['session_start']);
   });
 
   it('writes one NDJSON line per pushed sample, tagged by kind', async () => {
@@ -142,10 +161,10 @@ describe('RawSampleRecorder', () => {
     await recorder.stop();
 
     const lines = fs.get(session.filePath)!.split('\n').map((l) => JSON.parse(l));
-    expect(lines).toHaveLength(3);
-    expect(lines.map((l: any) => l.kind)).toEqual(['accel', 'gyro', 'location']);
-    expect(lines[0].accel).toEqual({ x: 1, y: 2, z: 3 });
-    expect(lines[2].location).toEqual({ lat: 32.05, lng: 34.77, speed: 10, accuracy: 5 });
+    expect(lines).toHaveLength(4);
+    expect(lines.map((l: any) => l.kind)).toEqual(['session_start', 'accel', 'gyro', 'location']);
+    expect(lines[1].accel).toEqual({ x: 1, y: 2, z: 3 });
+    expect(lines[3].location).toEqual({ lat: 32.05, lng: 34.77, speed: 10, accuracy: 5 });
   });
 
   // A crash or an app kill used to cost the whole session: nothing reached disk
@@ -154,6 +173,7 @@ describe('RawSampleRecorder', () => {
     const session = recorder.start('handheld', 'ios');
     for (let i = 0; i < 1000; i++) recorder.pushAccelSample(i, 0, 0);
 
+    // The header counts toward the interval, so the flush lands on the 999th sample.
     expect(fs.get(session.filePath)!.split('\n')).toHaveLength(1000);
     expect(recorder.isRecording()).toBe(true);
   });
@@ -234,9 +254,9 @@ describe('RawSampleRecorder', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const session = recorder.start('handheld', 'ios');
 
-    mockFileWrite.mockImplementationOnce(() => { throw new Error('disk full'); });
+    mockFileAppend.mockImplementationOnce(() => { throw new Error('disk full'); });
     for (let i = 0; i < 1000; i++) recorder.pushAccelSample(i, 0, 0);
-    expect(fs.get(session.filePath)).toBe(''); // the failed flush wrote nothing
+    expect(fs.get(session.filePath)).toBe(''); // the failed flush wrote nothing, header included
 
     // The retry comes one full interval later, not on the very next sample, and it
     // carries everything the failed flush was holding rather than only the new lines.
@@ -252,13 +272,13 @@ describe('RawSampleRecorder', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     recorder.start('handheld', 'ios');
 
-    mockFileWrite.mockImplementation(() => { throw new Error('disk full'); });
+    mockFileAppend.mockImplementation(() => { throw new Error('disk full'); });
     for (let i = 0; i < 3000; i++) recorder.pushAccelSample(i, 0, 0);
 
-    expect(mockFileWrite).toHaveBeenCalledTimes(3);
+    expect(mockFileAppend).toHaveBeenCalledTimes(3);
     // clearAllMocks() clears calls but not implementations, so put the default back
     // rather than leaking a throwing write into every test after this one.
-    mockFileWrite.mockImplementation(() => undefined);
+    mockFileAppend.mockImplementation(() => undefined);
     errorSpy.mockRestore();
   });
 
@@ -269,7 +289,7 @@ describe('RawSampleRecorder', () => {
     recorder.start('handheld', 'ios');
     recorder.pushAccelSample(1, 2, 3);
 
-    mockFileWrite.mockImplementationOnce(() => { throw new Error('disk full'); });
+    mockFileAppend.mockImplementationOnce(() => { throw new Error('disk full'); });
     await expect(recorder.stop()).rejects.toThrow();
 
     // Still recording, buffer intact, subscription alive — so Stop can be retried.
@@ -279,22 +299,114 @@ describe('RawSampleRecorder', () => {
     const session = await recorder.stop();
 
     expect(session).not.toBeNull();
-    expect(fs.get(session!.filePath)!.split('\n')).toHaveLength(1);
+    // Header plus the one sample — the retry carried everything the failed flush held.
+    expect(fs.get(session!.filePath)!.split('\n')).toHaveLength(2);
     errorSpy.mockRestore();
+  });
+
+  // ── The CAR-212 format (CAR-303) ───────────────────────────────────────────
+  // The upload route reads the recording's index out of this line and refuses a file
+  // without one, so the header is the file's contract with the server, not decoration.
+
+  it('opens the file with the session header the upload route reads', async () => {
+    const session = recorder.start('mounted', 'ios', 'iPhone 14');
+    recorder.pushAccelSample(1, 2, 3);
+
+    await recorder.stop();
+
+    const header = JSON.parse(fs.get(session.filePath)!.split('\n')[0]);
+    expect(header).toEqual({
+      kind: 'session_start',
+      version: 1,
+      sessionId: session.sessionId,
+      startedAt: session.startedAt,
+      scenario: 'mounted',
+      platform: 'ios',
+      deviceModel: 'iPhone 14',
+    });
+  });
+
+  it('records a marker in the stream, with the label defaulting to the type', async () => {
+    const session = recorder.start('mounted', 'ios');
+    expect(recorder.pushMarker('hard_brake')).toBe(true);
+    expect(recorder.pushMarker('phone_pickup', 'Pickup', { seat: 'driver' })).toBe(true);
+
+    await recorder.stop();
+
+    const lines = fs.get(session.filePath)!.split('\n').map((l) => JSON.parse(l));
+    expect(lines[1]).toMatchObject({ kind: 'marker', markerType: 'hard_brake', label: 'hard_brake' });
+    expect(lines[2]).toMatchObject({
+      kind: 'marker', markerType: 'phone_pickup', label: 'Pickup', metadata: { seat: 'driver' },
+    });
+  });
+
+  it('reports a marker pushed with no session running rather than dropping it silently', () => {
+    expect(recorder.pushMarker('hard_brake')).toBe(false);
+  });
+
+  // One drive can cover mounted and then hand-held without being split in two: the
+  // marker says where the change happened and the session's own label follows it.
+  it('re-labels the session on a scenario change, leaving a marker where it happened', async () => {
+    const session = recorder.start('mounted', 'ios');
+    expect(recorder.changeScenario('handheld')).toBe(true);
+
+    await recorder.stop();
+
+    const lines = fs.get(session.filePath)!.split('\n').map((l) => JSON.parse(l));
+    expect(lines[1]).toMatchObject({
+      kind: 'marker', markerType: 'scenario_change', label: 'handheld',
+      metadata: { from: 'mounted', to: 'handheld' },
+    });
+    expect(recorder.listRecordings()[0]).toBe(session.filePath);
+  });
+
+  it('ignores a scenario change to the scenario already running', async () => {
+    recorder.start('mounted', 'ios');
+
+    expect(recorder.changeScenario('mounted')).toBe(false);
+  });
+
+  // ── Appending rather than rewriting (CAR-304) ──────────────────────────────
+
+  it('appends only the lines added since the last flush', async () => {
+    const session = recorder.start('handheld', 'ios');
+    for (let i = 0; i < 1000; i++) recorder.pushAccelSample(i, 0, 0);
+    const firstChunkLines = mockFileAppend.mock.calls[0][0].split('\n').length;
+
+    await recorder.stop();
+
+    // Two writes, and the second carries only what the first did not: a rewrite would
+    // have made the second chunk as long as the whole session.
+    expect(mockFileAppend).toHaveBeenCalledTimes(2);
+    expect(firstChunkLines).toBe(1000);
+    expect(mockFileAppend.mock.calls[1][0].split('\n').length).toBe(2);
+    expect(fs.get(session.filePath)!.split('\n')).toHaveLength(1001);
+  });
+
+  // ── Reaching an older session (CAR-305) ────────────────────────────────────
+
+  it('exports the session it was given rather than the newest one', async () => {
+    fs.set(`${DIR}session_1000.ndjson`, 'old');
+    fs.set(`${DIR}session_3000.ndjson`, 'newest');
+
+    const result = await recorder.exportAsync(`${DIR}session_1000.ndjson`);
+
+    expect(mockShareAsync).toHaveBeenCalledWith(`${DIR}session_1000.ndjson`);
+    expect(result).toBe(`${DIR}session_1000.ndjson`);
   });
 
   // CAR-295 - magnetometer, the one stream the recorder subscribes to itself.
 
   it('serialises magnetometer samples alongside the pushed streams', async () => {
-    recorder.start('mounted', 'android');
+    const session = recorder.start('mounted', 'android');
     recorder.pushAccelSample(1, 2, 3);
     mockMagListener!({ x: 21.5, y: -8, z: 44.25 });
 
     await recorder.stop();
 
-    const lines = mockFileWrite.mock.calls[0][0].split('\n').map((l: string) => JSON.parse(l));
-    expect(lines.map((l: any) => l.kind)).toEqual(['accel', 'mag']);
-    expect(lines[1].mag).toEqual({ x: 21.5, y: -8, z: 44.25 });
+    const lines = fs.get(session.filePath)!.split('\n').map((l: string) => JSON.parse(l));
+    expect(lines.map((l: any) => l.kind)).toEqual(['session_start', 'accel', 'mag']);
+    expect(lines[2].mag).toEqual({ x: 21.5, y: -8, z: 44.25 });
     expect(mockMagSetInterval).toHaveBeenCalledWith(100);
   });
 

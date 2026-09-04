@@ -79,6 +79,13 @@ export async function request<T>(
     ...(options.headers as Record<string, string>),
   };
 
+  // A multipart body carries its own content type, and it has to include the boundary
+  // the runtime generated. Setting the header ourselves overwrites that boundary, and
+  // the server then reads an empty form with no error worth the name.
+  if (options.body instanceof FormData) {
+    delete headers['Content-Type'];
+  }
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }

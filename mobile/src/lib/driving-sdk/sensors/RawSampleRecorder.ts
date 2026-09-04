@@ -48,7 +48,40 @@ export interface RawRecordingSession {
   filePath: string;
 }
 
+/**
+ * The first line of every recording (CAR-212, `docs/raw-recording-storage.md`). The
+ * upload route reads the index out of it and refuses a file without one, so it is
+ * written by start() rather than assembled by whoever uploads: two sources for one
+ * fact drift, and the file outlives the table.
+ */
+export interface RawSessionHeader {
+  kind: 'session_start';
+  version: 1;
+  sessionId: string;
+  startedAt: number;
+  scenario: string;
+  platform: string;
+  deviceModel: string;
+}
+
+/**
+ * An operator-placed point in the stream — "a hard brake happened here", or a change
+ * of scenario mid-drive. Free-form on purpose: a marker is a label for offline
+ * analysis, and the SDK has no opinion on the vocabulary, exactly as with `scenario`.
+ */
+export interface RawMarker {
+  t: number;
+  kind: 'marker';
+  markerType: string;
+  label: string;
+  metadata?: Record<string, unknown>;
+}
+
 const RECORDINGS_DIR_NAME = 'raw-recordings';
+
+// Format version carried on the header line. Bumped only when a reader written for
+// the old shape would misread the new one — the server keys its parsing off it.
+const FORMAT_VERSION = 1;
 
 // Lines buffered before the file is rewritten. At the ~20 lines/s this records
 // (accel 10 Hz + gyro 10 Hz + GPS well under 1 Hz) that is a flush roughly every
@@ -87,6 +120,23 @@ function share(): typeof import('expo-sharing') {
   return sharing!;
 }
 
+/**
+ * UTF-8 bytes for a string, BMP range. Hand-written rather than `TextEncoder`, which
+ * Hermes does not guarantee, and rather than borrowing the app's — the SDK owns no
+ * dependency on CARMA. Sample lines are ASCII, but a scenario or marker label comes
+ * from the host and can be anything.
+ */
+function utf8Bytes(text: string): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    else out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+  }
+  return new Uint8Array(out);
+}
+
 function recordingsDir(): DirectoryType {
   const { Directory, Paths } = fs();
   return new Directory(Paths.document, RECORDINGS_DIR_NAME);
@@ -111,11 +161,9 @@ function recordingsIn(dir: DirectoryType): FileType[] {
 
 export class RawSampleRecorder {
   private session: RawRecordingSession | null = null;
-  // NDJSON lines for the active session. Held in full because a flush rewrites the
-  // whole file: expo-file-system's File.write() replaces contents rather than
-  // appending, and MAX_SESSION_LINES bounds what that can cost.
-  // ponytail: whole-file rewrite per flush, O(n²) in bytes over a session. Fine at
-  // this cap and cadence; move to file.open() + writeBytes if sessions get longer.
+  // NDJSON lines for the active session. Held in full even though a flush now appends
+  // only the new ones: a failed flush retries the whole pending range, and nothing is
+  // dropped until it lands. MAX_SESSION_LINES bounds what that can cost in memory.
   private lines: string[] = [];
   private lastFlushedCount = 0;
   // Buffer length at which the next flush is attempted. Advances on every attempt,
@@ -137,7 +185,7 @@ export class RawSampleRecorder {
    * Calling it while a session is already live returns that session untouched
    * rather than silently discarding its buffered samples.
    */
-  public start(scenario: string, platform: string): RawRecordingSession {
+  public start(scenario: string, platform: string, deviceModel = 'unknown'): RawRecordingSession {
     if (this.session) return this.session;
 
     const { File } = fs();
@@ -157,13 +205,27 @@ export class RawSampleRecorder {
     const file = new File(dir, `${sessionId}.ndjson`);
     file.create({ overwrite: true });
 
+    const startedAt = Date.now();
     this.session = {
       sessionId,
       scenario,
       platform,
-      startedAt: Date.now(),
+      startedAt,
       filePath: file.uri,
     };
+
+    // First line, before any sample can be pushed. The upload route refuses a file
+    // whose first line is not this, so it cannot be written lazily on the first flush.
+    const header: RawSessionHeader = {
+      kind: 'session_start',
+      version: FORMAT_VERSION,
+      sessionId,
+      startedAt,
+      scenario,
+      platform,
+      deviceModel,
+    };
+    this.lines.push(JSON.stringify(header));
 
     // Requested at 10 Hz, the same as the accel and gyro streams, so magnetometer samples
     // interleave on one timeline instead of needing to be resampled before analysis. It is
@@ -216,10 +278,41 @@ export class RawSampleRecorder {
     this.push({ t: Date.now(), kind: 'location', location: { lat, lng, speed, accuracy } });
   }
 
+  /**
+   * Places a labelled point in the stream. `label` defaults to the type, which is what
+   * a quick-action button wants — the type is the label there, and metadata is for the
+   * rare marker that carries a value with it.
+   *
+   * Returns false when there is no session to mark, so a caller can tell "recorded" from
+   * "dropped" without reaching for `isRecording()` first and racing it.
+   */
+  public pushMarker(markerType: string, label = markerType, metadata?: Record<string, unknown>): boolean {
+    if (!this.session) return false;
+    this.pushLine({ t: Date.now(), kind: 'marker', markerType, label, ...(metadata ? { metadata } : {}) });
+    return true;
+  }
+
+  /**
+   * Re-labels the rest of the session. One staged drive can then cover mounted and then
+   * hand-held without stopping: the marker says where the change happened, so an offline
+   * reader can split the file on it, and the session's own label follows the current
+   * state rather than the one it opened with.
+   */
+  public changeScenario(scenario: string): boolean {
+    if (!this.session || scenario === this.session.scenario) return false;
+    this.pushMarker('scenario_change', scenario, { from: this.session.scenario, to: scenario });
+    this.session = { ...this.session, scenario };
+    return true;
+  }
+
   private push(sample: RawSample): void {
+    this.pushLine(sample);
+  }
+
+  private pushLine(entry: RawSample | RawMarker): void {
     if (!this.session) return; // no-op outside an active session — callers wire this unconditionally
     if (this.lines.length >= MAX_SESSION_LINES) return;
-    this.lines.push(JSON.stringify(sample));
+    this.lines.push(JSON.stringify(entry));
     if (this.lines.length >= this.nextFlushAt) {
       this.nextFlushAt = this.lines.length + FLUSH_EVERY_LINES;
       this.flush(this.session.filePath);
@@ -240,7 +333,24 @@ export class RawSampleRecorder {
     try {
       const { File } = fs();
       const file = new File(filePath);
-      file.write(this.lines.join('\n'));
+      // Only the lines added since the last successful flush. Rewriting the whole file
+      // cost bytes quadratic in the session and ran synchronously inside a sensor
+      // callback, so a late flush blocked the JS thread long enough to drop the very
+      // samples being recorded (CAR-304).
+      const pending = this.lines.slice(this.lastFlushedCount);
+      // The separator goes before each appended line rather than after: a trailing
+      // newline would leave a stopped session ending in an empty line, and the upload
+      // route reads this file line by line.
+      const chunk = (this.lastFlushedCount === 0 ? '' : '\n') + pending.join('\n');
+      const handle = file.open();
+      try {
+        // The file's own length, not a byte count this class keeps: a retry after a
+        // partial write must land after whatever actually reached disk.
+        handle.offset = handle.size ?? 0;
+        handle.writeBytes(utf8Bytes(chunk));
+      } finally {
+        handle.close();
+      }
       this.lastFlushedCount = this.lines.length;
       return true;
     } catch (err) {
@@ -280,13 +390,15 @@ export class RawSampleRecorder {
   }
 
   /**
-   * Shares the most recent completed recording via the OS share sheet, falling back
-   * to the newest file on disk when nothing was recorded in this app run.
+   * Shares a recording via the OS share sheet. With no path it takes the most recent
+   * completed session, falling back to the newest file on disk when nothing was recorded
+   * in this app run; with one it shares exactly that file, which is how a session from an
+   * earlier app run becomes reachable at all (CAR-305).
    * 'none-recorded' and 'sharing-unavailable' were both a bare `null` before — a caller
    * couldn't tell "nothing to export" from "can't open the share sheet on this device".
    */
-  public async exportAsync(): Promise<string | RawExportFailure> {
-    const path = this.lastFilePath ?? this.listRecordings()[0] ?? null;
+  public async exportAsync(filePath?: string): Promise<string | RawExportFailure> {
+    const path = filePath ?? this.lastFilePath ?? this.listRecordings()[0] ?? null;
     if (!path) return { error: 'none-recorded' };
     const Sharing = share();
     if (!(await Sharing.isAvailableAsync())) return { error: 'sharing-unavailable' };

@@ -318,9 +318,11 @@ need.
 
 | Method | Description |
 |---|---|
-| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Called while a session is already running, it leaves that session alone |
+| `startRawRecording(scenario, platform, deviceModel?)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Writes a `session_start` header as the file's first line. Called while a session is already running, it leaves that session alone |
 | `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage. Throws if that write fails, leaving the session recording so the caller can retry rather than losing the tail silently |
-| `exportRawRecording()` | Shares the most recent recording via the OS share sheet, falling back to the newest file on disk when none was made in this app run; `RawExportFailure` on failure |
+| `markRawRecording(markerType, label?, metadata?)` | Places a labelled point in the running session. False when nothing is recording, so a UI can tell a recorded marker from a dropped tap |
+| `changeRawRecordingScenario(scenario)` | Re-labels the running session from here on, leaving a `scenario_change` marker where it changed — one drive can cover two mount positions without being split |
+| `exportRawRecording(filePath?)` | Shares a recording via the OS share sheet: the given file, or the most recent one, falling back to the newest on disk when none was made in this app run; `RawExportFailure` on failure |
 | `listRawRecordings()` | Every recording on disk, newest first — including sessions from earlier app runs |
 
 Samples reach the file **while the session is still running**, roughly once a minute,
