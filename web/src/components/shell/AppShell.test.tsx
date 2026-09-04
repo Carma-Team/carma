@@ -72,6 +72,7 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'מימושים' })).toHaveAttribute('href', '/redemption');
     expect(screen.getByRole('link', { name: 'פרטי העסק' })).toHaveAttribute('href', '/business-profile');
     expect(screen.getByRole('link', { name: 'צוות והרשאות' })).toHaveAttribute('href', '/permissions');
+    expect(screen.getByRole('link', { name: 'היסטוריית מימושים' })).toHaveAttribute('href', '/redemption-history');
   });
 
   it('renders nav items with no backing route as non-interactive text, not dead links', () => {
@@ -90,20 +91,25 @@ describe('AppShell', () => {
   // CAR-116: capabilities a role cannot use are hidden entirely, not shown
   // disabled — a MANAGER never manages redemption permissions, and a
   // CASHIER never manages permissions or sees redemption history/stats.
-  it('hides Team & Permissions from a MANAGER but keeps Analytics', () => {
+  it('hides Team & Permissions from a MANAGER but keeps Analytics and Redemption History', () => {
     mockRole('MANAGER');
     renderShell();
 
     expect(screen.queryByText('צוות והרשאות')).not.toBeInTheDocument();
     expect(screen.getByText('אנליטיקס')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'היסטוריית מימושים' })).toHaveAttribute('href', '/redemption-history');
   });
 
-  it('hides Team & Permissions and Analytics from a CASHIER, and still renders Rewards and Redemption as real links', () => {
+  // CAR-80: a CASHIER must not see the entry point at all, not just have it
+  // disabled — matches the direct-URL refusal `RequireBusinessRole` enforces
+  // on the route itself.
+  it('hides Team & Permissions, Analytics and Redemption History from a CASHIER, and still renders Rewards and Redemption as real links', () => {
     mockRole('CASHIER');
     renderShell();
 
     expect(screen.queryByText('צוות והרשאות')).not.toBeInTheDocument();
     expect(screen.queryByText('אנליטיקס')).not.toBeInTheDocument();
+    expect(screen.queryByText('היסטוריית מימושים')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'הטבות' })).toHaveAttribute('href', '/rewards');
     expect(screen.getByRole('link', { name: 'מימושים' })).toHaveAttribute('href', '/redemption');
   });
@@ -151,6 +157,7 @@ describe('AppShell', () => {
     expect(screen.queryByText('מימושים')).not.toBeInTheDocument();
     expect(screen.queryByText('פרטי העסק')).not.toBeInTheDocument();
     expect(screen.queryByText('סקירה כללית')).not.toBeInTheDocument();
+    expect(screen.queryByText('היסטוריית מימושים')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument();
   });
 

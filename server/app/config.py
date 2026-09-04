@@ -33,11 +33,15 @@ class Settings(BaseSettings):
     # the cookie and resets this window, so an active user is never signed out
     # by it; only real inactivity is.
     refresh_token_expires_days: int = Field(default=30, gt=0)
-    # "lax" is correct today — the web app and the API are same-site in every
-    # environment this runs in so far. If a future deploy puts them on
-    # different registrable domains, the browser will silently stop sending
-    # the cookie on fetch/XHR unless this becomes "none" (which also requires
-    # `refresh_cookie_secure`, see below — HTTPS only, no exception for dev).
+    # "lax" is right for local development, where the web app and the API are
+    # both on localhost and so same-site whatever ports they use. Production
+    # sets this to "none": `carma-business` and `carma-api` are two Container
+    # Apps, and while they happen to share a parent domain today, the browser
+    # decides same-site from the Public Suffix List, which does not list
+    # `azurecontainerapps.io` at all. Betting the session on that gap staying
+    # open is not worth it; "none" is correct either way, and CSRF is held by
+    # `core.deps.require_browser_header` rather than by SameSite. "none" also
+    # forces the cookie's Secure flag on, see `refresh_cookie_secure` below.
     refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
     otp_length: int = 6
@@ -72,6 +76,20 @@ class Settings(BaseSettings):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
+
+    # Where staged calibration recordings land (CAR-213). Same shape as
+    # `sms_provider`: "local" writes under `recording_local_dir` so a plain
+    # `git clone` with no cloud account can still run the endpoint and its
+    # tests, "azure" is what the deployed server uses.
+    recording_store: Literal["local", "azure"] = "local"
+    recording_blob_connection_string: str | None = None
+    recording_blob_container: str = "raw-recordings"
+    recording_local_dir: str = "var/raw-recordings"
+    # A 10-minute staged drive is ~1.6 MB of NDJSON at the recorder's 10 Hz
+    # accelerometer, gyroscope and magnetometer plus 0.5 Hz location. 32 MB is
+    # roughly three hours, so it refuses a runaway file without ever refusing a
+    # real drive.
+    recording_max_bytes: int = Field(default=32 * 1024 * 1024, gt=0)
 
     applicationinsights_connection_string: str | None = None
     cors_origins: str = "*"
@@ -148,6 +166,14 @@ class Settings(BaseSettings):
                 "REFRESH_TOKEN_EXPIRES_DAYS — an access token that outlives its own "
                 "refresh token defeats the point of keeping it short-lived"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_recording_store(self) -> Settings:
+        """An "azure" store with no connection string fails at the first upload,
+        after the tester has already driven. Fail at startup instead."""
+        if self.recording_store == "azure" and not self.recording_blob_connection_string:
+            raise ValueError("RECORDING_STORE=azure requires RECORDING_BLOB_CONNECTION_STRING")
         return self
 
     @model_validator(mode="after")

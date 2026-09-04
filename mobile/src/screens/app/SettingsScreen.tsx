@@ -70,17 +70,31 @@ export default function SettingsScreen() {
   };
 
   const handleStopRawRecording = async () => {
-    await stopRawRecording();
-    setRawRecordingStatus('stopped');
+    try {
+      await stopRawRecording();
+      setRawRecordingStatus('stopped');
+    } catch (e) {
+      // The flush is what can fail here (disk full, storage revoked). Status stays
+      // 'recording' so Stop can be retried rather than leaving Export pointing at
+      // a file that was never written.
+      Alert.alert('Raw recording', 'Could not stop — the session was not saved.');
+      console.error('stopRawRecording failed', e);
+    }
   };
 
   const handleExportRawRecording = async () => {
-    const result = await exportRawRecording();
-    if (typeof result === 'object') {
-      Alert.alert(
-        'Export',
-        result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
-      );
+    try {
+      const result = await exportRawRecording();
+      if (typeof result === 'object') {
+        Alert.alert(
+          'Export',
+          result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
+        );
+      }
+    } catch (e) {
+      // The share sheet itself can reject — a dismissed sheet on iOS, no handler app.
+      Alert.alert('Export', 'Could not open the share sheet.');
+      console.error('exportRawRecording failed', e);
     }
   };
 

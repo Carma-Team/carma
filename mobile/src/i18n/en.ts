@@ -86,6 +86,9 @@ const en: TranslationMap = {
     finalScore: 'Final Score',
     detailUnavailable: 'Trip details could not be loaded right now.',
     notSent: 'We could not fetch your trip summary — no connection. The trip is saved on this device and will be sent automatically.',
+    syncPending: 'Sending', syncFailed: 'Not sent',
+    syncPendingDetail: 'waiting to be sent',
+    syncFailedDetail: 'stayed on this device',
     km: 'km',
     points: 'points',
     pointsCapped: "You've reached your points limit for this period — more points will count once it resets.",
@@ -129,6 +132,7 @@ const en: TranslationMap = {
     refresh: 'Refresh',
   },
   roadmap: {
+    pointsMultiplier: 'Points multiplier',
     title: 'Progress Roadmap', subtitle: 'Your path to safer driving',
     currentLevel: 'Current Level', nextLevel: 'Next Level', progress: 'Progress',
     perks: 'Perks', locked: 'Locked', unlocked: 'Unlocked',
@@ -155,8 +159,11 @@ const en: TranslationMap = {
     availablePoints: 'available points', reservedPoints: 'points reserved for active vouchers',
     balanceAfter: 'You will be left with',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
+    tabStore: 'Store', tabMyVouchers: 'My vouchers',
+    noVouchers: 'You have not bought any vouchers yet',
     voucher: {
       title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active',
+      expired: 'Expired', cancelled: 'Cancelled',
       cancel: 'Cancel voucher',
       cancelConfirm: 'Cancel this voucher? The points go back to your available balance.',
       cancelSuccess: 'Voucher cancelled, points released',
@@ -234,6 +241,7 @@ const en: TranslationMap = {
     totalTrips: 'Total Trips', avgScore: 'Avg Score', safeTrips: 'Safe Trips',
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
     currentStreak: 'Current Streak', bestStreak: 'Best Streak',
+    streakInfo: 'Driving streak — the number of days in a row you have driven. One trip a day extends it, and a day without one resets it.',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
       // Indexed by Date.getDay() — Sunday first, matching the strip's week start.

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -12,6 +12,7 @@ from app.models.enums import Language, UserRole
 
 if TYPE_CHECKING:
     from app.models.business import Business
+    from app.models.city import City
     from app.models.fraud import FraudReport
     from app.models.redemption import Redemption
     from app.models.trip import Trip
@@ -35,7 +36,11 @@ class User(Base, TimestampMixin):
     language: Mapped[Language] = mapped_column(Enum(Language, name="language"), default=Language.HE, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     age: Mapped[int | None] = mapped_column(Integer)
-    city: Mapped[str | None] = mapped_column(String(80))
+    # The settlement's CBS code, not its name (CAR-218). A stored label can only
+    # ever be right in one language, and this column held a mix of Hebrew and
+    # English depending on what each driver typed.
+    city_code: Mapped[str | None] = mapped_column(String(10), ForeignKey("cities.code"), index=True)
+    city: Mapped[City | None] = relationship(lazy="selectin")
     license_year: Mapped[int | None] = mapped_column(Integer)
     license_img_url: Mapped[str | None] = mapped_column(String(500))
 

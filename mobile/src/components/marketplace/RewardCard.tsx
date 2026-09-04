@@ -102,6 +102,19 @@ export function RewardCard({ reward, userPoints, vouchers, onRedeem, onVoucherPr
 }
 
 // ─── VoucherModal ─────────────────────────────────────────────────────────────
+
+// `isUsed` only separates redeemed from everything else, so an expired or cancelled
+// voucher used to read as active. The status field carries all four states.
+export const VOUCHER_STATUS_KEY: Record<Voucher['status'], string> = {
+  pending:   'marketplace.voucher.active',
+  used:      'marketplace.voucher.used',
+  expired:   'marketplace.voucher.expired',
+  cancelled: 'marketplace.voucher.cancelled',
+}
+
+/** Green only while the voucher can still be handed to a cashier. */
+export const isVoucherLive = (voucher: Voucher) => voucher.status === 'pending'
+
 interface VoucherModalProps {
   open: boolean
   voucher: Voucher | null
@@ -152,9 +165,9 @@ export function VoucherModal({ open, voucher, onClose, onCancelVoucher, cancelli
         <Text style={styles.voucherExpiry}>
           {t('marketplace.voucher.expiry')}: {expiryDate(voucher.expiresAt, lang)}
         </Text>
-        <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
-          <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>
-            {voucher.isUsed ? t('marketplace.voucher.used') : t('marketplace.voucher.active')}
+        <View style={[styles.statusBadge, { backgroundColor: isVoucherLive(voucher) ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)' }]}>
+          <Text style={{ color: isVoucherLive(voucher) ? '#22c55e' : '#ef4444', fontWeight: '700' }}>
+            {t(VOUCHER_STATUS_KEY[voucher.status])}
           </Text>
         </View>
 

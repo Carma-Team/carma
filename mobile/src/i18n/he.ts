@@ -90,6 +90,9 @@ const he = {
     finalScore: 'ציון סופי',
     detailUnavailable: 'לא ניתן היה לטעון את פירוט הנסיעה כרגע.',
     notSent: 'לא הצלחנו להביא את סיכום הנסיעה — אין חיבור לרשת. הנסיעה נשמרה במכשיר ותישלח אוטומטית.',
+    syncPending: 'בשליחה', syncFailed: 'לא נשלחה',
+    syncPendingDetail: 'ממתינה לשליחה',
+    syncFailedDetail: 'נשארה במכשיר',
     km: 'ק"מ',
     points: 'נקודות',
     pointsCapped: 'הגעת למכסת הנקודות לתקופה זו — נקודות נוספות ייספרו לאחר שהמכסה תתאפס.',
@@ -135,6 +138,8 @@ const he = {
   roadmap: {
     title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהיגה בטוחה יותר',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
+    // המספר מגיע מהשרת, הניסוח לא — `perks` נשלח כפרוזה עברית ללא פרמטר שפה
+    pointsMultiplier: 'מכפיל נקודות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
     pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
@@ -158,8 +163,12 @@ const he = {
     availablePoints: 'נקודות זמינות', reservedPoints: 'נקודות שמורות לשוברים פעילים',
     balanceAfter: 'יישארו לך',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
+    // הפרדה בין מה שאפשר לקנות למה שכבר נקנה — קטגוריה היא סיווג של הפרס, לא של הבעלות
+    tabStore: 'חנות', tabMyVouchers: 'השוברים שלי',
+    noVouchers: 'עדיין לא רכשת שוברים',
     voucher: {
       title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      expired: 'פג תוקף', cancelled: 'בוטל',
       cancel: 'ביטול השובר',
       cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
       cancelSuccess: 'השובר בוטל והנקודות שוחררו',
@@ -238,6 +247,8 @@ const he = {
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
+    // שורה אחת, בטוסט. מה נספר ומה שומר עליו — בלי לפתוח מסך בשביל משפט
+    streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
       // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
