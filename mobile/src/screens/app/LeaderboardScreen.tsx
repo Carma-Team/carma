@@ -215,9 +215,7 @@ export default function LeaderboardScreen() {
     ...(locations?.cities ?? []),
     ...(user?.city && !(locations?.cities ?? []).some(c => c.code === user.city!.code) ? [user.city] : []),
   ]
-  const cityOptions = pickable.map(c => cityLabel(c, lang))
-  const codeByLabel = new Map(pickable.map(c => [cityLabel(c, lang), c.code]))
-  const selectedCityLabel = cityLabel(pickable.find(c => c.code === selectedCityCode), lang)
+  const cityOptions = pickable.map(c => ({ value: c.code, label: cityLabel(c, lang) }))
 
   const tabs: { key: LeaderboardType; label: string }[] = [
     { key: 'friends',  label: t('leaderboard.friends') },
@@ -231,10 +229,10 @@ export default function LeaderboardScreen() {
     <View style={styles.filterRow}>
       <Text style={styles.filterSubtitle}>{t('leaderboard.showing_city')}:</Text>
       <LocationPicker
-        value={selectedCityLabel}
+        value={selectedCityCode}
         options={cityOptions}
         placeholder={t('leaderboard.selectCity')}
-        onChange={label => setSelectedCityCode(codeByLabel.get(label) ?? '')}
+        onChange={setSelectedCityCode}
       />
     </View>
   ) : null
