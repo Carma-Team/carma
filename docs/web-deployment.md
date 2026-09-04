@@ -76,6 +76,34 @@ az containerapp registry set \
   --username <acr-user> --password <acr-password>
 ```
 
+`carma-ci`'s `Contributor` role was granted scoped to the individual
+container app resource, not the resource group (see SYSTEM.md's "Auth: OIDC
+against a managed identity"). That scoping was recorded for `carma-api`
+only, and nothing documents whether `carma-business` got the same per-resource
+treatment or a broader one - so check before assuming `carma-business-staging`
+is covered, rather than finding out from a failed rollout:
+
+```bash
+PRINCIPAL_ID=$(az identity show --name carma-ci --resource-group carma-rg --query principalId -o tsv)
+STAGING_APP_ID=$(az containerapp show --name carma-business-staging --resource-group carma-rg --query id -o tsv)
+
+az role assignment list --assignee "$PRINCIPAL_ID" -o table
+```
+
+If nothing in that list is a `Contributor` assignment whose scope already
+covers `$STAGING_APP_ID` - directly, or via a broader scope such as the
+resource group - grant one on the staging app specifically, matching the
+same per-resource scope `carma-api` already uses:
+
+```bash
+az role assignment create --assignee "$PRINCIPAL_ID" --role Contributor --scope "$STAGING_APP_ID"
+```
+
+Grant it on `$STAGING_APP_ID` and nothing wider. `carma-ci` has never held
+more than `AcrPush` on the one registry and `Contributor` on the container
+apps it deploys - resource-group or subscription-level `Contributor` would
+be a bigger, and unnecessary, change than adding one more app to that list.
+
 Add the `repo:Carma-Team/carma:environment:staging` federated credential to
 the `carma-ci` managed identity (mirrors whatever was run for
 `...:environment:production`), and add the `staging` deployment environment
