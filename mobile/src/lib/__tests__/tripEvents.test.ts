@@ -21,18 +21,19 @@ describe('eventMarkerText', () => {
   })
 
   it('appends the speed only when the event carries one', () => {
-    const [withSpeed] = eventMarkerText(drivingEvent({ speedKmh: 61.6 }), t).description.split('\n')
-    expect(withSpeed).toContain('62 trip.kmh')
+    expect(eventMarkerText(drivingEvent({ speedKmh: 61.6 }), t).detail).toContain('62 trip.kmh')
 
-    const [noSpeed] = eventMarkerText(drivingEvent(), t).description.split('\n')
+    const noSpeed = eventMarkerText(drivingEvent(), t).detail
     expect(noSpeed).not.toContain('trip.kmh')
     expect(noSpeed).toMatch(/^\d{2}:\d{2}$/)
   })
 
-  it('closes the description with the line that explains the callout press', () => {
-    const lines = eventMarkerText(drivingEvent(), t).description.split('\n')
-    expect(lines).toHaveLength(2)
-    expect(lines[1]).toBe('trip.openLocationInMaps')
+  it('hands the callout its lines separately, so none can be ellipsised away', () => {
+    // One newline-joined string is what the platform callout truncated, leaving the
+    // driver with "..." where the last line should have been.
+    const { title, detail, action } = eventMarkerText(drivingEvent(), t)
+    expect(action).toBe('trip.openLocationInMaps')
+    for (const line of [title, detail, action]) expect(line).not.toContain('\n')
   })
 })
 

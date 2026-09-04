@@ -22,6 +22,13 @@ export type AppUser = Schemas['UserOut'] & {
   country?: string;
   /** Local hide-old-trips cutoff. Client-only; nothing is deleted server-side. */
   lastClearedHistory?: string;
+  /**
+   * Trips the driver deleted one by one. Client-only and, like the cutoff above,
+   * a hide rather than a delete — the server has no endpoint for removing a trip
+   * (CAR-307), so this list is what stands in until it does. It lives in
+   * AsyncStorage, so a reinstall brings the trips back.
+   */
+  deletedTripIds?: string[];
 };
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -48,6 +55,12 @@ type TripClientFields = {
    * apart from a trip the server actually scored zero.
    */
   pendingSync?: boolean;
+  /**
+   * Client-only exception. Set when the queue gives up on a row it has been carrying
+   * for too long (CAR-166). The trip stays on the device and is never sent — nothing
+   * here retries it, so it is a terminal state and not a slower `pendingSync`.
+   */
+  syncFailed?: boolean;
 };
 
 export type Trip = Schemas['TripOut'] & TripClientFields;

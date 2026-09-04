@@ -535,6 +535,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/redemptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paged redemption history for the authenticated business — USED only by default */
+        get: operations["list_redemptions_api_business_redemptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Redemption performance snapshot for the authenticated business */
+        get: operations["stats_api_business_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/invitations": {
         parameters: {
             query?: never;
@@ -947,6 +981,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dev/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The labelled drive set, newest first. Internal: admin accounts only.
+         * @description What CAR-31 means by "somewhere the next person can find it" - the answer
+         *     to "which drives do we already have" without listing a storage container.
+         */
+        get: operations["list_recordings_api_dev_recordings_get"];
+        put?: never;
+        /**
+         * Upload one staged calibration drive. Internal: admin accounts only.
+         * @description Admin-gated rather than open to any signed-in driver.
+         *
+         *     The recorder itself is a debug-menu tool a regular build never exposes, but
+         *     the endpoint is reachable in every environment, and an authenticated
+         *     stranger posting megabytes into the container would be a storage bill with
+         *     no owner. Whoever stages a calibration drive gets an admin account; that is
+         *     a smaller ask than a second permission model for one internal route.
+         */
+        post: operations["upload_recording_api_dev_recordings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -990,6 +1055,11 @@ export interface components {
             /** Token */
             token: string;
             user: components["schemas"]["UserOut"];
+        };
+        /** Body_upload_recording_api_dev_recordings_post */
+        Body_upload_recording_api_dev_recordings_post: {
+            /** File */
+            file: string;
         };
         /** BusinessInvitationAcceptOut */
         BusinessInvitationAcceptOut: {
@@ -1267,6 +1337,46 @@ export interface components {
          * @enum {string}
          */
         BusinessMembershipRole: "OWNER" | "MANAGER" | "CASHIER";
+        /** BusinessRedemptionListOut */
+        BusinessRedemptionListOut: {
+            /** Redemptions */
+            redemptions: components["schemas"]["BusinessRedemptionOut"][];
+            /** Livevouchercount */
+            liveVoucherCount: number;
+            /** Nextcursor */
+            nextCursor: string | null;
+        };
+        /**
+         * BusinessRedemptionOut
+         * @description One settled row of a business's redemption history (CAR-79).
+         *
+         *     No driver identifier anywhere here — the same boundary `BusinessVoucherOut`
+         *     draws (CAR-78). `consumed_by_*` names the business staff member who
+         *     scanned it (CAR-75), never the driver who redeemed it.
+         */
+        BusinessRedemptionOut: {
+            /** Id */
+            id: string;
+            reward: components["schemas"]["RewardSummaryOut"];
+            /** Status */
+            status: string;
+            /** Pointscost */
+            pointsCost: number;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Settledat
+             * Format: date-time
+             */
+            settledAt: string;
+            /** Consumedbyuserid */
+            consumedByUserId: string | null;
+            /** Consumedbyname */
+            consumedByName: string | null;
+        };
         /**
          * BusinessRewardIn
          * @description Create payload for a business-owned reward.
@@ -1337,6 +1447,37 @@ export interface components {
         /** BusinessRewardResponse */
         BusinessRewardResponse: {
             reward: components["schemas"]["RewardOut"];
+        };
+        /**
+         * BusinessStatsOut
+         * @description Redemption performance snapshot for the authenticated business (CAR-81).
+         *
+         *     Every field is a database aggregate scoped to this business alone — nothing
+         *     here loads redemption rows into application memory, so the response stays
+         *     the same size no matter how many vouchers the business has ever issued.
+         */
+        BusinessStatsOut: {
+            /** Redemptionstoday */
+            redemptionsToday: number;
+            /** Redemptionslast30Days */
+            redemptionsLast30Days: number;
+            /** Livevouchers */
+            liveVouchers: number;
+            /** Totalpointscharged */
+            totalPointsCharged: number;
+            /** Vouchersissued */
+            vouchersIssued: number;
+            /** Vouchersredeemed */
+            vouchersRedeemed: number;
+            /**
+             * Issuedtoredeemedratio
+             * @description Redeemed vouchers divided by issued vouchers. A lower value means a larger share of issued vouchers were not redeemed. `null` when this business has not issued any vouchers yet — a ratio has no meaning against a zero denominator.
+             */
+            issuedToRedeemedRatio: number | null;
+            /** Toprewards */
+            topRewards: components["schemas"]["TopRewardOut"][];
+            /** Soldoutrewards */
+            soldOutRewards: components["schemas"]["SoldOutRewardOut"][];
         };
         /**
          * BusinessVoucherOut
@@ -1518,6 +1659,9 @@ export interface components {
             /** Detectedmode */
             detectedMode?: string | null;
             signals?: components["schemas"]["FraudSignals"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            sensorAvailability?: components["schemas"]["FraudSensorAvailability"] | null;
             telemetry?: components["schemas"]["FraudTelemetry"] | null;
             /** Maxspeedkmh */
             maxSpeedKmh?: number | null;
@@ -1537,6 +1681,18 @@ export interface components {
             reportedAt: string;
             /** Anomalyflags */
             anomalyFlags: string[];
+        };
+        /**
+         * FraudSensorAvailability
+         * @description Which sensors backed this verdict, so a stored report explains its own unknowns.
+         */
+        FraudSensorAvailability: {
+            /** Gps */
+            gps?: boolean | null;
+            /** Accelerometer */
+            accelerometer?: boolean | null;
+            /** Gyroscope */
+            gyroscope?: boolean | null;
         };
         /**
          * FraudSignals
@@ -1855,6 +2011,49 @@ export interface components {
             /** Newpassword */
             newPassword: string;
         };
+        /**
+         * RawRecordingOut
+         * @description One staged calibration drive in the index (CAR-213).
+         *
+         *     `objectPath` is deliberately store-relative rather than a download URL. The
+         *     consumer is whoever works CAR-102, pulling files in bulk with Storage
+         *     Explorer or azcopy, not a client following a link - and a signed URL minted
+         *     here would expire long before an analysis run finishes.
+         */
+        RawRecordingOut: {
+            /** Sessionid */
+            sessionId: string;
+            /** Scenario */
+            scenario: string;
+            /** Platform */
+            platform: string;
+            /** Devicemodel */
+            deviceModel: string | null;
+            /** Provenance */
+            provenance: string;
+            /** Formatversion */
+            formatVersion: number;
+            /**
+             * Startedat
+             * Format: date-time
+             */
+            startedAt: string;
+            /** Durations */
+            durationS: number;
+            /** Samplecount */
+            sampleCount: number;
+            /** Bytesize */
+            byteSize: number;
+            /** Sha256 */
+            sha256: string;
+            /** Objectpath */
+            objectPath: string;
+        };
+        /** RawRecordingsOut */
+        RawRecordingsOut: {
+            /** Recordings */
+            recordings: components["schemas"]["RawRecordingOut"][];
+        };
         /** RecentScore */
         RecentScore: {
             /** Date */
@@ -1939,6 +2138,26 @@ export interface components {
             expiresAt: string | null;
         };
         /**
+         * RewardSummaryOut
+         * @description Just enough of a reward to show on a settled redemption row (CAR-79).
+         *
+         *     Deliberately not `RewardOut`: `available`/`stock` describe live inventory,
+         *     which a history row — possibly for an archived reward — has no business
+         *     computing.
+         */
+        RewardSummaryOut: {
+            /** Id */
+            id: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+            /** Imageicon */
+            imageIcon: string;
+            /** Category */
+            category: string;
+        };
+        /**
          * SaveTripIn
          * @description May's frontend posts a mix of snake_case and camelCase. Accept all variants.
          */
@@ -1997,9 +2216,35 @@ export interface components {
             /** Aiinsight */
             aiInsight?: string | null;
         };
+        /**
+         * SoldOutRewardOut
+         * @description A reward with no units left — same derived availability as CAR-47's `available`.
+         */
+        SoldOutRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+        };
         /** StatsOut */
         StatsOut: {
             stats: components["schemas"]["DrivingStats"];
+        };
+        /**
+         * TopRewardOut
+         * @description One entry of the most-redeemed-rewards ranking (CAR-81).
+         */
+        TopRewardOut: {
+            /** Rewardid */
+            rewardId: string;
+            /** Titlehe */
+            titleHe: string;
+            /** Titleen */
+            titleEn: string | null;
+            /** Redemptioncount */
+            redemptionCount: number;
         };
         /**
          * TripDetailOut
@@ -3307,6 +3552,62 @@ export interface operations {
             };
         };
     };
+    list_redemptions_api_business_redemptions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                rewardId?: string | null;
+                from?: string | null;
+                to?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessRedemptionListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_business_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessStatsOut"];
+                };
+            };
+        };
+    };
     list_invitations_api_business_invitations_get: {
         parameters: {
             query?: never;
@@ -4099,6 +4400,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_recordings_api_dev_recordings_get: {
+        parameters: {
+            query?: {
+                scenario?: string | null;
+                platform?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawRecordingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_recording_api_dev_recordings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_recording_api_dev_recordings_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawRecordingOut"];
+                };
             };
             /** @description Validation Error */
             422: {

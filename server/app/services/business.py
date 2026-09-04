@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, and_, case, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit
+from app.core.pagination import decode_cursor, encode_cursor
 from app.core.security import normalise_voucher_code
 from app.models import (
     Business,
@@ -20,8 +22,15 @@ from app.models import (
     Reward,
     User,
 )
+from app.schemas.business_stats import BusinessStatsOut, SoldOutRewardOut, TopRewardOut
+from app.schemas.redemption import BusinessRedemptionOut
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
 from app.services import rewards as rewards_service
+
+# Same convention `services.trips` and `services.risk` use for every other
+# "today" boundary in the app (CAR-81) — a business's day turns over at
+# Israel midnight, not UTC midnight.
+_TZ_IL = ZoneInfo("Asia/Jerusalem")
 
 _CATEGORY_BY_STR = {c.value.lower(): c for c in BusinessCategory}
 
@@ -363,3 +372,259 @@ async def _voucher_out(db: AsyncSession, voucher: Redemption) -> BusinessVoucher
     claimed = await rewards_service.claimed_by_reward(db, [voucher.reward_id])
     available = rewards_service.available_units(voucher.reward.stock, claimed.get(voucher.reward_id, 0))
     return BusinessVoucherOut.from_orm_redemption(voucher, available)
+
+
+# ── Redemption history (CAR-79) ─────────────────────────────────────────────
+
+# Bounded and server-capped: a business scrolling its own history has no
+# reason to pull more than this in one page, and an unbounded `limit` would
+# turn one request into a full-table pull.
+REDEMPTION_HISTORY_MAX_LIMIT = 100
+REDEMPTION_HISTORY_DEFAULT_LIMIT = 20
+
+# PENDING is deliberately excluded — a live voucher is in flight, not history,
+# and CAR-79 exposes its count separately rather than as a filterable status.
+_HISTORY_STATUSES = (RedemptionStatus.USED, RedemptionStatus.EXPIRED, RedemptionStatus.CANCELLED)
+_HISTORY_STATUS_BY_STR = {s.value.lower(): s for s in _HISTORY_STATUSES}
+
+
+def parse_redemption_status_filter(value: str | None) -> set[RedemptionStatus]:
+    """Comma-separated `status` query value into the set of statuses to show.
+
+    Defaults to `{USED}` alone — that is what "history" means to a shop owner
+    (CAR-79). Any value outside USED/EXPIRED/CANCELLED, PENDING included, is a
+    400: live vouchers are never a valid history filter.
+    """
+    if value is None:
+        return {RedemptionStatus.USED}
+    statuses: set[RedemptionStatus] = set()
+    for part in value.split(","):
+        part = part.strip().lower()
+        if not part:
+            continue
+        parsed = _HISTORY_STATUS_BY_STR.get(part)
+        if parsed is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown status '{part}'")
+        statuses.add(parsed)
+    if not statuses:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one status is required")
+    return statuses
+
+
+def _require_aware(value: datetime | None, *, param: str) -> None:
+    """Reject a `from`/`to` filter with no UTC offset before it reaches the query.
+
+    `Redemption.settled_at` is `DateTime(timezone=True)` — comparing it against a
+    naive value is a client mistake (an omitted offset, not an implied UTC), so
+    this is a 400 rather than a silent `tzinfo=UTC` guess.
+    """
+    if value is not None and value.tzinfo is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"'{param}' must include a UTC offset")
+
+
+async def _live_voucher_count(db: AsyncSession, business_id: str) -> int:
+    """Vouchers this business has outstanding right now — CAR-79's separate counter.
+
+    Shares `live_voucher_where` with `rewards_service.count_live_vouchers` so
+    "live" can never mean something different here than it does when a reward
+    is archived.
+    """
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Redemption)
+        .where(Redemption.business_id == business_id, *rewards_service.live_voucher_where(datetime.now(UTC)))
+    )
+    return count or 0
+
+
+async def _consumer_names(db: AsyncSession, user_ids: set[str]) -> dict[str, str | None]:
+    """Batch name lookup for the business members who consumed a page of vouchers.
+
+    One query for the whole page, the same shape as `rewards_service.claimed_by_reward`
+    — not a per-row lazy load on an async session, which would trip on the first row.
+    """
+    if not user_ids:
+        return {}
+    rows = (await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))).all()
+    return {row.id: row.name for row in rows}
+
+
+async def list_redemptions(
+    db: AsyncSession,
+    business: Business,
+    *,
+    statuses: set[RedemptionStatus],
+    reward_id: str | None,
+    settled_from: datetime | None,
+    settled_to: datetime | None,
+    cursor: str | None,
+    limit: int,
+) -> dict[str, object]:
+    """This business's redemption history, newest settlement first (CAR-79).
+
+    Settles any of this business's overdue-but-still-PENDING vouchers first —
+    the same lazy-expiry step `_owned_voucher` runs before a peek — so a
+    voucher that lapsed since the last read shows up as EXPIRED and drops out
+    of the live count in the same response, rather than one page later.
+
+    Keyset-paged on `(settled_at, id)` descending, matching index
+    `ix_redemptions_business_settled_id`: `id` breaks ties between rows that
+    settled in the same instant, which a timestamp alone cannot. The keyset
+    predicate only ever looks *below* the cursor, so a new settlement — always
+    newer than anything already paged past — can never be skipped past or
+    re-shown to a client mid-page.
+    """
+    _require_aware(settled_from, param="from")
+    _require_aware(settled_to, param="to")
+
+    await rewards_service.expire_overdue(db, Redemption.business_id == business.id)
+    await db.commit()
+
+    query = (
+        select(Redemption)
+        .where(
+            Redemption.business_id == business.id,
+            Redemption.status.in_(statuses),
+            # Defensive, not a fix for CAR-283/287: every write path that sets a
+            # terminal status also sets settled_at in the same statement, but the
+            # DB-level CHECK enforcing that is out for the expand window. This is
+            # what keeps a row that somehow violates it from reading as history
+            # instead of quietly having no sort key.
+            Redemption.settled_at.is_not(None),
+        )
+        .options(selectinload(Redemption.reward))
+    )
+    if reward_id is not None:
+        query = query.where(Redemption.reward_id == reward_id)
+    if settled_from is not None:
+        query = query.where(Redemption.settled_at >= settled_from)
+    if settled_to is not None:
+        query = query.where(Redemption.settled_at <= settled_to)
+    if cursor is not None:
+        cursor_settled_at, cursor_id = decode_cursor(cursor)
+        query = query.where(tuple_(Redemption.settled_at, Redemption.id) < (cursor_settled_at, cursor_id))
+
+    # One extra row fetched, never returned: its presence is what tells us
+    # whether there is a next page, without a separate COUNT query.
+    query = query.order_by(Redemption.settled_at.desc(), Redemption.id.desc()).limit(limit + 1)
+    rows = list((await db.scalars(query)).all())
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        assert last.settled_at is not None  # guaranteed by the is_not(None) filter above
+        next_cursor = encode_cursor(last.settled_at, last.id)
+
+    names = await _consumer_names(db, {r.consumed_by_user_id for r in rows if r.consumed_by_user_id is not None})
+    redemptions = [
+        BusinessRedemptionOut.from_orm_redemption(
+            r, names.get(r.consumed_by_user_id) if r.consumed_by_user_id else None
+        )
+        for r in rows
+    ]
+    live_voucher_count = await _live_voucher_count(db, business.id)
+    return {
+        "redemptions": redemptions,
+        "live_voucher_count": live_voucher_count,
+        "next_cursor": next_cursor,
+    }
+
+
+# ── Redemption statistics (CAR-81) ──────────────────────────────────────────
+
+# The catalog a business owner actually scans on a stats screen — a top-N
+# ranking bounded on its own, independent of how many redemptions back it.
+TOP_REWARDS_LIMIT = 5
+
+
+def _today_start_il(now: datetime) -> datetime:
+    """The UTC instant local midnight (Asia/Jerusalem) falls at, for `now`.
+
+    The same "today" boundary `services.trips` computes per-row in Python for
+    a single driver's short trip list — expressed here as a single instant so
+    it can be pushed into a `WHERE settled_at >= ...` and answered by an index
+    scan instead of pulling this business's whole redemption history into
+    memory to test each row's local date.
+    """
+    return now.astimezone(_TZ_IL).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
+async def redemption_stats(db: AsyncSession, business: Business) -> BusinessStatsOut:
+    """Redemption performance snapshot for this business alone.
+
+    Every number here comes back from an aggregate query — COUNT/SUM/GROUP BY
+    — never from paging through `Redemption` rows in Python, so the response
+    is the same size whether the business has issued ten vouchers or ten
+    million.
+    """
+    now = datetime.now(UTC)
+    today_start = _today_start_il(now)
+    last_30_start = now - timedelta(days=30)
+
+    # USED is what CAR-79's history calls a "redemption" (its default,
+    # unfiltered view) — the same predicate, so a period reported here and the
+    # same period pulled from `/api/business/redemptions?from=...` agree.
+    used = Redemption.status == RedemptionStatus.USED
+
+    counts = (
+        await db.execute(
+            select(
+                func.count(case((and_(used, Redemption.settled_at >= today_start), 1))),
+                func.count(case((and_(used, Redemption.settled_at >= last_30_start), 1))),
+                func.count(case((used, 1))),
+                func.count(),
+                func.coalesce(func.sum(case((used, Redemption.points_cost))), 0),
+            ).where(Redemption.business_id == business.id)
+        )
+    ).one()
+    redemptions_today, redemptions_last_30_days, vouchers_redeemed, vouchers_issued, total_points_charged = counts
+
+    live_vouchers = await _live_voucher_count(db, business.id)
+
+    top_rows = (
+        await db.execute(
+            select(Reward.id, Reward.title_he, Reward.title_en, func.count().label("redemption_count"))
+            .select_from(Redemption)
+            .join(Reward, Reward.id == Redemption.reward_id)
+            .where(Redemption.business_id == business.id, used)
+            .group_by(Reward.id)
+            .order_by(func.count().desc(), Reward.id)
+            .limit(TOP_REWARDS_LIMIT)
+        )
+    ).all()
+    top_rewards = [
+        TopRewardOut(reward_id=r.id, title_he=r.title_he, title_en=r.title_en, redemption_count=r.redemption_count)
+        for r in top_rows
+    ]
+
+    # "Sold out" reuses CAR-47's own derivation (`active_reward_where` +
+    # `claimed_by_reward` + `available_units`) rather than a second, possibly
+    # divergent definition of availability — the same one the marketplace and
+    # `list_rewards` use. Bounded by this business's catalog size, not by
+    # redemption volume, so it needs no separate limit.
+    stocked_active_rewards = (
+        await db.scalars(
+            select(Reward).where(
+                Reward.business_id == business.id, Reward.stock.is_not(None), *rewards_service.active_reward_where(now)
+            )
+        )
+    ).all()
+    claimed = await rewards_service.claimed_by_reward(db, [r.id for r in stocked_active_rewards])
+    sold_out_rewards = [
+        SoldOutRewardOut(reward_id=r.id, title_he=r.title_he, title_en=r.title_en)
+        for r in stocked_active_rewards
+        if rewards_service.available_units(r.stock, claimed.get(r.id, 0)) == 0
+    ]
+
+    return BusinessStatsOut(
+        redemptions_today=redemptions_today,
+        redemptions_last_30_days=redemptions_last_30_days,
+        live_vouchers=live_vouchers,
+        total_points_charged=total_points_charged,
+        vouchers_issued=vouchers_issued,
+        vouchers_redeemed=vouchers_redeemed,
+        issued_to_redeemed_ratio=(vouchers_redeemed / vouchers_issued) if vouchers_issued else None,
+        top_rewards=top_rewards,
+        sold_out_rewards=sold_out_rewards,
+    )

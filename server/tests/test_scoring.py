@@ -228,9 +228,9 @@ class TestComputeDriverScore:
         assert compute_driver_score([]) == CONFIG.prior_score
 
     def test_cold_start_blends_toward_prior(self) -> None:
-        # One 50 km trip counts as 30 → credibility 30/300, mostly the 75 prior.
+        # One 50 km trip counts as 30 → credibility 30/200, mostly the 75 prior.
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=50.0, age_days=0.0)])
-        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_km
+        cred = CONFIG.trip_exposure_cap_km / CONFIG.credibility_full_weighted_km
         assert math.isclose(score, round((cred * 100.0 + (1 - cred) * 75.0) * 10) / 10)
 
     def test_full_credibility_ignores_prior(self) -> None:
@@ -273,7 +273,19 @@ class TestComputeDriverScore:
         """The cap applies to credibility too. One stretch of motorway is one drive,
         not a proven record — the score stays near the cold-start prior."""
         score = compute_driver_score([TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=0.0)])
-        assert math.isclose(score, 77.5, abs_tol=0.1)
+        assert math.isclose(score, 78.75, abs_tol=0.1)
+
+    def test_stale_exposure_does_not_grant_credibility(self) -> None:
+        """Credibility keys off decayed exposure, not a raw lifetime total. A
+        trip old enough to have decayed out of the average must not still be
+        propping up credibility — otherwise one fresh trip would fully decide
+        the score, exactly the "single trip fully determines it" bug a raw-km
+        threshold reopens once trips outlive a few half-lives."""
+        stale = TripHistoryPoint(trip_score=100.0, distance_km=300.0, age_days=1000.0)
+        fresh = TripHistoryPoint(trip_score=50.0, distance_km=10.0, age_days=0.0)
+        score = compute_driver_score([stale, fresh])
+        cred = 10.0 / CONFIG.credibility_full_weighted_km
+        assert math.isclose(score, round((cred * 50.0 + (1 - cred) * 75.0) * 10) / 10, abs_tol=0.1)
 
 
 # ─── points engine ──────────────────────────────────────────────────────────────
@@ -555,8 +567,12 @@ class TestSpeedingSubscore:
                 duration_min=30.0,
             ).sub_speeding
 
-        assert 94.0 <= sub(0.01) <= 96.0
-        assert 59.0 <= sub(0.10) <= 63.0
+        # The percentiles the live fleet actually produced (2026-09): the median
+        # trip and the p90-worst. p90 near 50 is the rule every decay constant
+        # here is anchored on, so a change to k_speed has to move this test and
+        # say why.
+        assert 86.0 <= sub(0.0775) <= 90.0
+        assert 48.0 <= sub(0.4069) <= 52.0
 
     def test_identical_speeding_costs_the_same_urban_and_on_a_motorway(self) -> None:
         # The bias the old per-100 km rate carried: the same share of distance

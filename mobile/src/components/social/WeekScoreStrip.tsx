@@ -69,8 +69,11 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
     <Card style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>{text.thisWeek}</Text>
+        {/* A dash reads as a value that failed to arrive. There is no missing field
+            here — a null average only ever means no trip fell in this week — so the
+            line says that instead. */}
         <Text style={styles.avg}>
-          {text.weekAvg} {weekAvg ?? '—'}
+          {weekAvg === null ? text.noDrive : `${text.weekAvg} ${weekAvg}`}
         </Text>
       </View>
 

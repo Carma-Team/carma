@@ -92,12 +92,15 @@ export default function RegisterScreen() {
   // Derived here rather than stored: the labels depend on `lang`, and building
   // them once when the list arrives left them in whatever language was active
   // at mount.
-  const cityOptions = cities.map(c => cityLabel(c, lang))
-  const codeByLabel = new Map(cities.map(c => [cityLabel(c, lang), c.code]))
+  const cityOptions = cities.map(c => ({ value: c.code, label: cityLabel(c, lang) }))
 
-  /** The picker deals in labels; the server is sent the code behind one. */
-  function pickCity(label: string) {
-    setForm(prev => ({ ...prev, city: label, cityCode: codeByLabel.get(label) ?? '' }))
+  /**
+   * The picker deals in codes. `city` is still kept alongside, because the free-text
+   * branch below has no code to send and the server resolves that label instead.
+   */
+  function pickCity(code: string) {
+    const label = cityLabel(cities.find(c => c.code === code), lang)
+    setForm(prev => ({ ...prev, city: label, cityCode: code }))
   }
 
   /**
@@ -233,7 +236,7 @@ export default function RegisterScreen() {
                 branch stays for the case where fetching it failed outright. */}
             {field.key === 'city' && cityOptions.length > 0 ? (
               <LocationPicker
-                value={form.city}
+                value={form.cityCode}
                 options={cityOptions}
                 placeholder={t('auth.citySelectPlaceholder')}
                 onChange={pickCity}
