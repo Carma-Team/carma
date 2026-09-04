@@ -16,6 +16,8 @@ function renderSignIn() {
       { path: '/sign-in', element: <SignInPage /> },
       { path: '/', element: <div>home</div> },
       { path: '/accept-invite', element: <div>manual code entry page</div> },
+      { path: '/register', element: <div>business registration page</div> },
+      { path: '/register/status', element: <div>business request status page</div> },
     ],
     { initialEntries: ['/sign-in'] },
   );
@@ -127,6 +129,43 @@ describe('SignInPage', () => {
     fireEvent.click(screen.getByRole('link', { name: 'יש לכם קוד הזמנה לעסק?' }));
 
     await waitFor(() => expect(screen.getByText('manual code entry page')).toBeInTheDocument());
+  });
+
+  // CAR-315: sign-in is the only public page most prospective business
+  // owners land on, so /register and /register/status need a real,
+  // discoverable link here — not just a URL someone happens to know.
+  it('offers a discoverable link to business registration', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'unauthenticated',
+      user: null,
+      login,
+      loginWithOtp,
+      register,
+      logout,
+      retry,
+    });
+
+    renderSignIn();
+    fireEvent.click(screen.getByRole('link', { name: 'יש לכם עסק? רשמו אותו בכרמה' }));
+
+    await waitFor(() => expect(screen.getByText('business registration page')).toBeInTheDocument());
+  });
+
+  it('offers a discoverable link to check an existing registration request status', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'unauthenticated',
+      user: null,
+      login,
+      loginWithOtp,
+      register,
+      logout,
+      retry,
+    });
+
+    renderSignIn();
+    fireEvent.click(screen.getByRole('link', { name: 'בדיקת סטטוס הבקשה' }));
+
+    await waitFor(() => expect(screen.getByText('business request status page')).toBeInTheDocument());
   });
 
   // ─── CAR-265: the phone + OTP door ──────────────────────────────────────
