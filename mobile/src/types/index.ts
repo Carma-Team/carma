@@ -22,6 +22,13 @@ export type AppUser = Schemas['UserOut'] & {
   country?: string;
   /** Local hide-old-trips cutoff. Client-only; nothing is deleted server-side. */
   lastClearedHistory?: string;
+  /**
+   * Trips the driver deleted one by one. Client-only and, like the cutoff above,
+   * a hide rather than a delete — the server has no endpoint for removing a trip
+   * (CAR-307), so this list is what stands in until it does. It lives in
+   * AsyncStorage, so a reinstall brings the trips back.
+   */
+  deletedTripIds?: string[];
 };
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp }     from '@/context/AppContext'
@@ -7,26 +7,19 @@ import { LEVELS, getLevelByPoints } from '@/lib/constants'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { LevelWheel } from '@/components/gamification/LevelWheel'
 import { WeekScoreStrip } from '@/components/social/WeekScoreStrip'
-import { tripsApi } from '@/services/api/trips.api'
-import type { Trip } from '@/types'
 
 /**
  * Roadmap screen — shows the score trend and all gamification levels.
- * [server] tripsApi.list() → GET /api/trips, for the score chart at the top.
- * The level list below still needs no server call — that data comes from
- * AppContext (user.points, user.level) loaded at login.
+ * Trips come from AppContext rather than a fetch of its own: the context list is
+ * the one the driver's deletions have been applied to, and a screen that calls the
+ * endpoint directly would keep counting trips they removed from their history.
+ * The level list needs no server call either — user.points and user.level are
+ * loaded at login.
  */
 export default function RoadmapScreen() {
   const insets = useSafeAreaInsets()
-  const { user } = useApp()
+  const { user, recentTrips } = useApp()
   const { t, lang } = useTranslation()
-  const [trips, setTrips] = useState<Trip[]>([])
-
-  useEffect(() => {
-    tripsApi.list()
-      .then(d => setTrips(d.trips))
-      .catch(err => console.error('Trips error:', err))
-  }, [])
 
   if (!user) return null
 
@@ -46,7 +39,7 @@ export default function RoadmapScreen() {
 
       <ScrollView style={styles.root} contentContainerStyle={COMMON_STYLES.scrollContent}>
         {/* This week's daily scores */}
-        <WeekScoreStrip trips={trips} lang={lang} />
+        <WeekScoreStrip trips={recentTrips} lang={lang} />
 
         {/* Level wheel — drag through all levels, info card follows whichever is centered */}
         <View style={styles.levels}>

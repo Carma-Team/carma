@@ -120,7 +120,7 @@ interface AppContextValue {
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
   exportRawRecording: () => Promise<string | RawExportFailure>
-  clearTripHistory: () => Promise<void>
+  deleteTrips: (tripIds: string[]) => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
   setBtDevice: (device: BluetoothTarget) => Promise<void>
@@ -173,12 +173,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Filtered trips based on lastClearedHistory
+  // Two hides, not deletes: the server has no way to remove a trip (CAR-307). The
+  // cutoff is what the old settings-wide reset left behind on devices that used it,
+  // and is kept so those trips do not reappear; new deletions are per trip.
   const filteredTrips = useMemo(() => {
-    if (!user?.lastClearedHistory) return recentTrips;
-    const cutoff = new Date(user.lastClearedHistory).getTime();
-    return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
-  }, [recentTrips, user?.lastClearedHistory]);
+    const cutoff = user?.lastClearedHistory ? new Date(user.lastClearedHistory).getTime() : null;
+    const deleted = new Set(user?.deletedTripIds ?? []);
+    if (cutoff === null && deleted.size === 0) return recentTrips;
+    return recentTrips.filter(trip =>
+      !deleted.has(trip.id) &&
+      (cutoff === null || new Date(trip.startTime).getTime() > cutoff)
+    );
+  }, [recentTrips, user?.lastClearedHistory, user?.deletedTripIds]);
 
   // TripValidationManager (30s-start/3min-end/fraud rules) is CARMA-specific business
   // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
@@ -614,23 +620,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
   const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
 
-  const clearTripHistory = useCallback(async () => {
+  const deleteTrips = useCallback(async (tripIds: string[]) => {
+    if (tripIds.length === 0) return;
     try {
-      const now = new Date().toISOString();
       if (user) {
-        const updatedUser = { ...user, lastClearedHistory: now };
+        // Union rather than append: the same trip can be selected again after a
+        // failed write, and a duplicate id would silently grow the stored list.
+        const merged = Array.from(new Set([...(user.deletedTripIds ?? []), ...tripIds]));
+        const updatedUser = { ...user, deletedTripIds: merged };
         setUserState(updatedUser);
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
       const tr = lang === 'HE' ? he : en;
       addToast({
-        title: tr.common.historyCleared,
-        message: tr.common.historyClearedDesc,
+        title: tr.common.tripsDeleted,
+        message: tr.common.tripsDeletedDesc,
         type: 'success'
       });
     } catch (e) {
-      console.error('Failed to clear history', e);
+      console.error('Failed to delete trips', e);
     }
   }, [lang, addToast, user]);
 
@@ -644,7 +653,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
       startRawRecording, stopRawRecording, exportRawRecording,
-      clearTripHistory,
+      deleteTrips,
       sdk,
       btDevice, setBtDevice,
       userLevelState,
