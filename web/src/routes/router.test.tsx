@@ -9,6 +9,7 @@ import { listRewards } from '@/lib/api/rewards';
 import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/businessMembers';
 import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
 import { listBusinessRequests } from '@/lib/api/businessRequests';
+import { listRedemptionHistory } from '@/lib/api/redemptionHistory';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -34,6 +35,11 @@ vi.mock('@/lib/api/businessInvitations', async (importOriginal) => {
 vi.mock('@/lib/api/businessRequests', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/businessRequests')>();
   return { ...actual, listBusinessRequests: vi.fn() };
+});
+
+vi.mock('@/lib/api/redemptionHistory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/redemptionHistory')>();
+  return { ...actual, listRedemptionHistory: vi.fn() };
 });
 
 const businessUser = {
@@ -80,6 +86,7 @@ describe('routes', () => {
     vi.mocked(previewInvitation).mockReset();
     vi.mocked(acceptInvitation).mockReset();
     vi.mocked(listBusinessRequests).mockReset();
+    vi.mocked(listRedemptionHistory).mockReset();
   });
 
   // CAR-255: an ADMIN reaches the review page even with no business
@@ -378,6 +385,51 @@ describe('routes', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(listInvitations).not.toHaveBeenCalled();
+  });
+
+  // CAR-80: /redemption-history has its own `RequireBusinessRole`, allowing
+  // OWNER and MANAGER — unlike /permissions above (OWNER only), but still
+  // narrower than the four routes every role in the matrix reaches. Run in
+  // the same block as the CAR-117/CAR-118 tests above, before the /register
+  // tests below, for the same never-resolving-refresh reason those are.
+  it('renders the real redemption-history page inside the shell at /redemption-history for an OWNER', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    vi.mocked(listRedemptionHistory).mockResolvedValue({ outcome: 'ok', redemptions: [], liveVoucherCount: 0, nextCursor: null });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'היסטוריית מימושים' })).toBeInTheDocument());
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  it('renders the real redemption-history page inside the shell at /redemption-history for a MANAGER too', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: managerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    vi.mocked(listRedemptionHistory).mockResolvedValue({ outcome: 'ok', redemptions: [], liveVoucherCount: 0, nextCursor: null });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'היסטוריית מימושים' })).toBeInTheDocument());
+  });
+
+  it('fails closed at /redemption-history for a CASHIER via a direct URL, and never calls the redemption-history API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'היסטוריית מימושים' })).not.toBeInTheDocument();
+    expect(listRedemptionHistory).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at /redemption-history when the membership role is null (no membership, or ambiguous), and never calls the redemption-history API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listRedemptionHistory).not.toHaveBeenCalled();
   });
 
   // CAR-118: an invitation link must work with no session at all — this route

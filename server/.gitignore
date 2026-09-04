@@ -21,3 +21,6 @@ htmlcov/
 .vscode/
 dist/
 build/
+
+# Default RECORDING_LOCAL_DIR for staged calibration recordings (CAR-213).
+var/

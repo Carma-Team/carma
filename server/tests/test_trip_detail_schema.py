@@ -36,6 +36,8 @@ def _fake_trip(events: list) -> SimpleNamespace:
         start_location=None,
         end_location=None,
         ai_insight=None,
+        accel_available=None,
+        accel_init_failed=None,
         status=SimpleNamespace(value=TripStatus.COMPLETED.value),
         idempotency_key=None,
         route_waypoints=None,

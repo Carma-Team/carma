@@ -17,14 +17,19 @@ over. Failures are counted per (account, address) now.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import Settings, settings
 from app.core.security import hash_code, hash_password
@@ -113,6 +118,52 @@ async def test_an_expired_code_reveals_nothing_a_wrong_one_would_not(
         await _cleanup(db_session, phone)
 
 
+async def test_a_stale_code_is_not_charged_as_a_guess(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """CAR-130: `_reserve_attempt` banks a row before the OTP lookup even runs.
+
+    An expired code, or none at all, says nothing about whether the caller
+    holds the phone — it must not cost the address a step of backoff, or five
+    late submissions would lock out someone who never guessed wrong once.
+    """
+    phone = _phone()
+    user = await _registered_driver(db_session, phone)
+    db_session.add(
+        OtpCode(
+            phone=phone,
+            code_hash=hash_code("123456"),
+            purpose=OTP_PURPOSE,
+            expires_at=_now() - timedelta(minutes=1),
+        )
+    )
+    await db_session.commit()
+    try:
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert r.status_code == 401
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows == 0, "an expired code is not a wrong guess"
+    finally:
+        await _cleanup(db_session, phone)
+
+
+async def test_a_missing_code_is_not_charged_as_a_guess(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
+    """Same trap, the other branch: nobody has requested a code at all yet."""
+    phone = _phone()
+    user = await _registered_driver(db_session, phone)
+    try:
+        r = await db_api_client.post("/api/auth/otp/verify", json={"phone": phone, "code": "123456"})
+        assert r.status_code == 401
+
+        rows = await db_session.scalar(
+            select(func.count()).select_from(LoginFailure).where(LoginFailure.user_id == user.id)
+        )
+        assert rows == 0, "no active code is not a wrong guess"
+    finally:
+        await _cleanup(db_session, phone)
+
+
 async def test_a_locked_account_does_not_announce_itself(db_session: AsyncSession, db_api_client: AsyncClient) -> None:
     """A 403 here would make five wrong guesses a test for "is this registered?"."""
     phone = _phone()
@@ -192,6 +243,94 @@ class TestCorsCredentials:
         # drifting apart.
         cors = next(m for m in app.user_middleware if "CORSMiddleware" in str(m.cls))
         assert cors.kwargs["allow_credentials"] is settings.cors_allows_credentials
+
+
+# ─── 2b. the deployed browser origin (CAR-108) ───────────────────────────────
+#
+# Production names one origin, the business web app on Azure. What the browser
+# then does with it is decided entirely by the middleware kwargs in `main.py`,
+# so these drive real preflights through those exact kwargs with only the origin
+# list swapped for a known one. Copying the kwargs instead would agree with
+# whatever `main.py` said on the day the copy was made and never notice again.
+
+DEPLOYED_ORIGIN = "https://carma-business.example.azurecontainerapps.io"
+# The three headers `web/src/lib/api/client.ts` and `lib/auth/authApi.ts` send.
+# Authorization carries the access token; X-Requested-With is the CSRF gate on
+# /refresh and /logout (`core.deps.require_browser_header`), and being a custom
+# header it is also what forces the preflight in the first place.
+BROWSER_HEADERS = "authorization,content-type,x-requested-with"
+
+
+def _probe_app(*origins: str) -> FastAPI:
+    wired = next(m for m in app.user_middleware if "CORSMiddleware" in str(m.cls))
+    kwargs = {**wired.kwargs, "allow_origins": list(origins), "allow_credentials": True}
+    probe = FastAPI()
+    probe.add_middleware(CORSMiddleware, **kwargs)
+
+    @probe.post("/api/auth/refresh")
+    async def _refresh() -> JSONResponse:
+        return JSONResponse({"ok": True}, headers={"Retry-After": "30"})
+
+    return probe
+
+
+def _browser(probe: FastAPI) -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=probe), base_url="https://api.test")
+
+
+class TestDeployedBrowserOrigin:
+    async def test_the_deployed_origin_passes_preflight_with_the_headers_it_sends(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.options(
+                "/api/auth/refresh",
+                headers={
+                    "Origin": DEPLOYED_ORIGIN,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": BROWSER_HEADERS,
+                },
+            )
+
+        assert r.status_code == 200
+        # Named back exactly, never "*": a credentialed request is dropped by the
+        # browser if the wildcard comes back, however permissive it looks.
+        assert r.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+        assert r.headers["access-control-allow-credentials"] == "true"
+        allowed = r.headers["access-control-allow-headers"].lower()
+        assert "authorization" in allowed
+        assert "x-requested-with" in allowed
+
+    async def test_the_cookie_comes_back_named_to_that_origin(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.post("/api/auth/refresh", headers={"Origin": DEPLOYED_ORIGIN})
+
+        assert r.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+        assert r.headers["access-control-allow-credentials"] == "true"
+
+    async def test_an_unlisted_origin_gets_no_credentialed_access(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            preflight = await client.options(
+                "/api/auth/refresh",
+                headers={
+                    "Origin": "https://attacker.example",
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": BROWSER_HEADERS,
+                },
+            )
+            simple = await client.post("/api/auth/refresh", headers={"Origin": "https://attacker.example"})
+
+        assert preflight.status_code == 400
+        assert "access-control-allow-origin" not in preflight.headers
+        # The body still comes back - CORS is enforced in the browser, not here -
+        # but with no allow-origin header the browser never hands it to the page.
+        assert "access-control-allow-origin" not in simple.headers
+
+    async def test_retry_after_survives_the_trip_to_a_cross_origin_page(self) -> None:
+        # Without expose_headers the browser hides it and every 429 the web app
+        # shows loses its countdown (`ApiError.retryAfterSeconds`).
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.post("/api/auth/refresh", headers={"Origin": DEPLOYED_ORIGIN})
+
+        assert "Retry-After" in r.headers["access-control-expose-headers"]
 
 
 # ─── 3. the SMS bill ─────────────────────────────────────────────────────────
@@ -351,10 +490,10 @@ async def _seed_failures(db: AsyncSession, user_id: str, caller_ip: str, count: 
 
 
 # Enough requests to prove the gate engages — but note what it does *not* buy.
-# An attempt made while the caller is already backed off is refused before
-# `_record_failure`, so it is never counted: sending nine of these leaves the
-# tally at exactly `login_backoff_after` and the wait at one second, not the
-# sixteen the arithmetic suggests. Fine for a test that checks the very next
+# An attempt made while the caller is already backed off skips `_reserve_attempt`'s
+# insert, so it is never counted: sending nine of these leaves the tally at
+# exactly `login_backoff_after` and the wait at one second, not the sixteen
+# the arithmetic suggests. Fine for a test that checks the very next
 # request; any test with a bcrypt in between must seed the rows instead
 # (`_seed_failures`), or it passes or fails on how loaded the box is.
 _PAST_THE_THRESHOLD = settings.login_backoff_after + 4
@@ -583,6 +722,73 @@ def test_the_wait_doubles_and_stops_at_the_cap() -> None:
     assert auth_service._backoff_seconds(after + 3) == 8
     assert auth_service._backoff_seconds(after + 60) == settings.login_backoff_max_seconds
     assert auth_service._backoff_seconds(500) == settings.login_backoff_max_seconds, "no runaway exponent"
+
+
+@asynccontextmanager
+async def _concurrent_sessions(n: int) -> AsyncIterator[list[AsyncSession]]:
+    """`n` independent connections — real concurrency, not one connection queuing.
+
+    Modeled on `test_points_atomicity._rival_session`: each racer needs its own
+    engine, or overlapping coroutines on a shared connection just serialise on
+    the connection itself and prove nothing about the row lock.
+    """
+    engines = [create_async_engine(settings.database_url, pool_pre_ping=True) for _ in range(n)]
+    sessions = [async_sessionmaker(e, expire_on_commit=False, class_=AsyncSession)() for e in engines]
+    try:
+        yield sessions
+    finally:
+        for session in sessions:
+            await session.close()
+        for engine in engines:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_concurrent_pair_at_the_threshold_does_not_both_slip_through(db_session: AsyncSession) -> None:
+    """CAR-130: two guesses landing at once must cost what two guesses landing apart would.
+
+    Seeded one short of the threshold, so — sequentially — the next guess is the
+    one that first sees a wait (`_backoff_seconds(after) == 1`), and the one
+    after that is refused before it can add a row. The bug this guards: without
+    a lock serialising them, two concurrent guesses at that exact boundary both
+    read `failures == after - 1` before either commits, both compute the same
+    "no wait yet", and both insert — the burst grows the tally by two instead of
+    one, and both callers are told they may try again immediately. Deliberately
+    only two racers, not a longer burst: `_backoff_seconds` doubles per miss, so
+    a burst long enough to also test the second and third waits would need those
+    waits to still be pending by the time real round trips for every racer have
+    finished, which is exactly the kind of timing assumption `_seed_failures`
+    exists to avoid (see `_PAST_THE_THRESHOLD`).
+    """
+    after = settings.login_backoff_after
+    email = f"pair-{uuid.uuid4().hex[:8]}@carmatest.com"
+    user = await _password_driver(db_session, email, "CorrectHorse1")
+    caller_ip = "198.51.100.44"
+    try:
+        await _seed_failures(db_session, user.id, caller_ip, after - 1)
+
+        async with _concurrent_sessions(2) as sessions:
+            racer_users = [await session.get(User, user.id) for session in sessions]
+            for racer in racer_users:
+                assert racer is not None
+            results = await asyncio.gather(
+                *(
+                    auth_service._reserve_attempt(session, racer, caller_ip)
+                    for session, racer in zip(sessions, racer_users, strict=True)
+                )
+            )
+
+        reserved = sum(1 for backed_off in results if not backed_off)
+        assert reserved == 1, f"exactly one of the pair may cross the threshold and reserve, got {reserved}"
+
+        rows = await db_session.scalar(
+            select(func.count())
+            .select_from(LoginFailure)
+            .where(LoginFailure.user_id == user.id, LoginFailure.caller_ip == caller_ip)
+        )
+        assert rows == after, "the row lock must leave the same count two sequential guesses would"
+    finally:
+        await _cleanup_email(db_session, email)
 
 
 async def test_the_owner_can_still_log_in_while_a_guesser_is_backed_off(

@@ -14,7 +14,12 @@ class RegisterIn(CamelModel):
     # checks a credential, it does not enforce the policy that minted it.
     password: str = Field(min_length=8, max_length=200)
     phone: str | None = Field(default=None, pattern=r"^[\d\s+()\-]{6,20}$")
-    city: str | None = Field(default=None, max_length=80)
+    # A CBS settlement code, not a label (CAR-218).
+    city_code: str | None = Field(default=None, max_length=10)
+    # Deprecated (CAR-218). Builds shipped before the canonical list send a bare
+    # label; the service resolves it against the list rather than 422ing an app
+    # already in the field. Remove once those builds are gone.
+    city: str | None = Field(default=None, max_length=80, deprecated=True)
     age: int | None = Field(default=None, ge=16, le=120)
     license_year: int | None = Field(default=None, ge=1950, le=2100)
 
@@ -39,7 +44,12 @@ class OtpRegisterIn(CamelModel):
     name: str = Field(min_length=2, max_length=80)
     language: Language | None = None
     age: int | None = Field(default=None, ge=16, le=120)
-    city: str | None = Field(default=None, max_length=80)
+    # A CBS settlement code, not a label (CAR-218).
+    city_code: str | None = Field(default=None, max_length=10)
+    # Deprecated (CAR-218). Builds shipped before the canonical list send a bare
+    # label; the service resolves it against the list rather than 422ing an app
+    # already in the field. Remove once those builds are gone.
+    city: str | None = Field(default=None, max_length=80, deprecated=True)
 
 
 class OtpRequestIn(CamelModel):

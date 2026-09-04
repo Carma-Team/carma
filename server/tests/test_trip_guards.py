@@ -79,17 +79,19 @@ class TestVerifySignature:
         ts_ms = datetime.now(UTC).timestamp() * 1000
         return {"timestamp": ts_ms, "distanceKm": 5.0}
 
+    # ── unenforced (default) — regression guard on today's behavior ──────────
+
     def test_no_signature_skips_check(self) -> None:
-        _verify_signature(None, None, "secret")  # must not raise
+        _verify_signature(None, None, "secret", False)  # must not raise
 
     def test_ph_bypass_skips_hmac(self) -> None:
-        _verify_signature(self._fresh_digest(), "ph:sprint1", "secret")  # must not raise
+        _verify_signature(self._fresh_digest(), "ph:sprint1", "secret", False)  # must not raise
 
     def test_missing_digest_with_signature_raises_403(self) -> None:
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            _verify_signature(None, "somesig", "secret")
+            _verify_signature(None, "somesig", "secret", False)
         assert exc_info.value.status_code == 403
 
     def test_valid_hmac_passes(self) -> None:
@@ -97,17 +99,54 @@ class TestVerifySignature:
         digest = self._fresh_digest()
         canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
         sig = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
-        _verify_signature(digest, sig, secret)  # must not raise
+        _verify_signature(digest, sig, secret, False)  # must not raise
 
     def test_invalid_hmac_raises_403(self) -> None:
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            _verify_signature(self._fresh_digest(), "badhash", "secret")
+            _verify_signature(self._fresh_digest(), "badhash", "secret", False)
         assert exc_info.value.status_code == 403
 
     def test_no_secret_skips_hmac(self) -> None:
-        _verify_signature(self._fresh_digest(), "anysig", "")  # must not raise
+        _verify_signature(self._fresh_digest(), "anysig", "", False)  # must not raise
+
+    # ── enforced (CAR-13 phase 2) ─────────────────────────────────────────────
+
+    def test_enforced_no_signature_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(None, None, "secret", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_ph_bypass_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "ph:sprint1", "secret", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_no_secret_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "anysig", "", True)
+        assert exc_info.value.status_code == 403
+
+    def test_enforced_valid_hmac_still_passes(self) -> None:
+        secret = "testsecret"
+        digest = self._fresh_digest()
+        canonical = json.dumps(digest, sort_keys=True, separators=(",", ":"))
+        sig = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+        _verify_signature(digest, sig, secret, True)  # must not raise
+
+    def test_enforced_invalid_hmac_raises_403(self) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _verify_signature(self._fresh_digest(), "badhash", "secret", True)
+        assert exc_info.value.status_code == 403
 
 
 # ─── _validate_plausibility ───────────────────────────────────────────────────

@@ -32,6 +32,7 @@ from app.schemas.auth import (
     PasswordResetIn,
     RegisterIn,
 )
+from app.services import cities
 from app.services import users as users_service
 from app.services.sms import sms_sender
 
@@ -87,18 +88,29 @@ def _backoff_seconds(failures: int) -> int:
     return min(1 << min(over, 20), settings.login_backoff_max_seconds)
 
 
-async def _backoff_active(db: AsyncSession, user_id: str, caller_ip: str) -> bool:
-    """True while this address is still serving out its wait on this account.
+async def _reserve_attempt(db: AsyncSession, user: User, caller_ip: str) -> LoginFailure | None:
+    """`None` while this address is still serving out its wait on this account —
+    otherwise banks the attempt before the caller does slow verification, and
+    hands back the row so a caller that turns out to have nothing to verify
+    (an expired or missing OTP) can undo it with `_release_attempt`.
 
     Counted per (account, address) rather than per account, which is the whole
     point: a wait keyed on the account alone is something a stranger can inflict
     on its owner. See `models.login_failure.LoginFailure`.
+
+    `with_for_update()` serialises concurrent callers on this one account row —
+    the same primitive `trips.py`'s anti-grind cap uses for CAR-98's identical
+    race (count, then check, then record, all racing on a stale read). The lock
+    is held only across this count-and-insert; `verify_password`/`verify_code`
+    always run after the `commit()` below releases it, so a burst never holds a
+    pooled connection across bcrypt (CAR-130).
     """
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     since = _now() - timedelta(seconds=settings.login_failure_window_seconds)
     row = (
         await db.execute(
             select(func.count(), func.max(LoginFailure.created_at)).where(
-                LoginFailure.user_id == user_id,
+                LoginFailure.user_id == user.id,
                 LoginFailure.caller_ip == caller_ip,
                 LoginFailure.created_at >= since,
             )
@@ -106,9 +118,24 @@ async def _backoff_active(db: AsyncSession, user_id: str, caller_ip: str) -> boo
     ).one()
     failures: int = row[0]
     last: datetime | None = row[1]
-    if last is None:
-        return False
-    return last + timedelta(seconds=_backoff_seconds(failures)) > _now()
+    if last is not None and last + timedelta(seconds=_backoff_seconds(failures)) > _now():
+        await db.commit()
+        return None
+    reservation = LoginFailure(user_id=user.id, caller_ip=caller_ip)
+    db.add(reservation)
+    await db.commit()
+    return reservation
+
+
+async def _release_attempt(db: AsyncSession, reservation: LoginFailure) -> None:
+    """Undo a reservation that never got to test a credential.
+
+    A missing or expired OTP says nothing about whether the caller holds the
+    phone — charging it as a guess would let anyone lock out an address just by
+    submitting stale codes, which is not the burst this backoff exists to slow.
+    """
+    await db.delete(reservation)
+    await db.commit()
 
 
 async def _sweep_expired(db: AsyncSession, since: datetime) -> None:
@@ -209,7 +236,7 @@ async def register_with_password(
         email=email,
         password_hash=hash_password(dto.password),
         phone=dto.phone,
-        city=dto.city,
+        city_code=await cities.resolve_code(db, code=dto.city_code, label=dto.city),
         age=dto.age,
         license_year=dto.license_year,
         last_logged_at=_now(),
@@ -238,7 +265,7 @@ async def login_with_password(
         audit("auth.login.failure", email_hint=hash_email(dto.email), reason="no_user")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     _assert_not_locked(user)
-    if await _backoff_active(db, user.id, caller_ip):
+    if await _reserve_attempt(db, user, caller_ip) is None:
         # Refused before bcrypt, with the identical 401 a wrong password gets. A
         # 429 or a Retry-After would re-open the oracle #64 closed; sleeping out
         # the wait would hold a pooled connection, and fifteen of those stop the
@@ -247,7 +274,7 @@ async def login_with_password(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
     if not verify_password(dto.password, user.password_hash):
         audit("auth.login.failure", user_id=user.id, email_hint=hash_email(dto.email), reason="bad_password")
-        await _record_failure(db, user, caller_ip)
+        await _finalize_failure(db, user, caller_ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_REJECTED)
 
     await _clear_failures(db, user, caller_ip)
@@ -549,7 +576,7 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
         existing.name = dto.name
         existing.language = dto.language or Language.HE
         existing.age = dto.age
-        existing.city = dto.city
+        existing.city_code = await cities.resolve_code(db, code=dto.city_code, label=dto.city)
     else:
         db.add(
             User(
@@ -557,7 +584,7 @@ async def register_with_otp(db: AsyncSession, dto: OtpRegisterIn) -> OtpSent:
                 name=dto.name,
                 language=dto.language or Language.HE,
                 age=dto.age,
-                city=dto.city,
+                city_code=await cities.resolve_code(db, code=dto.city_code, label=dto.city),
             )
         )
     await db.commit()
@@ -627,7 +654,8 @@ async def _verify_login_otp(db: AsyncSession, phone: str, code: str, caller_ip: 
     # registered?".
     if user.locked_until and user.locked_until > _now():
         raise _rejected(phone, "locked", user)
-    if await _backoff_active(db, user.id, caller_ip):
+    reservation = await _reserve_attempt(db, user, caller_ip)
+    if reservation is None:
         raise _rejected(phone, "caller_backoff", user)
 
     otp = await db.scalar(
@@ -636,13 +664,15 @@ async def _verify_login_otp(db: AsyncSession, phone: str, code: str, caller_ip: 
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
+        await _release_attempt(db, reservation)
         raise _rejected(phone, "no_active_otp", user)
     if otp.expires_at < _now():
+        await _release_attempt(db, reservation)
         raise _rejected(phone, "expired", user)
 
     if not verify_code(code, otp.code_hash):
         otp.attempts += 1
-        await _record_failure(db, user, caller_ip)
+        await _finalize_failure(db, user, caller_ip)
         raise _rejected(phone, "bad_code", user)
 
     otp.consumed_at = _now()
@@ -759,7 +789,8 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
     # ceiling that eventually shuts `verify_otp` cannot fire here, and nothing in
     # the codebase reads `otp.attempts`. Six digits and a five-minute window are
     # the whole defence against somebody rotating addresses.
-    if await _backoff_active(db, user.id, caller_ip):
+    reservation = await _reserve_attempt(db, user, caller_ip)
+    if reservation is None:
         raise _rejected(dto.phone, "caller_backoff", user)
 
     otp = await db.scalar(
@@ -768,13 +799,15 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
         .order_by(OtpCode.created_at.desc())
     )
     if otp is None:
+        await _release_attempt(db, reservation)
         raise _rejected(dto.phone, "no_active_reset_otp", user)
     if otp.expires_at < _now():
+        await _release_attempt(db, reservation)
         raise _rejected(dto.phone, "expired", user)
 
     if not verify_code(dto.code, otp.code_hash):
         otp.attempts += 1
-        await _record_failure(db, user, caller_ip)
+        await _finalize_failure(db, user, caller_ip)
         raise _rejected(dto.phone, "bad_reset_code", user)
 
     otp.consumed_at = _now()
@@ -791,19 +824,22 @@ async def reset_password(db: AsyncSession, dto: PasswordResetIn, caller_ip: str)
     return MessageOut(message="Password updated — sign in with your new password")
 
 
-async def _record_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
-    """Bank a failed sign-in against the caller, and against the account as a backstop.
+async def _finalize_failure(db: AsyncSession, user: User, caller_ip: str) -> None:
+    """Tally a *confirmed* failed sign-in against the account, as a backstop.
 
-    Called from both doors — wrong password and wrong code. `locked_until` shuts
-    both doors to everyone, so it is set at NIST's maximum rather than at a number
-    a stranger can reach cheaply. It no longer touches sessions already open; see
-    `core.deps.current_user` for why.
+    The `LoginFailure` row itself was already inserted by `_reserve_attempt`,
+    before `verify_password`/`verify_code` ran — this only adds the account-wide
+    consequence, which must wait for a real failure. Running it during the
+    reservation instead would let a concurrent wrong guess cross the account
+    ceiling and lock out a caller whose own attempt turns out correct.
+    `locked_until` shuts both doors to everyone, so it is set at NIST's maximum
+    rather than at a number a stranger can reach cheaply. It no longer touches
+    sessions already open; see `core.deps.current_user` for why.
 
     Commits, because the caller raises a 401 immediately after and a discarded
     session would throw the failure away.
     """
     since = _now() - timedelta(seconds=settings.login_failure_window_seconds)
-    db.add(LoginFailure(user_id=user.id, caller_ip=caller_ip))
     await _sweep_expired(db, since)
     # The account tally restarts at the last lockout, so reopening the account
     # does not re-lock on the first failure afterwards. It is a timestamp rather

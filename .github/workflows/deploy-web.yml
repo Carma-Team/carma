@@ -1,36 +1,38 @@
-name: Deploy web to Azure Static Web Apps
+name: Deploy web to Azure
 
-# Publishes web/dist to Azure Static Web Apps. Gated on a deployment token
-# secret, same pattern as deploy.yml, so this workflow is safe to merge
-# before the Static Web App resource exists.
+# Publishes the business web app (web/) to the carma-business Azure Container
+# App: web/dist is built here, baked into an nginx image, and rolled out.
 #
-# Required GitHub secret (Settings → Secrets and variables → Actions):
-#   AZURE_STATIC_WEB_APPS_API_TOKEN  - deployment token from the Static Web
-#                                      App resource (Overview → Manage
-#                                      deployment token)
+# It is a Container App rather than Azure Static Web Apps, which is what this
+# workflow originally targeted. Static Web Apps exists in five regions only
+# (Central US, East US 2, West US 2, West Europe, East Asia) and the Azure for
+# Students subscription carries a platform policy, sys.regionrestriction, that
+# allows five entirely different ones (Germany West Central, Spain Central, UAE
+# North, Poland Central, Israel Central). The two lists do not intersect, and
+# the policy is applied by the offer rather than by us, so Owner cannot exempt
+# it. Container Apps runs in Germany West Central next to carma-api. (CAR-285)
 #
-# Required GitHub variable (Settings → Secrets and variables → Actions →
-# Variables) — public config, not a secret, per CAR-284:
-#   VITE_API_URL   - the live API origin, e.g.
-#                    https://carma-api.<region>.azurecontainerapps.io
-#                    No fallback: an unset or empty variable fails the build
-#                    step before `vite build` runs, rather than silently
-#                    shipping a guessed origin.
+# Auth is the same GitHub OIDC managed identity as deploy.yml, so this workflow
+# needs no new credential. Required GitHub secrets, all already set:
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#   AZURE_RESOURCE_GROUP, AZURE_CONTAINER_REGISTRY
 #
-# The app is built here (skip_app_build) rather than left to Oryx inside the
-# SWA action, because this is an npm-workspaces monorepo — `npm ci` has to
-# run at the repo root, same as ci-web.yml — and because VITE_API_URL must be
-# present as an env var at `vite build` time to end up in the bundle.
+# Required GitHub variable (Settings -> Secrets and variables -> Actions ->
+# Variables) - public config, not a secret, per CAR-284:
+#   VITE_API_URL   - the live API origin. No fallback: an unset or empty
+#                    variable fails the build before `vite build` runs, rather
+#                    than silently shipping a guessed origin.
 #
-# staticwebapp.config.json lives in web/public/ so Vite copies it into
-# web/dist/ unchanged; Azure reads it from the output root to route every
-# unknown path back to index.html instead of a hosting 404.
+# `environment: production` is load-bearing, not decoration. The federated
+# credential's subject is repo:Carma-Team/carma:environment:production; drop
+# the key and the subject silently becomes ...:ref:refs/heads/main, which does
+# not match, and the login fails.
 #
-# Trigger: pushed to main (path-filtered to web/ and the root files its
-# build depends on), or manually via "Run workflow". A manual dispatch off
-# any ref but main is refused by the "Restrict to main" step below — the
-# deployed assets must always correspond to what's on main, not to whichever
-# branch happened to be selected in the Actions UI.
+# Trigger: pushed to main (path-filtered to web/ and the root files its build
+# depends on), or manually via "Run workflow". A manual dispatch off any ref
+# but main is refused by the "Restrict to main" step - the deployed assets must
+# correspond to what is on main, not to whichever branch was selected in the
+# Actions UI.
 
 on:
   push:
@@ -45,10 +47,16 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  # The Container App name is not a secret - the site's hostname is public by
+  # definition - so it stays readable here instead of in the secret store.
+  WEB_CONTAINER_APP: carma-business
 
 jobs:
   check-secrets:
@@ -64,20 +72,21 @@ jobs:
 
       - id: gate
         env:
-          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         run: |
-          if [ -n "$TOKEN" ]; then
+          if [ -n "$AZURE_CLIENT_ID" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::AZURE_STATIC_WEB_APPS_API_TOKEN not set — deploy is skipped."
+            echo "::notice::AZURE_CLIENT_ID not set — deploy is skipped."
           fi
 
   deploy:
     needs: check-secrets
     if: needs.check-secrets.outputs.ready == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    environment: production
 
     steps:
       - uses: actions/checkout@v4
@@ -105,12 +114,41 @@ jobs:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: npm run build
 
-      - name: Deploy to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          app_location: web
-          output_location: dist
-          skip_app_build: true
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR via Azure CLI
+        run: az acr login --name ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+
+      - name: Build and push image
+        id: build
+        run: |
+          IMAGE=${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/carma-web:${{ github.sha }}
+          docker build -t "$IMAGE" ./web
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Update Azure Container App
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name ${{ env.WEB_CONTAINER_APP }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --image ${{ steps.build.outputs.image }}
+
+      - name: Report what shipped
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            # The image tag is the commit SHA, so this answers "what version is
+            # the site serving?" without guessing from the bundle.
+            az containerapp show \
+              --name ${{ env.WEB_CONTAINER_APP }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --query "{revision:properties.latestRevisionName,image:properties.template.containers[0].image,fqdn:properties.configuration.ingress.fqdn}" \
+              -o table

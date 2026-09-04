@@ -35,7 +35,7 @@ def _bucket(address: str) -> str:
     except ValueError:
         # Not an address at all. Bucket the garbage together rather than letting
         # an arbitrary string through — it is also what reaches a varchar column
-        # in `services.auth._record_failure`.
+        # in `services.auth._reserve_attempt`.
         return address[:45]
     # `isinstance` rather than `.version == 6` so mypy narrows the union and
     # `ipv4_mapped` type-checks.

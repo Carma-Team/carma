@@ -6,6 +6,18 @@
  * through which an app injects its own trip-start, trip-end and suspicion rules.
  */
 
+// ─── Raw calibration recording ────────────────────────────────────────────────
+
+/**
+ * Why `exportRawRecording()` could not share a file. Declared here rather than
+ * inline at each boundary: the same union was written out in the recorder, in the
+ * SDK's public method and in the host's context type, so adding a case meant
+ * remembering three files.
+ */
+export interface RawExportFailure {
+  error: 'none-recorded' | 'sharing-unavailable';
+}
+
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 
 export enum ValidationState {
@@ -50,7 +62,6 @@ export enum DrivingEventType {
   HARD_BRAKE      = 'HARD_BRAKE',       // EVT_BRAKE   — spec §א table 1
   AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL', // EVT_ACCEL   — spec §א table 1
   SHARP_TURN      = 'SHARP_TURN',        // EVT_TURN    — spec §א table 1
-  SWERVE          = 'SWERVE',            // EVT_SWERVE  — spec §א table 1
   PHONE_USAGE     = 'PHONE_USAGE'        // not in spec table — detected separately
 }
 
