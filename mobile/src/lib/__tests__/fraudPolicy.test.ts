@@ -9,6 +9,9 @@ function evaluation(overrides: Partial<FraudEvaluation> = {}): FraudEvaluation {
     isReady: true,
     mode: TransportMode.TRAIN,
     signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: true },
+    // Every sensor present, so the gate under test is the verdict and not a report
+    // explaining its own unknowns. GPS is true unconditionally, as FraudDetector says.
+    sensorAvailability: { gps: true, accelerometer: true, gyroscope: true },
     telemetry: { avgSpeedKmh: 90, maxLateralAccelG: 0.01, yawVariance: 0 },
     ...overrides,
   };
