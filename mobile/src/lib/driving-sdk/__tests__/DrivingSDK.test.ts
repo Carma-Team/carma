@@ -83,6 +83,7 @@ jest.mock('@/lib/driving-sdk/sensors/RawSampleRecorder', () => ({
     pushGyroSample(...args: any[]) { return mockRawPushGyro(...args); }
     pushLocationSample(...args: any[]) { return mockRawPushLocation(...args); }
     exportAsync() { return mockRawExport(); }
+    listRecordings() { return []; }
   },
 }));
 
@@ -212,8 +213,9 @@ describe('DrivingSDK', () => {
       distanceKm: 0,
       currentSpeed: 0,
       timeDeltaS: 2,
-      accelX: 0,
-      gyroZ: 0,
+      longitudinalAccelG: 0,
+      lateralAccelG: 0,
+      yawRateRadS: 0,
       accelAvailable: true,
       gyroAvailable: true,
       accelCoverage: 1,
@@ -658,10 +660,10 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ currentSpeed: 30, gyroZ: 0.2, accelX: 1.1 });
+    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1 });
 
     expect(validator.samples).toHaveLength(1);
-    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, gyroYaw: 0.2 });
+    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, yawRate: 0.2, lateralAccelG: 1.1 });
     expect(instance.getStatus().isActive).toBe(false);
   });
 
@@ -669,7 +671,7 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ accelX: 0, gyroZ: 0, accelAvailable: false, gyroAvailable: false });
+    sendSensorUpdate({ lateralAccelG: null, yawRateRadS: null, accelAvailable: false, gyroAvailable: false });
 
     expect(validator.samples[0]).toMatchObject({ accelAvailable: false, gyroAvailable: false });
   });

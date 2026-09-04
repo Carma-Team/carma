@@ -8,6 +8,8 @@ import { setSession } from '@/lib/auth/session';
 import { listRewards } from '@/lib/api/rewards';
 import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/businessMembers';
 import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
+import { listBusinessRequests } from '@/lib/api/businessRequests';
+import { listRedemptionHistory } from '@/lib/api/redemptionHistory';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -28,6 +30,16 @@ vi.mock('@/lib/api/businessMembers', async (importOriginal) => {
 vi.mock('@/lib/api/businessInvitations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/businessInvitations')>();
   return { ...actual, listInvitations: vi.fn(), previewInvitation: vi.fn(), acceptInvitation: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessRequests', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessRequests')>();
+  return { ...actual, listBusinessRequests: vi.fn() };
+});
+
+vi.mock('@/lib/api/redemptionHistory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/redemptionHistory')>();
+  return { ...actual, listRedemptionHistory: vi.fn() };
 });
 
 const businessUser = {
@@ -73,6 +85,59 @@ describe('routes', () => {
     vi.mocked(listInvitations).mockReset();
     vi.mocked(previewInvitation).mockReset();
     vi.mocked(acceptInvitation).mockReset();
+    vi.mocked(listBusinessRequests).mockReset();
+    vi.mocked(listRedemptionHistory).mockReset();
+  });
+
+  // CAR-255: an ADMIN reaches the review page even with no business
+  // membership at all — ADMIN is a system role, not gated by
+  // `RequireBusinessRole`/CAR-258's membership resolution.
+  const adminUser = {
+    id: 'admin-1',
+    name: 'Admin',
+    email: 'admin@example.com',
+    role: 'ADMIN' as const,
+    businessId: null,
+    businessCategory: null,
+    businessName: null,
+    businessNameHe: null,
+    businessMembershipRole: null,
+    businessMembershipAmbiguous: false,
+  };
+
+  it('renders the real business-requests review page inside the shell at /admin/business-requests for an ADMIN', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: adminUser });
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [] });
+
+    renderAt('/admin/business-requests');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument());
+    expect(listBusinessRequests).toHaveBeenCalledExactlyOnceWith('pending');
+  });
+
+  it('fails closed at /admin/business-requests for an ordinary business OWNER, and never calls the admin API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+
+    renderAt('/admin/business-requests');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'בקשות הצטרפות עסקים' })).not.toBeInTheDocument();
+    expect(listBusinessRequests).not.toHaveBeenCalled();
+  });
+
+  // CAR-255 review: a fresh sign-in with no `from` location state lands
+  // every role at / (see SignInPage's default) — an ADMIN has no business
+  // membership to show a dashboard for, so it must not dead-end on
+  // RequireBusinessRole's access-restricted state the way it did before
+  // LandingRoute took over its own role check.
+  it('redirects an ADMIN landing at / straight to the business-requests review page, not an access-restricted dead end', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: adminUser });
+    vi.mocked(listBusinessRequests).mockResolvedValue({ outcome: 'ok', requests: [] });
+
+    renderAt('/');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקשות הצטרפות עסקים' })).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('renders the home page inside the shell at / for an OWNER once a restored session bootstraps (default language: Hebrew)', async () => {
@@ -320,6 +385,51 @@ describe('routes', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(listInvitations).not.toHaveBeenCalled();
+  });
+
+  // CAR-80: /redemption-history has its own `RequireBusinessRole`, allowing
+  // OWNER and MANAGER — unlike /permissions above (OWNER only), but still
+  // narrower than the four routes every role in the matrix reaches. Run in
+  // the same block as the CAR-117/CAR-118 tests above, before the /register
+  // tests below, for the same never-resolving-refresh reason those are.
+  it('renders the real redemption-history page inside the shell at /redemption-history for an OWNER', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    vi.mocked(listRedemptionHistory).mockResolvedValue({ outcome: 'ok', redemptions: [], liveVoucherCount: 0, nextCursor: null });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'היסטוריית מימושים' })).toBeInTheDocument());
+    expect(screen.getByText('Aroma Israel')).toBeInTheDocument();
+  });
+
+  it('renders the real redemption-history page inside the shell at /redemption-history for a MANAGER too', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: managerUser });
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [] });
+    vi.mocked(listRedemptionHistory).mockResolvedValue({ outcome: 'ok', redemptions: [], liveVoucherCount: 0, nextCursor: null });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'היסטוריית מימושים' })).toBeInTheDocument());
+  });
+
+  it('fails closed at /redemption-history for a CASHIER via a direct URL, and never calls the redemption-history API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: cashierUser });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByRole('heading', { name: 'היסטוריית מימושים' })).not.toBeInTheDocument();
+    expect(listRedemptionHistory).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at /redemption-history when the membership role is null (no membership, or ambiguous), and never calls the redemption-history API', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/redemption-history');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(listRedemptionHistory).not.toHaveBeenCalled();
   });
 
   // CAR-118: an invitation link must work with no session at all — this route

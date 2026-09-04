@@ -20,7 +20,8 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -228,6 +229,7 @@ async def test_duplicate_pending_request_from_same_applicant_is_refused(
 
         second = await _submit(db_api_client, token, registrationNumber=_reg_number())
         assert second.status_code == 409, second.text
+        assert second.json()["detail"]["code"] == svc.ALREADY_HAS_PENDING_REQUEST
 
         count = len(
             (await db_session.scalars(select(BusinessJoinRequest).where(BusinessJoinRequest.phone == phone))).all()
@@ -255,6 +257,7 @@ async def test_duplicate_pending_request_for_same_business_is_refused(
 
         second = await _submit(db_api_client, token_b, registrationNumber=reg_number)
         assert second.status_code == 409, second.text
+        assert second.json()["detail"]["code"] == svc.REGISTRATION_NUMBER_PENDING
 
         count = len(
             (
@@ -266,6 +269,38 @@ async def test_duplicate_pending_request_for_same_business_is_refused(
         assert count == 1
     finally:
         await _cleanup(db_session, phone_a, phone_b)
+
+
+@pytest.mark.asyncio
+async def test_registration_number_of_an_approved_business_is_refused(
+    db_session: AsyncSession, db_api_client: AsyncClient
+) -> None:
+    """The third conflict: no pending request involved at all, just a
+    registration number that already belongs to an approved Business."""
+    phone = _phone()
+    reg_number = _reg_number()
+    business = Business(
+        owner_user_id=None,
+        name="Existing Approved Business",
+        location_lat=32.07,
+        location_lng=34.78,
+        registration_number=reg_number,
+    )
+    db_session.add(business)
+    await db_session.commit()
+    try:
+        token = await _verified_token(db_session, db_api_client, phone)
+
+        r = await _submit(db_api_client, token, registrationNumber=reg_number)
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"]["code"] == svc.REGISTRATION_NUMBER_TAKEN
+
+        rows = (await db_session.scalars(select(BusinessJoinRequest).where(BusinessJoinRequest.phone == phone))).all()
+        assert rows == [], "a request naming an already-registered number must not be stored"
+    finally:
+        await _cleanup(db_session, phone)
+        await db_session.delete(await db_session.get(Business, business.id))
+        await db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -361,10 +396,13 @@ async def test_concurrent_submissions_from_same_applicant_hit_the_db_race(db_ses
             loser = result_a if label_a == "error" else result_b
             assert isinstance(loser, HTTPException)
             assert loser.status_code == 409
-            # This exact message only comes from the except IntegrityError branch —
-            # the pre-check's message for this rule is "You already have a pending
-            # business request". Getting this one proves the race branch ran.
-            assert loser.detail == "A pending request already exists"
+            # The race is won at commit time, past both pre-checks, so this proves
+            # the except IntegrityError branch — not the pre-check — produced the
+            # same structured code/message a non-racing caller would have seen.
+            assert loser.detail == {
+                "code": svc.ALREADY_HAS_PENDING_REQUEST,
+                "message": "You already have a pending business request",
+            }
 
             # The losing session's rollback must leave it usable for a further query.
             losing_db = db_session if label_a == "error" else db_b
@@ -411,10 +449,12 @@ async def test_concurrent_submissions_for_same_business_hit_the_db_race(db_sessi
             loser = result_a if label_a == "error" else result_b
             assert isinstance(loser, HTTPException)
             assert loser.status_code == 409
-            # Same distinction as above: this message is only reachable from the
-            # except IntegrityError branch, not the "This business already has a
-            # pending request" pre-check message.
-            assert loser.detail == "A pending request already exists"
+            # Same as above: the race branch reports the same structured
+            # code/message as the "registration number already pending" pre-check.
+            assert loser.detail == {
+                "code": svc.REGISTRATION_NUMBER_PENDING,
+                "message": "This business already has a pending request",
+            }
 
             losing_db = db_session if label_a == "error" else db_b
             still_usable = await losing_db.scalar(
@@ -434,6 +474,98 @@ async def test_concurrent_submissions_for_same_business_hit_the_db_race(db_sessi
     finally:
         await engine_b.dispose()
         await _cleanup(db_session, phone_a, phone_b)
+
+
+# ── IntegrityError fallback: constraint name -> the right structured code ──
+#
+# The two `asyncio.Barrier`-driven tests above already exercise the real
+# partial unique indexes end to end. These force the same `except
+# IntegrityError` branch directly, through `svc.submit` unmodified, to pin
+# down the constraint -> code mapping itself and its unrecognized-name
+# fallback — see test_admin_business_requests.py's identical pattern for why
+# a synthetic driver exception is used rather than a second real DB race.
+
+
+def _integrity_error_for_constraint(constraint_name: str) -> IntegrityError:
+    driver_error = Exception(f'duplicate key value violates unique constraint "{constraint_name}"')
+    driver_error.constraint_name = constraint_name  # type: ignore[attr-defined]
+    orig = Exception("<in memory DBAPI error>")
+    orig.__cause__ = driver_error
+    return IntegrityError("INSERT ...", {}, orig)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("constraint_name", "expected_code", "expected_message"),
+    [
+        (
+            "uq_business_join_requests_applicant_pending",
+            svc.ALREADY_HAS_PENDING_REQUEST,
+            "You already have a pending business request",
+        ),
+        (
+            "uq_business_join_requests_regnum_pending",
+            svc.REGISTRATION_NUMBER_PENDING,
+            "This business already has a pending request",
+        ),
+    ],
+)
+async def test_integrity_error_fallback_maps_constraint_to_the_right_code(
+    db_session: AsyncSession, constraint_name: str, expected_code: str, expected_message: str
+) -> None:
+    phone = _phone()
+    try:
+        user = await _load_verified_user(db_session, phone)
+        dto = BusinessJoinRequestIn.model_validate(_payload())
+
+        def _raise(*_args: object) -> None:
+            raise _integrity_error_for_constraint(constraint_name)
+
+        event.listen(db_session.sync_session, "before_commit", _raise)
+        try:
+            with pytest.raises(HTTPException) as excinfo:
+                await svc.submit(db_session, user, dto)
+        finally:
+            event.remove(db_session.sync_session, "before_commit", _raise)
+
+        assert excinfo.value.status_code == 409
+        assert excinfo.value.detail == {"code": expected_code, "message": expected_message}  # type: ignore[comparison-overlap]
+
+        await db_session.rollback()
+        rows = (await db_session.scalars(select(BusinessJoinRequest).where(BusinessJoinRequest.phone == phone))).all()
+        assert rows == [], "no request may survive a rolled-back commit"
+    finally:
+        await _cleanup(db_session, phone)
+
+
+@pytest.mark.asyncio
+async def test_integrity_error_fallback_defaults_unrecognized_constraint_to_registration_number_pending(
+    db_session: AsyncSession,
+) -> None:
+    """Belt-and-braces: an unrecognized constraint name (schema drift, a typo in
+    the mapping, a future migration) must still fail closed with *a* correct,
+    structured 409 — never an unhandled 500 or a raw DB error."""
+    phone = _phone()
+    try:
+        user = await _load_verified_user(db_session, phone)
+        dto = BusinessJoinRequestIn.model_validate(_payload())
+
+        def _raise(*_args: object) -> None:
+            raise _integrity_error_for_constraint("some_future_constraint_nobody_mapped_yet")
+
+        event.listen(db_session.sync_session, "before_commit", _raise)
+        try:
+            with pytest.raises(HTTPException) as excinfo:
+                await svc.submit(db_session, user, dto)
+        finally:
+            event.remove(db_session.sync_session, "before_commit", _raise)
+
+        assert excinfo.value.status_code == 409
+        assert excinfo.value.detail["code"] == svc.REGISTRATION_NUMBER_PENDING  # type: ignore[index]
+
+        await db_session.rollback()
+    finally:
+        await _cleanup(db_session, phone)
 
 
 # ── Business access stays separate from the applicant account ──────────────

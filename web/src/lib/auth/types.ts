@@ -39,6 +39,11 @@ export type AuthContextValue = {
   // account yet needs the same durable browser session `login` grants, not
   // just a created row — see `services/auth.py::register_with_password`.
   register: (name: string, email: string, password: string) => Promise<void>;
+  // CAR-265: the same durable session `login` grants, for an approved
+  // phone-only business owner who has no password — see
+  // `services/auth.py::login_with_otp`. Throws `AuthApiError` on a wrong or
+  // expired code, same as `login` throws on a wrong password.
+  loginWithOtp: (phone: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   // Re-runs the bootstrap check from an 'error' status. A no-op from any
   // other status — there is nothing to retry once bootstrap has settled for

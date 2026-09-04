@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Literal
 
 from app.schemas._base import CamelModel
+from app.schemas.city import CityOut
 
 # Relationship between the caller and another user, from the caller's side.
 #   none     – no edge
@@ -20,7 +21,7 @@ class FriendRequestOut(CamelModel):
     from_user_id: str
     from_user_name: str | None
     from_user_level: int
-    from_user_city: str | None
+    from_user_city: CityOut | None
     created_at: datetime
 
 

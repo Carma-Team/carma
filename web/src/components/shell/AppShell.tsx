@@ -5,19 +5,28 @@ import { normalizeBusinessRole } from '@/lib/auth/businessRole';
 import styles from './AppShell.module.css';
 
 // CAR-204 owns this chrome; CAR-116 owns which nav items it renders for the
-// caller's role. Rewards and Redemption stay unconditional — every role in
-// the matrix can at least view them, and each page hides its own
-// manage-only controls. Team & Permissions (CAR-117) is a real route now,
-// OWNER-only; Analytics (redemption history/stats, CAR-119/CAR-80) is still
-// coming-soon. Both are capabilities a CASHIER (and, for Team, a MANAGER
-// too) never gets — hidden here rather than shown disabled, since a role
-// that can't use a page shouldn't see it advertised.
+// caller's role. Rewards and Redemption stay unconditional for every
+// business role in the matrix — each page hides its own manage-only
+// controls. Team & Permissions (CAR-117) is a real route now, OWNER-only;
+// Redemption History (CAR-80) is a real route too, OWNER/MANAGER — Analytics
+// (redemption stats/charts, CAR-119) stays coming-soon, deliberately out of
+// CAR-80's scope. All three are capabilities a CASHIER (and, for Team, a
+// MANAGER too) never gets — hidden here rather than shown disabled, since a
+// role that can't use a page shouldn't see it advertised.
 export function AppShell() {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useTranslation();
   const role = normalizeBusinessRole(user?.businessMembershipRole);
   const canManagePermissions = role === 'OWNER';
   const canSeeAnalytics = role === 'OWNER' || role === 'MANAGER';
+  // ADMIN (CAR-255) is a system role, not a business membership role — it
+  // never goes through `normalizeBusinessRole`/`hasBusinessRole` above, which
+  // resolve OWNER/MANAGER/CASHIER only. A pure ADMIN account has no business
+  // membership, so it can never use the business nav items below either
+  // (`RequireBusinessRole` refuses all of them) — hidden here for the same
+  // "don't advertise what this role can't reach" reason as Team/Analytics.
+  const isAdmin = user?.role === 'ADMIN';
+  const canSeeBusinessNav = !isAdmin;
 
   // Raw businessName/businessNameHe, not a server-resolved fallback (see
   // AuthUser) — the fallback direction flips with the UI language, so the
@@ -40,18 +49,32 @@ export function AppShell() {
         </div>
 
         <nav className={styles.navGroup} aria-label={t('shell.navGroupManagement')}>
-          <NavLink to="/rewards" className={({ isActive }) => navClass(styles, isActive)}>
-            {t('shell.navRewards')}
-          </NavLink>
-          <NavLink to="/redemption" className={({ isActive }) => navClass(styles, isActive)}>
-            {t('shell.navRedemption')}
-          </NavLink>
-          <NavLink to="/business-profile" className={({ isActive }) => navClass(styles, isActive)}>
-            {t('shell.navBusinessProfile')}
-          </NavLink>
+          {canSeeBusinessNav && (
+            <>
+              <NavLink to="/rewards" className={({ isActive }) => navClass(styles, isActive)}>
+                {t('shell.navRewards')}
+              </NavLink>
+              <NavLink to="/redemption" className={({ isActive }) => navClass(styles, isActive)}>
+                {t('shell.navRedemption')}
+              </NavLink>
+              <NavLink to="/business-profile" className={({ isActive }) => navClass(styles, isActive)}>
+                {t('shell.navBusinessProfile')}
+              </NavLink>
+            </>
+          )}
           {canManagePermissions && (
             <NavLink to="/permissions" className={({ isActive }) => navClass(styles, isActive)}>
               {t('shell.navTeam')}
+            </NavLink>
+          )}
+          {canSeeAnalytics && (
+            <NavLink to="/redemption-history" className={({ isActive }) => navClass(styles, isActive)}>
+              {t('shell.navRedemptionHistory')}
+            </NavLink>
+          )}
+          {isAdmin && (
+            <NavLink to="/admin/business-requests" className={({ isActive }) => navClass(styles, isActive)}>
+              {t('shell.navBusinessRequests')}
             </NavLink>
           )}
         </nav>
@@ -60,10 +83,12 @@ export function AppShell() {
             with, so there's no widget state to convey. The muted styling plus
             "coming soon" badge text already say everything a reader needs. */}
         <div className={styles.navGroup} aria-label={t('shell.navGroupUpcoming')}>
-          <span className={styles.navDisabled}>
-            {t('shell.navOverview')}
-            <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
-          </span>
+          {canSeeBusinessNav && (
+            <span className={styles.navDisabled}>
+              {t('shell.navOverview')}
+              <span className={styles.badge}>{t('shell.comingSoonBadge')}</span>
+            </span>
+          )}
           {canSeeAnalytics && (
             <span className={styles.navDisabled}>
               {t('shell.navAnalytics')}

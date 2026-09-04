@@ -103,13 +103,7 @@ variables are documented in `server/.env.example`.
 
 A feature that is implemented but not active is kept as a document, not as commented-out code. The implementation moves into a markdown file next to the code it came from, and the code file is left with a single line saying where it went. Commented-out code is invisible to the type checker, the linter and the tests, so it rots while still costing every reader who scrolls past it.
 
-Current disabled features:
-
-| Feature | Where the implementation is kept | Call sites that would need re-wiring |
-|---|---|---|
-| Swerve detection (`SWERVE`) | `src/lib/driving-sdk/docs/disabled-swerve-detection.md` | `SensorManager.ts` (detection), `scoringEvents.ts` (listener), `AppContext.tsx` (digest and saved payload), `ActiveTripMonitor.tsx` (live trip row) |
-
-The event type stays in `DrivingEventType` and its translations stay in `he.ts`/`en.ts`, so nothing about re-enabling is blocked by them. `swerves` is optional in `TelemetryDigest`, `ValidTripPayload` and `ScoringInput` and would become required again. Whether swerve detection comes back at all is CAR-150.
+No feature is disabled right now. Swerve detection was the last one, and CAR-150 decided it out permanently rather than deferred, so its document and its event type were deleted rather than kept for a restore.
 
 ## Commands
 

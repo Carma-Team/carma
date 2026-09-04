@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core.limiter import limiter
+from app.core.logging import redact_path
 from app.database import SessionLocal
 from app.middlewares.rate_limit import DefaultRateLimitMiddleware, rate_limit_handler
 from app.middlewares.request_id import RequestIdMiddleware
@@ -28,6 +29,8 @@ from app.routers import (
     business_invitations,
     business_join_requests,
     business_memberships,
+    cities,
+    dev_recordings,
     fraud,
     friends,
     health,
@@ -111,12 +114,17 @@ app.add_middleware(
     allow_credentials=settings.cors_allows_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    # `Retry-After` is not one of the seven headers a browser exposes to JS by
+    # default, so cross-origin it reaches the network tab and nothing else. Three
+    # web modules read it off a 429 to say how long the wait is; without this they
+    # silently get null and the UI can only say "try again later" (CAR-108).
+    expose_headers=["Retry-After"],
 )
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    path = request.url.path
+    path = redact_path(request)
     logging.getLogger(__name__).exception("%s %s", request.method, path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -126,6 +134,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(auth.router)
 app.include_router(levels.router)
+app.include_router(cities.router)
 app.include_router(users.router)
 app.include_router(users.stats_router)
 app.include_router(trips.router)
@@ -142,6 +151,7 @@ app.include_router(leaderboard.router)
 app.include_router(friends.router)
 app.include_router(invites.router)
 app.include_router(notifications.router)
+app.include_router(dev_recordings.router)
 app.include_router(health.router)
 
 

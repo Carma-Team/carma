@@ -70,17 +70,31 @@ export default function SettingsScreen() {
   };
 
   const handleStopRawRecording = async () => {
-    await stopRawRecording();
-    setRawRecordingStatus('stopped');
+    try {
+      await stopRawRecording();
+      setRawRecordingStatus('stopped');
+    } catch (e) {
+      // The flush is what can fail here (disk full, storage revoked). Status stays
+      // 'recording' so Stop can be retried rather than leaving Export pointing at
+      // a file that was never written.
+      Alert.alert('Raw recording', 'Could not stop — the session was not saved.');
+      console.error('stopRawRecording failed', e);
+    }
   };
 
   const handleExportRawRecording = async () => {
-    const result = await exportRawRecording();
-    if (typeof result === 'object') {
-      Alert.alert(
-        'Export',
-        result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
-      );
+    try {
+      const result = await exportRawRecording();
+      if (typeof result === 'object') {
+        Alert.alert(
+          'Export',
+          result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
+        );
+      }
+    } catch (e) {
+      // The share sheet itself can reject — a dismissed sheet on iOS, no handler app.
+      Alert.alert('Export', 'Could not open the share sheet.');
+      console.error('exportRawRecording failed', e);
     }
   };
 
@@ -246,20 +260,9 @@ export default function SettingsScreen() {
                 <Text style={COMMON_STYLES.sectionLabel}>Debug</Text>
               </View>
               <Card style={styles.settingCard}>
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => router.push('/(business)')}
-                >
-                  <View style={styles.linkContent}>
-                    <Ionicons name="storefront-outline" size={20} color={COLORS.brandLight} />
-                    <Text style={styles.linkText}>Open Business Dashboard</Text>
-                  </View>
-                  <Ionicons name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'} size={18} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
                 {/* No app/(admin)/ route exists yet — disabled placeholder, not a real nav target */}
                 <TouchableOpacity
-                  style={[styles.linkButton, { opacity: 0.5, marginTop: 8 }]}
+                  style={[styles.linkButton, { opacity: 0.5 }]}
                   onPress={() => Alert.alert('Admin tools', 'Not built yet — no admin screens exist in the app.')}
                 >
                   <View style={styles.linkContent}>

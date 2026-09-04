@@ -6,7 +6,6 @@ import { StatusBar } from 'expo-status-bar';
 import { I18nManager, View, ActivityIndicator } from 'react-native';
 import { COLORS } from '@/constants/theme';
 import { useDriveMode } from '@/hooks/useDriveMode';
-import { isBusiness } from '@/lib/utils';
 import { ToastContainer } from '@/components/ui/Toast';
 import UnsupportedDeviceScreen from '@/screens/auth/UnsupportedDeviceScreen';
 
@@ -34,27 +33,21 @@ function RootLayoutNav() {
     const inAuthGroup =
       rootSegment === 'login' || rootSegment === 'register' || rootSegment === 'forgot-password';
     const inTabsGroup = rootSegment === '(tabs)';
-    const inBusinessGroup = rootSegment === '(business)';
 
     if (!user) {
       if (!inAuthGroup) {
         router.replace('/login');
       }
     } else {
-      if (isBusiness(user)) {
-        if (!inBusinessGroup) {
-          router.replace('/(business)');
-        }
-      } else {
-        // driver and admin roles both use the same tabs layout.
-        // No auth-group exception here: register signs the driver in and leaves the
-        // redirect to this effect, so skipping it strands them on the form (CAR-237).
-        // If phone verification is ever added to registration (CAR-231), the OTP step
-        // belongs between the two — signed in, but not yet let into the tabs — and this
-        // condition has to grow a "verified" check rather than being reverted.
-        if (!inTabsGroup) {
-          router.replace('/(tabs)');
-        }
+      // Every role uses the same tabs layout — a business owner drives too, and
+      // manages their business on the web (CAR-205).
+      // No auth-group exception here: register signs the driver in and leaves the
+      // redirect to this effect, so skipping it strands them on the form (CAR-237).
+      // If phone verification is ever added to registration (CAR-231), the OTP step
+      // belongs between the two — signed in, but not yet let into the tabs — and this
+      // condition has to grow a "verified" check rather than being reverted.
+      if (!inTabsGroup) {
+        router.replace('/(tabs)');
       }
     }
   }, [user, isLoading, segments, router]);
@@ -74,15 +67,7 @@ function RootLayoutNav() {
   return (
     <View style={{ flex: 1, direction }}>
       <Stack screenOptions={{ headerShown: false }}>
-        {user ? (
-          isBusiness(user) ? (
-            <Stack.Screen name="(business)" />
-          ) : (
-            <Stack.Screen name="(tabs)" />
-          )
-        ) : (
-          <Stack.Screen name="login" />
-        )}
+        {user ? <Stack.Screen name="(tabs)" /> : <Stack.Screen name="login" />}
         <Stack.Screen name="register" />
         <Stack.Screen name="forgot-password" />
       </Stack>

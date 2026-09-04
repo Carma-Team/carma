@@ -18,7 +18,13 @@ name: refresh speed limits
 # green - same contract as deploy.yml.
 #
 # The job is created once, by hand, because it holds a copy of the database
-# secret and a workflow that can mint that is a workflow that can leak it:
+# secret and a workflow that can mint that is a workflow that can leak it.
+#
+# Run this from PowerShell, or from Git Bash with MSYS_NO_PATHCONV=1 exported.
+# Git Bash rewrites the "/bin/sh" below into "C:/Program Files/Git/usr/bin/sh",
+# which Azure stores verbatim; the container then dies on create with a path
+# that cannot exist in Linux, and the execution sits until the replica deadline
+# reporting nothing but "Failed".
 #
 #   az containerapp job create \
 #     --name carma-load-speed-limits --resource-group carma-rg --environment carma-env \
@@ -29,7 +35,20 @@ name: refresh speed limits
 #     --registry-username <acr-user> --registry-password <acr-password> \
 #     --secrets db-url=<same value as the app's db-url secret> \
 #     --env-vars DATABASE_URL=secretref:db-url JWT_SECRET=loader_does_not_sign_tokens \
-#     --command /bin/sh --args '-c','scripts/refresh_speed_limits.sh'
+#     --command "/bin/sh" --args "scripts/refresh_speed_limits.sh"
+#
+# The script is invoked through sh rather than executed, so it does not depend on
+# the file keeping its executable bit through a Windows checkout. Passing "-c"
+# instead is a third way to lose an evening: az reads a leading dash as the start
+# of a new option and rejects the whole command.
+#
+# The CI identity also needs its own role assignment. Contributor is granted per
+# resource here, not over the resource group - carma-api and carma-migrate each
+# hold their own - so a new job starts with no permission and this workflow fails
+# on AuthorizationFailed until it is given one:
+#
+#   az role assignment create --assignee <carma-ci principal id> --role Contributor \
+#     --scope /subscriptions/<sub>/resourceGroups/carma-rg/providers/Microsoft.App/jobs/carma-load-speed-limits
 #
 # Sized larger than carma-migrate on purpose: it downloads a ~90 MB extract,
 # parses half a million road geometries and COPYs 320k rows. The hour-long

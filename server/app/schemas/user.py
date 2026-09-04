@@ -6,7 +6,9 @@ from pydantic import EmailStr, Field, field_validator
 
 from app.models.enums import BusinessMembershipRole, Language, UserRole
 from app.schemas._base import CamelModel
+from app.schemas.city import CityOut
 from app.schemas.friend import FriendshipStatus
+from app.services.scoring import CONFIG
 
 
 class UserOut(CamelModel):
@@ -18,10 +20,21 @@ class UserOut(CamelModel):
     language: Language
     avatar_url: str | None = None
     age: int | None = None
-    city: str | None = None
+    city: CityOut | None = None
     license_year: int | None = None
     points: int
     total_points: int
+    driver_score: float
+
+    @field_validator("driver_score", mode="before")
+    @classmethod
+    def _default_driver_score(cls, value: float | None) -> float:
+        """The DB column is nullable (a brand-new driver has no row value
+        yet), but the wire contract isn't — same prior trips.py:488 already
+        uses for a driver with no completed trips (CAR-85).
+        """
+        return value if value is not None else CONFIG.prior_score
+
     # Derived, never stored (CAR-73): reserved is the sum of points_cost over
     # this driver's live vouchers, available is points minus that sum. Not on
     # the User model, so users_service.profile_out fills these in after
@@ -61,7 +74,7 @@ class FoundUserOut(CamelModel):
 
     id: str
     name: str | None = None
-    city: str | None = None
+    city: CityOut | None = None
 
 
 class UserSearchOut(CamelModel):
@@ -82,7 +95,7 @@ class ContactMatchOut(CamelModel):
     phone_hash: str
     id: str
     name: str | None = None
-    city: str | None = None
+    city: CityOut | None = None
     friend_status: FriendshipStatus = "none"
 
 
@@ -94,7 +107,12 @@ class UpdateProfileIn(CamelModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     language: Language | None = None
     age: int | None = Field(default=None, ge=16, le=120)
-    city: str | None = Field(default=None, max_length=80)
+    # A CBS settlement code, not a label (CAR-218).
+    city_code: str | None = Field(default=None, max_length=10)
+    # Deprecated (CAR-218). Builds shipped before the canonical list send a bare
+    # label; the service resolves it against the list rather than 422ing an app
+    # already in the field. Remove once those builds are gone.
+    city: str | None = Field(default=None, max_length=80, deprecated=True)
     is_private: bool | None = None
     drive_mode_enabled: bool | None = None
 

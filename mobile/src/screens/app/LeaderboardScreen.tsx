@@ -9,7 +9,9 @@ import { useApp } from '@/context/AppContext'
 import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { LocationPicker } from '@/components/ui/LocationPicker'
+import { Button } from '@/components/ui/Button'
 import { useTranslation } from '@/hooks/useTranslation'
+import { cityLabel } from '@/lib/cityLabel'
 import { leaderboardApi, type LocationsOut } from '@/services/api/leaderboard.api'
 import { userApi, type FoundUser } from '@/services/api/user.api'
 import { friendsApi } from '@/services/api/friends.api'
@@ -20,11 +22,16 @@ type SearchState = 'idle' | 'loading' | 'found' | 'not_found'
 
 const INSTALL_LINK = 'https://carma.app/download'
 
+// How many drivers render before the viewer asks for more, and how many each press
+// adds. The endpoint caps at 100 rows, so this is purely about not handing someone a
+// wall of names — two batches already reach past any rank they came to look at.
+const BATCH_SIZE = 10
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets()
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
   const { user, addToast } = useApp()
 
   const [type,          setType]          = useState<LeaderboardType>('city')
@@ -32,12 +39,15 @@ export default function LeaderboardScreen() {
   const [currentUserId, setCurrentUserId] = useState('')
   const [myRank,        setMyRank]        = useState<number | null>(null)
   const [loading,       setLoading]       = useState(true)
+  const [visibleCount,  setVisibleCount]  = useState(BATCH_SIZE)
   const inFlight   = useRef<Set<string>>(new Set())
   const fetchToken = useRef(0)
 
-  // Location filter state — CARMA is single-country, so only the city is filterable
-  const [locations,    setLocations]    = useState<LocationsOut | null>(null)
-  const [selectedCity, setSelectedCity] = useState<string>(user?.city ?? '')
+  // Location filter state — CARMA is single-country, so only the city is filterable.
+  // The state holds a CBS code (CAR-218); the picker shows the label for the
+  // viewer's language and the code is what the API filter understands.
+  const [locations,        setLocations]        = useState<LocationsOut | null>(null)
+  const [selectedCityCode, setSelectedCityCode] = useState<string>(user?.city?.code ?? '')
 
   // Friends search state
   const [searchPhone, setSearchPhone] = useState('')
@@ -53,17 +63,20 @@ export default function LeaderboardScreen() {
       .then(data => {
         setLocations(data)
         // Ensure the user's default city is valid; keep as-is if not in list
-        if (user?.city) setSelectedCity(user.city)
+        if (user?.city) setSelectedCityCode(user.city.code)
       })
       .catch(() => {/* non-critical — fall back to user's own values */})
-  }, [user?.city])
+  }, [user?.city?.code])
 
   const fetchLeaderboard = useCallback((
     tab: LeaderboardType,
-    filters?: { city?: string }
+    filters?: { cityCode?: string }
   ) => {
     const token = ++fetchToken.current
     setLoading(true)
+    // Tab and city changes both land here, and each one is a different list —
+    // keeping the old depth would open it already paged past its first screen.
+    setVisibleCount(BATCH_SIZE)
     leaderboardApi.get(tab, filters)
       .then(data => {
         if (token !== fetchToken.current) return
@@ -81,9 +94,9 @@ export default function LeaderboardScreen() {
   }, [])
 
   useEffect(() => {
-    if (type === 'city') fetchLeaderboard('city', { city: selectedCity })
+    if (type === 'city') fetchLeaderboard('city', { cityCode: selectedCityCode })
     else                 fetchLeaderboard(type)
-  }, [type, selectedCity, fetchLeaderboard])
+  }, [type, selectedCityCode, fetchLeaderboard])
 
   // Reset search state when leaving the friends tab
   useEffect(() => {
@@ -191,8 +204,18 @@ export default function LeaderboardScreen() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
-  // `citiesByCountry` always has exactly one entry — CARMA is single-country (see leaderboard.api.ts)
-  const cities = Object.values(locations?.citiesByCountry ?? {})[0] ?? (selectedCity ? [selectedCity] : [])
+  // The picker component works on strings, so it gets labels; these two maps
+  // translate between what the screen shows and the code the filter sends.
+  //
+  // The viewer's own city is folded in even when the board list does not carry
+  // it. /locations only returns cities that have a driver on the board, so a
+  // viewer who is the only one in theirs, or is private, would otherwise watch
+  // their own selection resolve to a blank label.
+  const pickable = [
+    ...(locations?.cities ?? []),
+    ...(user?.city && !(locations?.cities ?? []).some(c => c.code === user.city!.code) ? [user.city] : []),
+  ]
+  const cityOptions = pickable.map(c => ({ value: c.code, label: cityLabel(c, lang) }))
 
   const tabs: { key: LeaderboardType; label: string }[] = [
     { key: 'friends',  label: t('leaderboard.friends') },
@@ -206,10 +229,10 @@ export default function LeaderboardScreen() {
     <View style={styles.filterRow}>
       <Text style={styles.filterSubtitle}>{t('leaderboard.showing_city')}:</Text>
       <LocationPicker
-        value={selectedCity}
-        options={cities}
+        value={selectedCityCode}
+        options={cityOptions}
         placeholder={t('leaderboard.selectCity')}
-        onChange={setSelectedCity}
+        onChange={setSelectedCityCode}
       />
     </View>
   ) : null
@@ -284,11 +307,32 @@ export default function LeaderboardScreen() {
     </>
   )
 
-  const footer = myRank && !entries.some(e => e.userId === currentUserId) ? (
+  // `entries`, not the visible slice: whether the viewer is ranked at all does not
+  // change with how far they have paged.
+  const myRankBanner = myRank && !entries.some(e => e.userId === currentUserId) ? (
     <View style={styles.myRankBanner}>
       <Text style={styles.myRankText}>{t('leaderboard.yourRank')}: #{myRank}</Text>
     </View>
   ) : null
+
+  const footer = (
+    <>
+      {/* The whole board arrived in one response, so this only grows how many rows
+          render — nothing to fetch and nothing to wait for. */}
+      {entries.length > visibleCount && (
+        <Button
+          variant="ghost"
+          size="md"
+          fullWidth
+          onPress={() => setVisibleCount(count => count + BATCH_SIZE)}
+          style={{ marginTop: SPACING.sm }}
+        >
+          {t('dashboard.showMore')}
+        </Button>
+      )}
+      {myRankBanner}
+    </>
+  )
 
   const removeFriendModal = (
     <Modal
@@ -331,7 +375,8 @@ export default function LeaderboardScreen() {
         </>
       ) : (
         <FlatList
-          data={entries}
+          testID="leaderboard-list"
+          data={entries.slice(0, visibleCount)}
           keyExtractor={e => e.id}
           ListHeaderComponent={header}
           ListFooterComponent={footer}
