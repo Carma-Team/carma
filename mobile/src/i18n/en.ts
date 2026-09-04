@@ -153,8 +153,11 @@ const en: TranslationMap = {
     availablePoints: 'available points', reservedPoints: 'points reserved for active vouchers',
     balanceAfter: 'You will be left with',
     categories: { all: 'All', fuel: 'Fuel', food: 'Food', eco: 'Eco', entertainment: 'Entertainment', shopping: 'Shopping' },
+    tabStore: 'Store', tabMyVouchers: 'My vouchers',
+    noVouchers: 'You have not bought any vouchers yet',
     voucher: {
       title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active',
+      expired: 'Expired', cancelled: 'Cancelled',
       cancel: 'Cancel voucher',
       cancelConfirm: 'Cancel this voucher? The points go back to your available balance.',
       cancelSuccess: 'Voucher cancelled, points released',
