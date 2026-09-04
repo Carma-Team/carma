@@ -25,7 +25,7 @@ import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
   SensorEventCondition, SensorEventHandler, ListenerToken,
-  TripValidator, SuspiciousActivityEvaluation, SensorUpdate,
+  TripValidator, SuspiciousActivityEvaluation, SensorUpdate, RawExportFailure,
 } from '@/lib/driving-sdk/types';
 
 // The server re-detects a brake as the average deceleration between two consecutive
@@ -540,10 +540,23 @@ export class DrivingSDK {
   /** Starts a staged recording session, tagged with a caller-supplied scenario/platform label. */
   public async startRawRecording(scenario: string, platform: string): Promise<void> {
     await this.sensorManager.start(); // idempotent — no-op if a real trip already has it running
-    this.rawRecorder.start(scenario, platform);
+    try {
+      this.rawRecorder.start(scenario, platform);
+    } catch (e) {
+      // start() creates the session file up front, so it can throw on a storage failure
+      // after the sensors are already streaming. Without this the caller sees a failed
+      // start while GPS and IMU keep running with nothing left to stop them. Same
+      // two-flag check as stopRawRecording — a real trip keeps its sensors.
+      if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+      throw e;
+    }
   }
 
-  /** Ends the staged session and flushes it to disk. Leaves sensors running if a real trip is active or validating. */
+  /**
+   * Ends the staged session and flushes it to disk. Leaves sensors running if a real trip
+   * is active or validating. Rejects if the final write fails — the session keeps recording
+   * in that case, so the caller can retry instead of exporting a truncated file.
+   */
   public async stopRawRecording(): Promise<void> {
     await this.rawRecorder.stop();
     // An automatically started trip may be mid-validation (isValidating, before isTripActive
@@ -553,8 +566,13 @@ export class DrivingSDK {
   }
 
   /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
-  public async exportRawRecording(): Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }> {
+  public async exportRawRecording(): Promise<string | RawExportFailure> {
     return this.rawRecorder.exportAsync();
+  }
+
+  /** Completed recordings on disk, newest first — including sessions from earlier app runs. */
+  public listRawRecordings(): string[] {
+    return this.rawRecorder.listRecordings();
   }
 }
 

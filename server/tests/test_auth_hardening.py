@@ -24,7 +24,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -240,6 +243,94 @@ class TestCorsCredentials:
         # drifting apart.
         cors = next(m for m in app.user_middleware if "CORSMiddleware" in str(m.cls))
         assert cors.kwargs["allow_credentials"] is settings.cors_allows_credentials
+
+
+# ─── 2b. the deployed browser origin (CAR-108) ───────────────────────────────
+#
+# Production names one origin, the business web app on Azure. What the browser
+# then does with it is decided entirely by the middleware kwargs in `main.py`,
+# so these drive real preflights through those exact kwargs with only the origin
+# list swapped for a known one. Copying the kwargs instead would agree with
+# whatever `main.py` said on the day the copy was made and never notice again.
+
+DEPLOYED_ORIGIN = "https://carma-business.example.azurecontainerapps.io"
+# The three headers `web/src/lib/api/client.ts` and `lib/auth/authApi.ts` send.
+# Authorization carries the access token; X-Requested-With is the CSRF gate on
+# /refresh and /logout (`core.deps.require_browser_header`), and being a custom
+# header it is also what forces the preflight in the first place.
+BROWSER_HEADERS = "authorization,content-type,x-requested-with"
+
+
+def _probe_app(*origins: str) -> FastAPI:
+    wired = next(m for m in app.user_middleware if "CORSMiddleware" in str(m.cls))
+    kwargs = {**wired.kwargs, "allow_origins": list(origins), "allow_credentials": True}
+    probe = FastAPI()
+    probe.add_middleware(CORSMiddleware, **kwargs)
+
+    @probe.post("/api/auth/refresh")
+    async def _refresh() -> JSONResponse:
+        return JSONResponse({"ok": True}, headers={"Retry-After": "30"})
+
+    return probe
+
+
+def _browser(probe: FastAPI) -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=probe), base_url="https://api.test")
+
+
+class TestDeployedBrowserOrigin:
+    async def test_the_deployed_origin_passes_preflight_with_the_headers_it_sends(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.options(
+                "/api/auth/refresh",
+                headers={
+                    "Origin": DEPLOYED_ORIGIN,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": BROWSER_HEADERS,
+                },
+            )
+
+        assert r.status_code == 200
+        # Named back exactly, never "*": a credentialed request is dropped by the
+        # browser if the wildcard comes back, however permissive it looks.
+        assert r.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+        assert r.headers["access-control-allow-credentials"] == "true"
+        allowed = r.headers["access-control-allow-headers"].lower()
+        assert "authorization" in allowed
+        assert "x-requested-with" in allowed
+
+    async def test_the_cookie_comes_back_named_to_that_origin(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.post("/api/auth/refresh", headers={"Origin": DEPLOYED_ORIGIN})
+
+        assert r.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+        assert r.headers["access-control-allow-credentials"] == "true"
+
+    async def test_an_unlisted_origin_gets_no_credentialed_access(self) -> None:
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            preflight = await client.options(
+                "/api/auth/refresh",
+                headers={
+                    "Origin": "https://attacker.example",
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": BROWSER_HEADERS,
+                },
+            )
+            simple = await client.post("/api/auth/refresh", headers={"Origin": "https://attacker.example"})
+
+        assert preflight.status_code == 400
+        assert "access-control-allow-origin" not in preflight.headers
+        # The body still comes back - CORS is enforced in the browser, not here -
+        # but with no allow-origin header the browser never hands it to the page.
+        assert "access-control-allow-origin" not in simple.headers
+
+    async def test_retry_after_survives_the_trip_to_a_cross_origin_page(self) -> None:
+        # Without expose_headers the browser hides it and every 429 the web app
+        # shows loses its countdown (`ApiError.retryAfterSeconds`).
+        async with _browser(_probe_app(DEPLOYED_ORIGIN)) as client:
+            r = await client.post("/api/auth/refresh", headers={"Origin": DEPLOYED_ORIGIN})
+
+        assert "Retry-After" in r.headers["access-control-expose-headers"]
 
 
 # ─── 3. the SMS bill ─────────────────────────────────────────────────────────

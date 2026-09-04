@@ -220,6 +220,15 @@ export function SignInPage() {
         <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
           {t('invitations.haveCodeLinkLabel')}
         </Link>
+        {/* CAR-315: sign-in is the only public page most prospective business
+            owners ever land on — without this, /register has no discoverable
+            entry point at all. */}
+        <Link to="/register" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
+          {t('businessRegistration.signInEntryLabel')}
+        </Link>
+        <Link to="/register/status" style={{ display: 'block', marginTop: 'var(--space-sm)' }}>
+          {t('businessRegistration.checkStatusLink')}
+        </Link>
       </Card>
     </main>
   );

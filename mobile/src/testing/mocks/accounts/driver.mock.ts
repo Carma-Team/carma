@@ -154,9 +154,15 @@ function mockTrip(
     startLocation: 'Tel Aviv',
     endLocation: 'Tel Aviv',
     aiInsight: null,
+    // These mocks stand for ordinary completed drives, so the sensor was live.
+    accelAvailable: true,
+    accelInitFailed: false,
     status: 'scored',
     pointsCapped: false,
     userLevel: user.level,
+    // Required by the contract with a server-side default, so a trip detail always
+    // has the array. Callers that want markers pass their own through `extra`.
+    events: [],
     ...extra,
   };
 }

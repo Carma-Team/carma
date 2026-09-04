@@ -18,19 +18,28 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
-from app.models import User, UserRole
+from app.models import City, User, UserRole
 from app.services import leaderboard as svc
 
-CITY = f"עיר-מרחק-{uuid.uuid4().hex[:6]}"
+# A city of this test's own. Cities are reference rows now (CAR-218), so the
+# isolation a random name used to give comes from a code nothing else uses.
+CITY_CODE = f"t{uuid.uuid4().hex[:8]}"
+
+
+async def _ensure_city(db: AsyncSession) -> None:
+    if await db.get(City, CITY_CODE) is None:
+        db.add(City(code=CITY_CODE, name_he="עיר-מרחק", name_en="Distance City"))
+        await db.commit()
 
 
 async def _driver(db: AsyncSession, *, points: int, distance: float = 0.0, private: bool = False) -> User:
+    await _ensure_city(db)
     user = User(
         email=f"_lbkm_{uuid.uuid4().hex[:10]}@carmatest.co.il",
         password_hash="x",
         name="KM Driver",
         role=UserRole.DRIVER,
-        city=CITY,
+        city_code=CITY_CODE,
         total_points=points,
         total_distance=distance,
         is_private=private,
@@ -52,7 +61,7 @@ async def test_entry_carries_the_drivers_lifetime_distance(db_session: AsyncSess
     viewer = await _driver(db_session, points=900, distance=412.5)
     other = await _driver(db_session, points=100, distance=25.0)
     try:
-        board = await svc.get(db_session, viewer, "city", CITY)
+        board = await svc.get(db_session, viewer, "city", CITY_CODE)
         by_id = {e.user_id: e for e in board.entries}
 
         assert by_id[viewer.id].distance_km == pytest.approx(412.5)
@@ -76,7 +85,9 @@ async def test_the_client_reads_distance_km_off_the_response(
     token = create_access_token(user_id=driver.id, email=driver.email, phone=None, role=UserRole.DRIVER)
     try:
         r = await db_api_client.get(
-            "/api/leaderboard", params={"type": "city", "city": CITY}, headers={"Authorization": f"Bearer {token}"}
+            "/api/leaderboard",
+            params={"type": "city", "cityCode": CITY_CODE},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200
 
@@ -97,7 +108,7 @@ async def test_every_board_type_carries_the_field(db_session: AsyncSession) -> N
     viewer = await _driver(db_session, points=400, distance=61.0, private=True)
     try:
         for board_type in ("national", "city", "friends"):
-            board = await svc.get(db_session, viewer, board_type, CITY if board_type == "city" else None)
+            board = await svc.get(db_session, viewer, board_type, CITY_CODE if board_type == "city" else None)
             mine = [e for e in board.entries if e.user_id == viewer.id]
 
             # A private driver is off the public boards by design; the assertion
@@ -119,7 +130,7 @@ async def test_the_accumulators_float_drift_does_not_reach_the_client(db_session
     """
     drifted = await _driver(db_session, points=100, distance=596.2000000000003)
     try:
-        board = await svc.get(db_session, drifted, "city", CITY)
+        board = await svc.get(db_session, drifted, "city", CITY_CODE)
         entry = next(e for e in board.entries if e.user_id == drifted.id)
 
         assert entry.distance_km == 596.2

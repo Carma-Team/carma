@@ -15,12 +15,14 @@ import type { DrivingEvent } from '@/lib/driving-sdk/types';
 let MapView: any = null;
 let Polyline: any = null;
 let Marker:   any = null;
+let Callout:  any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- see comment above
   const maps = require('react-native-maps');
   MapView   = maps.default;
   Polyline  = maps.Polyline;
   Marker    = maps.Marker;
+  Callout   = maps.Callout;
 } catch {
   // Native module unavailable — map will show fallback card
 }
@@ -169,12 +171,15 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
           <View style={[styles.dot, styles.dotEnd]} />
         </Marker>
 
-        {/* Event markers. `title`/`description` are what make a marker tappable at all:
-            react-native-maps renders its own callout for them, so no Callout child of
-            ours is needed. The press target is the whole bubble — the native callout
-            has no way to make only its last line tappable (CAR-223). */}
+        {/* Event markers. A Callout of our own rather than the marker's `title` and
+            `description`: those render as two native text fields, and the platform
+            ellipsises the detail one after its first line, so the line saying what a
+            press does never reached the screen — it arrived as a trailing "...". The
+            press target is still the whole bubble, because a native callout has no way
+            to make only its last line tappable (CAR-223), so that line says so rather
+            than looking like a link. */}
         {eventsWithLocation.map((event, i) => {
-          const { title, description } = eventMarkerText(event, t);
+          const { title, detail, action } = eventMarkerText(event, t);
           const coordinate = {
             latitude:  event.location!.latitude,
             longitude: event.location!.longitude,
@@ -184,8 +189,6 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
               key={i}
               coordinate={coordinate}
               anchor={{ x: 0.5, y: 0.5 }}
-              title={title}
-              description={description}
               onCalloutPress={() => openPointInExternalMaps(coordinate, title)}
             >
               <View style={[styles.eventBubble, { backgroundColor: EVENT_COLOR[event.type] ?? COLORS.warning }]}>
@@ -195,6 +198,15 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
                   color="#fff"
                 />
               </View>
+              {Callout && (
+                <Callout>
+                  <View style={styles.callout}>
+                    <Text style={styles.calloutTitle}>{title}</Text>
+                    <Text style={styles.calloutDetail}>{detail}</Text>
+                    <Text style={styles.calloutAction}>{action}</Text>
+                  </View>
+                </Callout>
+              )}
             </Marker>
           );
         })}
@@ -225,6 +237,12 @@ const styles = StyleSheet.create({
   dot:      { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
   dotStart: { backgroundColor: COLORS.success },
   dotEnd:   { backgroundColor: COLORS.danger },
+  // Width is fixed rather than fitted: the native callout measures its child before
+  // the text has laid out, and an unconstrained view collapses to the widest word.
+  callout:       { width: 190, paddingVertical: 6, paddingHorizontal: 8, gap: 2 },
+  calloutTitle:  { ...TYPOGRAPHY.body, fontSize: 13, fontWeight: '700', color: '#111' },
+  calloutDetail: { fontSize: 12, color: '#444' },
+  calloutAction: { fontSize: 12, color: COLORS.brand, fontWeight: '600' },
   eventBubble: {
     width: 20, height: 20, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',

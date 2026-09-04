@@ -27,7 +27,7 @@ function formatJoinDate(dateStr: string): string {
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, patchUser, clearTripHistory, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
+  const { user, setUser, patchUser, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
   // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
@@ -70,17 +70,31 @@ export default function SettingsScreen() {
   };
 
   const handleStopRawRecording = async () => {
-    await stopRawRecording();
-    setRawRecordingStatus('stopped');
+    try {
+      await stopRawRecording();
+      setRawRecordingStatus('stopped');
+    } catch (e) {
+      // The flush is what can fail here (disk full, storage revoked). Status stays
+      // 'recording' so Stop can be retried rather than leaving Export pointing at
+      // a file that was never written.
+      Alert.alert('Raw recording', 'Could not stop — the session was not saved.');
+      console.error('stopRawRecording failed', e);
+    }
   };
 
   const handleExportRawRecording = async () => {
-    const result = await exportRawRecording();
-    if (typeof result === 'object') {
-      Alert.alert(
-        'Export',
-        result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
-      );
+    try {
+      const result = await exportRawRecording();
+      if (typeof result === 'object') {
+        Alert.alert(
+          'Export',
+          result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
+        );
+      }
+    } catch (e) {
+      // The share sheet itself can reject — a dismissed sheet on iOS, no handler app.
+      Alert.alert('Export', 'Could not open the share sheet.');
+      console.error('exportRawRecording failed', e);
     }
   };
 
@@ -105,30 +119,6 @@ export default function SettingsScreen() {
       ]
     );
   }
-
-  /**
-   * Shows a confirmation dialog then hides trip history.
-   * The deletion is logical only — sets lastClearedHistory to now,
-   * and older trips are filtered out in AppContext (filteredTrips).
-   * [server] No server call — trips are not removed from the database.
-   */
-  const handleClearHistory = () => {
-    Alert.alert(
-      t('profile.dataManagement'),
-      t('profile.clearHistoryConfirm'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.confirm'),
-          style: 'destructive',
-          onPress: async () => {
-            await clearTripHistory();
-            router.back();
-          }
-        }
-      ]
-    );
-  };
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -221,20 +211,6 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-            </Card>
-          </View>
-
-          {/* Data Management Section */}
-          <View>
-            <View style={COMMON_STYLES.sectionLabelRow}>
-              <Ionicons name={ICONS.settings} size={12} color={COLORS.textMuted} />
-              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.dataManagement')}</Text>
-            </View>
-            <Card style={styles.settingCard}>
-              <TouchableOpacity style={styles.actionRow} onPress={handleClearHistory}>
-                <Text style={styles.actionTextDanger}>{t('profile.clearHistory')}</Text>
-                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
-              </TouchableOpacity>
             </Card>
           </View>
 
@@ -338,8 +314,6 @@ const styles = StyleSheet.create({
   langBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
   langText: { ...TYPOGRAPHY.label, fontSize: 13 },
   langTextActive: { color: '#fff' },
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  actionTextDanger: { color: COLORS.danger, fontWeight: '600' },
   logoutBtn: { marginTop: 20 },
   versionText: { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 30, color: COLORS.textMuted }
 });
