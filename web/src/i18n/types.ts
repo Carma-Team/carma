@@ -128,6 +128,7 @@ export type TranslationMap = {
     otpNetworkError: string;
   };
   businessRegistration: {
+    signInEntryLabel: string;
     title: string;
     subtitle: string;
     nameLabel: string;
