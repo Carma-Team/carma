@@ -50,11 +50,6 @@ const en: TranslationMap = {
   dashboard: {
     welcome: 'Hello', yourScore: 'Your Score', startTrip: 'Start Trip',
     noTrips: 'No trips yet', noTripsDesc: 'Start your first trip!',
-    thisWeek: 'This week',
-    weekTrips: 'trips',
-    weekVsLast: 'Compared with the seven days before',
-    weekNoTrips: 'No scored trips in the last seven days.',
-    weekNoComparison: 'first week',
     recentTrips: 'Recent Trips', viewAll: 'View All', showMore: 'Show more',
     deleteTrips: 'Delete trips',
     selectAll: 'Select all',
@@ -162,6 +157,9 @@ const en: TranslationMap = {
     noVouchers: 'You have not bought any vouchers yet',
     voucher: {
       title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active',
+      // On the store card, in place of the voucher code — a driver browsing the store
+      // is not standing at a till
+      owned: 'Voucher you bought', showQR: 'Show QR',
       expired: 'Expired', cancelled: 'Cancelled',
       cancel: 'Cancel voucher',
       cancelConfirm: 'Cancel this voucher? The points go back to your available balance.',
@@ -243,7 +241,9 @@ const en: TranslationMap = {
     streakInfo: 'Driving streak — the number of days in a row you have driven. One trip a day extends it, and a day without one resets it.',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'Compared with the seven days before',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
     },
   },
