@@ -16,7 +16,7 @@ export function Heading({ level = 1, children, className, ...props }: HeadingPro
   );
 }
 
-type TextVariant = 'body' | 'caption' | 'label';
+type TextVariant = 'body' | 'caption' | 'label' | 'eyebrow' | 'metric';
 
 type TextProps = HTMLAttributes<HTMLElement> & {
   variant?: TextVariant;

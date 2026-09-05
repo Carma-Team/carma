@@ -1,0 +1,50 @@
+/*
+ * Shared status-tone tint/text pairs — indigo is the only action color;
+ * everything here is status-only (see the style guide's "Color & roles").
+ * Global, not a CSS Module, so components as different as Badge and Alert
+ * can share one definition instead of redeclaring the same five pairs.
+ */
+.tone-success {
+  background-color: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+
+.tone-warning {
+  background-color: var(--color-warning-surface);
+  color: var(--color-warning-text);
+}
+
+.tone-danger {
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-text);
+}
+
+.tone-neutral {
+  background-color: var(--color-neutral-surface);
+  color: var(--color-neutral-text);
+}
+
+.tone-info {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.tone-success-dot {
+  background-color: var(--color-success);
+}
+
+.tone-warning-dot {
+  background-color: var(--color-warning);
+}
+
+.tone-danger-dot {
+  background-color: var(--color-danger);
+}
+
+.tone-neutral-dot {
+  background-color: var(--color-neutral);
+}
+
+.tone-info-dot {
+  background-color: var(--color-primary);
+}

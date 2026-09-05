@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Input } from './Input';
 
 describe('Input', () => {
@@ -30,5 +30,54 @@ describe('Input', () => {
     render(<Input label="Code" error="Required" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('Required');
+  });
+
+  it('renders a warning message without treating it as invalid', () => {
+    render(<Input label="Expires" warning="Expires in 7 days" />);
+
+    const input = screen.getByLabelText('Expires');
+    expect(screen.getByText('Expires in 7 days')).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('renders a success message without treating it as invalid', () => {
+    render(<Input label="Registration number" success="Verified against the registry." />);
+
+    const input = screen.getByLabelText('Registration number');
+    expect(screen.getByText('Verified against the registry.')).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('falls back to plain helper text when there is no validation status', () => {
+    render(<Input label="Title" helperText="Shown to drivers in the app." />);
+
+    expect(screen.getByText('Shown to drivers in the app.')).toBeInTheDocument();
+  });
+
+  it('renders a leading icon for the search variant', () => {
+    render(<Input label="Search" variant="search" leadingIcon={<svg data-testid="search-icon" />} />);
+
+    expect(screen.getByTestId('search-icon')).toBeInTheDocument();
+  });
+
+  it('toggles a password field to visible text via the reveal button, and back', () => {
+    render(
+      <Input label="Password" type="password" defaultValue="carma1234" revealPasswordLabel="Show" hidePasswordLabel="Hide" />,
+    );
+
+    const input = screen.getByLabelText('Password');
+    expect(input).toHaveAttribute('type', 'password');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(input).toHaveAttribute('type', 'text');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(input).toHaveAttribute('type', 'password');
+  });
+
+  it('does not render a reveal button when no translated labels are supplied', () => {
+    render(<Input label="Password" type="password" />);
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
