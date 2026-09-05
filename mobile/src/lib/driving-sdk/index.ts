@@ -21,6 +21,7 @@ import { getBondedDevices, getBTSupportStatus } from '@/lib/driving-sdk/auto-tri
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
+import type { RawRecordingSession } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -471,7 +472,12 @@ export class DrivingSDK {
     if (update.lat !== undefined && update.lng !== undefined) {
       this.lastKnownLocation = { lat: update.lat, lng: update.lng };
       // Every GPS fix, unthinned — waypoints below downsample for TripData, this doesn't.
-      this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
+      // Stamped with the fix time for the same reason the waypoints below are (CAR-178):
+      // a batch of deferred Android fixes all arrive in one turn, and arrival time would
+      // record a whole window of driving as a single instant.
+      this.rawRecorder.pushLocationSample(
+        update.lat, update.lng, update.currentSpeed, update.accuracy ?? null, update.fixTs,
+      );
     }
 
     // Always feed sensor data to the validator (works in both phases)
@@ -604,11 +610,19 @@ export class DrivingSDK {
    * in that case, so the caller can retry instead of exporting a truncated file.
    */
   public async stopRawRecording(): Promise<void> {
-    await this.rawRecorder.stop();
-    // An automatically started trip may be mid-validation (isValidating, before isTripActive
-    // flips) when a calibration session starts — stopping sensors here would silently
-    // kill that trip's confirmation. Same two-flag check as handleDriveDetected.
-    if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+    try {
+      await this.rawRecorder.stop();
+    } finally {
+      // In a finally, so it also runs on the rejection above: stop() rejects when the
+      // final write failed, and the sensors this session started would otherwise stay
+      // subscribed with nothing left that turns them off (CAR-324).
+      //
+      // An automatically started trip may be mid-validation (isValidating, before
+      // isTripActive flips) when a calibration session starts — stopping sensors here
+      // would silently kill that trip's confirmation. Same two-flag check as
+      // handleDriveDetected.
+      if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+    }
   }
 
   /**
@@ -644,6 +658,15 @@ export class DrivingSDK {
   public listRawRecordings(): string[] {
     return this.rawRecorder.listRecordings();
   }
+
+  /**
+   * The staged session in progress, or null. A host screen that was unmounted and
+   * remounted mid-session has no state of its own left to restore from — this is what it
+   * reads to find out that a session is running, and under which scenario (CAR-321).
+   */
+  public getRawRecordingSession(): RawRecordingSession | null {
+    return this.rawRecorder.currentSession();
+  }
 }
 
 
@@ -651,6 +674,9 @@ export * from './types';
 // Emitted by onInteractionData — part of the public surface, so it is re-exported here
 // rather than leaving hosts to reach into sensors/.
 export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+// Returned by getRawRecordingSession — part of the public surface for the same reason
+// (CAR-334): a host cannot type what it receives without reaching into sensors/.
+export type { RawRecordingSession } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 
 // Consumed by host apps today through deep paths, which break the moment this package
 // gains an `exports` map (CAR-334). The entry point is the only supported import path.

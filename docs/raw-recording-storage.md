@@ -17,8 +17,18 @@ line is a sample, and the upload route refuses anything else:
 {"t":1724608000100,"kind":"accel","accel":{"x":0.01,"y":-0.02,"z":0.98}}
 {"t":1724608000100,"kind":"gyro","gyro":{"x":0,"y":0,"z":0.004}}
 {"t":1724608000100,"kind":"mag","mag":{"x":21.4,"y":-8.1,"z":43.9}}
-{"t":1724608002000,"kind":"location","location":{"lat":32.07,"lng":34.78,"speed":12.4,"accuracy":5}}
+{"t":1724608002000,"kind":"location","location":{"lat":32.07,"lng":34.78,"speedKmh":12.4,"accuracy":5}}
 ```
+
+`t` is wall-clock epoch milliseconds on every line, so the channels interleave on one
+timeline. It is not one clock reading: on an IMU line it is the moment the recorder
+received the sample, and on a `location` line it is the moment of the fix itself. Those
+differ on Android, which delivers deferred fixes as a batch in one turn - stamping their
+arrival would record a window of driving at a single instant.
+
+`speedKmh` is km/h. The field is named for its unit rather than documented as one,
+because the platform location APIs underneath report m/s and the file is read by someone
+who did not write it.
 
 That is the format CAR-212 settled. Channels are raw only - accelerometer,
 gyroscope and magnetometer at a requested 10 Hz, location every 2 s - with no
