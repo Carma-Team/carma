@@ -76,8 +76,8 @@ function buildTelemetryDigest(
     hardBrakes:               state.eventCounts.HARD_BRAKE,
     aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
     sharpTurns:               state.eventCounts.SHARP_TURN,
-    touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
+    phoneMotionSeconds:       state.phoneMotionSeconds,
     startTime,
     endTime,
     timestamp:                Date.now(),
@@ -253,8 +253,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
+      phoneMotionSeconds: finalState.phoneMotionSeconds,
       penalties: 0,         // server computes — placeholder only
       accelAvailable: lastTripDataRef.current?.accelAvailable,
       accelInitFailed: lastTripDataRef.current?.accelInitFailed,
@@ -328,7 +328,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          touchEpochs: finalState.touchEpochs,
+          // Still required by the trip schema, and nothing measures it any more —
+          // the column goes with CAR-188.
+          touchEpochs: 0,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
           effectiveRiskMultiplier: serverEffectiveRisk,

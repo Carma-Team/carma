@@ -83,8 +83,8 @@ stateDiagram-v2
 
 ## `InteractionData` per-tick accounting
 
-Internal detail — a normal consumer reading `TripData.touchEpochs` /
-`.screenInteractionSeconds` sees no change from this. It matters if you're
+Internal detail — a normal consumer reading `TripData.screenInteractionSeconds` /
+`.phoneMotionSeconds` sees no change from this. It matters if you're
 reading the SDK's internals or building a similar accumulator pattern
 yourself.
 
@@ -92,11 +92,11 @@ yourself.
 previous emission**, exactly once per second and unconditionally, and
 `DrivingSDK` **accumulates** (`+=`) those deltas onto the running totals. The
 running-total bookkeeping therefore lives in `DrivingSDK`, not in the manager
-that produces the samples, and `TripData.touchEpochs` /
-`.screenInteractionSeconds` are totals for the whole trip.
+that produces the samples, and `TripData.screenInteractionSeconds` /
+`.phoneMotionSeconds` are totals for the whole trip.
 
-The emission is not gated on the phone being hand-held: every tick emits, and
-the `screenInteractionSeconds` delta is simply `0` on a tick that was not.
+The emission is not gated on the driver being distracted: every tick emits, and
+both deltas are simply `0` on a tick that counted neither.
 
 ---
 
