@@ -895,7 +895,7 @@ describe('DrivingSDK', () => {
     await sdk.startRawRecording('handheld', 'ios');
 
     expect(mockSensorStart).toHaveBeenCalledTimes(1);
-    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios');
+    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios', undefined);
   });
 
   it('taps the same accel/gyro subscriptions SensorManager already keeps powered', async () => {

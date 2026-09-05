@@ -361,10 +361,12 @@ where the answer is known in advance.
 
 | Method | Description |
 |---|---|
-| `startRawRecording(scenario, platform)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Called while a session is already running, it leaves that session alone |
+| `startRawRecording(scenario, platform, deviceModel?)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Writes a `session_start` header as the file's first line. Called while a session is already running, it leaves that session alone |
 | `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage. Throws if that write fails, leaving the session recording so the caller can retry rather than losing the tail silently |
-| `exportRawRecording()` | Shares the most recent recording via the OS share sheet, falling back to the newest file on disk when none was made in this app run. On failure returns `RawExportFailure`, which is `{ error: 'none-recorded' }` when there is nothing to share and `{ error: 'sharing-unavailable' }` when the device has no share sheet — two cases a caller usually wants to report differently |
-| `listRawRecordings()` | Recording files on disk, newest first, including sessions from earlier app runs. The file for a **live** session is created up front and appears in this list too, so a host offering the newest entry for export must account for one that is still being written |
+| `markRawRecording(markerType, label?, metadata?)` | Places a labelled point in the running session. False when nothing is recording, or when the session already hit its line cap, so a UI can tell a recorded marker from a dropped tap |
+| `changeRawRecordingScenario(scenario)` | Re-labels the running session from here on, leaving a `scenario_change` marker where it changed — one drive can cover two mount positions without being split. The `session_start` header keeps the scenario the session opened with, so a mixed drive is indexed under that one |
+| `exportRawRecording(filePath?)` | Shares a recording via the OS share sheet: the file at `filePath`, or the most recent one, falling back to the newest on disk when none was made in this app run. On failure returns `RawExportFailure`, which is `{ error: 'none-recorded' }` when there is nothing to share and `{ error: 'sharing-unavailable' }` when the device has no share sheet — two cases a caller usually wants to report differently |
+| `listRawRecordings()` | Completed recordings on disk, newest first, including sessions from earlier app runs. The file of a **live** session is created up front but stays out of this list: it is a truncated prefix of the drive being recorded, and a host that offered it for export or upload would ship that prefix as if it were the drive |
 
 **A word on stopping.** `stopRawRecording()` rejects if the final write fails, and leaves the
 session recording so the caller can retry rather than lose the tail silently. The sensors
