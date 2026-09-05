@@ -173,7 +173,32 @@ describe('RawSampleRecorder', () => {
     expect(lines).toHaveLength(4);
     expect(lines.map((l: any) => l.kind)).toEqual(['session_start', 'accel', 'gyro', 'location']);
     expect(lines[1].accel).toEqual({ x: 1, y: 2, z: 3 });
-    expect(lines[3].location).toEqual({ lat: 32.05, lng: 34.77, speed: 10, accuracy: 5 });
+    expect(lines[3].location).toEqual({ lat: 32.05, lng: 34.77, speedKmh: 10, accuracy: 5 });
+  });
+
+  // Arrival time is not fix time on Android, which delivers deferred fixes as a batch in
+  // one turn - stamping arrival records a window of driving at a single instant (CAR-322).
+  it('stamps a location sample with the fix time the caller supplies', async () => {
+    const session = recorder.start('mounted', 'android');
+    const fixTs = 1_724_608_002_000;
+    recorder.pushLocationSample(32.05, 34.77, 10, 5, fixTs);
+
+    await recorder.stop();
+
+    const line = JSON.parse(fs.get(session.filePath)!.split('\n')[1]);
+    expect(line.t).toBe(fixTs);
+    expect(line.location.speedKmh).toBe(10);
+  });
+
+  it('falls back to now for a caller with no fix time to give', async () => {
+    const before = Date.now();
+    const session = recorder.start('mounted', 'android');
+    recorder.pushLocationSample(32.05, 34.77, null, null);
+
+    await recorder.stop();
+
+    const line = JSON.parse(fs.get(session.filePath)!.split('\n')[1]);
+    expect(line.t).toBeGreaterThanOrEqual(before);
   });
 
   // A crash or an app kill used to cost the whole session: nothing reached disk
@@ -343,15 +368,20 @@ describe('RawSampleRecorder', () => {
     mockFileAppend.mockImplementationOnce(() => { throw new Error('disk full'); });
     await expect(recorder.stop()).rejects.toThrow();
 
-    // Still recording, buffer intact, subscription alive — so Stop can be retried.
+    // Still recording and the buffer intact, so Stop can be retried — but the
+    // magnetometer is already gone. A rejected stop is the one path with no later call
+    // behind it to close that subscription, so it used to survive until the app was
+    // killed (CAR-324).
     expect(recorder.isRecording()).toBe(true);
-    expect(mockMagRemove).not.toHaveBeenCalled();
+    expect(mockMagRemove).toHaveBeenCalledTimes(1);
 
     const session = await recorder.stop();
 
     expect(session).not.toBeNull();
     // Header plus the one sample — the retry carried everything the failed flush held.
     expect(fs.get(session!.filePath)!.split('\n')).toHaveLength(2);
+    // The retry does not try to release it a second time.
+    expect(mockMagRemove).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });
 
@@ -489,6 +519,30 @@ describe('RawSampleRecorder', () => {
 
   // The live session is kept rather than replaced, so the second start() opens no
   // second subscription at all — there is nothing to leak and nothing to tear down.
+  // ── Recovering a session that outlived the screen that started it (CAR-321) ──
+
+  it('reports the live session, so a remounted host can find what is running', () => {
+    expect(recorder.currentSession()).toBeNull();
+
+    const session = recorder.start('on-seat', 'ios');
+
+    expect(recorder.currentSession()).toEqual(session);
+  });
+
+  it('reports the scenario a mid-session change moved to, not the one it opened with', () => {
+    recorder.start('on-seat', 'ios');
+    recorder.changeScenario('handheld');
+
+    expect(recorder.currentSession()!.scenario).toBe('handheld');
+  });
+
+  it('reports no session once one has stopped', async () => {
+    recorder.start('on-seat', 'ios');
+    await recorder.stop();
+
+    expect(recorder.currentSession()).toBeNull();
+  });
+
   it('does not leak a subscription when start() is called twice without a stop()', () => {
     recorder.start('handheld', 'ios');
     recorder.start('on-seat', 'ios');

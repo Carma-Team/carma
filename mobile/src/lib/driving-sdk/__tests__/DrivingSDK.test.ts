@@ -60,6 +60,7 @@ const mockRawPushAccel = jest.fn();
 const mockRawPushGyro = jest.fn();
 const mockRawPushLocation = jest.fn();
 const mockRawExport = jest.fn(async () => null);
+const mockRawCurrentSession = jest.fn(() => null as unknown);
 
 jest.mock('@/lib/driving-sdk/sensors/SensorManager', () => ({
   SensorManager: class {
@@ -88,6 +89,7 @@ jest.mock('@/lib/driving-sdk/sensors/RawSampleRecorder', () => ({
     pushLocationSample(...args: any[]) { return mockRawPushLocation(...args); }
     exportAsync() { return mockRawExport(); }
     listRecordings() { return []; }
+    currentSession() { return mockRawCurrentSession(); }
   },
 }));
 
@@ -1013,9 +1015,11 @@ describe('DrivingSDK', () => {
 
   it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {
     await sdk.startRawRecording('mounted', 'ios');
-    sendSensorUpdate({ lat: 32.05, lng: 34.77, currentSpeed: 42, accuracy: 5 });
+    sendSensorUpdate({ lat: 32.05, lng: 34.77, currentSpeed: 42, accuracy: 5, fixTs: 1_700_000_000_000 });
 
-    expect(mockRawPushLocation).toHaveBeenCalledWith(32.05, 34.77, 42, 5);
+    // The fix time travels with the sample. Arrival time would collapse a batch of
+    // deferred Android fixes onto one instant, the same trap as the waypoints (CAR-322).
+    expect(mockRawPushLocation).toHaveBeenCalledWith(32.05, 34.77, 42, 5, 1_700_000_000_000);
   });
 
   it('stops the recorder and, with no trip active, stops sensors too', async () => {
@@ -1052,6 +1056,37 @@ describe('DrivingSDK', () => {
 
     expect(mockRawStop).toHaveBeenCalledTimes(1);
     expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  // The recorder rejects when its final write failed and keeps the session alive for a
+  // retry. The sensors this session started have nothing else that turns them off, so
+  // they used to stay subscribed until the app was killed (CAR-324).
+  it('stops sensors even when the recorder rejects the stop', async () => {
+    await sdk.startRawRecording('handheld', 'ios');
+    mockRawStop.mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(sdk.stopRawRecording()).rejects.toThrow('disk full');
+
+    expect(mockSensorStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves sensors running on a rejected stop while a real trip is active', async () => {
+    await startTripReady();
+    mockSensorStop.mockClear();
+    await sdk.startRawRecording('handheld', 'ios');
+    mockRawStop.mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(sdk.stopRawRecording()).rejects.toThrow('disk full');
+
+    expect(mockSensorStop).not.toHaveBeenCalled();
+  });
+
+  // A host screen unmounted mid-session has nothing of its own to restore from (CAR-321).
+  it('reports the running session through to the host', async () => {
+    const session = { sessionId: 'session_1', scenario: 'on-seat', platform: 'ios', startedAt: 1, filePath: 'f' };
+    mockRawCurrentSession.mockReturnValueOnce(session);
+
+    expect(sdk.getRawRecordingSession()).toEqual(session);
   });
 
   it('exports through the recorder', async () => {

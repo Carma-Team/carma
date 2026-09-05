@@ -48,15 +48,29 @@ export default function SettingsScreen() {
   const { user, setUser, patchUser, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording, sdk } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
+  // Both seeded from the SDK rather than from a constant: the recording outlives this
+  // screen, so navigating away and back used to show Start for a session that was still
+  // running, with no way left to stop it (CAR-321). Lazy initialiser — the session is
+  // read once on mount, and every change after that goes through the handlers below.
+  const liveSession = () => sdk.getRawRecordingSession();
   // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
   // last *completed* session, so the button can't disappear the moment recording ends.
-  const [rawRecordingStatus, setRawRecordingStatus] = useState<'idle' | 'recording' | 'stopped'>('idle');
+  const [rawRecordingStatus, setRawRecordingStatus] = useState<'idle' | 'recording' | 'stopped'>(
+    () => (liveSession() ? 'recording' : 'idle'),
+  );
   // The scenario the running session is currently labelled with — a drive can change it
   // mid-session (CAR-303), so it is state rather than the argument Start was given.
-  const [rawScenario, setRawScenario] = useState<Scenario>('Handheld');
+  // The SDK stores it as a free-form string, so a label this screen does not offer falls
+  // back rather than putting an unselectable value in the row.
+  const [rawScenario, setRawScenario] = useState<Scenario>(() => {
+    const scenario = liveSession()?.scenario;
+    return SCENARIOS.includes(scenario as Scenario) ? (scenario as Scenario) : 'Handheld';
+  });
   // Refreshed rather than derived: the list is a directory read, and it changes when a
-  // session stops or an upload prunes nothing at all.
-  const [savedRecordings, setSavedRecordings] = useState<string[]>([]);
+  // session stops or an upload prunes nothing at all. Seeded on mount for the same reason
+  // the two above are — sessions from an earlier app run are on disk and reachable, and
+  // an empty list said the opposite until something in this screen stopped a recording.
+  const [savedRecordings, setSavedRecordings] = useState<string[]>(() => sdk.listRawRecordings());
   // The path being uploaded, not a boolean: one flag lit every row's spinner and the
   // first response to land put them all back, whichever row was still uploading.
   const [uploadingPath, setUploadingPath] = useState<string | null>(null);

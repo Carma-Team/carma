@@ -363,16 +363,20 @@ where the answer is known in advance.
 | Method | Description |
 |---|---|
 | `startRawRecording(scenario, platform, deviceModel?)` | Starts recording the raw accel/gyro/magnetometer/GPS stream, tagged with caller-supplied labels. Writes a `session_start` header as the file's first line. Called while a session is already running, it leaves that session alone |
-| `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage. Throws if that write fails, leaving the session recording so the caller can retry rather than losing the tail silently |
+| `stopRawRecording()` | Ends the session and flushes what is left to its NDJSON file under app storage. Throws if that write fails, leaving the session recording so the caller can retry rather than losing the tail silently. Sensors are released either way |
+| `getRawRecordingSession()` | The session in progress, or `null`. A host screen that was unmounted and remounted mid-session has nothing of its own left to restore from; this is what tells it a session is running, and under which scenario |
 | `markRawRecording(markerType, label?, metadata?)` | Places a labelled point in the running session. False when nothing is recording, or when the session already hit its line cap, so a UI can tell a recorded marker from a dropped tap |
 | `changeRawRecordingScenario(scenario)` | Re-labels the running session from here on, leaving a `scenario_change` marker where it changed — one drive can cover two mount positions without being split. The `session_start` header keeps the scenario the session opened with, so a mixed drive is indexed under that one |
 | `exportRawRecording(filePath?)` | Shares a recording via the OS share sheet: the file at `filePath`, or the most recent one, falling back to the newest on disk when none was made in this app run. On failure returns `RawExportFailure`, which is `{ error: 'none-recorded' }` when there is nothing to share and `{ error: 'sharing-unavailable' }` when the device has no share sheet — two cases a caller usually wants to report differently |
 | `listRawRecordings()` | Completed recordings on disk, newest first, including sessions from earlier app runs. The file of a **live** session is created up front but stays out of this list: it is a truncated prefix of the drive being recorded, and a host that offered it for export or upload would ship that prefix as if it were the drive |
 
 **A word on stopping.** `stopRawRecording()` rejects if the final write fails, and leaves the
-session recording so the caller can retry rather than lose the tail silently. The sensors
-stay subscribed in that case as well — a caller that catches the error and gives up owns
-shutting them down.
+session recording so the caller can retry rather than lose the tail silently. **The sensors
+are released regardless** — including on that failure — because a rejected stop is the one
+path with no later call behind it to close them. What a caller still owns after catching the
+error is the buffer: the samples are in memory and reach the file only when a retried
+`stopRawRecording()` succeeds. No further sample is added to that buffer, so a retry costs
+nothing by being late.
 
 #### The file
 
@@ -382,11 +386,15 @@ One JSON object per line (NDJSON), under the app's document directory:
 {"t":1724608000100,"kind":"accel","accel":{"x":0.01,"y":-0.02,"z":0.98}}
 {"t":1724608000100,"kind":"gyro","gyro":{"x":0,"y":0,"z":0.004}}
 {"t":1724608000100,"kind":"mag","mag":{"x":21.4,"y":-8.1,"z":43.9}}
-{"t":1724608002000,"kind":"location","location":{"lat":32.07,"lng":34.78,"speed":12.4,"accuracy":5}}
+{"t":1724608002000,"kind":"location","location":{"lat":32.07,"lng":34.78,"speedKmh":12.4,"accuracy":5}}
 ```
 
-`t` is wall-clock milliseconds, stamped per sample rather than batched under one tick.
-Accelerometer, gyroscope and magnetometer are requested at 10 Hz; location arrives at
+`t` is wall-clock milliseconds, stamped per sample rather than batched under one tick. On an
+IMU sample it is the moment the library received the reading; on a location sample it is the
+moment of the fix, which is not the same thing on Android — deferred fixes are delivered as
+a batch in one turn, and stamping their arrival would record a whole window of driving at a
+single instant. `speedKmh` is km/h, named rather than merely documented because the platform
+APIs underneath report m/s. Accelerometer, gyroscope and magnetometer are requested at 10 Hz; location arrives at
 whatever cadence the platform delivers. The magnetometer (microtesla) is sampled only while
 a staged session is open — a normal trip subscribes to it not at all. 10 Hz is a request and
 not a guarantee: a staged Android session measured 8.6 Hz on the magnetometer against the

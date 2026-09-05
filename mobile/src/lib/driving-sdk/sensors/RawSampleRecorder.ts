@@ -32,12 +32,19 @@ import { RawExportFailure } from '@/lib/driving-sdk/types';
 export type RawSampleKind = 'accel' | 'gyro' | 'mag' | 'location';
 
 export interface RawSample {
-  t: number; // Date.now() ms, stamped per-sample — not batched under one shared tick
+  // Wall-clock epoch ms, stamped per-sample — not batched under one shared tick. IMU
+  // samples carry the moment the SDK received them; a location sample carries the
+  // moment of the fix itself, which is the only one an offline reader can align
+  // against a second device (CAR-322). Both are the same clock, so they interleave.
+  t: number;
   kind: RawSampleKind;
   accel?: { x: number; y: number; z: number };
   gyro?: { x: number; y: number; z: number };
   mag?: { x: number; y: number; z: number }; // microtesla
-  location?: { lat: number; lng: number; speed: number | null; accuracy: number | null };
+  // speedKmh is named, not just documented: expo-location reports m/s and the platform
+  // convention is m/s, so a bare `speed` in a file that leaves the device is read wrong
+  // by whoever opens it next.
+  location?: { lat: number; lng: number; speedKmh: number | null; accuracy: number | null };
 }
 
 export interface RawRecordingSession {
@@ -268,12 +275,18 @@ export class RawSampleRecorder {
   public async stop(): Promise<RawRecordingSession | null> {
     const session = this.session;
     if (!session) return null;
+    // Released before the flush, never after it. A failed flush throws and leaves the
+    // session alive so the buffer can be retried — and a magnetometer still streaming
+    // into that window is a subscription no caller has a way to close, because stop()
+    // is the only thing that closes it and it already rejected (CAR-324). The cost is
+    // that no 'mag' line lands after the first stop() attempt, which is the honest
+    // reading of a caller that asked to stop.
+    this.magSub?.remove();
+    this.magSub = null;
     if (!this.flush(session.filePath)) {
       throw new Error('[RawSampleRecorder] Could not write the session — it is still recording');
     }
     this.session = null;
-    this.magSub?.remove();
-    this.magSub = null;
     this.lines = [];
     this.lastFlushedCount = 0;
     this.flushedBytes = 0;
@@ -290,8 +303,20 @@ export class RawSampleRecorder {
     this.push({ t: Date.now(), kind: 'gyro', gyro: { x, y, z } });
   }
 
-  public pushLocationSample(lat: number, lng: number, speed: number | null, accuracy: number | null): void {
-    this.push({ t: Date.now(), kind: 'location', location: { lat, lng, speed, accuracy } });
+  /**
+   * `t` is the moment of the fix, which the caller has and this class does not. It
+   * defaults to now only for a caller with no fix time to give: Android delivers a batch
+   * of deferred fixes in one turn, so arrival time collapses a whole window of driving
+   * onto one instant (CAR-178, CAR-322).
+   */
+  public pushLocationSample(
+    lat: number,
+    lng: number,
+    speedKmh: number | null,
+    accuracy: number | null,
+    t: number = Date.now(),
+  ): void {
+    this.push({ t, kind: 'location', location: { lat, lng, speedKmh, accuracy } });
   }
 
   /**
@@ -419,6 +444,16 @@ export class RawSampleRecorder {
   /** True between start() and stop() — lets a caller avoid tearing down shared sensors mid-session. */
   public isRecording(): boolean {
     return this.session !== null;
+  }
+
+  /**
+   * The live session, or null. A host screen that was unmounted and remounted mid-session
+   * kept no state of its own to go back to, and would otherwise show Start for a session
+   * that is already running (CAR-321). Copied on the way out: `scenario` moves under
+   * changeScenario, and a caller holding the internal object would not see it move.
+   */
+  public currentSession(): RawRecordingSession | null {
+    return this.session ? { ...this.session } : null;
   }
 
   /**
