@@ -261,7 +261,12 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
-  it('fails closed — not open — when accelerometer registration itself throws', async () => {
+  // The two cases below are the ones CAR-320 was filed on: a gate that stays shut for
+  // the rest of a trip suppresses every motion event, and a trip with no events reads
+  // as flawless driving. Both must degrade to GPS-only detection and say so outward,
+  // which is a deliberate reversal of the fail-closed half of CAR-189.
+
+  it('degrades to GPS-only detection when accelerometer registration throws, and reports why', async () => {
     manager.stop();
     const sensorsModule = jest.requireMock('expo-sensors');
     sensorsModule.Accelerometer.isAvailableAsync.mockRejectedValueOnce(new Error('boom'));
@@ -269,15 +274,30 @@ describe('SensorManager', () => {
     manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
     await manager.start();
 
-    // Same GPS-only spike the hardware-absent test above lets through — a
-    // registration failure must not be treated as "no hardware".
     sendFix({ t: 0, speed: 20 });
     sendFix({ t: 2000, speed: 14 });
 
-    expect(onEvent).not.toHaveBeenCalled();
-    // Hardware present, registration threw — the outward flag must say so, not "no hardware" (CAR-189).
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    // Hardware present, registration threw — the outward flag must say so, not "no
+    // hardware" (CAR-189). It is what marks the trip degraded now that the event fires.
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  it('degrades to GPS-only detection when a live subscription goes quiet mid-trip', () => {
+    feedAccelFor(10); // subscription established and delivering
+    jest.advanceTimersByTime(6000); // > SENSOR_STALE_MS with no sample: the sensor died
+
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 14 });
+
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    // Nothing threw and the hardware exists, so neither flag explains this one —
+    // the fraction is what shows the trip ran mostly blind.
+    expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: false });
+    expect(lastUpdate.accelCoverage).toBeGreaterThan(0);
+    expect(lastUpdate.accelCoverage).toBeLessThan(1);
   });
 
   // ── Accelerometer coverage over the window ─────────────────────────────────

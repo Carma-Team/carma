@@ -39,6 +39,31 @@ flowchart LR
     G -- no --> H[DrivingEvent dispatched]
 ```
 
+### When the accelerometer is missing or dies
+
+The cross-confirm gate applies **only while accelerometer samples are actually
+arriving** — a sample within the last 5 s (`SENSOR_STALE_MS`). Whenever they are not,
+detection falls back to GPS alone and keeps producing events. It is never switched off.
+
+That is a deliberate choice against the alternative of holding the gate shut: an
+unconfirmed GPS spike is a single wrong event, while a gate that stays shut suppresses
+*every* motion event for the rest of the trip — and a trip with no events is
+indistinguishable from a trip driven perfectly, so the outage would silently raise the
+driver's score. A degraded trip that says it is degraded is the safer of the two.
+
+Three distinct states are reported on every `SensorUpdate`, and latched onto `TripData`,
+so a host can tell them apart rather than reading one `false`:
+
+| State | `accelAvailable` | `accelInitFailed` | `accelCoverage` |
+|---|---|---|---|
+| No accelerometer hardware | `false` | `false` | `0` |
+| Registration threw | `false` | `true` | `0` |
+| Subscribed, then went quiet mid-trip | `false` | `false` | strictly between 0 and 1 |
+| Healthy | `true` | `false` | `1` |
+
+Registration is attempted once per trip and is not retried. Coverage is what a consumer
+should weigh a trip by; the two booleans only say *why* it is low.
+
 ---
 
 ## GPS — `SensorManager`
