@@ -13,7 +13,7 @@ const he = {
     noAccount: 'אין לך חשבון?', hasAccount: 'יש לך חשבון?',
     loginBtn: 'היכנס', registerBtn: 'צור חשבון', guestLoginBtn: 'כניסה כאורח (לפיתוח)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
+    namePlaceholder: 'ישראל ישראלי',
     citySelectPlaceholder: 'בחירת עיר',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
     regionAck: 'קראתי ואני מבין/ה: השימוש ב-CARMA מותר רק בתחומי מדינת ישראל',
@@ -40,12 +40,12 @@ const he = {
       emailExists: 'האימייל כבר קיים במערכת', invalidCredentials: 'אימייל או סיסמה שגויים',
       invalidName: 'השם חייב להיות באורך 2 עד 80 תווים',
       invalidPassword: 'הסיסמה חייבת להיות באורך 8 עד 200 תווים',
-      cityTooLong: 'שם היישוב ארוך מדי (עד 80 תווים)',
       invalidPhone: 'מספר הטלפון לא תקין',
       badResetCode: 'הקוד שגוי או שפג תוקפו — אפשר לבקש קוד חדש',
       tooManyAttempts: 'יותר מדי בקשות. אפשר לנסות שוב בעוד {seconds} שניות',
       tooManyAttemptsNoWait: 'יותר מדי בקשות. אפשר לנסות שוב בעוד מספר דקות',
       invalidDetails: 'חלק מהפרטים אינם תקינים',
+      timeout: 'השרת אינו מגיב. כדאי לבדוק את החיבור ולנסות שוב',
       invalidAge: 'גיל חייב להיות בין 16 ל-120',
       invalidLicenseYear: 'שנת רישיון חייבת להיות בין 1950 לשנה הנוכחית',
       licenseYearBeforeAge: 'שנת הרישיון מוקדמת מהגיל שהוזן — בישראל אפשר לגשת לטסט מגיל 16 ו-9 חודשים',
@@ -54,11 +54,6 @@ const he = {
   dashboard: {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
-    thisWeek: 'השבוע',
-    weekTrips: 'נסיעות',
-    weekVsLast: 'בהשוואה לשבעת הימים שלפני כן',
-    weekNoTrips: 'אין נסיעות מדורגות בשבעת הימים האחרונים.',
-    weekNoComparison: 'שבוע ראשון',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
     // מצב הבחירה למחיקה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
     deleteTrips: 'מחיקת נסיעות',
@@ -168,6 +163,8 @@ const he = {
     noVouchers: 'עדיין לא רכשת שוברים',
     voucher: {
       title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      // בכרטיס בחנות, במקום קוד השובר — הנהג שם לא עומד בקופה
+      owned: 'שובר שרכשת', showQR: 'הצג QR',
       expired: 'פג תוקף', cancelled: 'בוטל',
       cancel: 'ביטול השובר',
       cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
@@ -251,7 +248,9 @@ const he = {
     streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
     },
   },
@@ -264,6 +263,10 @@ const he = {
     tripsDeleted: 'הנסיעות נמחקו',
     tripsDeletedDesc: 'הנסיעות שנבחרו הוסרו מההיסטוריה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
+  },
+  fraud: {
+    declinedTitle: 'הנסיעה לא נספרה',
+    declinedMessage: 'הנסיעה זוהתה כנסיעה בתחבורה ציבורית ולכן לא קיבלה ניקוד. אם נהגת ברכב, הנסיעה הבאה תיספר — הבדיקה רצה מחדש בכל נסיעה.',
   },
   deviceGate: {
     regionTitle: 'לא זמין באזור שלך',

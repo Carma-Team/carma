@@ -1,10 +1,23 @@
 import { DrivingEventType } from '@/lib/driving-sdk/types';
+
+// ─── Mocks ────────────────────────────────────────────────────────────────────
+// This class subscribes to nothing. The gyroscope is pushed in by the host (CAR-82),
+// AppState is not consulted (CAR-45), and the accelerometer is not read at all since
+// v2.0 (CAR-187). The mock below is the guard, not a stub: reaching for either sensor
+// throws, so a subscription creeping back fails here instead of quietly costing battery
+// on a device where nothing checks.
+jest.mock('expo-sensors', () => ({
+  get Accelerometer(): never {
+    throw new Error('PhoneUsageManager must not read the accelerometer (CAR-187)');
+  },
+  get Gyroscope(): never {
+    throw new Error('PhoneUsageManager must not subscribe to the gyroscope (CAR-82)');
+  },
+}));
+
 import { PhoneUsageManager } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-// No sensor mock: the manager subscribes to nothing. Gyroscope samples are pushed in
-// by the host (CAR-82), AppState is not consulted (CAR-45), and the accelerometer is
-// not read at all since v2.0 (CAR-187).
 
 describe('PhoneUsageManager', () => {
   let onEvent: jest.Mock;

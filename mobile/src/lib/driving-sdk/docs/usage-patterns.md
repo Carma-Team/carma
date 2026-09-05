@@ -35,7 +35,7 @@ different conditions or handlers. Each fires independently:
 const tokenA = sdk.on(DrivingEventType.HARD_BRAKE, {}, (e) => showWarning(e));
 
 // Listener B: scoring-relevant event, only above driving speed
-// (minSeverity is not useful here — HARD_BRAKE carries no severity, CAR-156)
+// (minSeverity is not useful here — HARD_BRAKE carries no severity)
 const tokenB = sdk.on(
   DrivingEventType.HARD_BRAKE,
   { minSpeedKmh: 15 },

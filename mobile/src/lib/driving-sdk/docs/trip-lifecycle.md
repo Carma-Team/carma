@@ -29,6 +29,7 @@ class MyTripValidator implements TripValidator {
   onTripConfirmed?: () => void;
   onTripEnded?: () => void;
   onFraudSuspected?: (evaluation: SuspiciousActivityEvaluation) => void;
+  onRegionRejected?: () => void;
 
   start(): void { /* begin watching samples */ }
   stop(): void { /* stop watching */ }
@@ -38,10 +39,19 @@ class MyTripValidator implements TripValidator {
 const sdk = new DrivingSDK({ tripValidator: new MyTripValidator() });
 ```
 
-`updateSample()` is called at sensor rate with the latest GPS speed and (when
-available) accelerometer/gyroscope readings — and it's called **whether or
-not a trip is currently active**, so a validator can watch for the moment a
-trip should start, not just judge one already in progress. Call
+`updateSample()` is called with the latest GPS speed and, when available, the
+vehicle-frame IMU values — and it's called **whether or not a trip is
+currently active**, so a validator can watch for the moment a trip should
+start, not just judge one already in progress.
+
+**Not every call carries a position.** Alongside the calls driven by a GPS
+fix, the library also calls `updateSample()` from its 2 s speed-decay tick,
+with `speedKmh: 0` and **no `lat`/`lng`** — there is no new position, so
+fabricating one from a stale fix is exactly what that path must never do. A
+validator that gates on region has to treat a sample without coordinates as
+"no information", not as a rejection. The same tick is why a stop is observed
+at all on iOS, where the platform delivers no fix while the device is
+stationary. See the README's *Speed after a GPS dropout*. Call
 `onTripConfirmed()` once your rules decide a trip has genuinely started, and
 `onTripEnded()` once it's genuinely over — `DrivingSDK` calls `startTrip()` /
 `stopTrip()` in response. `onFraudSuspected` is optional and only needed if
@@ -52,6 +62,12 @@ persisted as a completed trip — and calls `onFraudDetected` instead (see
 validator's `stop()`: the session is over, and a validator left running keeps
 judging the last sample it received after the sensors feeding it have stopped.
 
+`onRegionRejected` is the second silent abort, and behaves identically: a
+validator that decides the trip started somewhere it should not be recorded
+at all fires it, the SDK tears the session down without `onTripEnd`, and the
+host's `onRegionRejected` fires instead. Where the boundary of an acceptable
+region lies is the host's decision — the library has no opinion on geography.
+
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
@@ -59,28 +75,28 @@ stateDiagram-v2
     Validating --> Active: validator.onTripConfirmed()
     Active --> Idle: validator.onTripEnded() / stopTrip()
     Active --> Idle: validator.onFraudSuspected()\n(silent abort — no onTripEnd)
+    Validating --> Idle: validator.onRegionRejected()\n(silent abort — no onTripEnd)
+    Active --> Idle: validator.onRegionRejected()\n(silent abort — no onTripEnd)
 ```
 
 ---
 
-## `InteractionData` per-tick accounting, `(since #138)`
+## `InteractionData` per-tick accounting
 
 Internal detail — a normal consumer reading `TripData.screenInteractionSeconds` /
 `.phoneMotionSeconds` sees no change from this. It matters if you're
 reading the SDK's internals or building a similar accumulator pattern
 yourself.
 
-Before #138, `PhoneUsageManager`'s `onInteractionData` callback emitted the
-full cumulative trip-total snapshot on every call, and `DrivingSDK` simply
-overwrote (`=`) `TripData`'s counters with whatever it received. Since #138,
-the callback emits a **delta since the previous emission** — exactly once
-per second, unconditionally — and `DrivingSDK` **accumulates** (`+=`) those
-deltas onto the running totals instead. The externally-visible result is
-identical: both `TripData` counters are still running totals for the whole trip.
-What changed is where the running-total bookkeeping happens — inside
-`PhoneUsageManager` before, inside `DrivingSDK` now — and that the emission is no
-longer gated on the driver being distracted (every tick emits, and both deltas are
-simply `0` on a tick that counted neither).
+`PhoneUsageManager`'s `onInteractionData` callback emits a **delta since the
+previous emission**, exactly once per second and unconditionally, and
+`DrivingSDK` **accumulates** (`+=`) those deltas onto the running totals. The
+running-total bookkeeping therefore lives in `DrivingSDK`, not in the manager
+that produces the samples, and `TripData.screenInteractionSeconds` /
+`.phoneMotionSeconds` are totals for the whole trip.
+
+The emission is not gated on the driver being distracted: every tick emits, and
+both deltas are simply `0` on a tick that counted neither.
 
 ---
 

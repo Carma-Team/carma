@@ -109,7 +109,7 @@ discrimination needs a native module first.
 
 ---
 
-## Minimum OS version (#141)
+## Minimum OS version
 
 No app-level policy sets this — it is the floor the pinned `expo` version itself
 imposes. Bump alongside an Expo SDK upgrade, not independently.
@@ -149,7 +149,7 @@ are attempted:
    The SDK's distraction detector acts on the first of these, from the
    gyroscope alone: a repeated paired rotational kick is a finger on glass,
    while rotation independent of the vehicle's own is the phone being moved
-   — see `README.md`'s distraction detection section.
+   — see `docs/event-detection.md`, "Distraction detection".
 
 ---
 

@@ -13,7 +13,7 @@ const en: TranslationMap = {
     noAccount: "Don't have an account?", hasAccount: 'Already have an account?',
     loginBtn: 'Sign In', registerBtn: 'Create Account', guestLoginBtn: 'Guest Login (Dev)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'John Doe', cityPlaceholder: 'Tel Aviv',
+    namePlaceholder: 'John Doe',
     citySelectPlaceholder: 'Select city',
     welcomeToast: 'Welcome, {name}! 🎉', defaultUserName: 'User',
     regionAck: "I've read and understand: CARMA may only be used within the State of Israel",
@@ -37,12 +37,12 @@ const en: TranslationMap = {
       emailExists: 'Email already registered', invalidCredentials: 'Invalid email or password',
       invalidName: 'Name must be between 2 and 80 characters',
       invalidPassword: 'Password must be between 8 and 200 characters',
-      cityTooLong: 'City name is too long (up to 80 characters)',
       invalidPhone: 'That phone number is not valid',
       badResetCode: 'Wrong or expired code — request a new one',
       tooManyAttempts: 'Too many requests. Try again in {seconds} seconds',
       tooManyAttemptsNoWait: 'Too many requests. Try again in a few minutes',
       invalidDetails: 'Some of the details are not valid',
+      timeout: 'The server is not answering. Check your connection and try again',
       invalidAge: 'Age must be between 16 and 120',
       invalidLicenseYear: 'License year must be between 1950 and this year',
       licenseYearBeforeAge: 'License year is earlier than the age allows — the practical test in Israel opens at 16 years and 9 months',
@@ -51,11 +51,6 @@ const en: TranslationMap = {
   dashboard: {
     welcome: 'Hello', yourScore: 'Your Score', startTrip: 'Start Trip',
     noTrips: 'No trips yet', noTripsDesc: 'Start your first trip!',
-    thisWeek: 'This week',
-    weekTrips: 'trips',
-    weekVsLast: 'Compared with the seven days before',
-    weekNoTrips: 'No scored trips in the last seven days.',
-    weekNoComparison: 'first week',
     recentTrips: 'Recent Trips', viewAll: 'View All', showMore: 'Show more',
     deleteTrips: 'Delete trips',
     selectAll: 'Select all',
@@ -163,6 +158,9 @@ const en: TranslationMap = {
     noVouchers: 'You have not bought any vouchers yet',
     voucher: {
       title: 'Your Voucher', scanQR: 'Scan QR', expiry: 'Expires', used: 'Used', active: 'Active',
+      // On the store card, in place of the voucher code — a driver browsing the store
+      // is not standing at a till
+      owned: 'Voucher you bought', showQR: 'Show QR',
       expired: 'Expired', cancelled: 'Cancelled',
       cancel: 'Cancel voucher',
       cancelConfirm: 'Cancel this voucher? The points go back to your available balance.',
@@ -244,7 +242,9 @@ const en: TranslationMap = {
     streakInfo: 'Driving streak — the number of days in a row you have driven. One trip a day extends it, and a day without one resets it.',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'Compared with the seven days before',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
     },
   },
@@ -257,6 +257,10 @@ const en: TranslationMap = {
     tripsDeleted: 'Trips deleted',
     tripsDeletedDesc: 'The selected trips were removed from your history',
     serverUnreachable: 'Server is currently unavailable. Some features will work offline.',
+  },
+  fraud: {
+    declinedTitle: 'Trip not counted',
+    declinedMessage: 'This journey looked like public transport, so it was not scored. If you were driving, it will be counted next time — the check runs again on every trip.',
   },
   deviceGate: {
     regionTitle: 'Not available in your region',

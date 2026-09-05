@@ -25,11 +25,21 @@
  * finger from a pothole, which is what the accelerometer tap proxy did and why its
  * count is gone.
  *
- * Gyroscope samples are pushed in via pushGyroSample(). They feed a paired-peak tap
- * detector (US11932257B2): simultaneous rotation on the two in-plane axes, twice in
- * quick succession, is what a finger on glass produces and what a chassis jolt does
- * not. Repetition of that signature within a second is a typing cadence, which is what
- * the screen-interaction counter now measures.
+ * The gyroscope arrives through pushGyroSample(), fed by the subscription the host
+ * already runs for motion-event detection — one physical sensor, one listener (CAR-325).
+ *
+ * @remarks
+ * This file is the coordinator, not the detection (CAR-328). The signal lives in
+ * `phone-usage/tapSignature.ts`: angular-speed statistics and the paired-peak tap
+ * signature (US11932257B2), over the window `variance.ts` defines. What stays here is
+ * everything it does not own — the lifecycle, the per-second tick, the emission
+ * accounting, and the two-counter decision itself.
+ *
+ * A paired-peak signature is simultaneous rotation on the two in-plane axes, twice in
+ * quick succession — what a finger on glass produces and what a chassis jolt does not.
+ * Repetition of it within a second is a typing cadence, which is what the
+ * screen-interaction counter measures. Rotation variance on its own, with no cadence
+ * behind it, is the phone merely being moved.
  *
  * Emitted once per second via onInteractionData, as a delta since the previous emission
  * (CAR-175) — never a running total:
@@ -45,48 +55,11 @@
  * before production launch.
  */
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
-
-// ── IMU calibration constants ─────────────────────────────────────────────────
-//
-// ROTATION_VARIANCE_THRESHOLD ((rad/s)²):
-//   A phone at rest — mounted, pocketed, on a seat — turns only with the vehicle.
-//   A phone being handled turns independently of it, and the variance of angular
-//   speed over the window is what separates the two.
-//   Provisional, no drive-test data behind it yet (CAR-183 collects it).
-//
-//   ⚠️ This number was previously a ceiling, not a floor: it vetoed an
-//   acceleration-based hand-held read when rotation said the phone was tumbling.
-//   The value is carried over deliberately — CAR-183 fits it and the tap band from
-//   the same labelled set — but its meaning is now the opposite one.
-const ROTATION_VARIANCE_THRESHOLD = 0.5;
-
-// Rolling variance window: 10 samples at 10 Hz = 1-second analysis window.
-const VARIANCE_WINDOW_SIZE = 10;
-
-// Matches the 1 s analysis window at the expected 10 Hz gyro feed.
-const GYRO_STALE_MS = 1000;
-
-// ── Gyroscope tap signature (US11932257B2) ────────────────────────────────────
-//
-// A *paired* rotational kick. A chassis jolt drives mostly the vertical accelerometer
-// axis through the suspension, while a finger tap rotates the phone slightly about both
-// in-plane axes at once, because the hand's grip resists it. Pairs, not force, is the
-// distinction — which is why a single-sample force threshold, the approach this
-// replaced, could not tell a finger from a pothole.
-//
-// The band is the patent's own worked example. Provisional, exactly like
-// ROTATION_VARIANCE_THRESHOLD above — no drive-test data yet (CAR-183 collects it).
-const TAP_PEAK_MIN_RAD_S = 0.2;
-const TAP_PEAK_MAX_RAD_S = 0.7;
-
-// A tap is two qualifying pairs this close together — the second kick as the finger
-// lifts or the next character is typed.
-//
-// ponytail: 10 Hz gyro puts a hard floor of 100 ms under this. The patent's repeat gap
-// runs as low as "tens of milliseconds", so a real gap at that end lands inside one
-// sample and no value here recovers it. The fix would be a higher sample rate, which is
-// a battery cost and Dan's call (CAR-260) — not a threshold change.
-const TAP_REPEAT_GAP_MS = 400;
+import {
+  TapSignatureDetector,
+  ROTATION_VARIANCE_THRESHOLD,
+  RotationFeatures,
+} from './phone-usage/tapSignature';
 
 export interface InteractionData {
   /** Whether this second carried a tap cadence (0 or 1) — a delta, not a running total. */
@@ -113,41 +86,21 @@ export interface InteractionData {
  * Raw rotational features behind the two counters, over the same 1-second window.
  * Exposed for calibration and for classifiers that want the numbers rather than the
  * decision.
+ *
+ * Since v2.0 the rotational terms are the whole feature set — acceleration is no longer
+ * read here — so this is the detector's own shape under the name the SDK exports.
  */
-export interface MotionFeatures {
-  /** Mean angular speed over the window (rad/s). */
-  rotationRateMean: number;
-  /** Variance of angular speed over the window ((rad/s)²). */
-  rotationVariance: number;
-  /** Samples backing the rotational terms — 0 when the device has no gyroscope. */
-  rotationSampleCount: number;
-  /**
-   * Paired-peak tap signatures completed in this window (US11932257B2). A raw count of
-   * what the gyroscope saw, not a judgement about distraction — what a tap is worth is
-   * the consuming application's decision.
-   */
-  gyroTapPairs: number;
-}
+export type MotionFeatures = RotationFeatures;
 
 export class PhoneUsageManager {
   private isActive = false;
   private onEvent: (event: DrivingEvent) => void;
   private onInteractionData: (data: InteractionData) => void;
 
-  // Angular-speed window covering one second at the expected 10 Hz feed. Fed by
-  // pushGyroSample() rather than a subscription of its own.
-  private rotationWindow: number[] = [];
+  private rotation = new TapSignatureDetector();
+
   private screenInteractionSeconds = 0;
   private phoneMotionSeconds = 0;
-  private lastGyroMs = 0;
-  // Tap-signature state. `wasPairing` is edge detection: one physical kick spans several
-  // 10 Hz samples, and counting each of them would turn one tap into a burst — a pair is
-  // registered on the sample that *enters* the band, not on every sample inside it.
-  private wasPairing = false;
-  private lastPairAtMs = 0;
-  // Completion times of taps inside the analysis window, trimmed by age on read so the
-  // count describes the same second as the variance terms beside it.
-  private tapPairTimes: number[] = [];
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   // Last speed the host reported. Stored and passed through untouched — no threshold
   // and no weighting here, both of which are scoring decisions outside this SDK.
@@ -166,13 +119,9 @@ export class PhoneUsageManager {
 
   public start(): void {
     this.isActive = true;
+    this.rotation.reset();
     this.screenInteractionSeconds = 0;
     this.phoneMotionSeconds = 0;
-    this.lastGyroMs = 0;
-    this.wasPairing = false;
-    this.lastPairAtMs = 0;
-    this.tapPairTimes = [];
-    this.rotationWindow = [];
     this.speedKmh = 0;
 
     // No sensor subscription of its own — the gyroscope arrives through
@@ -222,76 +171,12 @@ export class PhoneUsageManager {
    */
   public pushGyroSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
-    const now = Date.now();
-    // A gap wider than the analysis window means every held sample predates it — drop
-    // them here rather than in the reader, or the first push after the gap resets
-    // lastGyroMs and makes a window of entirely pre-gap samples read as fresh again.
-    if (this.lastGyroMs !== 0 && now - this.lastGyroMs > GYRO_STALE_MS) {
-      this.rotationWindow = [];
-      // The same reasoning for the pair state: a kick either side of a gap this wide is
-      // not one tap, and carrying `wasPairing` across it would fabricate an edge.
-      this.wasPairing = false;
-      this.lastPairAtMs = 0;
-    }
-    this.lastGyroMs = now;
-    this.rotationWindow.push(Math.sqrt(x * x + y * y + z * z));
-    if (this.rotationWindow.length > VARIANCE_WINDOW_SIZE) this.rotationWindow.shift();
-    this.trackTapSignature(x, y, now);
-  }
-
-  /**
-   * One step of the paired-peak detector: X and Y rotating together, each inside the
-   * band, twice within TAP_REPEAT_GAP_MS. The Z axis is deliberately not read — a tap
-   * rotates the phone in its own plane, and including Z would let a turn of the whole
-   * vehicle qualify.
-   */
-  private trackTapSignature(x: number, y: number, atMs: number): void {
-    const inBand = (v: number) => {
-      const m = Math.abs(v);
-      return m >= TAP_PEAK_MIN_RAD_S && m <= TAP_PEAK_MAX_RAD_S;
-    };
-    const pairing = inBand(x) && inBand(y);
-
-    // Rising edge only — see wasPairing.
-    if (pairing && !this.wasPairing) {
-      if (this.lastPairAtMs !== 0 && atMs - this.lastPairAtMs <= TAP_REPEAT_GAP_MS) {
-        this.tapPairTimes.push(atMs);
-        // Consumed: the next tap needs two fresh pairs, so a long drumming stretch
-        // counts once per pair rather than once per sample after the first.
-        this.lastPairAtMs = 0;
-      } else {
-        this.lastPairAtMs = atMs;
-      }
-    }
-    this.wasPairing = pairing;
+    this.rotation.push(x, y, z);
   }
 
   /** Current window's raw motion features. See {@link MotionFeatures}. */
   public getMotionFeatures(): MotionFeatures {
-    // A gyro feed that has gone quiet since the last push (not just gapped mid-stream)
-    // still holds those samples until the next pushGyroSample() call clears them —
-    // treat them as if none had been pushed rather than wait for a push that may not come.
-    const now = Date.now();
-    const stale = this.rotationWindow.length > 0 && now - this.lastGyroMs > GYRO_STALE_MS;
-    const window = stale ? [] : this.rotationWindow;
-    const n = window.length;
-    // Same second as the variance terms: the window is VARIANCE_WINDOW_SIZE samples at
-    // the expected 10 Hz, so its span in milliseconds is what ages a tap out.
-    const windowMs = VARIANCE_WINDOW_SIZE * 100;
-    this.tapPairTimes = this.tapPairTimes.filter((t) => now - t < windowMs);
-    return {
-      rotationRateMean: n === 0 ? 0 : window.reduce((s, v) => s + v, 0) / n,
-      rotationVariance: this.computeVariance(window),
-      rotationSampleCount: n,
-      gyroTapPairs: stale ? 0 : this.tapPairTimes.length,
-    };
-  }
-
-  private computeVariance(window: number[]): number {
-    const n = window.length;
-    if (n < 2) return 0;
-    const mean = window.reduce((s, v) => s + v, 0) / n;
-    return window.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+    return this.rotation.features();
   }
 
   private startTickTimer(): void {

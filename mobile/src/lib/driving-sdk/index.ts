@@ -139,12 +139,16 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
-      // Share SensorManager's gyroscope rather than letting PhoneUsageManager (and,
-      // during a staged session, rawRecorder) open a second subscription to the same sensor.
+      // Share SensorManager's subscriptions rather than letting PhoneUsageManager (and,
+      // during a staged session, rawRecorder) open a second listener on the same physical
+      // sensor. Both IMU streams are fanned out from here.
       ({ x, y, z }) => {
         this.phoneManager.pushGyroSample(x, y, z);
         this.rawRecorder.pushGyroSample(x, y, z);
       },
+      // Acceleration goes to the recorder only — phone usage reads the gyroscope alone
+      // since CAR-187, because a single-sample force threshold cannot tell a finger from
+      // a pothole.
       ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
     );
 
@@ -433,6 +437,7 @@ export class DrivingSDK {
     this.validationManager.updateSample({
       speedKmh: update.currentSpeed,
       timestamp: Date.now(),
+      longitudinalAccelG: update.longitudinalAccelG,
       lateralAccelG: update.lateralAccelG,
       yawRate: update.yawRateRadS,
       lat: update.lat,
@@ -581,3 +586,12 @@ export * from './types';
 // Emitted by onInteractionData — part of the public surface, so it is re-exported here
 // rather than leaving hosts to reach into sensors/.
 export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+
+// Consumed by host apps today through deep paths, which break the moment this package
+// gains an `exports` map (CAR-334). The entry point is the only supported import path.
+export { isBackgroundThrottlingRiskPlatform, openAppSystemSettings } from './PowerManagement';
+export { checkDeviceCapabilities } from './DeviceCapabilities';
+export type { DeviceCapabilities } from './DeviceCapabilities';
+// Two documents point a consumer at this as the reference for overriding
+// SDKConfig.motionThresholds, so it has to be reachable from the package root.
+export { DEFAULT_MOTION_THRESHOLDS } from './sensors/SensorManager';

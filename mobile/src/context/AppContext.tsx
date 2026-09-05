@@ -14,17 +14,16 @@
  * - `authApi.me()` — GET /api/auth/me — refresh user details on startup
  * - `tripsApi.list()` — GET /api/trips — sync trips on login
  * - `tripsApi.save()` — POST /api/trips — persist a completed trip
- * - USE_REAL_SERVER=false: all calls intercepted in client.ts (mock)
- * - USE_REAL_SERVER=true: calls go to the real server
+ * Every call goes to the real server either way — USE_REAL_SERVER only chooses
+ * between the local one and the deployed one (constants/serverConfig.ts).
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { DrivingSDK, TripData, RawExportFailure } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, RawExportFailure, checkDeviceCapabilities } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
-import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
@@ -409,7 +408,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: handleTripEnded });
   useScoringEvents(sdk, setTripState);
-  useFraudBinding(sdk, user, setTripState);
+  useFraudBinding(sdk, user, setTripState, addToast, lang);
   useRegionBinding(sdk, setTripState, addToast, lang);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──

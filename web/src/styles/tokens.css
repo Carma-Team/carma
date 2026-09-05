@@ -1,50 +1,121 @@
 /*
- * Design tokens for the shared UI foundation, matching the approved CARMA
- * Business Web Style Guide (docs/business-portal-design/). Restyle by
- * editing values here, not per-component.
+ * Design tokens for the shared UI foundation, matching the canonical CARMA
+ * Business Web Style Guide (docs/business-portal-design/CARMA Business Web
+ * Style Guide.dc.html). Restyle by editing values here, not per-component.
  */
 :root {
-  /* Spacing scale (4px base grid) */
+  /* Spacing (4px base grid) */
   --space-xs: 4px;
   --space-sm: 8px;
+  --space-dense: 12px;
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
   --space-xxl: 48px;
 
+  /* Layout */
+  --content-max-width: 1440px;
+  --form-max-width: 720px;
+
   /* Typography */
   --font-family-base: 'Assistant', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-size-h1: 2rem;
-  --font-size-h2: 1.5rem;
-  --font-size-h3: 1.125rem;
-  --font-size-body: 1rem;
-  --font-size-caption: 0.8125rem;
-  --font-size-label: 0.875rem;
-  --font-weight-heading: 700;
+
+  /* Page title: h1 */
+  --font-size-h1: 24px;
+  --line-height-h1: 32px;
+  /* Section title: h2 */
+  --font-size-h2: 19px;
+  --line-height-h2: 26px;
+  /* Card title: h3 */
+  --font-size-h3: 16px;
+  --line-height-h3: 22px;
+
+  --font-size-body: 15px;
+  --line-height-body: 24px;
+  /* Dense/table text */
+  --font-size-caption: 13.5px;
+  --line-height-caption: 20px;
+  /* Form labels */
+  --font-size-label: 13.5px;
+  /* Eyebrow / overline labels — Hebrew has no uppercase, so weight + tracking
+     carries the emphasis text-transform would on Latin strings. */
+  --font-size-eyebrow: 12.5px;
+  --letter-spacing-eyebrow: 0.04em;
+  /* Field helper/validation text under a label (Forms section of the style
+     guide) — same size as the eyebrow token but regular weight, no tracking. */
+  --font-size-hint: 12.5px;
+  /* Large metrics (e.g. KPI numbers) */
+  --font-size-metric: 32px;
+
+  --font-weight-heading: 800;
+  --font-weight-title: 700;
   --font-weight-body: 400;
-  --font-weight-label: 600;
-  --line-height-base: 1.5;
+  --font-weight-label: 700;
+  --font-weight-dense: 600;
+  --line-height-base: 1.6;
 
   /* Brand color palette */
+  --color-indigo-900: #29268c;
+  --color-indigo-600: #4f46e5;
+  --color-indigo-500: #6366f1;
+  --color-indigo-100: #e0dffa;
+  --color-indigo-50: #eeedfb;
+  --color-navy-ink: #0f172a;
+
   --color-bg: #f9fafc;
   --color-surface: #ffffff;
   --color-surface-muted: #eff1f6;
   --color-border: #e3e7ef;
   --color-border-strong: #d9dfea;
-  --color-text: #0f172a;
+  --color-divider: #eff1f6;
+
+  --color-text: var(--color-navy-ink);
   --color-text-muted: #374151;
   --color-text-faint: #8a94a6;
   --color-text-disabled: #aeb6c4;
-  --color-primary: #6366f1;
-  --color-primary-strong: #4f46e5;
-  --color-primary-contrast: #ffffff;
-  --color-primary-surface: #eeedfb;
-  --color-primary-text: #3730a3;
-  --color-danger: #dc2626;
-  --color-success: #65a30d;
-  --color-warning: #f59e0b;
+  --color-text-disabled-strong: #c9cfda;
 
+  --color-primary: var(--color-indigo-500);
+  --color-primary-strong: var(--color-indigo-600);
+  --color-primary-contrast: #ffffff;
+  --color-primary-surface: var(--color-indigo-50);
+  --color-primary-surface-strong: var(--color-indigo-100);
+  --color-primary-text: #3730a3;
+  --color-primary-overlay: var(--color-indigo-900);
+
+  /* Status roles — indigo is the only action color; these are status-only. */
+  --color-success: #84cc16;
+  --color-success-surface: #f2fae6;
+  --color-success-text: #3f6212;
+  --color-success-text-strong: #4d7c0f;
+
+  --color-warning: #f59e0b;
+  --color-warning-surface: #fef6e7;
+  --color-warning-text: #92400e;
+  --color-warning-text-strong: #b45309;
+
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+  --color-danger-surface: #feecec;
+  --color-danger-text: #991b1b;
+  --color-danger-border: #f6c9c9;
+
+  --color-neutral: #aeb6c4;
+  --color-neutral-surface: #eff1f6;
+  --color-neutral-text: #4b5563;
+
+  --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 24px;
+  --radius-full: 999px;
+
+  --shadow-overlay: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --shadow-focus-ring: 0 0 0 3px var(--color-indigo-100);
+  --shadow-focus-ring-danger: 0 0 0 3px var(--color-danger-surface);
+  --scrim: rgba(15, 23, 42, 0.45);
+
+  --control-height-sm: 32px;
+  --control-height-md: 40px;
+  --control-height-lg: 48px;
 }

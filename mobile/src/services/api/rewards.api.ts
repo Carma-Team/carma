@@ -9,10 +9,10 @@
  * - `myVouchers` — every voucher this driver owns, in any state
  *
  * @server
- * - GET /api/rewards — USE_REAL_SERVER=false → mock; true → real server
- * - POST /api/rewards/:id/redeem — USE_REAL_SERVER=false → mock; true → real server
- * - POST /api/vouchers/:id/cancel — USE_REAL_SERVER=false → mock; true → real server
- * - GET  /api/vouchers — USE_REAL_SERVER=false → mock; true → real server
+ * - GET  /api/rewards
+ * - POST /api/rewards/:id/redeem
+ * - POST /api/vouchers/:id/cancel
+ * - GET  /api/vouchers
  */
 import { request } from './client';
 import { Reward, Voucher } from '@/types';

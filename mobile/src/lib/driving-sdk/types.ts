@@ -38,10 +38,12 @@ export const SENSOR_STALE_MS = 5000;
 export interface ValidationSample {
   speedKmh: number;
   timestamp: number;          // Date.now()
-  // Vehicle-frame readings, read only by validators that classify motion. Both are
-  // null when the frame could not be resolved — no GPS heading, gravity not converged,
-  // or the forward direction not yet learned. Null is "not measured", which never
-  // satisfies a threshold; 0 would be a claim of no force (docs/fraud-detection.md §3.2).
+  // Vehicle-frame readings, read only by validators that classify motion. All three
+  // are null when the frame could not be resolved — no GPS heading, gravity not
+  // converged, or the forward direction not yet learned. Null is "not measured", which
+  // never satisfies a threshold; 0 would be a claim of no force
+  // (docs/fraud-detection.md §3.2).
+  longitudinalAccelG?: number | null; // signed, positive forward
   lateralAccelG?: number | null;  // signed, positive to the left of travel
   yawRate?: number | null;        // rad/s about gravity, signed — not the device Z axis
   // Present only on ticks that carried a GPS fix. A validator that gates on where the
@@ -251,10 +253,6 @@ export interface TripData {
                              // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
-
-export type TripUpdateCallback = (data: Partial<TripData>) => void;
-export type EventCallback = (event: DrivingEvent) => void;
-export type StateChangeCallback = (isActive: boolean) => void;
 
 // ─── Fraud Detection Event ────────────────────────────────────────────────────
 // Fired by DrivingSDK.onFraudDetected when the configured TripValidator flags a
