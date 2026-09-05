@@ -1,11 +1,12 @@
 # Trip sync queue — retry, backoff and retention
 
-**Status:** current implementation, with three retention decisions still open (see §4).
-Owner of the code: Mobile. Owner of the decisions in §4: the team.
+Current behaviour.
+
+Owner of the code: Mobile.
 
 A completed trip is uploaded to the server the moment it ends. When that upload fails, the
 trip is held in a local queue on the phone so it is not lost. This document describes what
-that queue does today, and the questions the current behaviour is standing in for.
+that queue does today.
 
 ---
 
@@ -54,51 +55,21 @@ if a particular response omits it.
 Sub-minute intervals were deliberately left out: an attempt only ever happens when the app
 is launched or foregrounded, so finer granularity would add steps without changing behaviour.
 
-## 4. Open decisions
+## 4. Retention bound
 
-Nothing in this project has ever documented how long an un-uploadable trip may live on a
-driver's phone. Until CAR-138 the code answered it by accident: five transient failures and
-the trip was deleted, silently, with no attempt to send it again. That was never a decision —
-it was a line in a file header.
+A trip is dropped from the queue once it has failed to upload `MAX_FAILURES_BEFORE_DROP = 50`
+times (`mobile/src/services/sync/SyncManager.ts`). It is deleted and a warning is logged — the
+driver is not shown that it happened. The value is a placeholder, chosen to sit far beyond any
+plausible outage while still bounding local storage; it was never calibrated (see CAR-138,
+which stopped it from being five).
 
-The current implementation replaces it with an explicit, deliberately generous bound so the
-question is visible in one place instead of invisible in three. **The values below are
-placeholders and are expected to change.**
-
-### 4.1 What should bound local retention — attempt count, or age?
-
-| | In code today | Alternative |
-|---|---|---|
-| Unit | Number of failed uploads | Age of the trip in the queue |
-| Value | `MAX_FAILURES_BEFORE_DROP = 50` | e.g. 30 days |
-
-An attempt count is hard to translate into real time: 50 attempts might be two days for one
-driver and two months for another, because attempts only accrue on app launches. An age
-limit is easier to reason about, easier to explain to a driver, and easier to hold the
-server to. The field an age limit needs (`queuedAt`) is already stored on every item, so
-switching units is a small change.
-
-### 4.2 What is the value?
-
-50 is not calibrated. It was chosen to sit far beyond any plausible outage while still
-bounding local storage. If §4.1 lands on age instead, this number disappears entirely.
-
-### 4.3 What happens when the bound is reached?
-
-Today: the trip is deleted and a warning is logged. The alternative — surfacing a stuck trip
-to the driver and letting them decide — is the answer offline-first practice usually gives,
-but it needs UI, which CAR-138 placed explicitly out of scope.
-
-Whichever way §4.1 and §4.2 land, deleting is still losing a trip the driver actually drove.
-It is worth being deliberate about how often we are willing for that to happen.
-
-## 5. What is ready for the decision
-
-The bound lives in a single exported constant in `mobile/src/services/sync/SyncManager.ts`.
-Changing its value is a one-line change. Changing its unit to age is a small one, because
-the timestamp it would read is already persisted.
+CAR-166 has since settled what replaces it: the bound becomes the trip's age in the queue
+(`queuedAt`), not its attempt count, at 30 days — and a trip that crosses it is abandoned, not
+deleted, so the record survives on the device even though it stops being retried. That decision
+is not implemented yet; §4 will change again when it lands.
 
 ---
 
-*Related: CAR-138 (the fix described here), CAR-126 (server-side rate limiting — the source
-of the 429 case), RFC-001 §6 (idempotency and the 422 contract).*
+*Related: CAR-138 (the fix described here), CAR-166 (the retention-bound decision, not yet
+implemented), CAR-126 (server-side rate limiting — the source of the 429 case), RFC-001 §6
+(idempotency and the 422 contract).*
