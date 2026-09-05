@@ -469,7 +469,7 @@ describe('RewardsPage', () => {
     expect(screen.getByText('תיאור עברי')).toBeInTheDocument();
   });
 
-  // ── CAR-339: pause/resume, duplicate, tabs, search ──────────────────────
+  // ── CAR-339: pause/resume, tabs, search ──────────────────────────────────
 
   it('pauses an active reward and flips its card to the resume action', async () => {
     vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward({ isActive: true })] });
@@ -507,21 +507,6 @@ describe('RewardsPage', () => {
     expect(screen.getByRole('button', { name: 'השהיה' })).toBeInTheDocument();
   });
 
-  it('opens the create form pre-filled from an existing reward when duplicating it', async () => {
-    vi.mocked(listRewards).mockResolvedValue({
-      outcome: 'ok',
-      rewards: [reward({ titleHe: 'קפה גדול', titleEn: 'Large coffee', costPoints: 120 })],
-    });
-    renderPage();
-    await waitFor(() => expect(screen.getByText('קפה גדול')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole('button', { name: 'שכפול' }));
-
-    expect(await screen.findByLabelText('כותרת (עברית)')).toHaveValue('קפה גדול (עותק)');
-    expect(screen.getByLabelText('כותרת (אנגלית)')).toHaveValue('Large coffee (copy)');
-    expect(screen.getByLabelText('עלות בנקודות')).toHaveValue(120);
-  });
-
   it('filters the list down to paused rewards when the Paused tab is selected', async () => {
     vi.mocked(listRewards).mockResolvedValue({
       outcome: 'ok',
@@ -554,10 +539,13 @@ describe('RewardsPage', () => {
 
     expect(screen.queryByText('הטבה חיה')).not.toBeInTheDocument();
     expect(screen.getByText('הטבה בארכיון')).toBeInTheDocument();
-    // Nothing is deleted, so the only lifecycle action left is duplicating it
-    // as a fresh reward — no restore endpoint exists yet (see PR notes).
-    expect(screen.getByRole('button', { name: 'שכפול' })).toBeInTheDocument();
+    // No lifecycle action is offered on an archived reward — there is no
+    // restore endpoint (see PR notes), and CAR-339 does not add one.
     expect(screen.queryByRole('button', { name: 'עריכה' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'השהיה' })).not.toBeInTheDocument();
+    // Only the tab bar's own "ארכיון…" button is left once the visible
+    // card is the archived one, with no per-card archive action of its own.
+    expect(screen.getAllByRole('button', { name: /^ארכיון/ })).toHaveLength(1);
   });
 
   it('filters the visible rewards by search text, matching either language', async () => {

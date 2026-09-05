@@ -237,7 +237,6 @@ export type TranslationMap = {
     expiresLabel: string;
     editButton: string;
     addStockButton: string;
-    duplicateButton: string;
     pauseButton: string;
     pausingLabel: string;
     pauseErrorMessage: string;

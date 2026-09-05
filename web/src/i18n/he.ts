@@ -225,7 +225,6 @@ const he: TranslationMap = {
     expiresLabel: 'בתוקף עד',
     editButton: 'עריכה',
     addStockButton: 'הוספת מלאי',
-    duplicateButton: 'שכפול',
     pauseButton: 'השהיה',
     pausingLabel: 'משהה…',
     pauseErrorMessage: 'לא הצלחנו להשהות את ההטבה. נסו שוב.',

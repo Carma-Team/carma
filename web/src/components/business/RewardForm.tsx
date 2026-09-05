@@ -28,14 +28,7 @@ type FieldErrors = Partial<Record<keyof FormState, string>>;
 // BUSINESS_CATEGORIES, so validate() never rejects it.
 const FIELD_ORDER = ['titleHe', 'titleEn', 'descriptionHe', 'descriptionEn', 'costPoints', 'stock', 'expiresAt'] as const;
 
-// What a "duplicate this reward" action (CAR-339) hands the create form to
-// seed it with — everything `FormState` holds except `category`, which needs
-// the caller's own `isBusinessCategory` fallback first (the source reward's
-// category might not be one, if it's legacy data), so it's typed as the real
-// `BusinessCategory` rather than re-validated in here.
-export type RewardFormInitialValues = Partial<FormState>;
-
-function emptyForm(defaultCategory: BusinessCategory, initialValues?: RewardFormInitialValues): FormState {
+function emptyForm(defaultCategory: BusinessCategory): FormState {
   return {
     titleHe: '',
     titleEn: '',
@@ -45,7 +38,6 @@ function emptyForm(defaultCategory: BusinessCategory, initialValues?: RewardForm
     costPoints: '',
     stock: '',
     expiresAt: '',
-    ...initialValues,
   };
 }
 
@@ -120,16 +112,12 @@ type RewardFormProps = {
   mode: 'create' | 'edit';
   // The reward being edited. Ignored in 'create' mode.
   reward: Reward | null;
-  // Pre-fills a fresh 'create' form — e.g. "duplicate" seeding it from an
-  // existing reward. Ignored in 'edit' mode, where `reward` already governs
-  // the initial values.
-  initialValues?: RewardFormInitialValues;
   defaultCategory: BusinessCategory;
   onClose: () => void;
   onSaved: (reward: Reward) => void;
 };
 
-export function RewardForm({ open, mode, reward, initialValues, defaultCategory, onClose, onSaved }: RewardFormProps) {
+export function RewardForm({ open, mode, reward, defaultCategory, onClose, onSaved }: RewardFormProps) {
   const { t } = useTranslation();
   // Mutated (not state) by RewardFormBody, read by this Dialog's onClose —
   // a ref crosses that boundary without either side re-rendering on every
@@ -161,7 +149,6 @@ export function RewardForm({ open, mode, reward, initialValues, defaultCategory,
         key={bodyKey}
         mode={mode}
         reward={reward}
-        initialValues={initialValues}
         defaultCategory={defaultCategory}
         submitInFlightRef={submitInFlight}
         onClose={onClose}
@@ -174,7 +161,6 @@ export function RewardForm({ open, mode, reward, initialValues, defaultCategory,
 function RewardFormBody({
   mode,
   reward,
-  initialValues,
   defaultCategory,
   submitInFlightRef,
   onClose,
@@ -182,7 +168,6 @@ function RewardFormBody({
 }: {
   mode: 'create' | 'edit';
   reward: Reward | null;
-  initialValues?: RewardFormInitialValues;
   defaultCategory: BusinessCategory;
   submitInFlightRef: MutableRefObject<boolean>;
   onClose: () => void;
@@ -190,7 +175,7 @@ function RewardFormBody({
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState<FormState>(() =>
-    mode === 'edit' && reward ? formFromReward(reward, defaultCategory) : emptyForm(defaultCategory, initialValues),
+    mode === 'edit' && reward ? formFromReward(reward, defaultCategory) : emptyForm(defaultCategory),
   );
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);

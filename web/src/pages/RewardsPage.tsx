@@ -14,13 +14,12 @@ import {
   categoryTranslationKey,
   getRewardState,
   isArchived,
-  isoToExpiryDateInput,
   localizedRewardText,
   matchesTab,
   type RewardState,
   type RewardTab,
 } from '@/lib/rewardState';
-import { RewardForm, type RewardFormInitialValues } from '@/components/business/RewardForm';
+import { RewardForm } from '@/components/business/RewardForm';
 import { Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
@@ -32,7 +31,7 @@ type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
 // button disabled, only 'ok' with a real server count unlocks it.
 type LiveVoucherCheck = { status: 'loading' } | { status: 'error' } | { status: 'ok'; count: number };
 
-type FormState = { mode: 'create'; initialValues?: RewardFormInitialValues } | { mode: 'edit'; reward: Reward };
+type FormState = { mode: 'create' } | { mode: 'edit'; reward: Reward };
 
 const STATE_KEY: Record<RewardState, keyof TranslationMap['rewards']> = {
   active: 'stateActive',
@@ -51,14 +50,6 @@ const TAB_KEY: Record<RewardTab, keyof TranslationMap['rewards']> = {
 };
 
 const TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
-
-// Fixed per field language, not per UI language — a duplicated reward's
-// English title must read as English regardless of which language the
-// business happens to be browsing the portal in right now, and likewise for
-// the Hebrew title. `t('rewards.duplicateSuffix')` would apply whichever
-// language is currently active to both fields.
-const DUPLICATE_SUFFIX_HE = ' (עותק)';
-const DUPLICATE_SUFFIX_EN = ' (copy)';
 
 function matchesSearch(reward: Reward, query: string): boolean {
   if (query === '') return true;
@@ -154,22 +145,6 @@ export function RewardsPage() {
       return next;
     });
     setFormState(null);
-  }
-
-  function handleDuplicate(reward: Reward) {
-    setFormState({
-      mode: 'create',
-      initialValues: {
-        titleHe: `${reward.titleHe}${DUPLICATE_SUFFIX_HE}`,
-        titleEn: reward.titleEn ? `${reward.titleEn}${DUPLICATE_SUFFIX_EN}` : '',
-        descriptionHe: reward.descriptionHe,
-        descriptionEn: reward.descriptionEn ?? '',
-        category: isBusinessCategory(reward.category) ? reward.category : defaultCategory,
-        costPoints: String(reward.costPoints),
-        stock: reward.stock === null ? '' : String(reward.stock),
-        expiresAt: reward.expiresAt ? isoToExpiryDateInput(reward.expiresAt) : '',
-      },
-    });
   }
 
   async function handleToggleActive(reward: Reward) {
@@ -392,14 +367,6 @@ export function RewardsPage() {
                   </Text>
                 )}
 
-                {canManage && archived && (
-                  <div className={styles.actions}>
-                    <Button variant="secondary" onClick={() => handleDuplicate(reward)}>
-                      {t('rewards.duplicateButton')}
-                    </Button>
-                  </div>
-                )}
-
                 {canManage && !archived && (
                   <div className={styles.actions}>
                     <Button variant="secondary" onClick={() => setFormState({ mode: 'edit', reward })}>
@@ -412,9 +379,6 @@ export function RewardsPage() {
                       {toggling
                         ? t(reward.isActive ? 'rewards.pausingLabel' : 'rewards.resumingLabel')
                         : t(reward.isActive ? 'rewards.pauseButton' : 'rewards.resumeButton')}
-                    </Button>
-                    <Button variant="secondary" onClick={() => handleDuplicate(reward)}>
-                      {t('rewards.duplicateButton')}
                     </Button>
                     {/* Disabled whenever *any* archive is in flight, not just
                         this card's — CAR-202's pre-commit review (B3) found that
@@ -438,7 +402,6 @@ export function RewardsPage() {
         open={formState !== null}
         mode={formState?.mode ?? 'create'}
         reward={formState?.mode === 'edit' ? formState.reward : null}
-        initialValues={formState?.mode === 'create' ? formState.initialValues : undefined}
         defaultCategory={defaultCategory}
         onClose={() => setFormState(null)}
         onSaved={handleSaved}

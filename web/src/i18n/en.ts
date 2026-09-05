@@ -228,7 +228,6 @@ const en: TranslationMap = {
     expiresLabel: 'Expires',
     editButton: 'Edit',
     addStockButton: 'Add stock',
-    duplicateButton: 'Duplicate',
     pauseButton: 'Pause',
     pausingLabel: 'Pausing…',
     pauseErrorMessage: 'Could not pause this reward. Try again.',
