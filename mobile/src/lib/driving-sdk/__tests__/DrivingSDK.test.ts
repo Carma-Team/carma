@@ -621,6 +621,42 @@ describe('DrivingSDK', () => {
     expect(tripData()?.waypoints).toHaveLength(0);
   });
 
+  // ── Trip end trimming (CAR-298) ────────────────────────────────────────────
+  // Rule 2 only reports an end after 3 continuous minutes below its stop threshold, and
+  // nothing is recorded in them. Leaving those minutes inside the duration is what pushed
+  // `covered_s / duration` under the server's 0.5 coverage gate on every short trip.
+
+  it('ends the trip at the last waypoint, not when stop detection finished', async () => {
+    const startedAt = Date.now();
+    await startTripReady();
+    const moving = { currentSpeed: 50, distanceKm: 0.02, lat: 32.1, lng: 34.8 };
+
+    sendSensorUpdate(moving);
+    jest.advanceTimersByTime(60_000);
+    sendSensorUpdate(moving);
+    const lastMovedAt = Date.now();
+
+    // The stop-detection tail: three minutes under the waypoint gate, so no trace.
+    for (let i = 0; i < 180; i++) {
+      jest.advanceTimersByTime(1000);
+      sendSensorUpdate({ currentSpeed: 0, lat: 32.1, lng: 34.8 });
+    }
+    const finished = await sdk.stopTrip();
+
+    expect(finished?.endTime?.getTime()).toBe(lastMovedAt);
+    expect(finished?.durationSeconds).toBe(Math.floor((lastMovedAt - startedAt) / 1000));
+  });
+
+  it('reports a zero duration for a trip that never moved', async () => {
+    await startTripReady();
+
+    jest.advanceTimersByTime(180_000);
+    const finished = await sdk.stopTrip();
+
+    expect(finished?.durationSeconds).toBe(0);
+    expect(finished?.averageSpeed).toBe(0);
+  });
+
   // ── Vehicle key (CAR-310) ──────────────────────────────────────────────────
 
   it('stamps the connected vehicle as an opaque key, never the address itself', async () => {
