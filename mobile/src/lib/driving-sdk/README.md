@@ -124,8 +124,9 @@ Any file that encodes a decision specific to the consuming application.
 │                    Application layer                         │
 │  (scoring, fraud detection, trip validation, gamification)   │
 │                                                              │
-│  sdk.on(HARD_BRAKE, { minSpeedKmh: 15 }, handler)           │
-│  sdk.on(SHARP_TURN,  { minSpeedKmh: 10 }, handler)           │
+│  sdk.on(HARD_BRAKE,       { minSpeedKmh: 15 }, handler)      │
+│  sdk.on(AGGRESSIVE_ACCEL, { minSpeedKmh: 15 }, handler)      │
+│  sdk.on(SHARP_TURN,       { minSpeedKmh: 25 }, handler)      │
 │  sdk.onTripEnd = (data) => persistTrip(data)                 │
 │                                                              │
 │                   ↓ registers  ↑ events                      │
