@@ -21,6 +21,7 @@ import { getBondedDevices, getBTSupportStatus } from '@/lib/driving-sdk/auto-tri
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
+import { EventRouter } from '@/lib/driving-sdk/eventRouting';
 import type { RawRecordingSession } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
@@ -59,16 +60,10 @@ export class DrivingSDK {
   // Wall-clock timestamp of the most recent startTrip() call — used to enforce a 3-second warm-up
   // grace period that drops spurious sensor events caused by the physical act of pressing Start.
   private tripStartTime = 0;
-  // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
-  private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
-
-  // Registered conditional sensor event listeners.
-  // Each entry: { type, condition, handler } — dispatched inside handleEvent().
-  private sensorListeners = new Map<ListenerToken, {
-    type: DrivingEventType;
-    condition: SensorEventCondition;
-    handler: SensorEventHandler;
-  }>();
+  // Who hears about a detected event: the per-type cooldown and the conditions each
+  // listener subscribed with. Both move on their own schedule, which is why they are
+  // no longer in this file.
+  private events = new EventRouter();
   // Latest GPS speed tick — stamped onto every DrivingEvent for kinetic penalty scaling
   private currentSpeedKmh = 0;
   // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
@@ -115,14 +110,12 @@ export class DrivingSDK {
     condition: SensorEventCondition,
     handler: SensorEventHandler,
   ): ListenerToken {
-    const token: ListenerToken = Symbol('sensor-listener');
-    this.sensorListeners.set(token, { type, condition, handler });
-    return token;
+    return this.events.add(type, condition, handler);
   }
 
   /** Remove a previously registered listener. No-op if the token is unknown. */
   public off(token: ListenerToken): void {
-    this.sensorListeners.delete(token);
+    this.events.remove(token);
   }
 
   constructor(config: SDKConfig = {}) {
@@ -235,7 +228,7 @@ export class DrivingSDK {
       this.validationManager.start();
     }
 
-    this.lastEventTime = {};
+    this.events.resetCooldowns();
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
     this.lastKnownLocation = null;
@@ -410,16 +403,7 @@ export class DrivingSDK {
     const WARMUP_MS = 3000;
     if (Date.now() - this.tripStartTime < WARMUP_MS) return;
 
-    // Matched to the 5 s window the consumer's server merges detections over. Widening
-    // the evaluation window to 5 s instead would average a short hard event below its
-    // own threshold and stop reporting it at all, so the merge happens after detection.
-    // Per type on purpose: a sustained brake must not swallow a turn detected inside it.
-    if (event.type !== DrivingEventType.PHONE_USAGE) {
-      const cooldownMs = 5000;
-      const last = this.lastEventTime[event.type] ?? 0;
-      if (event.timestamp.getTime() - last < cooldownMs) return;
-      this.lastEventTime[event.type] = event.timestamp.getTime();
-    }
+    if (!this.events.passesCooldown(event)) return;
 
     // Stamp GPS speed and location onto the event.
     event.speedKmh = this.currentSpeedKmh;
@@ -434,17 +418,10 @@ export class DrivingSDK {
     const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
     console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
 
-    // Dispatch to conditional listeners — each listener fires only when its conditions are met.
+    // A copy, so a listener that mutates what it is handed cannot reach the event this
+    // trip stored above.
     const snapshot = { ...event };
-    for (const { type, condition, handler } of this.sensorListeners.values()) {
-      if (type !== event.type) continue;
-      if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
-      // motion events can satisfy, so it must not silently block them either.
-      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
-          && (event.severity ?? 0) < condition.minSeverity) continue;
-      try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
-    }
+    this.events.dispatch(snapshot, this.currentSpeedKmh);
 
     // Legacy single callback — fires for every SDK-qualified event regardless of conditions.
     if (this.onEventDetected) this.onEventDetected(snapshot);
