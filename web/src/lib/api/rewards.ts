@@ -119,6 +119,23 @@ export async function updateReward(rewardId: string, payload: RewardPayload): Pr
   }
 }
 
+// Pause/resume (CAR-339) — a partial PATCH of just `isActive`, the one field
+// `RewardPayload` deliberately omits (see its own comment). The server's
+// `BusinessRewardPatchIn` applies only the keys actually sent
+// (`model_dump(exclude_unset=True)`), so this never touches the reward's
+// other fields.
+export async function setRewardActive(rewardId: string, isActive: boolean): Promise<RewardMutationResult> {
+  try {
+    const { reward } = await request<{ reward: Reward }>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+    return { outcome: 'ok', reward };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
 export async function retireReward(rewardId: string): Promise<RetireRewardResult> {
   try {
     await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, { method: 'DELETE' });
