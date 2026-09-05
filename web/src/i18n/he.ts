@@ -122,6 +122,9 @@ const he: TranslationMap = {
     invalidCodeError: 'קוד שגוי או שפג תוקפו — בקשו קוד חדש.',
     otpRateLimitedError: 'יותר מדי ניסיונות — המתינו רגע ונסו שוב.',
     otpNetworkError: 'שגיאת רשת — בדקו את החיבור ונסו שוב.',
+    registerButton: 'הרשמה',
+    haveInvitationCodeLink: 'קיבלתם קוד הזמנה מבעל העסק? התחברו כאן',
+    checkRegistrationStatusLink: 'בדיקת סטטוס בקשת הרשמה',
   },
   businessRegistration: {
     signInEntryLabel: 'יש לכם עסק? רשמו אותו בכרמה',

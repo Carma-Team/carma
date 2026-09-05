@@ -124,6 +124,9 @@ const en: TranslationMap = {
     invalidCodeError: 'Invalid or expired code — request a new one.',
     otpRateLimitedError: 'Too many attempts — wait a moment and try again.',
     otpNetworkError: 'Network error — check your connection and try again.',
+    registerButton: 'Register',
+    haveInvitationCodeLink: 'Got an invitation code from the business owner? Sign in here',
+    checkRegistrationStatusLink: 'Check your registration request status',
   },
   businessRegistration: {
     signInEntryLabel: 'Own a business? Register it on CARMA',

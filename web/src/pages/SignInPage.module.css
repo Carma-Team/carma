@@ -17,3 +17,21 @@
   letter-spacing: 0.4em;
   font-variant-numeric: tabular-nums;
 }
+
+.primaryActions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.secondaryActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.secondaryLink {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-caption);
+}
