@@ -132,9 +132,12 @@ shape and a narrower one:
 
 | Value | Reaches a validator? |
 |---|---|
+| `longitudinalAccelG` | Yes, as `longitudinalAccelG` |
 | `lateralAccelG` | Yes, as `lateralAccelG` |
 | `yawRateRadS` | Yes, as `yawRate` |
-| `longitudinalAccelG` | **No.** `SensorManager` computes it and puts it on its internal update, but `ValidationSample` has no field for it and nothing forwards it. A validator that needs the longitudinal axis cannot get it today |
+
+All three arrive on every call, the speed-only decay tick included — there is one delivery
+point, so a tick that carries no GPS fix still carries the vehicle-frame values.
 
 Each of them is `null` rather than `0` when it cannot be resolved, and the two conditions are
 not the same: the longitudinal/lateral split needs the vehicle's forward direction, which is
