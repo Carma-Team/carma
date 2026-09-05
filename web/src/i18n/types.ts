@@ -139,7 +139,6 @@ export type TranslationMap = {
     checkRegistrationStatusLink: string;
   };
   businessRegistration: {
-    signInEntryLabel: string;
     title: string;
     subtitle: string;
     nameLabel: string;

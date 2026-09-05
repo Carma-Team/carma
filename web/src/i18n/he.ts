@@ -127,7 +127,6 @@ const he: TranslationMap = {
     checkRegistrationStatusLink: 'בדיקת סטטוס בקשת הרשמה',
   },
   businessRegistration: {
-    signInEntryLabel: 'יש לכם עסק? רשמו אותו בכרמה',
     title: 'רישום העסק שלכם',
     subtitle: 'ספרו לנו על העסק, אמתו את הטלפון, ואנחנו נבדוק את הבקשה.',
     nameLabel: 'שם העסק (אנגלית)',

@@ -129,7 +129,6 @@ const en: TranslationMap = {
     checkRegistrationStatusLink: 'Check your registration request status',
   },
   businessRegistration: {
-    signInEntryLabel: 'Own a business? Register it on CARMA',
     title: 'Register your business',
     subtitle: 'Tell us about your business, verify your phone, and we will review your request.',
     nameLabel: 'Business name (English)',
