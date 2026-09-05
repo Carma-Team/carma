@@ -23,7 +23,6 @@ import {
   SuspiciousActivityEvaluation,
   SensorUpdate,
 } from '@/lib/driving-sdk/types';
-import { TransportMode } from '@/lib/transportMode';
 import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -146,7 +145,10 @@ class StubValidator implements TripValidator {
 
 const FRAUD: SuspiciousActivityEvaluation = {
   score: 0.9,
-  mode: TransportMode.TRAIN,
+  // A bare string on purpose: `mode` is declared `string` and documented as an opaque
+  // passthrough the SDK never reads. Reaching for the host app's TransportMode enum
+  // would make the library's own suite depend on an app concept (CAR-335).
+  mode: 'TRAIN',
   telemetry: { avgSpeedKmh: 80, maxLateralAccelG: 0.02, yawVariance: 0.001 },
   // A validator's own gate names, one of them unevaluated. The SDK must not read,
   // rename or normalise any of it — see the passthrough assertion below.
@@ -737,7 +739,7 @@ describe('DrivingSDK', () => {
     expect(onFraudDetected).toHaveBeenCalledTimes(1);
     expect(onFraudDetected.mock.calls[0][0]).toMatchObject({
       fraudScore: FRAUD.score,
-      detectedMode: TransportMode.TRAIN,
+      detectedMode: 'TRAIN',
       signals: FRAUD.signals,
       // Read before the abort clears the trip data — zero, not undefined (CAR-134).
       distanceKm: 0,

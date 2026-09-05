@@ -582,3 +582,12 @@ export * from './types';
 // Emitted by onInteractionData — part of the public surface, so it is re-exported here
 // rather than leaving hosts to reach into sensors/.
 export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+
+// Consumed by host apps today through deep paths, which break the moment this package
+// gains an `exports` map (CAR-334). The entry point is the only supported import path.
+export { isBackgroundThrottlingRiskPlatform, openAppSystemSettings } from './PowerManagement';
+export { checkDeviceCapabilities } from './DeviceCapabilities';
+export type { DeviceCapabilities } from './DeviceCapabilities';
+// Two documents point a consumer at this as the reference for overriding
+// SDKConfig.motionThresholds, so it has to be reachable from the package root.
+export { DEFAULT_MOTION_THRESHOLDS } from './sensors/SensorManager';
