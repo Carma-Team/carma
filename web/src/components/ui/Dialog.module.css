@@ -29,6 +29,27 @@
   margin-top: var(--space-sm);
 }
 
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.iconCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-full);
+}
+
+.headerText {
+  flex: 1;
+  min-width: 0;
+}
+
 .closeButton {
   position: absolute;
   top: var(--space-sm);

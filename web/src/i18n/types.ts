@@ -59,9 +59,7 @@ export type TranslationMap = {
     checkButton: string;
     checkingLabel: string;
     statusPending: string;
-    statusUsed: string;
     statusExpired: string;
-    statusCancelled: string;
     costPointsLabel: string;
     expiresLabel: string;
     timeRemainingLabel: string;
@@ -88,6 +86,7 @@ export type TranslationMap = {
     failureAlreadyUsedMessage: string;
     failureExpiredTitle: string;
     failureExpiredMessage: string;
+    failureAlreadyExpiredMessage: string;
     failureRateLimitedTitle: string;
     failureRateLimitedMessage: string;
     failureNetworkTitle: string;
@@ -96,6 +95,8 @@ export type TranslationMap = {
     failureConfirmNetworkMessage: string;
     failureUnexpectedTitle: string;
     failureUnexpectedMessage: string;
+    failureConfirmUnexpectedTitle: string;
+    failureConfirmUnexpectedMessage: string;
   };
   auth: {
     signInTitle: string;

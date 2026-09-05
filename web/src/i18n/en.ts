@@ -45,9 +45,7 @@ const en: TranslationMap = {
     checkButton: 'Check code',
     checkingLabel: 'Checking the voucher…',
     statusPending: 'Voucher valid',
-    statusUsed: 'Voucher already used',
     statusExpired: 'Voucher expired',
-    statusCancelled: 'Voucher cancelled',
     costPointsLabel: 'Original cost',
     expiresLabel: 'Valid until',
     timeRemainingLabel: 'Time remaining',
@@ -68,7 +66,7 @@ const en: TranslationMap = {
     redeemedAtLabel: 'Redeemed at',
     retryAfterLabel: 'Retry after (seconds)',
     tryAnotherCodeButton: 'Enter another code',
-    failureNotValidTitle: 'Check the code',
+    failureNotValidTitle: 'Cannot verify the voucher',
     failureNotValidMessage:
       "We couldn't find a voucher with that code for this business. Re-enter it carefully — a mistyped or misheard character is the most common reason.",
     failureAlreadyUsedTitle: 'Already redeemed',
@@ -76,9 +74,10 @@ const en: TranslationMap = {
     failureExpiredTitle: 'Voucher expired',
     failureExpiredMessage:
       "The voucher's time window ran out just now, before the redemption was confirmed. Ask the driver to return to the reward and issue a new voucher if their current voucher policy allows it.",
+    failureAlreadyExpiredMessage: "This voucher's validity has ended and it can no longer be redeemed.",
     failureRateLimitedTitle: 'Too many attempts',
     failureRateLimitedMessage: 'Wait a moment before trying again.',
-    failureNetworkTitle: 'Cannot verify the voucher',
+    failureNetworkTitle: 'Connection error',
     failureNetworkMessage:
       "We couldn't reach the server, so the voucher cannot be verified. Do not hand over the goods — check the connection and try again.",
     failureConfirmNetworkTitle: 'Redemption not confirmed',
@@ -86,6 +85,9 @@ const en: TranslationMap = {
       "The voucher was valid, but we couldn't reach the server to confirm the redemption, so we don't know whether it was recorded. Do not hand over the goods — check the connection, then check the code again before redeeming it.",
     failureUnexpectedTitle: 'Something went wrong',
     failureUnexpectedMessage: 'Please try again.',
+    failureConfirmUnexpectedTitle: 'Redemption failed',
+    failureConfirmUnexpectedMessage:
+      'The check succeeded, but the redemption itself failed. The voucher was not used — you can try again.',
   },
   auth: {
     signInTitle: 'Sign in to the Business Portal',

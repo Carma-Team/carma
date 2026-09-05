@@ -60,7 +60,11 @@ function renderPage() {
 async function enterCode(code: string) {
   fireEvent.change(screen.getByLabelText('קוד שובר'), { target: { value: code } });
   fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
-  await waitFor(() => expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument());
+  // Waits for the peeking step's spinner (role="status") to clear rather than
+  // for a heading — a peeked voucher can land on either the review card
+  // (a heading) or the failure card (an alert, no heading), so this has to
+  // work for both.
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
 }
 
 describe('RedemptionPage', () => {
@@ -156,13 +160,14 @@ describe('RedemptionPage', () => {
     vi.useRealTimers();
   });
 
-  it('does not offer redemption for a voucher peeked back as already used', async () => {
+  it('shows the already-used failure card for a voucher peeked back as already used, without offering redemption', async () => {
     vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ status: 'used' }) });
 
     renderPage();
     await enterCode('TXQ947ZKPS');
 
-    expect(screen.getByRole('button', { name: 'מימוש ההטבה' })).toBeDisabled();
+    expect(screen.getByText('השובר כבר מומש')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'מימוש ההטבה' })).not.toBeInTheDocument();
     expect(consumeVoucher).not.toHaveBeenCalled();
   });
 
@@ -322,7 +327,7 @@ describe('RedemptionPage', () => {
       expect(screen.queryByText(/הזינו קוד בן 10 תווים/)).not.toBeInTheDocument();
     });
 
-    it('reads an unknown or another business’s voucher (404) first as "check the code"', async () => {
+    it('reads an unknown or another business’s voucher (404) as "cannot verify the voucher"', async () => {
       vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'not_valid_here' });
 
       renderPage();
@@ -330,7 +335,25 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
 
       await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-      expect(screen.getByRole('heading', { name: 'בדקו את הקוד' })).toBeInTheDocument();
+      expect(screen.getByText('לא ניתן לאמת את השובר')).toBeInTheDocument();
+    });
+
+    it('shows the expired failure card, with the expiry date, for a voucher peeked back as expired', async () => {
+      const expiresAt = '2026-08-14T10:00:00.000Z';
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher({ status: 'expired', expiresAt }) });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+
+      // Same title as the review card's own "expired" status label — a
+      // stale voucher found on lookup is not the same story as one that
+      // expired in the seconds between lookup and confirm (below), so it
+      // gets the plain title and message, not the timing-specific one.
+      expect(screen.getByText('השובר פג תוקף')).toBeInTheDocument();
+      expect(screen.queryByText(/לפני שהמימוש אושר/)).not.toBeInTheDocument();
+      expect(screen.getByText(new Date(expiresAt).toLocaleString('he-IL'))).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'מימוש ההטבה' })).not.toBeInTheDocument();
+      expect(consumeVoucher).not.toHaveBeenCalled();
     });
 
     it('shows when an already-used voucher was redeemed, on a peek result', async () => {
@@ -361,7 +384,7 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
       fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'השובר כבר מומש' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('השובר כבר מומש')).toBeInTheDocument());
       expect(peekVoucher).toHaveBeenCalledTimes(2);
       expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
     });
@@ -404,7 +427,7 @@ describe('RedemptionPage', () => {
       // not overwritten by any of the attempted exits above.
       resolveRecoveryPeek({ outcome: 'ok', voucher: makeVoucher({ status: 'used', redeemedAt }) });
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'השובר כבר מומש' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('השובר כבר מומש')).toBeInTheDocument());
       expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
       expect(consumeVoucher).toHaveBeenCalledTimes(1);
       expect(peekVoucher).toHaveBeenCalledTimes(2);
@@ -424,7 +447,7 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
       fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'פג תוקף השובר' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('פג תוקף השובר')).toBeInTheDocument());
       expect(screen.getByText(/לפני שהמימוש אושר/)).toBeInTheDocument();
     });
 
@@ -443,7 +466,7 @@ describe('RedemptionPage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
         fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
-        await waitFor(() => expect(screen.getByRole('heading', { name: 'פג תוקף השובר' })).toBeInTheDocument());
+        await waitFor(() => expect(screen.getByText('פג תוקף השובר')).toBeInTheDocument());
         unmount();
       }
     });
@@ -468,7 +491,7 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
 
       await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-      expect(screen.getByRole('heading', { name: 'לא ניתן לאמת את השובר' })).toBeInTheDocument();
+      expect(screen.getByText('שגיאת תקשורת')).toBeInTheDocument();
       expect(screen.getByText(/אל תמסרו את המוצר/)).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
     });
@@ -486,9 +509,9 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
       fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'המימוש לא אושר' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('המימוש לא אושר')).toBeInTheDocument());
       expect(screen.getByText(/אל תמסרו את המוצר/)).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'לא ניתן לאמת את השובר' })).not.toBeInTheDocument();
+      expect(screen.queryByText('שגיאת תקשורת')).not.toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'ההטבה מומשה בהצלחה' })).not.toBeInTheDocument();
     });
 
@@ -504,9 +527,25 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Redeem reward' }));
       fireEvent.click(screen.getByRole('button', { name: 'Yes, redeem it' }));
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'Redemption not confirmed' })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Redemption not confirmed')).toBeInTheDocument());
       expect(screen.getByText(/Do not hand over the goods/)).toBeInTheDocument();
-      expect(screen.queryByRole('heading', { name: 'Cannot verify the voucher' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Connection error')).not.toBeInTheDocument();
+    });
+
+    it('shows a specific, reassuring message — not the generic fallback — when the redeem action itself fails unexpectedly', async () => {
+      vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'unexpected_error' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByText('המימוש נכשל')).toBeInTheDocument());
+      expect(screen.getByText(/השובר לא נצרך/)).toBeInTheDocument();
+      // Not the generic lookup-phase fallback, which says nothing about the
+      // voucher being safe to retry.
+      expect(screen.queryByText('משהו השתבש')).not.toBeInTheDocument();
     });
 
     it('falls back to a safe, translated message for an unexpected failure, without any raw server text or status code', async () => {
@@ -517,7 +556,7 @@ describe('RedemptionPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'בדיקת קוד' }));
 
       await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-      expect(screen.getByRole('heading', { name: 'משהו השתבש' })).toBeInTheDocument();
+      expect(screen.getByText('משהו השתבש')).toBeInTheDocument();
       expect(screen.queryByText(/500/)).not.toBeInTheDocument();
       expect(screen.queryByText(/Internal/)).not.toBeInTheDocument();
     });
