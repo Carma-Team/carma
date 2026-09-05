@@ -177,11 +177,11 @@ also offered, raw, to other consumers, so that a second reader of the same senso
 have to power it twice: `PhoneUsageManager` and `RawSampleRecorder` (the latter only while a
 staged calibration session is active — see the README's "Calibration recording" section).
 
-**The sharing is not complete.** `PhoneUsageManager` takes the gyroscope through the tap and
-opens **its own accelerometer subscription**, so an ordinary trip runs two listeners on the
-one physical accelerometer. That costs battery and changes no reading.
+`PhoneUsageManager` subscribes to nothing of its own: both of its streams arrive through
+these taps, so an ordinary trip holds exactly one listener per physical sensor.
 Neither tap affects motion-event detection above; both fire unconditionally
-at 10 Hz regardless of whether anything is currently listening.
+at 10 Hz regardless of whether anything is currently listening. A tap fired outside a trip
+reaches a stopped `PhoneUsageManager` and is discarded there.
 
 The magnetometer is deliberately not a tap. `SensorManager` never subscribes
 to it, because nothing here detects anything from it — so `RawSampleRecorder`
