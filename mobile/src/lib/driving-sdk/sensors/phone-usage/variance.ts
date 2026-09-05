@@ -1,13 +1,14 @@
 /**
  * @file variance.ts
  * @owner May Hajbi — driving-sdk maintainer
- * @brief The rolling analysis window shared by both phone-usage detectors, and the
- * variance over it.
+ * @brief The rolling analysis window phone-usage detection runs over, and the variance
+ * over it.
  *
  * @description
- * Both detectors describe the same second — one over acceleration magnitude, one over
- * angular speed — so the window length and the variance are defined once here rather
- * than twice, and changing the analysis span changes it for both at the same time.
+ * Separate from its one caller because the window length is the span every phone-usage
+ * number describes — the variance, the tap ageing — and a change to it is a change to
+ * all of them at once. It held two detectors until CAR-187 dropped the acceleration
+ * half.
  */
 
 /** Rolling variance window: 10 samples at 10 Hz = 1-second analysis window. */

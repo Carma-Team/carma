@@ -181,6 +181,11 @@ export interface SDKConfig {
   motionThresholds?: Partial<MotionThresholds>;
   // Custom trip-start/trip-end/fraud rules. Omit to use DefaultTripValidator.
   tripValidator?: TripValidator;
+  // Turns the connected vehicle's identifier into the opaque key the host wants stamped
+  // on the trip. Injected rather than computed here for the same reason `tripValidator`
+  // is: the salt is the host's secret and the SDK has no business holding one. Omit and
+  // `vehicleKeyHash` stays null.
+  vehicleKeyHasher?: (vehicleId: string) => string | null;
 }
 
 export interface RouteWaypoint {
@@ -242,8 +247,9 @@ export interface TripData {
   waypoints: RouteWaypoint[];      // GPS track — downsampled to 2s intervals of GPS-fix time while moving
   averageSpeed: number;
   maxSpeed: number;
-  touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds, no speed gate
+  screenInteractionSeconds: number; // v2.0 — seconds carrying a tap cadence, no speed gate
+  phoneMotionSeconds: number;       // v2.0 — seconds the phone was moved without one; the
+                                    // two are mutually exclusive
                                     // (per-second samples arrive via onInteractionData)
   accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
                              // why — see accelInitFailed
@@ -251,6 +257,10 @@ export interface TripData {
                              // samples for. The three fields answer different questions:
                              // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
+  // The vehicle this trip was recorded in, as an opaque key from `vehicleKeyHasher`.
+  // Null means no vehicle was connected when the trip started, or the host injected no
+  // hasher — never an empty string, which would read as a vehicle whose key is blank.
+  vehicleKeyHash: string | null;
 }
 
 // ─── Fraud Detection Event ────────────────────────────────────────────────────

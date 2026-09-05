@@ -146,10 +146,10 @@ export class DrivingSDK {
         this.phoneManager.pushGyroSample(x, y, z);
         this.rawRecorder.pushGyroSample(x, y, z);
       },
-      ({ x, y, z }) => {
-        this.phoneManager.pushAccelSample(x, y, z);
-        this.rawRecorder.pushAccelSample(x, y, z);
-      },
+      // Acceleration goes to the recorder only — phone usage reads the gyroscope alone
+      // since CAR-187, because a single-sample force threshold cannot tell a finger from
+      // a pothole.
+      ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
     );
 
     this.phoneManager = new PhoneUsageManager(
@@ -249,8 +249,8 @@ export class DrivingSDK {
       waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      touchEpochs: 0,
       screenInteractionSeconds: 0,
+      phoneMotionSeconds: 0,
       // Latched over the trip: `accelAvailable` on each tick is "live right now"
       // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
       // false mid-trip. These default false and latch true once the accelerometer is
@@ -258,6 +258,11 @@ export class DrivingSDK {
       accelAvailable: false,
       accelCoverage: 0,
       accelInitFailed: false,
+      // Resolved once, at start: L1 binding asks which vehicle the drive happened in, and
+      // a device that disconnects mid-trip did not change that answer. The raw identifier
+      // is passed straight into the host's hasher and never stored on the trip — a MAC
+      // address must not leave the device (CAR-310).
+      vehicleKeyHash: this.resolveVehicleKeyHash(),
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -279,6 +284,22 @@ export class DrivingSDK {
 
     if (this.onTripStart) this.onTripStart(tripId);
     return tripId;
+  }
+
+  /**
+   * The connected vehicle as an opaque key, or null when there is nothing to name: no
+   * vehicle connected, or a host that injected no hasher. A hasher that throws must not
+   * take the trip down with it — the trip is the product, the binding is an extra.
+   */
+  private resolveVehicleKeyHash(): string | null {
+    const vehicleId = this.autoDetection.getConnectedVehicleId();
+    if (!vehicleId || !this.config.vehicleKeyHasher) return null;
+    try {
+      return this.config.vehicleKeyHasher(vehicleId) || null;
+    } catch (e) {
+      console.warn('[SDK] vehicleKeyHasher threw — trip saved without a vehicle key', e);
+      return null;
+    }
   }
 
   public async stopTrip(): Promise<TripData | null> {
@@ -414,8 +435,8 @@ export class DrivingSDK {
 
   private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs += data.touchEpochs;
     this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
+    this.currentTripData.phoneMotionSeconds += data.phoneMotionSeconds;
     if (this.onInteractionData) this.onInteractionData({ ...data });
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
@@ -545,10 +566,10 @@ export class DrivingSDK {
   // whether or not startTrip() was ever called, and never touches currentTripData.
 
   /** Starts a staged recording session, tagged with a caller-supplied scenario/platform label. */
-  public async startRawRecording(scenario: string, platform: string): Promise<void> {
+  public async startRawRecording(scenario: string, platform: string, deviceModel?: string): Promise<void> {
     await this.sensorManager.start(); // idempotent — no-op if a real trip already has it running
     try {
-      this.rawRecorder.start(scenario, platform);
+      this.rawRecorder.start(scenario, platform, deviceModel);
     } catch (e) {
       // start() creates the session file up front, so it can throw on a storage failure
       // after the sensors are already streaming. Without this the caller sees a failed
@@ -572,12 +593,36 @@ export class DrivingSDK {
     if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
   }
 
-  /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
-  public async exportRawRecording(): Promise<string | RawExportFailure> {
-    return this.rawRecorder.exportAsync();
+  /**
+   * Places a labelled point in the running session — a hard brake, a phone pickup, a
+   * change of scenario. False when the marker was not recorded — no session running, or
+   * a session at its line cap — so a UI can tell a recorded marker from a dropped tap.
+   */
+  public markRawRecording(markerType: string, label?: string, metadata?: Record<string, unknown>): boolean {
+    return this.rawRecorder.pushMarker(markerType, label, metadata);
   }
 
-  /** Completed recordings on disk, newest first — including sessions from earlier app runs. */
+  /**
+   * Re-labels the running session from here on, leaving a marker where it changed. The
+   * session header keeps the scenario the drive opened with — see changeScenario.
+   */
+  public changeRawRecordingScenario(scenario: string): boolean {
+    return this.rawRecorder.changeScenario(scenario);
+  }
+
+  /**
+   * Shares a recording via the OS share sheet — the last completed one, or the file at
+   * `filePath` when the host picked an older session from `listRawRecordings()`. See
+   * RawSampleRecorder.exportAsync for the failure shape.
+   */
+  public async exportRawRecording(filePath?: string): Promise<string | RawExportFailure> {
+    return this.rawRecorder.exportAsync(filePath);
+  }
+
+  /**
+   * Completed recordings on disk, newest first — including sessions from earlier app
+   * runs, and excluding the one still being written.
+   */
   public listRawRecordings(): string[] {
     return this.rawRecorder.listRecordings();
   }

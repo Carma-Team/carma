@@ -38,9 +38,12 @@ let mockGyroPassthrough: ((sample: { x: number; y: number; z: number }) => void)
 let mockAccelPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
+  | ((data: { screenInteractionSeconds: number; phoneMotionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockDetected: (() => void) | null = null;
+// The vehicle the detection layer reports as connected, driven per test — the SDK reads
+// it once at trip start to stamp the trip's vehicle key (CAR-310).
+let mockConnectedVehicleId: string | null = null;
 let mockLost: (() => void) | null = null;
 
 const mockSensorStart = jest.fn(async () => undefined);
@@ -109,6 +112,7 @@ jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
       mockLost = onLost;
     }
     enable(target: string | null) { return mockAutoEnable(target); }
+    getConnectedVehicleId() { return mockConnectedVehicleId; }
   },
 }));
 
@@ -248,6 +252,7 @@ describe('DrivingSDK', () => {
     mockPhoneInteraction = null;
     mockDetected = null;
     mockLost = null;
+    mockConnectedVehicleId = null;
     jest.clearAllMocks();
 
     onTripStart = jest.fn();
@@ -616,15 +621,61 @@ describe('DrivingSDK', () => {
     expect(tripData()?.waypoints).toHaveLength(0);
   });
 
+  // ── Vehicle key (CAR-310) ──────────────────────────────────────────────────
+
+  it('stamps the connected vehicle as an opaque key, never the address itself', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+    const hasher = jest.fn(() => 'deadbeefdeadbeefdeadbeefdeadbeef');
+    const withHasher = wire(new DrivingSDK({ vehicleKeyHasher: hasher }));
+
+    await startTripReady(withHasher);
+
+    expect(hasher).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF');
+    expect(tripData(withHasher)?.vehicleKeyHash).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
+  });
+
+  it('leaves the vehicle key null when nothing is connected', async () => {
+    const hasher = jest.fn(() => 'deadbeef');
+    const withHasher = wire(new DrivingSDK({ vehicleKeyHasher: hasher }));
+
+    await startTripReady(withHasher);
+
+    expect(hasher).not.toHaveBeenCalled();
+    expect(tripData(withHasher)?.vehicleKeyHash).toBeNull();
+  });
+
+  it('leaves the vehicle key null when the host injected no hasher', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+
+    await startTripReady();
+
+    expect(tripData()?.vehicleKeyHash).toBeNull();
+  });
+
+  // The binding is an extra; the trip is the product. A hasher that throws must not take
+  // the drive down with it.
+  it('saves the trip without a vehicle key when the hasher throws', async () => {
+    mockConnectedVehicleId = 'AA:BB:CC:DD:EE:FF';
+    const withHasher = wire(new DrivingSDK({
+      vehicleKeyHasher: () => { throw new Error('no salt'); },
+    }));
+
+    await startTripReady(withHasher);
+
+    expect(withHasher.getStatus().isActive).toBe(true);
+    expect(tripData(withHasher)?.vehicleKeyHash).toBeNull();
+  });
+
   // ── Phone interaction metrics ──────────────────────────────────────────────
 
   it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
-    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 0, phoneMotionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
+    expect(tripData()).toMatchObject({ screenInteractionSeconds: 2, phoneMotionSeconds: 1 });
   });
 
   it('passes each per-second sample to the host with its speed, ungated (CAR-184)', async () => {
@@ -632,8 +683,8 @@ describe('DrivingSDK', () => {
     sdk.onInteractionData = (data) => received.push(data);
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 3 });
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 3 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
 
     expect(received).toMatchObject([
       { screenInteractionSeconds: 1, speedKmh: 3 },
@@ -896,7 +947,7 @@ describe('DrivingSDK', () => {
     await sdk.startRawRecording('handheld', 'ios');
 
     expect(mockSensorStart).toHaveBeenCalledTimes(1);
-    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios');
+    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios', undefined);
   });
 
   it('taps the same accel/gyro subscriptions SensorManager already keeps powered', async () => {
@@ -909,16 +960,19 @@ describe('DrivingSDK', () => {
     expect(mockRawPushGyro).toHaveBeenCalledWith(4, 5, 6);
   });
 
-  it('feeds the phone manager from the same subscriptions, opening none of its own', async () => {
+  it('feeds the phone manager the gyroscope tap and nothing else', async () => {
     await sdk.startTrip();
 
     mockAccelPassthrough?.({ x: 1, y: 2, z: 3 });
     mockGyroPassthrough?.({ x: 4, y: 5, z: 6 });
 
-    // One physical accelerometer, one listener: PhoneUsageManager reads it through the
-    // tap rather than subscribing beside SensorManager (CAR-325).
-    expect(mockPhonePushAccel).toHaveBeenCalledWith(1, 2, 3);
+    // One physical gyroscope, one listener: PhoneUsageManager reads it through the tap
+    // rather than subscribing beside SensorManager (CAR-325).
     expect(mockPhonePushGyro).toHaveBeenCalledWith(4, 5, 6);
+    // Acceleration is not an input to distraction detection since CAR-187 — a
+    // single-sample force threshold cannot tell a finger from a pothole — so the
+    // accelerometer tap must not reach the phone manager at all.
+    expect(mockPhonePushAccel).not.toHaveBeenCalled();
   });
 
   it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {

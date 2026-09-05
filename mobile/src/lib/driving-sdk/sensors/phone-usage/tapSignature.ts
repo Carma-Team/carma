@@ -5,22 +5,27 @@
  * analysis window, and the paired-peak tap signature counted off the same stream.
  *
  * @description
- * Answers "how is this phone rotating", and nothing else. A hand stabilises orientation
- * while a phone loose on a seat tumbles, which is what lets these terms veto the
- * acceleration-only hand-held read (CAR-174) — but the veto itself is
- * PhoneUsageManager's decision, not this module's.
+ * Answers "how is this phone rotating", and nothing else. Since CAR-187 that is the
+ * whole input to phone-usage detection: rotation variance says the phone was being
+ * moved, the paired-peak count says a finger was working the screen. Which of the two
+ * a given second counts as is PhoneUsageManager's decision, not this module's.
  *
- * Push-fed for the same reason as the accelerometer half: the host already has the
- * gyroscope subscribed (CAR-82). Not feeding it is supported — the features stay empty.
+ * Push-fed because the host already has the gyroscope subscribed (CAR-82). Not feeding
+ * it is supported — the features stay empty and both counters stay at zero.
  */
 import { VARIANCE_WINDOW_SIZE, computeVariance } from './variance';
 
-// ROTATION_VARIANCE_MAX_THRESHOLD ((rad/s)²):
-//   A hand stabilises orientation; a phone loose on the seat tumbles. Below this,
-//   rotation confirms accelVariance's hand-held read; at/above it, the accel spike
-//   is a tumbling phone, not a hand. Provisional — no drive-test data yet (CAR-183),
-//   same calibration caveat as the acceleration threshold.
-export const ROTATION_VARIANCE_MAX_THRESHOLD = 0.5;
+// ROTATION_VARIANCE_THRESHOLD ((rad/s)²):
+//   A phone at rest — mounted, pocketed, on a seat — turns only with the vehicle.
+//   A phone being handled turns independently of it, and the variance of angular
+//   speed over the window is what separates the two.
+//   Provisional, no drive-test data behind it yet (CAR-183 collects it).
+//
+//   ⚠️ This number was previously a ceiling, not a floor: it vetoed an
+//   acceleration-based hand-held read when rotation said the phone was tumbling.
+//   The value is carried over deliberately — CAR-183 fits it and the tap band from
+//   the same labelled set — but its meaning is now the opposite one.
+export const ROTATION_VARIANCE_THRESHOLD = 0.5;
 
 // Matches the 1 s analysis window at the expected 10 Hz gyro feed.
 const GYRO_STALE_MS = 1000;
@@ -35,7 +40,7 @@ const GYRO_STALE_MS = 1000;
 // grip resists it. Pairs, not force, is the distinction.
 //
 // The band is the patent's own worked example. Provisional, exactly like
-// ROTATION_VARIANCE_MAX_THRESHOLD above — no drive-test data yet (CAR-183 collects it).
+// ROTATION_VARIANCE_THRESHOLD above — no drive-test data yet (CAR-183 collects it).
 const TAP_PEAK_MIN_RAD_S = 0.2;
 const TAP_PEAK_MAX_RAD_S = 0.7;
 

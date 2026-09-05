@@ -18,8 +18,8 @@ export interface TripState {
   durationSeconds: number;
   distanceKm: number;
   currentSpeedKmH: number;
-  touchEpochs: number;              // v1.7 — glass-tap proxy count from IMU
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds at ≥15 km/h
+  screenInteractionSeconds: number; // v2.0 — seconds with a tap cadence, at ≥15 km/h
+  phoneMotionSeconds: number;       // v2.0 — seconds the phone was moved without one, at ≥15 km/h
   eventCounts: {
     HARD_BRAKE: number;
     AGGRESSIVE_ACCEL: number;
@@ -34,7 +34,7 @@ export const INITIAL_TRIP_STATE: TripState = {
   durationSeconds: 0,
   distanceKm: 0,
   currentSpeedKmH: 0,
-  touchEpochs: 0,
   screenInteractionSeconds: 0,
+  phoneMotionSeconds: 0,
   eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0 },
 };
