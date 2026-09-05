@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { normalizeBusinessRole } from '@/lib/auth/businessRole';
+import { Logo } from '@/components/ui';
 import styles from './AppShell.module.css';
 
 // CAR-204 owns this chrome; CAR-116 owns which nav items it renders for the
@@ -40,7 +41,9 @@ export function AppShell() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <span className={styles.brandName}>{t('app.name')}</span>
+          <Logo height={20} />
+          <span className={styles.brandDivider} aria-hidden="true" />
+          <span className={styles.brandTag}>{t('shell.brandTag')}</span>
         </div>
 
         <div className={styles.businessCard}>

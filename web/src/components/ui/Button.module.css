@@ -3,38 +3,127 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  padding-block: var(--space-sm);
   padding-inline: var(--space-md);
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   font-family: inherit;
-  font-size: var(--font-size-body);
   font-weight: var(--font-weight-label);
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  white-space: nowrap;
+}
+
+.icon {
+  display: inline-flex;
 }
 
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
 }
 
-.button:not(:disabled):hover {
-  opacity: 0.85;
+/* Sizes — auto width, fixed height per the style guide's action scale. */
+.sm {
+  height: var(--control-height-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
 }
 
+.md {
+  height: var(--control-height-md);
+  font-size: var(--font-size-label);
+}
+
+.lg {
+  height: var(--control-height-lg);
+  padding-inline: var(--space-lg);
+  border-radius: var(--radius-lg);
+  font-size: 15.5px;
+}
+
+/* Primary — solid indigo, the only action color in the system. */
 .primary {
   background-color: var(--color-primary);
   color: var(--color-primary-contrast);
 }
 
-.secondary {
-  background-color: transparent;
-  color: var(--color-text);
-  border-color: var(--color-border);
+.primary:not(:disabled):hover {
+  background-color: var(--color-primary-strong);
 }
 
+.primary:not(:disabled):focus-visible {
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.primary:disabled {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-disabled);
+}
+
+/* Secondary — outlined, gray-filled once hovered/in a toolbar. */
+.secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  border-color: var(--color-border-strong);
+}
+
+.secondary:not(:disabled):hover {
+  background-color: var(--color-bg);
+  border-color: var(--color-text-disabled);
+}
+
+.secondary:disabled {
+  color: var(--color-text-disabled-strong);
+  border-color: var(--color-divider);
+}
+
+/* Destructive — solid red, reserved for the confirming action inside a
+   dialog. A page-level delete trigger should use an outlined look instead
+   (pass a custom className, or use the `text` variant with danger color). */
 .danger {
   background-color: var(--color-danger);
   color: var(--color-primary-contrast);
+}
+
+.danger:not(:disabled):hover {
+  background-color: var(--color-danger-strong);
+}
+
+.danger:disabled {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-disabled);
+}
+
+/* Text — no fill or border, used for inline actions like "edit"/"remove". */
+.text {
+  background: none;
+  border: none;
+  padding-inline: 0;
+  color: var(--color-primary-strong);
+}
+
+.text:not(:disabled):hover {
+  color: var(--color-primary-strong);
+  text-decoration: underline;
+}
+
+.text:disabled {
+  color: var(--color-text-faint);
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: currentcolor;
+  border-radius: var(--radius-full);
+  animation: carma-spin 0.7s linear infinite;
+}
+
+.secondary .spinner,
+.text .spinner {
+  border-color: var(--color-border-strong);
+  border-top-color: var(--color-primary);
 }

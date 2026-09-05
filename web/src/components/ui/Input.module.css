@@ -1,36 +1,131 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
 }
 
 .label {
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
-  color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.control {
+  position: relative;
+  display: flex;
 }
 
 .input {
-  padding-block: var(--space-sm);
+  width: 100%;
+  height: var(--control-height-md);
   padding-inline: var(--space-md);
-  border: 1px solid var(--color-border);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-label);
   color: var(--color-text);
-  background-color: var(--color-bg);
+  background-color: var(--color-surface);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--color-text-faint);
 }
 
 .input:focus {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus-ring);
 }
 
-.inputError {
-  border-color: var(--color-danger);
+.input:disabled {
+  color: var(--color-text-disabled);
+  background-color: var(--color-surface-muted);
+  cursor: not-allowed;
+}
+
+/* Sunken, borderless — filters a list, isn't data entry. */
+.search {
+  background-color: var(--color-surface-muted);
+  border-color: transparent;
+}
+
+.search:focus {
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.startIcon {
+  position: absolute;
+  inset-inline-start: var(--space-dense);
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.hasStartIcon {
+  padding-inline-start: 38px;
+}
+
+.hasEndAction {
+  padding-inline-end: 40px;
+}
+
+.revealButton {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  cursor: pointer;
+}
+
+.revealButton:hover {
+  background-color: var(--color-surface-muted);
 }
 
 .error {
+  border-color: var(--color-danger);
+}
+
+.error:focus {
+  box-shadow: var(--shadow-focus-ring-danger);
+}
+
+.warning {
+  border-color: var(--color-warning);
+}
+
+.success {
+  border-color: var(--color-success);
+}
+
+.message {
   font-size: var(--font-size-caption);
-  color: var(--color-danger);
+  line-height: 1.5;
+  color: var(--color-text-faint);
+}
+
+.errorMessage {
+  color: var(--color-danger-strong);
+}
+
+.warningMessage {
+  color: var(--color-warning-text);
+}
+
+.successMessage {
+  color: var(--color-success-text-strong);
 }

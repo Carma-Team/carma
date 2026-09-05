@@ -5,23 +5,32 @@
 }
 
 .sidebar {
-  width: 244px;
+  width: 240px;
   flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  padding: var(--space-md) var(--space-sm);
+  padding: var(--space-lg) var(--space-sm);
   background-color: var(--color-surface);
   border-inline-end: 1px solid var(--color-border);
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   padding: 0 var(--space-sm) var(--space-sm);
 }
 
-.brandName {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-heading);
+.brandDivider {
+  width: 1px;
+  height: 15px;
+  background-color: var(--color-border);
+}
+
+.brandTag {
+  font-size: var(--font-size-eyebrow);
+  font-weight: 800;
   color: var(--color-primary-strong);
 }
 
@@ -29,7 +38,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm);
+  padding: var(--space-sm) var(--space-dense);
   border-radius: var(--radius-md);
   background-color: var(--color-surface-muted);
 }
@@ -41,7 +50,7 @@
   flex: none;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background-color: var(--color-surface);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-heading);
@@ -49,7 +58,7 @@
 }
 
 .businessLabel {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -68,10 +77,10 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  padding: var(--space-sm);
+  padding: 10px var(--space-dense);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-dense);
   text-decoration: none;
 }
 
@@ -86,6 +95,7 @@
 .navItemActive {
   background-color: var(--color-primary-surface);
   color: var(--color-primary-text);
+  font-weight: var(--font-weight-label);
 }
 
 .navDisabled {
@@ -94,7 +104,11 @@
 }
 
 .badge {
-  font-size: var(--font-size-caption);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-label);
+  padding: 1px 7px;
+  border-radius: 6px;
+  background-color: var(--color-surface-muted);
   color: var(--color-text-disabled);
 }
 
@@ -134,7 +148,7 @@
   font-weight: var(--font-weight-label);
   cursor: pointer;
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .langButton {
@@ -159,8 +173,8 @@
   flex: none;
   width: 32px;
   height: 32px;
-  border-radius: 999px;
-  background-color: var(--color-primary-surface);
+  border-radius: var(--radius-full);
+  background-color: var(--color-indigo-100);
   color: var(--color-primary-text);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-heading);
@@ -179,12 +193,21 @@
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+}
+
+.signOut:hover {
+  background-color: var(--color-bg);
+  border-color: var(--color-text-disabled);
 }
 
 .content {
   flex: 1;
   overflow: auto;
   padding: var(--space-lg);
+  max-width: var(--content-max-width);
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }

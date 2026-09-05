@@ -1,0 +1,72 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-label);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.success {
+  background-color: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+
+.success .dot {
+  background-color: var(--color-success);
+}
+
+.warning {
+  background-color: var(--color-warning-surface);
+  color: var(--color-warning-text);
+}
+
+.warning .dot {
+  background-color: var(--color-warning);
+}
+
+.danger {
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-text);
+}
+
+.danger .dot {
+  background-color: var(--color-danger);
+}
+
+.neutral {
+  background-color: var(--color-neutral-surface);
+  color: var(--color-neutral-text);
+}
+
+.neutral .dot {
+  background-color: var(--color-neutral);
+}
+
+.info {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.info .dot {
+  background-color: var(--color-primary);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background-color: var(--color-surface-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
