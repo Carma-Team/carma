@@ -15,21 +15,21 @@ type AuthSplitLayoutProps = {
 // and the photo on the end side in both RTL and LTR without a dir check.
 export function AuthSplitLayout({ children, heroTitle, heroSubtitle }: AuthSplitLayoutProps) {
   return (
-    <div className={styles.shell}>
+    <main className={styles.shell}>
       <div className={styles.formPanel}>
         <Logo height={26} className={styles.logo} />
         <div className={styles.formContent}>{children}</div>
       </div>
-      <div className={styles.photoPanel}>
+      <div className={styles.photoPanel} aria-hidden="true">
         <img src={roadPhoto} alt="" className={styles.photoImage} />
         <div className={styles.photoOverlay} />
         {heroTitle && (
           <div className={styles.photoCopy}>
-            <h2>{heroTitle}</h2>
-            {heroSubtitle && <p>{heroSubtitle}</p>}
+            <p className={styles.photoCopyTitle}>{heroTitle}</p>
+            {heroSubtitle && <p className={styles.photoCopySubtitle}>{heroSubtitle}</p>}
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }
