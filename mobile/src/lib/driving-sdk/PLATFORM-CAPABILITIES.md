@@ -109,7 +109,7 @@ discrimination needs a native module first.
 
 ---
 
-## Minimum OS version (#141)
+## Minimum OS version
 
 No app-level policy sets this — it is the floor the pinned `expo` version itself
 imposes. Bump alongside an Expo SDK upgrade, not independently.
@@ -149,7 +149,7 @@ are attempted:
    The SDK's hand-held detector now acts on the first of these: a high
    acceleration-variance reading is vetoed when rotation variance is also
    high, since a loose phone tumbles while a held one keeps its orientation
-   stable — see `README.md`'s hand-held detection section.
+   stable — see `docs/event-detection.md`, "Hand-held detection".
 
 ---
 
