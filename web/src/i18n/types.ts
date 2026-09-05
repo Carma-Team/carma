@@ -134,9 +134,11 @@ export type TranslationMap = {
     invalidCodeError: string;
     otpRateLimitedError: string;
     otpNetworkError: string;
+    registerButton: string;
+    haveInvitationCodeLink: string;
+    checkRegistrationStatusLink: string;
   };
   businessRegistration: {
-    signInEntryLabel: string;
     title: string;
     subtitle: string;
     nameLabel: string;

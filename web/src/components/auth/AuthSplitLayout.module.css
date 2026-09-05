@@ -8,12 +8,12 @@
   flex: 1 1 58%;
   display: flex;
   flex-direction: column;
+  align-items: center;
   box-sizing: border-box;
   padding: var(--space-xxl) var(--space-xxl);
 }
 
 .logo {
-  align-self: flex-start;
   margin-bottom: var(--space-xxl);
 }
 
@@ -80,6 +80,5 @@
   .formPanel {
     flex: 1 1 auto;
     padding: var(--space-xl) var(--space-lg);
-    align-items: center;
   }
 }

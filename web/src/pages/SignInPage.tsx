@@ -154,9 +154,14 @@ export function SignInPage() {
             onChange={(event) => setPassword(event.target.value)}
           />
           {error && <ErrorState title={error} />}
-          <Button type="submit" disabled={submitting} style={{ marginTop: 'var(--space-md)' }}>
-            {submitting ? t('auth.signingIn') : t('auth.signInButton')}
-          </Button>
+          <div className={styles.primaryActions}>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? t('auth.signingIn') : t('auth.signInButton')}
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/register')}>
+              {t('auth.registerButton')}
+            </Button>
+          </div>
         </form>
       ) : phoneStep === 'phone' || phoneStep === 'sendingCode' ? (
         <form onSubmit={handleSendCode} noValidate>
@@ -223,21 +228,20 @@ export function SignInPage() {
       >
         {t(mode === 'password' ? 'auth.signInWithPhoneLink' : 'auth.signInWithEmailLink')}
       </Button>
-      {/* CAR-118 review item 5: a recipient who was only given a code (read
-          aloud, not clicked) has no production path to `/accept-invite`
-          without this — the entry form itself never appears in any nav. */}
-      <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
-        {t('invitations.haveCodeLinkLabel')}
-      </Link>
-      {/* CAR-315: sign-in is the only public page most prospective business
-          owners ever land on — without this, /register has no discoverable
-          entry point at all. */}
-      <Link to="/register" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
-        {t('businessRegistration.signInEntryLabel')}
-      </Link>
-      <Link to="/register/status" style={{ display: 'block', marginTop: 'var(--space-sm)' }}>
-        {t('businessRegistration.checkStatusLink')}
-      </Link>
+      <div className={styles.secondaryActions}>
+        {/* CAR-118 review item 5: a recipient who was only given a code (read
+            aloud, not clicked) has no production path to `/accept-invite`
+            without this — the entry form itself never appears in any nav. */}
+        <Link to="/accept-invite" className={styles.secondaryLink}>
+          {t('auth.haveInvitationCodeLink')}
+        </Link>
+        {/* CAR-315: sign-in is the only public page most prospective business
+            owners ever land on — the registration button above covers the
+            entry point, this covers the case where they already applied. */}
+        <Link to="/register/status" className={styles.secondaryLink}>
+          {t('auth.checkRegistrationStatusLink')}
+        </Link>
+      </div>
     </AuthSplitLayout>
   );
 }
