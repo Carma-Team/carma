@@ -35,7 +35,7 @@ different conditions or handlers. Each fires independently:
 const tokenA = sdk.on(DrivingEventType.HARD_BRAKE, {}, (e) => showWarning(e));
 
 // Listener B: scoring-relevant event, only above driving speed
-// (minSeverity is not useful here — HARD_BRAKE carries no severity, CAR-156)
+// (minSeverity is not useful here — HARD_BRAKE carries no severity)
 const tokenB = sdk.on(
   DrivingEventType.HARD_BRAKE,
   { minSpeedKmh: 15 },
@@ -73,8 +73,8 @@ common integration mistake:
   turn above 25. Use it for anything you want to **count as a discrete event**.
 - **`onUpdate(data)`** answers *"what does the trip look like right now?"* — a
   1 Hz snapshot of the whole `TripData` object: running distance, duration,
-  and the two continuous phone-handling counters (`touchEpochs`,
-  `screenInteractionSeconds`). Use it to **mirror ongoing state**, not to
+  and the two continuous phone-handling counters (`screenInteractionSeconds`,
+  `phoneMotionSeconds`). Use it to **mirror ongoing state**, not to
   recompute event counts — those already exist on `TripData.events` if you
   need them, and re-deriving your own counts from `onUpdate` duplicates work
   `on()` already does more precisely.
@@ -82,10 +82,9 @@ common integration mistake:
 `PHONE_USAGE` is the clearest example of the distinction. It's tempting to
 register `sdk.on(DrivingEventType.PHONE_USAGE, {}, handler)` and count
 pickups — but phone handling isn't really a discrete event, it's a continuous
-IMU-derived measurement (seconds spent hand-held, glass-tap transients). Most
-consumers are better served reading `TripData.touchEpochs` /
-`.screenInteractionSeconds` off `onUpdate` than trying to count `PHONE_USAGE`
-occurrences.
+IMU-derived measurement, in seconds. Most consumers are better served reading
+`TripData.screenInteractionSeconds` / `.phoneMotionSeconds` off `onUpdate` than
+trying to count `PHONE_USAGE` occurrences.
 
 ---
 

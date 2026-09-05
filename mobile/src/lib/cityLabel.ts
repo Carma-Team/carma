@@ -1,14 +1,13 @@
 /**
- * @fileoverview City display label — the one place a settlement becomes text.
- * @module lib/cityLabel
+ * @file cityLabel.ts
+ * @owner May (Mobile & Frontend UI Lead)
+ * @brief City display label — the one place a settlement becomes text. A city is a
+ * reference row carrying a name per language (CAR-218), never a bare label, so screens
+ * read it through here and switching language re-renders the name instead of leaving
+ * whatever the server happened to store.
  *
- * @description
- * A city is a reference row carrying a name per language (CAR-218), never a bare
- * label. Screens read it through here so switching language re-renders the name
- * instead of leaving whatever the server happened to store.
- *
- * @remarks Lives in lib/ rather than types/: types/ is aliases over the generated
- * schema plus the little the schema cannot express, and this is behaviour.
+ * Lives in lib/ rather than types/: types/ is aliases over the generated schema plus
+ * the little the schema cannot express, and this is behaviour.
  */
 import type { City } from '@/types'
 

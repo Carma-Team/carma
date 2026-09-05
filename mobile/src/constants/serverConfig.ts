@@ -1,8 +1,12 @@
 /**
  * SERVER CONFIGURATION
  * --------------------
- * USE_REAL_SERVER = false → Metro proxy → local mock server (port 3000)
+ * USE_REAL_SERVER = false → Metro proxy → the FastAPI server running locally (port 3000)
  * USE_REAL_SERVER = true  → STAGING_SERVER_URL (set to local FastAPI IP for demo)
+ *
+ * Both routes reach the same real API. The flag chooses where it is running, not
+ * whether it is real — there has been no mock server since carma-local-server was
+ * deleted, and every endpoint answers the same way on either side.
  *
  * DEMO DAY SETUP:
  *   1. Set USE_REAL_SERVER = true

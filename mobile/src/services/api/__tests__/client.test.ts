@@ -61,3 +61,39 @@ describe('request — error detail', () => {
     expect(error.message).toBe('Request failed');
   });
 });
+
+describe('request — timeout', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('rejects a request that never answers as a retryable 408', async () => {
+    jest.useFakeTimers();
+    // A fetch that only ever settles when its signal aborts — the Android case the
+    // cap exists for, where OkHttp's timeout is 0 and nothing else ends the call.
+    global.fetch = jest.fn(
+      (_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')));
+        })
+    ) as unknown as typeof fetch;
+
+    // `public` keeps the token read out of the way: the AsyncStorage mock resolves on
+    // a timer that fake timers hold, and the request would not reach fetch at all.
+    const pending = request('/api/trips', { method: 'POST', public: true });
+    const settled = expect(pending).rejects.toMatchObject({ status: 408 });
+    jest.advanceTimersByTime(30_000);
+    await settled;
+  });
+
+  it('leaves a normal response alone and clears its timer', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 7 }),
+      headers: { get: () => null },
+    }) as unknown as typeof fetch;
+
+    await expect(request('/api/trips', { method: 'POST' })).resolves.toEqual({ id: 7 });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});

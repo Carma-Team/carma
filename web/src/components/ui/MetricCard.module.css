@@ -1,0 +1,24 @@
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-label);
+  color: var(--color-success-text-strong);
+}
+
+.hint {
+  margin-top: var(--space-xs);
+}

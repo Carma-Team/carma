@@ -35,4 +35,12 @@ export interface TripDetectionStrategy {
    * did is the host TripValidator's call, and this strategy has no way to know.
    */
   onLost?: () => void;
+
+  /**
+   * The identifier of the vehicle currently connected, in the same terms `setTarget`
+   * takes, or `null` when nothing is connected. Optional: a strategy that watches
+   * movement rather than a device has no vehicle to name, and omitting it reads as
+   * "cannot answer" rather than "nothing is connected".
+   */
+  getConnectedVehicleId?(): string | null;
 }
