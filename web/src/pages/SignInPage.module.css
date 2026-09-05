@@ -1,0 +1,19 @@
+.loadingPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.subtitle {
+  display: block;
+  margin: 0 0 var(--space-lg);
+  color: var(--color-text-faint);
+}
+
+.otpInput {
+  text-align: center;
+  font-size: var(--font-size-h2);
+  letter-spacing: 0.4em;
+  font-variant-numeric: tabular-nums;
+}

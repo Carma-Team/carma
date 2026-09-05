@@ -4,6 +4,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { requestStatusCheckOtp, verifyOtp } from '@/lib/auth/otpApi';
 import { getJoinRequestStatus, type JoinRequestStatusOut } from '@/lib/api/businessRegistration';
 import { Card, Heading, Text, Button, Input, ErrorState, LoadingState } from '@/components/ui';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import styles from './BusinessRegistrationPage.module.css';
 
 const PHONE_PATTERN = '^\\+[1-9]\\d{6,14}$';
@@ -16,10 +17,13 @@ type Step =
   | { kind: 'result'; status: JoinRequestStatusOut }
   | { kind: 'error'; messageKey: 'rateLimitedMessage' | 'networkErrorMessage' | 'submitErrorMessage' };
 
-const STATUS_KEYS: Record<Exclude<JoinRequestStatusOut['status'], 'none'>, { title: string; message: string }> = {
-  pending: { title: 'statusPendingTitle', message: 'statusPendingMessage' },
-  approved: { title: 'statusApprovedTitle', message: 'statusApprovedMessage' },
-  rejected: { title: 'statusRejectedTitle', message: 'statusRejectedMessage' },
+const STATUS_KEYS: Record<
+  Exclude<JoinRequestStatusOut['status'], 'none'>,
+  { title: string; message: string; tone: 'warning' | 'success' | 'danger' }
+> = {
+  pending: { title: 'statusPendingTitle', message: 'statusPendingMessage', tone: 'warning' },
+  approved: { title: 'statusApprovedTitle', message: 'statusApprovedMessage', tone: 'success' },
+  rejected: { title: 'statusRejectedTitle', message: 'statusRejectedMessage', tone: 'danger' },
 };
 
 export function BusinessRequestStatusPage() {
@@ -81,29 +85,29 @@ export function BusinessRequestStatusPage() {
     // submission-flavoured label.
     const label = step.kind === 'sendingOtp' ? t('businessRegistration.sendingOtpLabel') : t('requestStatus.verifyingLabel');
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <LoadingState label={label} />
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'error') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <ErrorState
           title={t('businessRegistration.submitErrorTitle')}
           message={t(`businessRegistration.${step.messageKey}`)}
           retryLabel={t('common.retry')}
           onRetry={() => setStep({ kind: 'phone' })}
         />
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'result') {
     if (step.status.status === 'none') {
       return (
-        <main className={styles.page}>
+        <AuthCardShell>
           <Card className={styles.centered}>
             <Heading level={1}>{t('requestStatus.statusNoneTitle')}</Heading>
             <Text variant="body">{t('requestStatus.statusNoneMessage')}</Text>
@@ -111,14 +115,14 @@ export function BusinessRequestStatusPage() {
               {t('requestStatus.backToRegisterLink')}
             </Link>
           </Card>
-        </main>
+        </AuthCardShell>
       );
     }
 
     const copy = STATUS_KEYS[step.status.status];
     return (
-      <main className={styles.page}>
-        <Card className={styles.centered}>
+      <AuthCardShell>
+        <Card className={[styles.centered, styles[`statusCard-${copy.tone}`]].join(' ')}>
           <Heading level={1}>{t(`requestStatus.${copy.title}`)}</Heading>
           <Text variant="body">{t(`requestStatus.${copy.message}`)}</Text>
           {step.status.createdAt && (
@@ -132,13 +136,13 @@ export function BusinessRequestStatusPage() {
             </Text>
           )}
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'otp') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.centered}>
           <Heading level={1}>{t('businessRegistration.otpTitle')}</Heading>
           <Text variant="body">{t('businessRegistration.otpSubtitle')}</Text>
@@ -151,6 +155,7 @@ export function BusinessRequestStatusPage() {
               inputMode="numeric"
               dir="ltr"
               required
+              className={styles.otpInput}
               value={code}
               onChange={(event) => setCode(event.target.value)}
               error={otpError ?? undefined}
@@ -163,12 +168,12 @@ export function BusinessRequestStatusPage() {
             </div>
           </form>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   return (
-    <main className={styles.page}>
+    <AuthCardShell>
       <Card className={styles.centered}>
         <Heading level={1}>{t('requestStatus.title')}</Heading>
         <Text variant="body">{t('requestStatus.subtitle')}</Text>
@@ -191,6 +196,6 @@ export function BusinessRequestStatusPage() {
           <Link to="/register">{t('requestStatus.backToRegisterLink')}</Link>
         </div>
       </Card>
-    </main>
+    </AuthCardShell>
   );
 }

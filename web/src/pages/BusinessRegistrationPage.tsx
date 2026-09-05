@@ -6,8 +6,8 @@ import { geocodeAddress } from '@/lib/api/geocoding';
 import { submitJoinRequest, type JoinRequestPayload } from '@/lib/api/businessRegistration';
 import { BUSINESS_CATEGORIES, type BusinessCategory } from '@/lib/businessCategory';
 import { LocationConfirmMap } from '@/components/business/LocationConfirmMap';
-import { Card, Heading, Text, Button, Input, ErrorState, LoadingState } from '@/components/ui';
-import inputStyles from '@/components/ui/Input.module.css';
+import { Card, Heading, Text, Button, Input, Select, ErrorState, LoadingState } from '@/components/ui';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import styles from './BusinessRegistrationPage.module.css';
 
 // E.164 — the same shape the server's OtpRegisterIn/OtpRequestIn validate
@@ -183,15 +183,15 @@ export function BusinessRegistrationPage() {
           ? 'businessRegistration.sendingOtpLabel'
           : 'businessRegistration.submittingLabel';
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <LoadingState label={t(labelKey)} />
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'success') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.centered}>
           <Heading level={1}>{t('businessRegistration.pendingTitle')}</Heading>
           <Text variant="body">{t('businessRegistration.pendingMessage')}</Text>
@@ -200,7 +200,7 @@ export function BusinessRegistrationPage() {
             {t('businessRegistration.checkStatusLink')}
           </Link>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
@@ -221,7 +221,7 @@ export function BusinessRegistrationPage() {
     // status page for a request that isn't theirs, or doesn't exist.
     const showStatusLink = step.reason === 'already_has_pending_request' || step.reason === 'unknown';
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.centered}>
           <Heading level={1}>{t(`businessRegistration.submitConflict${keySuffix}Title`)}</Heading>
           <Text variant="body">{t(`businessRegistration.submitConflict${keySuffix}Message`)}</Text>
@@ -231,20 +231,20 @@ export function BusinessRegistrationPage() {
             </Link>
           )}
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'error') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <ErrorState
           title={t('businessRegistration.submitErrorTitle')}
           message={t(`businessRegistration.${step.messageKey}`)}
           retryLabel={t('common.retry')}
           onRetry={() => setStep({ kind: 'form' })}
         />
-      </main>
+      </AuthCardShell>
     );
   }
 
@@ -252,7 +252,7 @@ export function BusinessRegistrationPage() {
     const titleKey = step.reason === 'rate_limited' ? 'geocodeRateLimitedTitle' : 'geocodeUnavailableTitle';
     const messageKey = step.reason === 'rate_limited' ? 'geocodeRateLimitedMessage' : 'geocodeUnavailableMessage';
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.centered}>
           <Heading level={1}>{t(`businessRegistration.${titleKey}`)}</Heading>
           <Text variant="body">{t(`businessRegistration.${messageKey}`)}</Text>
@@ -265,14 +265,14 @@ export function BusinessRegistrationPage() {
             </Button>
           </div>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'confirmLocation') {
     const canContinue = form.lat !== null && form.lng !== null;
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.formCard}>
           <Heading level={1}>{t('businessRegistration.confirmLocationTitle')}</Heading>
           <Text variant="body">
@@ -298,14 +298,14 @@ export function BusinessRegistrationPage() {
             </Button>
           </div>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (step.kind === 'otp' || step.kind === 'verifying') {
     const verifying = step.kind === 'verifying';
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.centered}>
           <Heading level={1}>{t('businessRegistration.otpTitle')}</Heading>
           <Text variant="body">{t('businessRegistration.otpSubtitle')}</Text>
@@ -318,6 +318,7 @@ export function BusinessRegistrationPage() {
               inputMode="numeric"
               dir="ltr"
               required
+              className={styles.otpInput}
               value={code}
               onChange={(event) => setCode(event.target.value)}
               error={otpError ?? undefined}
@@ -335,12 +336,12 @@ export function BusinessRegistrationPage() {
             </div>
           </form>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   return (
-    <main className={styles.page}>
+    <AuthCardShell>
       <Card className={styles.formCard}>
         <Heading level={1}>{t('businessRegistration.title')}</Heading>
         <Text variant="body">{t('businessRegistration.subtitle')}</Text>
@@ -359,24 +360,19 @@ export function BusinessRegistrationPage() {
             value={form.nameHe}
             onChange={(event) => updateField('nameHe', event.target.value)}
           />
-          <div className={inputStyles.field}>
-            <label htmlFor="business-category" className={inputStyles.label}>
-              {t('businessRegistration.categoryLabel')}
-            </label>
-            <select
-              id="business-category"
-              className={inputStyles.input}
-              required
-              value={form.category}
-              onChange={(event) => updateField('category', event.target.value as BusinessCategory)}
-            >
-              {BUSINESS_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {t(`businessRegistration.category${capitalize(category)}`)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="business-category"
+            label={t('businessRegistration.categoryLabel')}
+            required
+            value={form.category}
+            onChange={(event) => updateField('category', event.target.value as BusinessCategory)}
+          >
+            {BUSINESS_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {t(`businessRegistration.category${capitalize(category)}`)}
+              </option>
+            ))}
+          </Select>
           <Input
             label={t('businessRegistration.addressLabel')}
             required
@@ -420,7 +416,7 @@ export function BusinessRegistrationPage() {
           <Link to="/register/status">{t('businessRegistration.checkStatusLink')}</Link>
         </div>
       </Card>
-    </main>
+    </AuthCardShell>
   );
 }
 
