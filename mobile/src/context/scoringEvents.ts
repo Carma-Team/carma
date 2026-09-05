@@ -20,13 +20,20 @@ import type { TripState } from './tripState'
 const INTERACTION_MIN_SPEED_KMH = 15;
 
 /**
- * Accumulates hand-held seconds, counting a second only when its stamped speed clears
- * the gate. The SDK deliberately emits every second regardless of speed (CAR-175), so
- * this is the only place the speed rule is applied.
+ * Accumulates the two distraction counters, counting a second only when its stamped
+ * speed clears the gate. The SDK deliberately emits every second regardless of speed
+ * (CAR-175), so this is the only place the speed rule is applied. The SDK has already
+ * made them mutually exclusive, so at most one of the two moves per sample.
  */
-export function nextInteractionSeconds(prev: number, sample: InteractionData): number {
+export function nextInteractionSeconds(
+  prev: { screenInteractionSeconds: number; phoneMotionSeconds: number },
+  sample: InteractionData,
+): { screenInteractionSeconds: number; phoneMotionSeconds: number } {
   if (sample.speedKmh < INTERACTION_MIN_SPEED_KMH) return prev;
-  return prev + sample.screenInteractionSeconds;
+  return {
+    screenInteractionSeconds: prev.screenInteractionSeconds + sample.screenInteractionSeconds,
+    phoneMotionSeconds: prev.phoneMotionSeconds + sample.phoneMotionSeconds,
+  };
 }
 
 export function useScoringEvents(
@@ -53,18 +60,15 @@ export function useScoringEvents(
           eventCounts: { ...prev.eventCounts, SHARP_TURN: prev.eventCounts.SHARP_TURN + 1 },
         }));
       }),
-      // PHONE_USAGE has no listener here — "phone touches" for scoring/display comes
-      // from the SDK's IMU-based touchEpochs (tripState.touchEpochs), not a discrete
-      // event count. See #43.
+      // PHONE_USAGE has no listener here — distraction for scoring and display comes
+      // from the two per-second counters below, not from a discrete event count. The
+      // event itself is kept for the trip map. See #43.
     ];
 
     // Per-second phone-handling samples are not sensor events, so they arrive on their
     // own callback rather than through on()/off().
     sdk.onInteractionData = (data) => {
-      setTripState(prev => ({
-        ...prev,
-        screenInteractionSeconds: nextInteractionSeconds(prev.screenInteractionSeconds, data),
-      }));
+      setTripState(prev => ({ ...prev, ...nextInteractionSeconds(prev, data) }));
     };
 
     return () => {

@@ -99,6 +99,11 @@ export type TranslationMap = {
   };
   auth: {
     signInTitle: string;
+    signInSubtitle: string;
+    heroTitle: string;
+    heroSubtitle: string;
+    showPasswordLabel: string;
+    hidePasswordLabel: string;
     emailLabel: string;
     passwordLabel: string;
     signInButton: string;
@@ -106,6 +111,9 @@ export type TranslationMap = {
     invalidCredentials: string;
     signOutButton: string;
     createAccountTitle: string;
+    createAccountSubtitle: string;
+    createAccountHeroTitle: string;
+    createAccountHeroSubtitle: string;
     nameLabel: string;
     createAccountButton: string;
     creatingAccountLabel: string;
@@ -126,9 +134,11 @@ export type TranslationMap = {
     invalidCodeError: string;
     otpRateLimitedError: string;
     otpNetworkError: string;
+    registerButton: string;
+    haveInvitationCodeLink: string;
+    checkRegistrationStatusLink: string;
   };
   businessRegistration: {
-    signInEntryLabel: string;
     title: string;
     subtitle: string;
     nameLabel: string;

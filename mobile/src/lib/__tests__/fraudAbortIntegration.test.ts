@@ -46,6 +46,7 @@ jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
   AutoDriveModeManager: class {
     constructor(_onDetected: any, _onLost: any) {}
     enable() {}
+    getConnectedVehicleId() { return null; }
   },
 }));
 

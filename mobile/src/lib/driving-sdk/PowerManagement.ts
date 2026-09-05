@@ -8,8 +8,8 @@
  * @description
  * Background GPS reliability on Android depends on whether the OS is allowed to
  * throttle the app under Doze / battery-saver / OEM power management (Xiaomi,
- * Huawei, Samsung, etc. are known offenders — see driving-sdk/README.md,
- * "Waypoint cadence" — #17). Neither expo-location's accuracy tier nor
+ * Huawei, Samsung, etc. are known offenders — see driving-sdk/docs/event-detection.md,
+ * "Waypoint cadence"). Neither expo-location's accuracy tier nor
  * timeInterval/distanceInterval can override that throttling; the only lever is
  * the user manually exempting the app from battery optimization in device
  * settings. This module only detects the platform risk and opens system

@@ -59,6 +59,8 @@ const voucher = (code: string): Voucher =>
     status: 'pending',
     isUsed: false,
     expiresAt: '2030-01-01T00:00:00Z',
+    // The contract makes this required, and the store card orders by it.
+    createdAt: '2026-01-01T00:00:00Z',
     pointsCost: reward.costPoints,
     reward,
   }) as Voucher
@@ -168,7 +170,8 @@ describe('MarketplaceScreen cancellation', () => {
     mocked.cancel.mockReturnValue(new Promise(() => {}))
     await renderStore([voucher('HELD01')])
 
-    fireEvent.press(screen.getByText('HELD01'))
+    // The store card no longer prints the code, so the row is reached by its label.
+    fireEvent.press(screen.getByText(he.marketplace.voucher.owned))
     fireEvent.press(await screen.findByText(he.marketplace.voucher.cancel))
     const confirm = await screen.findByText(he.common.confirm)
     fireEvent.press(confirm)

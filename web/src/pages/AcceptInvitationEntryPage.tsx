@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Card, Heading, Text, Input, Button } from '@/components/ui';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 
 // The manual-code fallback (CAR-118) to the link `AcceptInvitationPage`
 // serves — a recipient who was read the code aloud, rather than sent the
@@ -35,7 +36,7 @@ export function AcceptInvitationEntryPage() {
   }
 
   return (
-    <main style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-lg)' }}>
+    <AuthCardShell>
       <Card style={{ maxWidth: '24rem', width: '100%' }}>
         <Heading level={1}>{t('invitations.manualEntryTitle')}</Heading>
         <Text variant="body">{t('invitations.manualEntrySubtitle')}</Text>
@@ -57,6 +58,6 @@ export function AcceptInvitationEntryPage() {
           </Button>
         </form>
       </Card>
-    </main>
+    </AuthCardShell>
   );
 }

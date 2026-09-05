@@ -109,7 +109,7 @@ discrimination needs a native module first.
 
 ---
 
-## Minimum OS version (#141)
+## Minimum OS version
 
 No app-level policy sets this — it is the floor the pinned `expo` version itself
 imposes. Bump alongside an Expo SDK upgrade, not independently.
@@ -146,10 +146,10 @@ are attempted:
    itself — rotational behaviour, correlation with vehicle movement, or the
    fine continuous tremor a hand produces and a seat does not. This is a
    signal-processing problem, and the platform offers no shortcut around it.
-   The SDK's hand-held detector now acts on the first of these: a high
-   acceleration-variance reading is vetoed when rotation variance is also
-   high, since a loose phone tumbles while a held one keeps its orientation
-   stable — see `README.md`'s hand-held detection section.
+   The SDK's distraction detector acts on the first of these, from the
+   gyroscope alone: a repeated paired rotational kick is a finger on glass,
+   while rotation independent of the vehicle's own is the phone being moved
+   — see `docs/event-detection.md`, "Distraction detection".
 
 ---
 

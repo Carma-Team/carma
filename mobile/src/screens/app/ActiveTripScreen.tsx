@@ -28,8 +28,7 @@ export default function ActiveTripScreen() {
    * On confirm: calls endTrip() from AppContext.
    *
    * [server] endTrip() → sdk.stopTrip() → processEndTrip() → tripsApi.save()
-   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock trip
-   *   - USE_REAL_SERVER=true  → POST /api/trips to the real server
+   *   → POST /api/trips, to the local server or the deployed one (serverConfig.ts)
    * After saving: trip appears in recentTrips and the summary modal is shown.
    */
   const handleEndTrip = async () => {

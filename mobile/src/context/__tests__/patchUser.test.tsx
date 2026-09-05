@@ -18,6 +18,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 // subscribe by `DrivingEventType.*`, and a bare object mock makes those undefined.
 jest.mock('@/lib/driving-sdk', () => ({
   ...jest.requireActual('@/lib/driving-sdk/types'),
+  // The device probe now comes from the entry point, so the mocked package has to
+  // supply it — mocking the deep DeviceCapabilities path would defeat CAR-334.
+  checkDeviceCapabilities: jest.fn().mockResolvedValue({ hasAccelerometer: true, hasGyroscope: true, osSupported: true }),
   DrivingSDK: class { on() {} off() {} },
 }))
 jest.mock('@/lib/TripValidationManager', () => ({ TripValidationManager: class {} }))

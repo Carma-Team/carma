@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from 'r
 import { Heading } from './Typography';
 import styles from './Dialog.module.css';
 
+type DialogSize = 'sm' | 'lg';
+
 type DialogProps = Omit<HTMLAttributes<HTMLDialogElement>, 'title'> & {
   open: boolean;
   onClose: () => void;
@@ -10,6 +12,10 @@ type DialogProps = Omit<HTMLAttributes<HTMLDialogElement>, 'title'> & {
   // supply a translated label rather than silently leaking English into a
   // Hebrew page.
   closeLabel: string;
+  // sm (480px) for confirmations, lg (640px) for a form. Reward create/edit
+  // is a full page rather than a dialog — too many fields plus an image
+  // upload for either size.
+  size?: DialogSize;
   children: ReactNode;
 };
 
@@ -21,6 +27,7 @@ export function Dialog({
   onClose,
   title,
   closeLabel,
+  size = 'sm',
   children,
   className,
   ...rest
@@ -40,14 +47,14 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className={[styles.dialog, className].filter(Boolean).join(' ')}
+      className={[styles.dialog, styles[size], className].filter(Boolean).join(' ')}
       onClose={onClose}
       onCancel={onClose}
       aria-labelledby={title ? titleId : undefined}
       {...rest}
     >
       {title && (
-        <Heading level={2} id={titleId}>
+        <Heading level={2} id={titleId} className={styles.title}>
           {title}
         </Heading>
       )}

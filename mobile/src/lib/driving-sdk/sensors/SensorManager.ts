@@ -21,6 +21,10 @@
  *   - An event fires only if the IMU also saw a real horizontal force, rejecting
  *     pure GPS glitches. This magnitude is not a vehicle-frame axis, so it is not
  *     reported as event severity (scoring.md §3.4) — only used as a gate.
+ *   - The gate applies only while accelerometer samples are arriving. Without them
+ *     detection degrades to GPS alone rather than stopping; the trip reports the
+ *     degradation through `accelAvailable` / `accelInitFailed` / `accelCoverage`
+ *     (docs/event-detection.md, "When the accelerometer is missing or dies").
  *
  * Why not per-axis IMU? An earlier version read brake from accel-Y and turns from
  * accel-X (spec §א Table 1: 0.459g / 0.408g / 0.357g, later recalibrated to
@@ -153,9 +157,9 @@ export class SensorManager {
   private accelLiveMs = 0;
   private backgroundLocationAvailable = false;
   // True only when the accelerometer registration itself threw — distinct from
-  // accelAvailable=false meaning "no such hardware". imuConfirms below must fail
-  // open for the latter (GPS-only detection is the intended fallback) and fail
-  // closed for this one (a broken subscription must not read as confirmed by design).
+  // accelAvailable=false meaning "no such hardware". Reported outward so a host can
+  // tell the two apart; it no longer feeds the cross-confirm gate, which asks only
+  // whether samples are arriving (see imuConfirms below, CAR-320).
   private accelInitFailed = false;
   private thresholds: MotionThresholds;
 
@@ -576,10 +580,17 @@ export class SensorManager {
     const imuPeak = this.peakHorizAccelMs2;
     const imuPeakDurationMs = this.peakDurationMs;
     // Lenient sanity check: reject GPS-only spikes the phone never physically felt.
-    // Fails open only for "no accelerometer hardware" — a broken registration
-    // (accelInitFailed) must not read the same way, or a GPS glitch during a
-    // subscription failure fires unconfirmed with peakG:0/durationMs:0.
-    const imuConfirms = (!this.accelAvailable && !this.accelInitFailed) || imuPeak >= IMU_CONFIRM_MS2;
+    // The check applies only while the accelerometer is actually delivering samples;
+    // when it is not — no such hardware, a registration that threw, or a subscription
+    // that went quiet mid-trip — detection falls back to GPS alone rather than gating
+    // on a peak that can no longer be measured (CAR-320, reversing the fail-closed
+    // half of CAR-189). Failing closed suppressed *every* motion event for the rest of
+    // the trip, and a trip with no events is indistinguishable from a flawless one:
+    // the outage silently inflates the score. A GPS spike that fires unconfirmed is
+    // the lesser error, because the trip carries accelInitFailed and accelCoverage
+    // outward and is therefore visibly degraded rather than quietly perfect.
+    const imuLive = this.accelAvailable && this.isSensorFresh(this.lastAccelSampleAtMs);
+    const imuConfirms = !imuLive || imuPeak >= IMU_CONFIRM_MS2;
 
     // ── Longitudinal: brake (decel) / accel — orientation-free via GPS speed ──
     const aLong = (speedMs - this.motionPrevSpeedMs) / dt; // m/s² (+accel, −brake)
