@@ -247,10 +247,16 @@ check.
 ## Per-event cooldown
 
 After an event of a given type fires, the same type is suppressed for
-**500 ms** — **except `PHONE_USAGE`, which is exempt from the cooldown
+**5 seconds** — **except `PHONE_USAGE`, which is exempt from the cooldown
 entirely** and is re-armed by its own distracted stretch instead. Each type
 has an independent cooldown window — a `SHARP_TURN`
 does not suppress a concurrent `HARD_BRAKE`.
+
+The span is a merge, not a detection window: a manoeuvre held longer than the
+motion detector's own evaluation window would otherwise be reported once per
+detection, while a consumer collapsing hits over a wider span counts it once.
+Detection itself is unchanged, so a short hard event is still reported.
+`PHONE_USAGE` is exempt — it has its own cadence.
 
 ## Warm-up guard
 
