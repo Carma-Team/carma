@@ -406,7 +406,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: handleTripEnded });
   useScoringEvents(sdk, setTripState);
-  useFraudBinding(sdk, user, setTripState);
+  useFraudBinding(sdk, user, setTripState, addToast, lang);
   useRegionBinding(sdk, setTripState, addToast, lang);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
