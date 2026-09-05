@@ -11,13 +11,17 @@ import type { Trip } from '@/types'
 export interface WeekScores {
   /** The last seven days, oldest first, ending on the day `now` falls in. */
   days: Date[]
-  /** Score for each of those days, null where nothing was driven. */
+  /** Score for each of those days, rounded for display, null where nothing was driven. */
   dayScores: (number | null)[]
-  /** Mean of those day averages, or null when nothing was driven in them. */
+  /** Mean of those day averages, rounded for display, or null when nothing was driven in them. */
   thisWeek: number | null
   /** Same for the seven days before those, or null when there is no history. */
   lastWeek: number | null
-  /** Signed change, or null when either side is missing — there is no direction then. */
+  /**
+   * Signed change between the two unrounded means, or null when either side is missing
+   * — there is no direction then. Carries one decimal, because a trip score does: it is
+   * the caller's to format, and the sign is the part the card reads.
+   */
   delta: number | null
 }
 
@@ -36,9 +40,19 @@ function daysEndingOn(end: Date, count: number): Date[] {
   })
 }
 
+/**
+ * The unrounded average. Rounding here and subtracting afterwards turned a real change
+ * into a flat week: trip scores carry one decimal, so 83.4 against 82.6 is a +0.8
+ * improvement that both rounded to 83 and reported as no movement at all (CAR-313).
+ */
 function mean(scores: number[]): number | null {
   if (scores.length === 0) return null
-  return Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length)
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length
+}
+
+/** One decimal, which is what a trip score carries — not a float with a tail. */
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
 }
 
 export function weeklyScoreTrend(trips: Trip[], now: Date = new Date()): WeekScores {
@@ -75,9 +89,11 @@ export function weeklyScoreTrend(trips: Trip[], now: Date = new Date()): WeekSco
 
   return {
     days,
-    dayScores,
-    thisWeek,
-    lastWeek,
-    delta: thisWeek === null || lastWeek === null ? null : thisWeek - lastWeek,
+    // Rounded on the way out, so a raw 83.428571… never reaches a circle. The means
+    // above are taken from the unrounded averages, which is the whole point of CAR-313.
+    dayScores: dayScores.map((s) => (s === null ? null : Math.round(s))),
+    thisWeek: thisWeek === null ? null : Math.round(thisWeek),
+    lastWeek: lastWeek === null ? null : Math.round(lastWeek),
+    delta: thisWeek === null || lastWeek === null ? null : round1(thisWeek - lastWeek),
   }
 }
