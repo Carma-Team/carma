@@ -23,13 +23,14 @@ interface FormState {
   email:       string
   password:    string
   phone:       string
-  city:        string
+  // The picked city's code, never its label. The server resolves the row; a label was
+  // only ever needed by the free-text field this screen no longer has (CAR-224).
   cityCode:    string
   age:         string
   licenseYear: string
 }
 
-const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', cityCode: '', age: '', licenseYear: '' }
+const INITIAL: FormState = { name: '', email: '', password: '', phone: '', cityCode: '', age: '', licenseYear: '' }
 
 // Every bound below is `RegisterIn` in server/app/schemas/auth.py. They are checked
 // here so the driver is told which field is wrong: the server answers all of them
@@ -38,7 +39,6 @@ const MIN_NAME = 2
 const MAX_NAME = 80
 const MIN_PASSWORD = 8
 const MAX_PASSWORD = 200
-const MAX_CITY = 80
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_RE = /^[\d\s+()-]{6,20}$/
 // Digits only, checked before the numeric bounds below: `Number('abc')` is NaN, and
@@ -80,7 +80,9 @@ export default function RegisterScreen() {
     // the circularity CAR-218 exists to break.
     leaderboardApi.getCities()
       .then(data => setCities(data.cities))
-      // A network failure still leaves the free-text field below as a fallback.
+      // An empty list leaves an empty picker, which is the honest state: city is
+      // optional, and a free-text box here is what let two spellings of one
+      // settlement back into the data.
       .catch(() => setCities([]))
   }, [])
 
@@ -94,13 +96,9 @@ export default function RegisterScreen() {
   // at mount.
   const cityOptions = cities.map(c => ({ value: c.code, label: cityLabel(c, lang) }))
 
-  /**
-   * The picker deals in codes. `city` is still kept alongside, because the free-text
-   * branch below has no code to send and the server resolves that label instead.
-   */
+  /** The picker deals in codes, and a code is all the server is sent. */
   function pickCity(code: string) {
-    const label = cityLabel(cities.find(c => c.code === code), lang)
-    setForm(prev => ({ ...prev, city: label, cityCode: code }))
+    setForm(prev => ({ ...prev, cityCode: code }))
   }
 
   /**
@@ -125,12 +123,7 @@ export default function RegisterScreen() {
         // City is optional — '' means the placeholder is still showing, i.e. no
         // pick was made, not "picked nothing." Send undefined so the server sees
         // an unanswered field, not an empty string.
-        //
-        // A code when one was picked from the list. `city` stays as the fallback
-        // for the free-text branch below, where there is no code to send; the
-        // server resolves that label against the same list.
         cityCode:    form.cityCode || undefined,
-        city:        form.cityCode ? undefined : form.city || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
       })
@@ -173,7 +166,6 @@ export default function RegisterScreen() {
     password:    form.password && (form.password.length < MIN_PASSWORD || form.password.length > MAX_PASSWORD)
       ? t('auth.errors.invalidPassword') : '',
     phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
-    city:        form.city && form.city.trim().length > MAX_CITY     ? t('auth.errors.cityTooLong')      : '',
     // Never typed, only set by picking from the list, so it has nothing to reject.
     cityCode:    '',
     age:         form.age && (Number.isNaN(age) || age < MIN_AGE || age > MAX_AGE)
@@ -200,7 +192,7 @@ export default function RegisterScreen() {
     { key: 'email',       label: t('auth.email'),       placeholder: t('auth.emailPlaceholder'), keyboard: 'email-address', required: true },
     { key: 'password',    label: t('auth.password'),    placeholder: t('auth.passwordPlaceholder'), secure: true, required: true },
     { key: 'phone',       label: t('auth.phone'),       placeholder: '050-0000000', keyboard: 'phone-pad' },
-    { key: 'city',        label: t('auth.city'),        placeholder: t('auth.cityPlaceholder') },
+    { key: 'cityCode',    label: t('auth.city'),        placeholder: t('auth.citySelectPlaceholder') },
     { key: 'age',         label: t('auth.age'),         placeholder: '25', keyboard: 'numeric' },
     { key: 'licenseYear', label: t('auth.licenseYear'), placeholder: '2020', keyboard: 'numeric' },
   ]
@@ -232,9 +224,11 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            {/* The list is public now, so this normally renders. The free-text
-                branch stays for the case where fetching it failed outright. */}
-            {field.key === 'city' && cityOptions.length > 0 ? (
+            {/* The list is public, so the picker is the only way a city is chosen.
+                The free-text fallback is gone with the 401 that needed it: it took
+                whatever was typed, which is how two spellings of one settlement
+                got back into a list CAR-218 exists to make canonical (CAR-224). */}
+            {field.key === 'cityCode' ? (
               <LocationPicker
                 value={form.cityCode}
                 options={cityOptions}
