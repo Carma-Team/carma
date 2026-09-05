@@ -9,6 +9,121 @@ every push to `main` that touches `web/**` or the root `package.json` /
 Actions tab ("Run workflow") - a manual run is refused unless it targets the
 `main` ref.
 
+## Flow: feature branch -> develop -> staging validation -> main -> production
+
+```
+feature/* --> develop --> [staging: carma-business-staging] --> main --> [production: carma-business]
+```
+
+A feature branch merges into `develop` the same as always. That push, if it
+touches `web/**`, rolls `carma-business-staging` onto the new commit via
+`.github/workflows/deploy-web-staging.yml` - a real, deployed build to click
+through before anything reaches `main`. Once develop looks right on staging,
+it is merged to `main` the normal way and `deploy-web.yml` rolls
+`carma-business` onto that commit. Staging never deploys to `main`, and
+`main` never deploys to the staging app - each workflow is hard-restricted to
+one branch (see "Restrict to develop" / "Restrict to main" in the two files).
+
+## Staging
+
+`carma-business-staging` is a second, independent Azure Container App in the
+same `carma-env` environment as `carma-business`. It exists only so develop
+can be checked in a browser before it is promoted - it is not a copy of
+production data or traffic, and nothing about it is customer-facing.
+
+Isolation from production is structural, not just convention:
+
+- **Different trigger.** `deploy-web-staging.yml` fires on `develop` only;
+  `deploy-web.yml` fires on `main` only. Neither can run for the other's ref,
+  including on manual dispatch.
+- **Different Container App.** The staging workflow's `WEB_CONTAINER_APP` is
+  `carma-business-staging`; it can never resolve to `carma-business`, so a
+  staging deploy has no code path that touches the production app.
+- **Different OIDC credential.** `environment: staging` on the deploy job
+  gives it its own federated-credential subject
+  (`repo:Carma-Team/carma:environment:staging`), distinct from production's
+  `...:environment:production`. Even a copy-pasted workflow with the wrong
+  environment key would fail to authenticate rather than deploy to the wrong
+  place.
+- **Different image tag.** Staging pushes `carma-web:staging-<sha>`;
+  production pushes `carma-web:<sha>`. The two never collide in the registry.
+
+Staging currently builds against the same live API as production
+(`VITE_API_URL_STAGING`, see below) - CARMA has no staging backend yet, so
+this is the one point where staging and production share a resource. That is
+a deliberate scope limit, not an oversight: standing up a second API
+environment is out of scope for CAR-316. It also means a staging deploy is
+not a safe place to test anything that mutates real data (registrations,
+trips, rewards) - it validates the built web app, not backend behaviour.
+
+### One-time setup for staging (manual, not part of any workflow)
+
+Create the Container App the same way `carma-business` was created:
+
+```bash
+az containerapp create \
+  --name carma-business-staging \
+  --resource-group carma-rg \
+  --environment carma-env \
+  --image nginx:1.27-alpine \
+  --target-port 8080 --ingress external \
+  --min-replicas 0 --max-replicas 1 \
+  --cpu 0.25 --memory 0.5Gi
+
+az containerapp registry set \
+  --name carma-business-staging --resource-group carma-rg \
+  --server carmaregistry3819.azurecr.io \
+  --username <acr-user> --password <acr-password>
+```
+
+`carma-ci`'s `Contributor` role was granted scoped to the individual
+container app resource, not the resource group (see SYSTEM.md's "Auth: OIDC
+against a managed identity"). That scoping was recorded for `carma-api`
+only, and nothing documents whether `carma-business` got the same per-resource
+treatment or a broader one - so check before assuming `carma-business-staging`
+is covered, rather than finding out from a failed rollout:
+
+```bash
+PRINCIPAL_ID=$(az identity show --name carma-ci --resource-group carma-rg --query principalId -o tsv)
+STAGING_APP_ID=$(az containerapp show --name carma-business-staging --resource-group carma-rg --query id -o tsv)
+
+az role assignment list --assignee "$PRINCIPAL_ID" -o table
+```
+
+If nothing in that list is a `Contributor` assignment whose scope already
+covers `$STAGING_APP_ID` - directly, or via a broader scope such as the
+resource group - grant one on the staging app specifically, matching the
+same per-resource scope `carma-api` already uses:
+
+```bash
+az role assignment create --assignee "$PRINCIPAL_ID" --role Contributor --scope "$STAGING_APP_ID"
+```
+
+Grant it on `$STAGING_APP_ID` and nothing wider. `carma-ci` has never held
+more than `AcrPush` on the one registry and `Contributor` on the container
+apps it deploys - resource-group or subscription-level `Contributor` would
+be a bigger, and unnecessary, change than adding one more app to that list.
+
+Add the `repo:Carma-Team/carma:environment:staging` federated credential to
+the `carma-ci` managed identity (mirrors whatever was run for
+`...:environment:production`), and add the `staging` deployment environment
+under Settings -> Environments in GitHub if it does not already exist.
+
+Add the `VITE_API_URL_STAGING` repository variable (Settings -> Secrets and
+variables -> Actions -> Variables tab). Until a staging API exists, set it to
+the same value as `VITE_API_URL`.
+
+Read the assigned hostname once the first staging deploy has run:
+
+```bash
+az containerapp show --name carma-business-staging --resource-group carma-rg \
+  --query properties.configuration.ingress.fqdn -o tsv
+```
+
+That hostname also needs adding to `carma-api`'s `CORS_ORIGINS` (comma-separated,
+alongside the production origin - see "Browser-origin configuration" below) if
+staging is going to be used to check sign-in or any other authenticated flow.
+
 ## Why a Container App and not Static Web Apps
 
 Static Web Apps is the obvious host for this and is what CAR-284 was written
@@ -99,11 +214,13 @@ CORS_ORIGINS=https://carma-business.whitedesert-5aabb28f.germanywestcentral.azur
 REFRESH_COOKIE_SAMESITE=none
 ```
 
-`CORS_ORIGINS` names that one origin and nothing else. It was `*` before, and
-a wildcard is not a permissive version of this - the CORS spec forbids pairing
-a wildcard with credentials, so the server refuses credentialed requests
-entirely while it is set (`config.cors_allows_credentials`). No other origin
-gets a credentialed session, preview URLs included.
+`CORS_ORIGINS` is comma-separated (`app/config.py`'s `cors_origin_list`), but
+today names only the production origin. It was `*` before, and a wildcard is
+not a permissive version of this - the CORS spec forbids pairing a wildcard
+with credentials, so the server refuses credentialed requests entirely while
+it is set (`config.cors_allows_credentials`). Adding the staging origin from
+"One-time setup for staging" above is what it takes to test sign-in there; no
+other origin gets a credentialed session, preview URLs included.
 
 `REFRESH_COOKIE_SAMESITE=none` is what keeps the browser attaching the refresh
 cookie to `POST /api/auth/refresh` from the web app. `lax` would probably work
