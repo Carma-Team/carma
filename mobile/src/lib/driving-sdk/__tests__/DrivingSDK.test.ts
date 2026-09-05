@@ -660,11 +660,29 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1 });
+    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1, longitudinalAccelG: -0.4 });
 
     expect(validator.samples).toHaveLength(1);
-    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, yawRate: 0.2, lateralAccelG: 1.1 });
+    expect(validator.samples[0]).toMatchObject({
+      speedKmh: 30,
+      yawRate: 0.2,
+      lateralAccelG: 1.1,
+      longitudinalAccelG: -0.4,
+    });
     expect(instance.getStatus().isActive).toBe(false);
+  });
+
+  it('forwards a null longitudinal component before the forward direction is learned (CAR-319)', async () => {
+    const validator = new StubValidator();
+    wire(new DrivingSDK({ tripValidator: validator }));
+
+    // The vehicle frame resolves both horizontal axes or neither, so an accelerometer
+    // that is live but has not yet voted a forward direction reports null on both.
+    // Null must survive the hop to the validator: 0 would claim a measured absence of
+    // longitudinal force, which is a braking verdict nobody measured.
+    sendSensorUpdate({ longitudinalAccelG: null, lateralAccelG: null, accelAvailable: true });
+
+    expect(validator.samples[0]).toMatchObject({ longitudinalAccelG: null, lateralAccelG: null });
   });
 
   it('forwards sensor availability to the validator instead of a false zero (CAR-161)', async () => {
