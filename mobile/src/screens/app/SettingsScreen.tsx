@@ -57,7 +57,9 @@ export default function SettingsScreen() {
   // Refreshed rather than derived: the list is a directory read, and it changes when a
   // session stops or an upload prunes nothing at all.
   const [savedRecordings, setSavedRecordings] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
+  // The path being uploaded, not a boolean: one flag lit every row's spinner and the
+  // first response to land put them all back, whichever row was still uploading.
+  const [uploadingPath, setUploadingPath] = useState<string | null>(null);
 
   if (!user) return null;
 
@@ -156,7 +158,7 @@ export default function SettingsScreen() {
       Alert.alert('Upload', 'Nothing recorded yet.');
       return;
     }
-    setUploading(true);
+    setUploadingPath(path);
     try {
       const saved = await recordingsApi.upload(path);
       addToast({ type: 'success', message: `Uploaded ${saved.sessionId}` });
@@ -164,14 +166,17 @@ export default function SettingsScreen() {
       const status = e instanceof ApiError ? e.status : 0;
       Alert.alert(
         'Upload',
+        // 409 is not "already uploaded" — an identical file answers 200. It means a
+        // *different* file is stored under this session id, which is a drive that
+        // cannot be saved as it stands, not a duplicate to shrug at.
         status === 403 ? 'This account is not an admin — the endpoint only takes admin uploads.'
-          : status === 409 ? 'Already uploaded.'
+          : status === 409 ? 'A different recording is already stored under this session id — this file was not saved.'
           : status === 422 ? 'The server refused the file — no session header, or no samples.'
           : 'Upload failed.'
       );
       console.error('recording upload failed', e);
     } finally {
-      setUploading(false);
+      setUploadingPath(null);
     }
   };
 
@@ -375,8 +380,8 @@ export default function SettingsScreen() {
                       <Button
                         variant="outline"
                         size="sm"
-                        loading={uploading}
-                        onPress={() => handleUploadRawRecording()}
+                        loading={uploadingPath === savedRecordings[0]}
+                        onPress={() => handleUploadRawRecording(savedRecordings[0])}
                         style={styles.debugBtn}
                       >
                         Upload
@@ -412,7 +417,7 @@ export default function SettingsScreen() {
                         <Button
                           variant="outline"
                           size="sm"
-                          loading={uploading}
+                          loading={uploadingPath === path}
                           onPress={() => handleUploadRawRecording(path)}
                         >
                           Upload

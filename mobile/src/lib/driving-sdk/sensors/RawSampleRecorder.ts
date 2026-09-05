@@ -121,18 +121,26 @@ function share(): typeof import('expo-sharing') {
 }
 
 /**
- * UTF-8 bytes for a string, BMP range. Hand-written rather than `TextEncoder`, which
- * Hermes does not guarantee, and rather than borrowing the app's — the SDK owns no
- * dependency on CARMA. Sample lines are ASCII, but a scenario or marker label comes
+ * UTF-8 bytes for a string. Hand-written rather than `TextEncoder`, which Hermes does
+ * not guarantee, and rather than borrowing the app's — the SDK owns no dependency on
+ * CARMA. Sample lines are ASCII, but a scenario, a device name or a marker label comes
  * from the host and can be anything.
+ *
+ * `codePointAt` rather than `charCodeAt`: a surrogate pair written as two three-byte
+ * sequences is CESU-8, not UTF-8, and one emoji in a device name would leave the file
+ * undecodable for a reader that validates.
  */
 function utf8Bytes(text: string): Uint8Array {
   const out: number[] = [];
   for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
+    const c = text.codePointAt(i)!;
     if (c < 0x80) out.push(c);
     else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
-    else out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    else {
+      out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      i++; // the low surrogate is part of the code point just written
+    }
   }
   return new Uint8Array(out);
 }
@@ -166,6 +174,12 @@ export class RawSampleRecorder {
   // dropped until it lands. MAX_SESSION_LINES bounds what that can cost in memory.
   private lines: string[] = [];
   private lastFlushedCount = 0;
+  // Bytes of this file a flush is known to have landed. The append offset comes from
+  // here rather than from the file's own length: a write that failed part-way left
+  // bytes on disk belonging to the chunk about to be retried, and appending after them
+  // welds a partial line onto a whole copy of itself. Writing over them is what makes
+  // the retry self-healing, the way the old whole-file rewrite was (CAR-304).
+  private flushedBytes = 0;
   // Buffer length at which the next flush is attempted. Advances on every attempt,
   // successful or not: keyed off lastFlushedCount instead, a failed flush would leave
   // the interval permanently crossed and rewrite the whole file on every sample after
@@ -198,6 +212,7 @@ export class RawSampleRecorder {
     const sessionId = `session_${Date.now()}`;
     this.lines = [];
     this.lastFlushedCount = 0;
+    this.flushedBytes = 0;
     this.nextFlushAt = FLUSH_EVERY_LINES;
     // Joined by the File constructor, never by string concatenation: Directory.uri
     // already ends in a slash on Android and does not on iOS, so a hand-built path
@@ -261,6 +276,7 @@ export class RawSampleRecorder {
     this.magSub = null;
     this.lines = [];
     this.lastFlushedCount = 0;
+    this.flushedBytes = 0;
     this.nextFlushAt = FLUSH_EVERY_LINES;
     this.lastFilePath = session.filePath;
     return session;
@@ -283,13 +299,12 @@ export class RawSampleRecorder {
    * a quick-action button wants — the type is the label there, and metadata is for the
    * rare marker that carries a value with it.
    *
-   * Returns false when there is no session to mark, so a caller can tell "recorded" from
-   * "dropped" without reaching for `isRecording()` first and racing it.
+   * Returns false when the marker was not recorded — no session running, or a session
+   * already at MAX_SESSION_LINES — so a caller can tell "recorded" from "dropped"
+   * without reaching for `isRecording()` first and racing it.
    */
   public pushMarker(markerType: string, label = markerType, metadata?: Record<string, unknown>): boolean {
-    if (!this.session) return false;
-    this.pushLine({ t: Date.now(), kind: 'marker', markerType, label, ...(metadata ? { metadata } : {}) });
-    return true;
+    return this.pushLine({ t: Date.now(), kind: 'marker', markerType, label, ...(metadata ? { metadata } : {}) });
   }
 
   /**
@@ -297,6 +312,12 @@ export class RawSampleRecorder {
    * hand-held without stopping: the marker says where the change happened, so an offline
    * reader can split the file on it, and the session's own label follows the current
    * state rather than the one it opened with.
+   *
+   * The `session_start` header is left alone: it is the file's first line, the upload
+   * route reads the index out of it, and rewriting a line the rest of the file sits
+   * behind is not an append. A mixed drive is therefore indexed under the scenario it
+   * opened with, and a server-side filter on scenario returns it under that label only
+   * — the marker in the stream is what carries the change to whoever analyses it.
    */
   public changeScenario(scenario: string): boolean {
     if (!this.session || scenario === this.session.scenario) return false;
@@ -309,14 +330,16 @@ export class RawSampleRecorder {
     this.pushLine(sample);
   }
 
-  private pushLine(entry: RawSample | RawMarker): void {
-    if (!this.session) return; // no-op outside an active session — callers wire this unconditionally
-    if (this.lines.length >= MAX_SESSION_LINES) return;
+  /** False when the entry was dropped: no session, or a session already at its cap. */
+  private pushLine(entry: RawSample | RawMarker): boolean {
+    if (!this.session) return false; // no-op outside an active session — callers wire this unconditionally
+    if (this.lines.length >= MAX_SESSION_LINES) return false;
     this.lines.push(JSON.stringify(entry));
     if (this.lines.length >= this.nextFlushAt) {
       this.nextFlushAt = this.lines.length + FLUSH_EVERY_LINES;
       this.flush(this.session.filePath);
     }
+    return true;
   }
 
   /**
@@ -342,15 +365,15 @@ export class RawSampleRecorder {
       // newline would leave a stopped session ending in an empty line, and the upload
       // route reads this file line by line.
       const chunk = (this.lastFlushedCount === 0 ? '' : '\n') + pending.join('\n');
+      const bytes = utf8Bytes(chunk);
       const handle = file.open();
       try {
-        // The file's own length, not a byte count this class keeps: a retry after a
-        // partial write must land after whatever actually reached disk.
-        handle.offset = handle.size ?? 0;
-        handle.writeBytes(utf8Bytes(chunk));
+        handle.offset = this.flushedBytes;
+        handle.writeBytes(bytes);
       } finally {
         handle.close();
       }
+      this.flushedBytes += bytes.length;
       this.lastFlushedCount = this.lines.length;
       return true;
     } catch (err) {
@@ -372,12 +395,21 @@ export class RawSampleRecorder {
    * Completed recordings on disk, newest first. The only way to reach a session
    * recorded before the last app restart — `lastFilePath` lives in memory and does not
    * survive one.
+   *
+   * The live session's file is created by start() and flushed into while it records, so
+   * it is on disk from the first moment and would otherwise head this list. It is left
+   * out because every consumer reads a listed file as a finished drive: exporting or
+   * uploading one mid-session ships a truncated prefix under the session's own id, and
+   * it is then the complete drive that can no longer be stored under that id.
    */
   public listRecordings(): string[] {
     try {
       const dir = recordingsDir();
       if (!dir.exists) return [];
-      return recordingsIn(dir).map((file) => file.uri);
+      const live = this.session?.filePath;
+      return recordingsIn(dir)
+        .map((file) => file.uri)
+        .filter((uri) => uri !== live);
     } catch (err) {
       console.warn('[RawSampleRecorder] Could not list recordings', err);
       return [];

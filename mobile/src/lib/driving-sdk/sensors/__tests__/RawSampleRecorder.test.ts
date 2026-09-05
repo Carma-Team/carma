@@ -54,7 +54,16 @@ function MockFile(this: any, ...parts: (string | { uri: string })[]) {
         // argument list.
         let chunk = '';
         for (let i = 0; i < bytes.length; i++) chunk += String.fromCharCode(bytes[i]);
-        mockFileAppend(chunk);
+        try {
+          mockFileAppend(chunk);
+        } catch (err) {
+          // A real write can fail with bytes already on disk. `written` on the thrown
+          // error is how a test says how many landed; without it the write stays
+          // all-or-nothing, which is what every other failure test here wants.
+          const written = (err as { written?: number }).written ?? 0;
+          fs.set(uri, (fs.get(uri) ?? '').slice(0, handle.offset) + chunk.slice(0, written));
+          throw err;
+        }
         fs.set(uri, (fs.get(uri) ?? '').slice(0, handle.offset) + chunk);
       },
       close: () => undefined,
@@ -218,6 +227,22 @@ describe('RawSampleRecorder', () => {
     ]);
   });
 
+  // The live file is on disk from start(), and everything reading this list treats an
+  // entry as a finished drive: exporting or uploading one mid-session ships a truncated
+  // prefix under the session id the complete drive will claim later.
+  it('leaves the session still being written out of the listing', async () => {
+    fs.set(`${DIR}session_1000.ndjson`, 'old');
+
+    const session = recorder.start('handheld', 'ios');
+
+    expect(fs.has(session.filePath)).toBe(true);
+    expect(recorder.listRecordings()).toEqual([`${DIR}session_1000.ndjson`]);
+
+    await recorder.stop();
+
+    expect(recorder.listRecordings()[0]).toBe(session.filePath);
+  });
+
   it('prunes all but the five newest recordings when a session starts', async () => {
     for (let i = 1; i <= 7; i++) fs.set(`${DIR}session_${i}000.ndjson`, 'x');
 
@@ -263,6 +288,32 @@ describe('RawSampleRecorder', () => {
     for (let i = 1000; i < 2000; i++) recorder.pushAccelSample(i, 0, 0);
 
     expect(fs.get(session.filePath)!.split('\n')).toHaveLength(2000);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  // A write that dies half-way is the case an append cannot shrug off: the bytes on
+  // disk belong to the chunk the next flush is about to write again. Appending after
+  // them welds a partial line onto a whole copy of itself, and the file never parses.
+  it('overwrites a partly-written chunk on the retry rather than appending after it', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const session = recorder.start('handheld', 'ios');
+
+    mockFileAppend.mockImplementationOnce(() => {
+      throw Object.assign(new Error('disk full'), { written: 40 });
+    });
+    for (let i = 0; i < 1000; i++) recorder.pushAccelSample(i, 0, 0);
+    expect(fs.get(session.filePath)).toHaveLength(40); // a broken prefix of the header
+
+    for (let i = 1000; i < 2000; i++) recorder.pushAccelSample(i, 0, 0);
+
+    const lines = fs.get(session.filePath)!.split('\n');
+    expect(lines).toHaveLength(2000);
+    // Every line parses, header included: the retry landed on top of the 40 bytes, not
+    // behind them. The server only reads the first and last line, so a welded line in
+    // the middle would upload clean and be discovered by whoever analyses the drive.
+    lines.forEach((line) => expect(() => JSON.parse(line)).not.toThrow());
+    expect(JSON.parse(lines[0]).kind).toBe('session_start');
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
@@ -324,6 +375,17 @@ describe('RawSampleRecorder', () => {
       platform: 'ios',
       deviceModel: 'iPhone 14',
     });
+  });
+
+  // The mock stores one character per byte, so the file's content is its bytes here.
+  // A surrogate pair written as two three-byte sequences is CESU-8, and one emoji in a
+  // device name would leave the whole recording undecodable for a reader that validates.
+  it('encodes a device name outside the BMP as four-byte UTF-8', async () => {
+    const session = recorder.start('handheld', 'ios', 'iPhone \u{1F4F1}');
+
+    await recorder.stop();
+
+    expect(fs.get(session.filePath)).toContain('\u00f0\u009f\u0093\u00b1');
   });
 
   it('records a marker in the stream, with the label defaulting to the type', async () => {

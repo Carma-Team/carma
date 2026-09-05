@@ -567,14 +567,17 @@ export class DrivingSDK {
 
   /**
    * Places a labelled point in the running session — a hard brake, a phone pickup, a
-   * change of scenario. False when no session is running, so a UI can tell a recorded
-   * marker from a dropped tap.
+   * change of scenario. False when the marker was not recorded — no session running, or
+   * a session at its line cap — so a UI can tell a recorded marker from a dropped tap.
    */
   public markRawRecording(markerType: string, label?: string, metadata?: Record<string, unknown>): boolean {
     return this.rawRecorder.pushMarker(markerType, label, metadata);
   }
 
-  /** Re-labels the running session from here on, leaving a marker where it changed. */
+  /**
+   * Re-labels the running session from here on, leaving a marker where it changed. The
+   * session header keeps the scenario the drive opened with — see changeScenario.
+   */
   public changeRawRecordingScenario(scenario: string): boolean {
     return this.rawRecorder.changeScenario(scenario);
   }
@@ -588,7 +591,10 @@ export class DrivingSDK {
     return this.rawRecorder.exportAsync(filePath);
   }
 
-  /** Completed recordings on disk, newest first — including sessions from earlier app runs. */
+  /**
+   * Completed recordings on disk, newest first — including sessions from earlier app
+   * runs, and excluding the one still being written.
+   */
   public listRawRecordings(): string[] {
     return this.rawRecorder.listRecordings();
   }

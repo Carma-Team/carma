@@ -13,14 +13,7 @@
  *   token gets a 403, which is the intended answer, not a bug to work around here.
  */
 import { request } from './client';
-
-export interface RawRecordingOut {
-  sessionId: string;
-  scenario: string;
-  platform: string;
-  startedAt: string;
-  sizeBytes: number;
-}
+import type { RawRecording } from '@/types';
 
 /**
  * Uploads one recording. `fileUri` is a `file://` path from the SDK — React Native's
@@ -40,6 +33,6 @@ export const recordingsApi = {
       name: fileUri.split('/').pop() || 'recording.ndjson',
       type: 'application/x-ndjson',
     } as unknown as Blob);
-    return request<RawRecordingOut>('/api/dev/recordings', { method: 'POST', body });
+    return request<RawRecording>('/api/dev/recordings', { method: 'POST', body });
   },
 };
