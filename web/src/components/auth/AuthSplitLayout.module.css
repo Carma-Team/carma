@@ -1,0 +1,85 @@
+.shell {
+  min-height: 100vh;
+  display: flex;
+  background: var(--color-surface);
+}
+
+.formPanel {
+  flex: 1 1 58%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: var(--space-xxl) var(--space-xxl);
+}
+
+.logo {
+  align-self: flex-start;
+  margin-bottom: var(--space-xxl);
+}
+
+.formContent {
+  max-width: 26rem;
+  width: 100%;
+}
+
+.photoPanel {
+  flex: 1 1 42%;
+  position: relative;
+  overflow: hidden;
+  background: var(--color-primary-overlay);
+}
+
+.photoImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 60%;
+}
+
+.photoOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(165deg, rgba(41, 38, 140, 0.9) 0%, rgba(99, 102, 241, 0.55) 100%);
+}
+
+.photoCopy {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.photoCopy h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-heading);
+  color: var(--color-primary-contrast);
+  line-height: 1.35;
+}
+
+.photoCopy p {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* Photography is decorative brand intensity reserved for the door screens —
+   below this it competes with the form for a narrow viewport instead of
+   supporting it, so it drops rather than shrinks. */
+@media (max-width: 900px) {
+  .photoPanel {
+    display: none;
+  }
+
+  .formPanel {
+    flex: 1 1 auto;
+    padding: var(--space-xl) var(--space-lg);
+    align-items: center;
+  }
+}

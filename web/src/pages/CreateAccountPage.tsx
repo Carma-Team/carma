@@ -3,7 +3,9 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { AuthApiError } from '@/lib/auth/authApi';
-import { Card, Heading, Input, Button, ErrorState, LoadingState } from '@/components/ui';
+import { Heading, Text, Input, Button, ErrorState, LoadingState } from '@/components/ui';
+import { AuthSplitLayout } from '@/components/auth/AuthSplitLayout';
+import styles from './CreateAccountPage.module.css';
 
 type LocationState = { from?: string } | null;
 
@@ -25,7 +27,7 @@ export function CreateAccountPage() {
 
   if (status === 'loading') {
     return (
-      <main style={{ padding: 'var(--space-lg)' }}>
+      <main className={styles.loadingPage}>
         <LoadingState label={t('common.loading')} />
       </main>
     );
@@ -53,44 +55,49 @@ export function CreateAccountPage() {
   }
 
   return (
-    <main style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-lg)' }}>
-      <Card style={{ maxWidth: '24rem', width: '100%' }}>
-        <Heading level={1}>{t('auth.createAccountTitle')}</Heading>
-        <form onSubmit={handleSubmit} noValidate>
-          <Input
-            label={t('auth.nameLabel')}
-            type="text"
-            name="name"
-            autoComplete="name"
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <Input
-            label={t('auth.emailLabel')}
-            type="email"
-            name="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <Input
-            label={t('auth.passwordLabel')}
-            type="password"
-            name="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          {error && <ErrorState title={error} />}
-          <Button type="submit" disabled={submitting} style={{ marginTop: 'var(--space-md)' }}>
-            {submitting ? t('auth.creatingAccountLabel') : t('auth.createAccountButton')}
-          </Button>
-        </form>
-      </Card>
-    </main>
+    <AuthSplitLayout heroTitle={t('auth.createAccountHeroTitle')} heroSubtitle={t('auth.createAccountHeroSubtitle')}>
+      <Heading level={1}>{t('auth.createAccountTitle')}</Heading>
+      <Text variant="body" className={styles.subtitle}>
+        {t('auth.createAccountSubtitle')}
+      </Text>
+      <form onSubmit={handleSubmit} noValidate>
+        <Input
+          label={t('auth.nameLabel')}
+          type="text"
+          name="name"
+          autoComplete="name"
+          required
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Input
+          label={t('auth.emailLabel')}
+          type="email"
+          name="email"
+          dir="ltr"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <Input
+          label={t('auth.passwordLabel')}
+          type="password"
+          name="password"
+          dir="ltr"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          revealPasswordLabel={t('auth.showPasswordLabel')}
+          hidePasswordLabel={t('auth.hidePasswordLabel')}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        {error && <ErrorState title={error} />}
+        <Button type="submit" disabled={submitting} style={{ marginTop: 'var(--space-md)' }}>
+          {submitting ? t('auth.creatingAccountLabel') : t('auth.createAccountButton')}
+        </Button>
+      </form>
+    </AuthSplitLayout>
   );
 }

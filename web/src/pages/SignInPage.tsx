@@ -4,7 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { AuthApiError } from '@/lib/auth/authApi';
 import { requestSignInOtp } from '@/lib/auth/otpApi';
-import { Card, Heading, Input, Button, ErrorState, LoadingState } from '@/components/ui';
+import { Heading, Text, Input, Button, ErrorState, LoadingState } from '@/components/ui';
+import { AuthSplitLayout } from '@/components/auth/AuthSplitLayout';
+import styles from './SignInPage.module.css';
 
 // Server's E.164 pattern (server/app/schemas/auth.py) — same check
 // `BusinessRegistrationPage` runs client-side before ever hitting the network.
@@ -47,7 +49,7 @@ export function SignInPage() {
   // and do not show it at all once it lands.
   if (status === 'loading') {
     return (
-      <main style={{ padding: 'var(--space-lg)' }}>
+      <main className={styles.loadingPage}>
         <LoadingState label={t('common.loading')} />
       </main>
     );
@@ -122,114 +124,120 @@ export function SignInPage() {
   const verifyingCode = phoneStep === 'verifying';
 
   return (
-    <main style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-lg)' }}>
-      <Card style={{ maxWidth: '24rem', width: '100%' }}>
-        <Heading level={1}>{t('auth.signInTitle')}</Heading>
-        {mode === 'password' ? (
-          <form onSubmit={handleSubmit} noValidate>
-            <Input
-              label={t('auth.emailLabel')}
-              type="email"
-              name="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <Input
-              label={t('auth.passwordLabel')}
-              type="password"
-              name="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            {error && <ErrorState title={error} />}
-            <Button type="submit" disabled={submitting} style={{ marginTop: 'var(--space-md)' }}>
-              {submitting ? t('auth.signingIn') : t('auth.signInButton')}
-            </Button>
-          </form>
-        ) : phoneStep === 'phone' || phoneStep === 'sendingCode' ? (
-          <form onSubmit={handleSendCode} noValidate>
-            <Input
-              label={t('auth.phoneLabel')}
-              type="tel"
-              dir="ltr"
-              autoComplete="tel"
-              required
-              pattern={PHONE_PATTERN}
-              title={t('auth.phoneFormatError')}
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-            />
-            {phoneError && <ErrorState title={phoneError} />}
-            <Button type="submit" disabled={sendingCode} style={{ marginTop: 'var(--space-md)' }}>
-              {sendingCode ? t('auth.sendingCodeLabel') : t('auth.sendCodeButton')}
-            </Button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyCode} noValidate>
-            <p>
-              {t('auth.otpSubtitle')} <span dir="ltr">{phone}</span>
-            </p>
-            <Input
-              label={t('auth.codeLabel')}
-              inputMode="numeric"
-              dir="ltr"
-              autoComplete="one-time-code"
-              required
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-            />
-            {phoneError && <ErrorState title={phoneError} />}
-            <Button type="submit" disabled={verifyingCode} style={{ marginTop: 'var(--space-md)' }}>
-              {verifyingCode ? t('auth.verifyingLabel') : t('auth.verifyButton')}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={verifyingCode}
-              onClick={handleSendCode}
-              style={{ marginTop: 'var(--space-sm)' }}
-            >
-              {t('auth.resendButton')}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={verifyingCode}
-              onClick={() => setPhoneStep('phone')}
-              style={{ marginTop: 'var(--space-sm)' }}
-            >
-              {t('auth.changePhoneButton')}
-            </Button>
-          </form>
-        )}
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => switchMode(mode === 'password' ? 'phone' : 'password')}
-          style={{ marginTop: 'var(--space-md)' }}
-        >
-          {t(mode === 'password' ? 'auth.signInWithPhoneLink' : 'auth.signInWithEmailLink')}
-        </Button>
-        {/* CAR-118 review item 5: a recipient who was only given a code (read
-            aloud, not clicked) has no production path to `/accept-invite`
-            without this — the entry form itself never appears in any nav. */}
-        <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
-          {t('invitations.haveCodeLinkLabel')}
-        </Link>
-        {/* CAR-315: sign-in is the only public page most prospective business
-            owners ever land on — without this, /register has no discoverable
-            entry point at all. */}
-        <Link to="/register" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
-          {t('businessRegistration.signInEntryLabel')}
-        </Link>
-        <Link to="/register/status" style={{ display: 'block', marginTop: 'var(--space-sm)' }}>
-          {t('businessRegistration.checkStatusLink')}
-        </Link>
-      </Card>
-    </main>
+    <AuthSplitLayout heroTitle={t('auth.heroTitle')} heroSubtitle={t('auth.heroSubtitle')}>
+      <Heading level={1}>{t('auth.signInTitle')}</Heading>
+      <Text variant="body" className={styles.subtitle}>
+        {t('auth.signInSubtitle')}
+      </Text>
+      {mode === 'password' ? (
+        <form onSubmit={handleSubmit} noValidate>
+          <Input
+            label={t('auth.emailLabel')}
+            type="email"
+            name="email"
+            dir="ltr"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <Input
+            label={t('auth.passwordLabel')}
+            type="password"
+            name="password"
+            dir="ltr"
+            autoComplete="current-password"
+            required
+            revealPasswordLabel={t('auth.showPasswordLabel')}
+            hidePasswordLabel={t('auth.hidePasswordLabel')}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          {error && <ErrorState title={error} />}
+          <Button type="submit" disabled={submitting} style={{ marginTop: 'var(--space-md)' }}>
+            {submitting ? t('auth.signingIn') : t('auth.signInButton')}
+          </Button>
+        </form>
+      ) : phoneStep === 'phone' || phoneStep === 'sendingCode' ? (
+        <form onSubmit={handleSendCode} noValidate>
+          <Input
+            label={t('auth.phoneLabel')}
+            type="tel"
+            dir="ltr"
+            autoComplete="tel"
+            required
+            pattern={PHONE_PATTERN}
+            title={t('auth.phoneFormatError')}
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+          />
+          {phoneError && <ErrorState title={phoneError} />}
+          <Button type="submit" disabled={sendingCode} style={{ marginTop: 'var(--space-md)' }}>
+            {sendingCode ? t('auth.sendingCodeLabel') : t('auth.sendCodeButton')}
+          </Button>
+        </form>
+      ) : (
+        <form onSubmit={handleVerifyCode} noValidate>
+          <Text variant="body">
+            {t('auth.otpSubtitle')} <span dir="ltr">{phone}</span>
+          </Text>
+          <Input
+            label={t('auth.codeLabel')}
+            inputMode="numeric"
+            dir="ltr"
+            autoComplete="one-time-code"
+            required
+            className={styles.otpInput}
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+          {phoneError && <ErrorState title={phoneError} />}
+          <Button type="submit" disabled={verifyingCode} style={{ marginTop: 'var(--space-md)' }}>
+            {verifyingCode ? t('auth.verifyingLabel') : t('auth.verifyButton')}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={verifyingCode}
+            onClick={handleSendCode}
+            style={{ marginTop: 'var(--space-sm)' }}
+          >
+            {t('auth.resendButton')}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={verifyingCode}
+            onClick={() => setPhoneStep('phone')}
+            style={{ marginTop: 'var(--space-sm)' }}
+          >
+            {t('auth.changePhoneButton')}
+          </Button>
+        </form>
+      )}
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => switchMode(mode === 'password' ? 'phone' : 'password')}
+        style={{ marginTop: 'var(--space-md)' }}
+      >
+        {t(mode === 'password' ? 'auth.signInWithPhoneLink' : 'auth.signInWithEmailLink')}
+      </Button>
+      {/* CAR-118 review item 5: a recipient who was only given a code (read
+          aloud, not clicked) has no production path to `/accept-invite`
+          without this — the entry form itself never appears in any nav. */}
+      <Link to="/accept-invite" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
+        {t('invitations.haveCodeLinkLabel')}
+      </Link>
+      {/* CAR-315: sign-in is the only public page most prospective business
+          owners ever land on — without this, /register has no discoverable
+          entry point at all. */}
+      <Link to="/register" style={{ display: 'block', marginTop: 'var(--space-md)' }}>
+        {t('businessRegistration.signInEntryLabel')}
+      </Link>
+      <Link to="/register/status" style={{ display: 'block', marginTop: 'var(--space-sm)' }}>
+        {t('businessRegistration.checkStatusLink')}
+      </Link>
+    </AuthSplitLayout>
   );
 }

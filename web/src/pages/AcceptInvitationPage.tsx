@@ -6,6 +6,7 @@ import { attemptRefresh } from '@/lib/auth/refresh';
 import { getSession } from '@/lib/auth/session';
 import { acceptInvitation, previewInvitation, type InvitationPreview } from '@/lib/api/businessInvitations';
 import { Card, Heading, Text, Button, ErrorState, LoadingState } from '@/components/ui';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import styles from './AcceptInvitationPage.module.css';
 
 // Mirrors the server's `READABLE_ALPHABET` + fixed length
@@ -340,13 +341,13 @@ export function AcceptInvitationPage() {
 
   if (acceptPhase === 'incompatible_business' || incompatibleBusiness) {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.card}>
           <Heading level={1}>{t('invitations.incompatibleBusinessTitle')}</Heading>
           <Text variant="body">{t('invitations.incompatibleBusinessMessage')}</Text>
           <Button onClick={handleSignOutIncompatibleBusiness}>{t('invitations.incompatibleBusinessSignOutButton')}</Button>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
@@ -360,7 +361,7 @@ export function AcceptInvitationPage() {
   if (acceptPhase === 'ambiguous') {
     const ambiguousAlreadyMember = settleContext.current.origin === 'already_member';
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.card}>
           <Heading level={1}>
             {t(ambiguousAlreadyMember ? 'invitations.alreadyMemberAmbiguousTitle' : 'invitations.ambiguousTitle')}
@@ -370,47 +371,47 @@ export function AcceptInvitationPage() {
           </Text>
           <Button onClick={handleSignOutAfterAmbiguousAcceptance}>{t('invitations.ambiguousSignOutButton')}</Button>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (acceptPhase === 'auth_required') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.card}>
           <Heading level={1}>{t('invitations.authRequiredTitle')}</Heading>
           <Text variant="body">{t('invitations.authRequiredMessage')}</Text>
           <Button onClick={handleSignInFromAuthRequired}>{t('invitations.signInLinkLabel')}</Button>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (acceptPhase === 'transient') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.card}>
           <Heading level={1}>{t('invitations.transientTitle')}</Heading>
           <Text variant="body">{t('invitations.transientMessage')}</Text>
           <Button onClick={runSettle}>{t('invitations.transientRetryButton')}</Button>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (acceptPhase === 'checking') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <LoadingState label={t('invitations.checkingStatusLabel')} />
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (status === 'loading') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <LoadingState label={t('common.loading')} />
-      </main>
+      </AuthCardShell>
     );
   }
 
@@ -429,7 +430,7 @@ export function AcceptInvitationPage() {
     // recovery path's foundation.
     const from = location.pathname + location.hash;
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <Card className={styles.card}>
           <Heading level={1}>{t('invitations.acceptPageTitleUnauthenticated')}</Heading>
           <div className={styles.choiceRow}>
@@ -445,28 +446,28 @@ export function AcceptInvitationPage() {
             </Button>
           </div>
         </Card>
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (effectivePreviewStatus === 'invalid') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <ErrorState title={t('invitations.invalidTitle')} message={t('invitations.invalidMessage')} />
-      </main>
+      </AuthCardShell>
     );
   }
 
   if (effectivePreviewStatus === 'error') {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <ErrorState
           title={t('common.errorTitle')}
           message={t('common.errorMessage')}
           onRetry={retryPreview}
           retryLabel={t('common.retry')}
         />
-      </main>
+      </AuthCardShell>
     );
   }
 
@@ -476,14 +477,14 @@ export function AcceptInvitationPage() {
   // is the correct default either way.
   if (effectivePreviewStatus === 'loading' || !previewReady || !preview) {
     return (
-      <main className={styles.page}>
+      <AuthCardShell>
         <LoadingState label={t('invitations.loadingPreviewLabel')} />
-      </main>
+      </AuthCardShell>
     );
   }
 
   return (
-    <main className={styles.page}>
+    <AuthCardShell>
       <Card className={styles.card}>
         <Heading level={1}>{t('invitations.acceptPageTitle')}</Heading>
         <Text variant="label" as="span">
@@ -499,6 +500,6 @@ export function AcceptInvitationPage() {
           {acceptPhase === 'accepting' ? t('invitations.acceptingLabel') : t('invitations.acceptButton')}
         </Button>
       </Card>
-    </main>
+    </AuthCardShell>
   );
 }
