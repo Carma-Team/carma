@@ -23,7 +23,6 @@ import {
   SuspiciousActivityEvaluation,
   SensorUpdate,
 } from '@/lib/driving-sdk/types';
-import { TransportMode } from '@/lib/transportMode';
 import { DrivingSDK } from '@/lib/driving-sdk';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
@@ -39,7 +38,7 @@ let mockGyroPassthrough: ((sample: { x: number; y: number; z: number }) => void)
 let mockAccelPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
+  | ((data: { screenInteractionSeconds: number; phoneMotionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockDetected: (() => void) | null = null;
 // The vehicle the detection layer reports as connected, driven per test — the SDK reads
@@ -52,6 +51,8 @@ const mockSensorStop = jest.fn();
 const mockSensorResetCoverage = jest.fn();
 const mockPhoneStart = jest.fn();
 const mockPhoneStop = jest.fn();
+const mockPhonePushGyro = jest.fn();
+const mockPhonePushAccel = jest.fn();
 const mockAutoEnable = jest.fn();
 const mockRawStart = jest.fn();
 const mockRawStop = jest.fn(async () => undefined);
@@ -99,7 +100,8 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
     start() { return mockPhoneStart(); }
     stop() { return mockPhoneStop(); }
     updateSpeed() {}
-    pushGyroSample() {}
+    pushGyroSample(...args: any[]) { return mockPhonePushGyro(...args); }
+    pushAccelSample(...args: any[]) { return mockPhonePushAccel(...args); }
   },
 }));
 
@@ -150,7 +152,10 @@ class StubValidator implements TripValidator {
 
 const FRAUD: SuspiciousActivityEvaluation = {
   score: 0.9,
-  mode: TransportMode.TRAIN,
+  // A bare string on purpose: `mode` is declared `string` and documented as an opaque
+  // passthrough the SDK never reads. Reaching for the host app's TransportMode enum
+  // would make the library's own suite depend on an app concept (CAR-335).
+  mode: 'TRAIN',
   telemetry: { avgSpeedKmh: 80, maxLateralAccelG: 0.02, yawVariance: 0.001 },
   // A validator's own gate names, one of them unevaluated. The SDK must not read,
   // rename or normalise any of it — see the passthrough assertion below.
@@ -664,10 +669,11 @@ describe('DrivingSDK', () => {
   it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
-    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 0, phoneMotionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
+    expect(tripData()).toMatchObject({ screenInteractionSeconds: 2, phoneMotionSeconds: 1 });
   });
 
   it('passes each per-second sample to the host with its speed, ungated (CAR-184)', async () => {
@@ -675,8 +681,8 @@ describe('DrivingSDK', () => {
     sdk.onInteractionData = (data) => received.push(data);
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 3 });
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 3 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
 
     expect(received).toMatchObject([
       { screenInteractionSeconds: 1, speedKmh: 3 },
@@ -710,11 +716,29 @@ describe('DrivingSDK', () => {
     const validator = new StubValidator();
     const instance = wire(new DrivingSDK({ tripValidator: validator }));
 
-    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1 });
+    sendSensorUpdate({ currentSpeed: 30, yawRateRadS: 0.2, lateralAccelG: 1.1, longitudinalAccelG: -0.4 });
 
     expect(validator.samples).toHaveLength(1);
-    expect(validator.samples[0]).toMatchObject({ speedKmh: 30, yawRate: 0.2, lateralAccelG: 1.1 });
+    expect(validator.samples[0]).toMatchObject({
+      speedKmh: 30,
+      yawRate: 0.2,
+      lateralAccelG: 1.1,
+      longitudinalAccelG: -0.4,
+    });
     expect(instance.getStatus().isActive).toBe(false);
+  });
+
+  it('forwards a null longitudinal component before the forward direction is learned (CAR-319)', async () => {
+    const validator = new StubValidator();
+    wire(new DrivingSDK({ tripValidator: validator }));
+
+    // The vehicle frame resolves both horizontal axes or neither, so an accelerometer
+    // that is live but has not yet voted a forward direction reports null on both.
+    // Null must survive the hop to the validator: 0 would claim a measured absence of
+    // longitudinal force, which is a braking verdict nobody measured.
+    sendSensorUpdate({ longitudinalAccelG: null, lateralAccelG: null, accelAvailable: true });
+
+    expect(validator.samples[0]).toMatchObject({ longitudinalAccelG: null, lateralAccelG: null });
   });
 
   it('forwards sensor availability to the validator instead of a false zero (CAR-161)', async () => {
@@ -769,7 +793,7 @@ describe('DrivingSDK', () => {
     expect(onFraudDetected).toHaveBeenCalledTimes(1);
     expect(onFraudDetected.mock.calls[0][0]).toMatchObject({
       fraudScore: FRAUD.score,
-      detectedMode: TransportMode.TRAIN,
+      detectedMode: 'TRAIN',
       signals: FRAUD.signals,
       // Read before the abort clears the trip data — zero, not undefined (CAR-134).
       distanceKm: 0,
@@ -921,7 +945,7 @@ describe('DrivingSDK', () => {
     await sdk.startRawRecording('handheld', 'ios');
 
     expect(mockSensorStart).toHaveBeenCalledTimes(1);
-    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios');
+    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios', undefined);
   });
 
   it('taps the same accel/gyro subscriptions SensorManager already keeps powered', async () => {
@@ -932,6 +956,21 @@ describe('DrivingSDK', () => {
 
     expect(mockRawPushAccel).toHaveBeenCalledWith(1, 2, 3);
     expect(mockRawPushGyro).toHaveBeenCalledWith(4, 5, 6);
+  });
+
+  it('feeds the phone manager the gyroscope tap and nothing else', async () => {
+    await sdk.startTrip();
+
+    mockAccelPassthrough?.({ x: 1, y: 2, z: 3 });
+    mockGyroPassthrough?.({ x: 4, y: 5, z: 6 });
+
+    // One physical gyroscope, one listener: PhoneUsageManager reads it through the tap
+    // rather than subscribing beside SensorManager (CAR-325).
+    expect(mockPhonePushGyro).toHaveBeenCalledWith(4, 5, 6);
+    // Acceleration is not an input to distraction detection since CAR-187 — a
+    // single-sample force threshold cannot tell a finger from a pothole — so the
+    // accelerometer tap must not reach the phone manager at all.
+    expect(mockPhonePushAccel).not.toHaveBeenCalled();
   });
 
   it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {

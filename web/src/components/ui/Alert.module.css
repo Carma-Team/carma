@@ -1,0 +1,37 @@
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md);
+  border-radius: var(--radius-lg);
+}
+
+.icon {
+  flex: none;
+  margin-top: 2px;
+  display: inline-flex;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-label);
+}
+
+.message {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-caption);
+  line-height: 1.6;
+}
+
+.action {
+  margin-top: var(--space-sm);
+}
+
+/* Tint/text color comes from the shared global tone-* classes
+   (styles/tones.css), applied alongside this one — not redeclared here. */

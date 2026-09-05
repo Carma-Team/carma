@@ -73,8 +73,6 @@ export default function MarketplaceScreen() {
    * Loads rewards and vouchers from the server on every category change.
    *
    * [server] rewardsApi.list(category) → GET /api/rewards?category=...
-   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns MOCK_REWARDS + MOCK_VOUCHERS
-   *   - USE_REAL_SERVER=true  → GET /api/rewards on the real server
    */
   const loadCatalog = useCallback(() => {
     const load = ++latestLoad.current
@@ -122,8 +120,6 @@ export default function MarketplaceScreen() {
    * Called only after the user confirms in RedeemConfirmSheet.
    *
    * [server] rewardsApi.redeem(id) → POST /api/rewards/:id/redeem
-   *   - USE_REAL_SERVER=false → intercepted in client.ts, returns mock voucher
-   *   - USE_REAL_SERVER=true  → POST to the real server
    *
    * On success: adds the voucher to the list, updates points in AppContext and
    * shows a success toast. The new voucher appears on the reward's own card.
@@ -243,7 +239,9 @@ export default function MarketplaceScreen() {
         {/* What is on sale versus what this driver already owns. Kept out of the
             category row on purpose: a category classifies the reward, not the
             ownership, and one row doing both is harder to read than two. */}
-        <View style={COMMON_STYLES.tabsContainer}>
+        {/* The reward list sat straight against the tabs. 16 matches the gap the
+            leaderboard leaves under its own tab row. */}
+        <View style={[COMMON_STYLES.tabsContainer, { marginBottom: 16 }]}>
           {([['store', 'marketplace.tabStore'], ['vouchers', 'marketplace.tabMyVouchers']] as const).map(([key, labelKey]) => (
             <TouchableOpacity
               key={key}

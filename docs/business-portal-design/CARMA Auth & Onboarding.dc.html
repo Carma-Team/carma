@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200..800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.417.0/dist/umd/lucide.js"></script>
+<style>
+  body { margin: 0; background: #EEF0F5; font-family: 'Assistant', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #4F46E5; text-decoration: none; }
+  a:hover { color: #4338CA; text-decoration: underline; }
+  @keyframes carma-spin { to { transform: rotate(360deg); } }
+  @keyframes carma-shimmer { 0% { opacity: .5; } 50% { opacity: 1; } 100% { opacity: .5; } }
+  @keyframes carma-pulse { 0% { transform: scale(.94); opacity: .55; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(.94); opacity: .55; } }
+  ::selection { background: #E0DFFA; }
+</style>
+</helmet>
+
+<div style="width: 2716px; margin: 0 auto; padding: 56px 56px 120px; color: #0F172A; box-sizing: border-box">
+
+  <div style="display: flex; align-items: flex-start; gap: 40px; padding: 36px 40px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 24px; margin-bottom: 40px">
+    <div style="flex: 1">
+      <div style="display: inline-flex; align-items: center; gap: 11px; margin-bottom: 16px">
+        <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 22px; width: auto; mix-blend-mode: multiply">
+        <span style="width: 1px; height: 16px; background: #E3E7EF"></span>
+        <span style="font-size: 12.5px; font-weight: 800; color: #4F46E5">Business</span>
+      </div>
+      <h1 style="margin: 0 0 10px; font-size: 38px; line-height: 1.05; font-weight: 800; letter-spacing: -.02em">Authentication &amp; Business Onboarding</h1>
+      <p style="margin: 0; max-width: 800px; font-size: 16px; line-height: 1.6; color: #374151; text-wrap: pretty">Flow 01 of the CARMA Business Portal, built on the approved Style Guide v2. Hebrew-first, RTL-first. Eighteen screens across three sub-flows: login &amp; recovery, registration, and business onboarding — including every validation, loading, error and success state.</p>
+    </div>
+    <div style="width: 300px; display: flex; flex-direction: column; gap: 10px">
+      <div style="padding: 13px 15px; background: #F2FAE6; border-radius: 14px; font-size: 12.5px; line-height: 1.55; color: #3F6212"><b>Brand intensity:</b> road photography on auth screens only; onboarding forms stay clean and functional.</div>
+      <div style="padding: 13px 15px; background: #EEEDFB; border-radius: 14px; font-size: 12.5px; line-height: 1.55; color: #3730A3"><b>Rule honoured:</b> the C symbol never sits on top of the road image — it appears alone on flat surfaces only.</div>
+      <div style="padding: 13px 15px; background: #F9FAFC; border-radius: 14px; font-size: 12.5px; line-height: 1.55; color: #8A94A6">Frames are 1280×800 (laptop viewport). Not yet designed: rewards, redemptions, analytics, dashboard.</div>
+    </div>
+  </div>
+
+  <div style="padding: 32px 36px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 24px; margin-bottom: 48px">
+    <h2 style="margin: 0 0 6px; font-size: 22px; font-weight: 800">The flow</h2>
+    <p style="margin: 0 0 26px; font-size: 14.5px; color: #8A94A6">Three entry paths converge on one gate: a business can only reach the portal once its details are submitted and approved.</p>
+    <div dir="rtl" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px">
+      <div style="padding: 22px; background: #F9FAFC; border-radius: 18px">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px">
+          <span style="width: 30px; height: 30px; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #4F46E5">A</span>
+          <span style="font-size: 16px; font-weight: 800">התחברות ושחזור סיסמה</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">01</span>התחברות</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">02</span>שגיאת התחברות<span style="margin-inline-start: auto; padding: 2px 8px; background: #FEECEC; border-radius: 6px; font-size: 11px; font-weight: 700; color: #991B1B">error</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">03</span>מתחבר…<span style="margin-inline-start: auto; padding: 2px 8px; background: #EEEDFB; border-radius: 6px; font-size: 11px; font-weight: 700; color: #3730A3">loading</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">04</span>שכחתי סיסמה</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">05</span>המייל נשלח<span style="margin-inline-start: auto; padding: 2px 8px; background: #F2FAE6; border-radius: 6px; font-size: 11px; font-weight: 700; color: #3F6212">success</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">06</span>סיסמה חדשה</div>
+        </div>
+      </div>
+      <div style="padding: 22px; background: #F9FAFC; border-radius: 18px">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px">
+          <span style="width: 30px; height: 30px; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #4F46E5">B</span>
+          <span style="font-size: 16px; font-weight: 800">הרשמת עסק חדש</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">07</span>יצירת חשבון</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">08</span>שגיאות ולידציה<span style="margin-inline-start: auto; padding: 2px 8px; background: #FEECEC; border-radius: 6px; font-size: 11px; font-weight: 700; color: #991B1B">error</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">09</span>אימות אימייל · קוד</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">10</span>קוד שגוי<span style="margin-inline-start: auto; padding: 2px 8px; background: #FEECEC; border-radius: 6px; font-size: 11px; font-weight: 700; color: #991B1B">error</span></div>
+        </div>
+        <div style="margin-top: 14px; padding: 12px 14px; background: #EEEDFB; border-radius: 12px; font-size: 12.5px; line-height: 1.55; color: #3730A3">Account first, business second: one person signs up, then describes the business. This lets an owner invite staff later without re-registering the company.</div>
+      </div>
+      <div style="padding: 22px; background: #F9FAFC; border-radius: 18px">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px">
+          <span style="width: 30px; height: 30px; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #4F46E5">C</span>
+          <span style="font-size: 16px; font-weight: 800">השלמת פרטי העסק</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">11</span>שלב 1 · פרטי העסק</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">12</span>שלב 2 · סניפים</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">13</span>שלב 3 · מיתוג ואיש קשר</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">14</span>סיכום ושליחה</div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">15</span>ממתין לאישור<span style="margin-inline-start: auto; padding: 2px 8px; background: #FEF6E7; border-radius: 6px; font-size: 11px; font-weight: 700; color: #92400E">pending</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">16</span>העסק אושר<span style="margin-inline-start: auto; padding: 2px 8px; background: #F2FAE6; border-radius: 6px; font-size: 11px; font-weight: 700; color: #3F6212">success</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">17</span>נדרשים תיקונים<span style="margin-inline-start: auto; padding: 2px 8px; background: #FEECEC; border-radius: 6px; font-size: 11px; font-weight: 700; color: #991B1B">rejected</span></div>
+          <div style="display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 12px; font-size: 13.5px; font-weight: 600"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8A94A6">18</span>טעינה ושגיאת שרת</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 22px">
+    <span style="width: 32px; height: 32px; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #FFFFFF">A</span>
+    <h2 style="margin: 0; font-size: 24px; font-weight: 800">Login &amp; password recovery</h2>
+    <span style="flex: 1; height: 1px; background: #D9DFEA"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, 1280px); gap: 44px 44px; margin-bottom: 56px">
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">01</span><span style="font-size: 16px; font-weight: 800">התחברות · Default</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 56px">
+          <div style="max-width: 420px">
+            <h1 style="margin: 0 0 8px; font-size: 28px; font-weight: 800">התחברות לפורטל העסקים</h1>
+            <p style="margin: 0 0 32px; font-size: 15px; line-height: 1.6; color: #8A94A6">נהלו את ההטבות שלכם ועקבו אחרי המימושים במקום אחד.</p>
+            <label for="a1-mail" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">כתובת אימייל</label>
+            <input id="a1-mail" type="text" dir="ltr" placeholder="name@business.co.il" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; color: #0F172A; outline: none; text-align: left; margin-bottom: 18px">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px">
+              <label for="a1-pass" style="font-size: 13.5px; font-weight: 700">סיסמה</label>
+              <span style="font-size: 13px; font-weight: 700; color: #4F46E5">שכחתי סיסמה</span>
+            </div>
+            <div style="position: relative; margin-bottom: 20px">
+              <input id="a1-pass" type="password" dir="ltr" style="width: 100%; height: 44px; padding: 0 14px 0 44px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left">
+              <button style="position: absolute; top: 6px; left: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 10px; cursor: pointer"><i data-lucide="eye" style="width: 17px; height: 17px; color: #8A94A6"></i></button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 26px">
+              <span style="width: 18px; height: 18px; border-radius: 6px; border: 1px solid #D9DFEA; background: #FFFFFF"></span>
+              <span style="font-size: 13.5px; color: #374151">השאירו אותי מחובר במחשב הזה</span>
+            </div>
+            <button style="width: 100%; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer; margin-bottom: 22px">התחברות</button>
+            <div style="font-size: 14px; color: #8A94A6">אין לכם עדיין חשבון? <span style="font-weight: 700; color: #4F46E5">הרשמת עסק חדש</span></div>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="display: flex; align-items: center; gap: 18px; font-size: 12.5px; color: #AEB6C4">
+            <span>© 2026 CARMA</span><span>תנאי שימוש</span><span>פרטיות</span><span style="margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px"><i data-lucide="globe" style="width: 14px; height: 14px"></i>עברית</span>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 40px 36px">
+            <div style="font-size: 24px; font-weight: 800; color: #FFFFFF; line-height: 1.35; margin-bottom: 10px; text-wrap: pretty">נהיגה בטוחה מביאה לקוחות</div>
+            <div style="font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,.82)">אלפי נהגים אוספים נקודות בכל נסיעה — וההטבות שלכם הן היעד.</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Structure:</b> form on the start (right) side, photography on the end side — the reader meets content before decoration. Email and password fields are <span style="font-family: ui-monospace, Menlo, monospace">dir="ltr"</span> with Hebrew labels right-aligned. 48px primary CTA, the one place the app's full-width button survives.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">02</span><span style="font-size: 16px; font-weight: 800">התחברות · שגיאת אימות</span><span style="padding: 2px 9px; background: #FEECEC; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #991B1B">error</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 44px">
+          <div style="max-width: 420px">
+            <h1 style="margin: 0 0 8px; font-size: 28px; font-weight: 800">התחברות לפורטל העסקים</h1>
+            <p style="margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: #8A94A6">נהלו את ההטבות שלכם ועקבו אחרי המימושים במקום אחד.</p>
+            <div style="display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px; background: #FEECEC; border-radius: 14px; margin-bottom: 22px">
+              <i data-lucide="alert-circle" style="width: 18px; height: 18px; color: #DC2626; flex: none; margin-top: 2px"></i>
+              <div>
+                <div style="font-size: 14px; font-weight: 700; color: #991B1B; margin-bottom: 3px">האימייל או הסיסמה אינם נכונים</div>
+                <div style="font-size: 13px; line-height: 1.55; color: #991B1B">נותרו <span style="font-variant-numeric: tabular-nums">3</span> ניסיונות לפני חסימה זמנית של החשבון.</div>
+              </div>
+            </div>
+            <label for="a2-mail" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">כתובת אימייל</label>
+            <input id="a2-mail" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; color: #0F172A; outline: none; text-align: left; margin-bottom: 18px">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px">
+              <label for="a2-pass" style="font-size: 13.5px; font-weight: 700">סיסמה</label>
+              <span style="font-size: 13px; font-weight: 700; color: #4F46E5">שכחתי סיסמה</span>
+            </div>
+            <div style="position: relative; margin-bottom: 8px">
+              <input id="a2-pass" type="password" dir="ltr" value="wrongpass" style="width: 100%; height: 44px; padding: 0 14px 0 44px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #EF4444; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; box-shadow: 0 0 0 3px #FEECEC">
+              <button style="position: absolute; top: 6px; left: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 10px; cursor: pointer"><i data-lucide="eye-off" style="width: 17px; height: 17px; color: #8A94A6"></i></button>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 7px; margin-bottom: 24px"><i data-lucide="alert-circle" style="width: 15px; height: 15px; color: #DC2626; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #DC2626">בדקו את הסיסמה, או אפסו אותה במייל.</span></div>
+            <button style="width: 100%; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer; margin-bottom: 22px">התחברות</button>
+            <div style="font-size: 14px; color: #8A94A6">אין לכם עדיין חשבון? <span style="font-weight: 700; color: #4F46E5">הרשמת עסק חדש</span></div>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 40px 36px">
+            <div style="font-size: 24px; font-weight: 800; color: #FFFFFF; line-height: 1.35; margin-bottom: 10px">נהיגה בטוחה מביאה לקוחות</div>
+            <div style="font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,.82)">אלפי נהגים אוספים נקודות בכל נסיעה — וההטבות שלכם הן היעד.</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Two levels of error:</b> a summary banner above the form states what happened and what's at stake (attempts remaining), and the field-level message says what to do. The email is never marked invalid — telling an attacker which half was wrong is a security leak.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">03</span><span style="font-size: 16px; font-weight: 800">התחברות · שליחה</span><span style="padding: 2px 9px; background: #EEEDFB; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #3730A3">loading</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 56px">
+          <div style="max-width: 420px">
+            <h1 style="margin: 0 0 8px; font-size: 28px; font-weight: 800">התחברות לפורטל העסקים</h1>
+            <p style="margin: 0 0 32px; font-size: 15px; line-height: 1.6; color: #8A94A6">נהלו את ההטבות שלכם ועקבו אחרי המימושים במקום אחד.</p>
+            <label for="a3-mail" style="display: block; font-size: 13.5px; font-weight: 700; color: #8A94A6; margin-bottom: 8px">כתובת אימייל</label>
+            <input id="a3-mail" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #F9FAFC; border: 1px solid #EFF1F6; border-radius: 12px; font-family: inherit; font-size: 14.5px; color: #8A94A6; outline: none; text-align: left; margin-bottom: 18px">
+            <label for="a3-pass" style="display: block; font-size: 13.5px; font-weight: 700; color: #8A94A6; margin-bottom: 8px">סיסמה</label>
+            <input id="a3-pass" type="password" dir="ltr" value="carma1234" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #F9FAFC; border: 1px solid #EFF1F6; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; margin-bottom: 20px">
+            <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 26px">
+              <span style="width: 18px; height: 18px; border-radius: 6px; border: 1px solid #EFF1F6; background: #F9FAFC"></span>
+              <span style="font-size: 13.5px; color: #AEB6C4">השאירו אותי מחובר במחשב הזה</span>
+            </div>
+            <button style="width: 100%; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 22px"><span style="width: 17px; height: 17px; border: 2px solid rgba(255,255,255,.4); border-top-color: #FFFFFF; border-radius: 999px; animation: carma-spin .7s linear infinite"></span>מתחבר…</button>
+            <div style="font-size: 14px; color: #AEB6C4">אין לכם עדיין חשבון? <span style="font-weight: 700">הרשמת עסק חדש</span></div>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 40px 36px">
+            <div style="font-size: 24px; font-weight: 800; color: #FFFFFF; line-height: 1.35; margin-bottom: 10px">נהיגה בטוחה מביאה לקוחות</div>
+            <div style="font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,.82)">אלפי נהגים אוספים נקודות בכל נסיעה — וההטבות שלכם הן היעד.</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Loading:</b> the spinner lives inside the button, fields go read-only and mute, and the secondary links dim. No overlay, no page-level spinner — the user keeps their context and their typed values.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">04</span><span style="font-size: 16px; font-weight: 800">שכחתי סיסמה</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 44px">
+          <button style="display: inline-flex; align-items: center; gap: 7px; align-self: flex-start; background: none; border: none; padding: 0; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #4F46E5; cursor: pointer; margin-bottom: 26px"><i data-lucide="arrow-right" style="width: 16px; height: 16px"></i>חזרה להתחברות</button>
+          <div style="max-width: 420px">
+            <h1 style="margin: 0 0 8px; font-size: 28px; font-weight: 800">איפוס סיסמה</h1>
+            <p style="margin: 0 0 30px; font-size: 15px; line-height: 1.65; color: #8A94A6">הזינו את כתובת האימייל שאיתה נרשמתם, ונשלח לכם קישור לבחירת סיסמה חדשה.</p>
+            <label for="a4-mail" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">כתובת אימייל</label>
+            <input id="a4-mail" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; color: #0F172A; outline: none; text-align: left; margin-bottom: 8px">
+            <div style="font-size: 12.5px; color: #8A94A6; margin-bottom: 26px">הקישור תקף ל-<span style="font-variant-numeric: tabular-nums">60</span> דקות.</div>
+            <button style="width: 100%; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer; margin-bottom: 20px">שליחת קישור לאיפוס</button>
+            <div style="padding: 14px 16px; background: #F9FAFC; border-radius: 14px; font-size: 13px; line-height: 1.6; color: #374151">לא זוכרים באיזה אימייל נרשמתם? <span style="font-weight: 700; color: #4F46E5">דברו איתנו</span> ונעזור לאתר את החשבון.</div>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 55%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Recovery screens drop the marketing line</b> and let the photography go quiet — the user is here to solve a problem, not be sold to. The back affordance is a right-pointing arrow: in RTL, "back" points right.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">05</span><span style="font-size: 16px; font-weight: 800">המייל נשלח</span><span style="padding: 2px 9px; background: #F2FAE6; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #3F6212">success</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 60px">
+          <div style="max-width: 440px">
+            <span style="width: 54px; height: 54px; border-radius: 999px; background: #F2FAE6; display: flex; align-items: center; justify-content: center; margin-bottom: 22px"><i data-lucide="mail-check" style="width: 26px; height: 26px; color: #65A30D"></i></span>
+            <h1 style="margin: 0 0 10px; font-size: 28px; font-weight: 800">שלחנו לכם מייל</h1>
+            <p style="margin: 0 0 26px; font-size: 15px; line-height: 1.7; color: #374151">קישור לבחירת סיסמה חדשה נשלח לכתובת <b dir="ltr" style="display: inline-block">dana@aroma.co.il</b>. הקישור תקף ל-<span style="font-variant-numeric: tabular-nums">60</span> דקות.</p>
+            <div style="padding: 16px 18px; background: #F9FAFC; border-radius: 16px; margin-bottom: 26px">
+              <div style="font-size: 13.5px; font-weight: 700; margin-bottom: 8px">לא קיבלתם?</div>
+              <div style="font-size: 13px; line-height: 1.65; color: #8A94A6">בדקו בתיקיית הספאם או ה"קידומי מכירות", וּודאו שהכתובת נכונה.</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px">
+              <button style="height: 44px; padding: 0 20px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">שליחה חוזרת</button>
+              <span style="font-size: 13px; color: #8A94A6">אפשר לשלוח שוב בעוד <span style="font-variant-numeric: tabular-nums">00:47</span></span>
+            </div>
+            <div style="height: 1px; background: #EFF1F6; margin: 26px 0 20px"></div>
+            <button style="display: inline-flex; align-items: center; gap: 7px; background: none; border: none; padding: 0; font-family: inherit; font-size: 14px; font-weight: 700; color: #4F46E5; cursor: pointer"><i data-lucide="arrow-right" style="width: 16px; height: 16px"></i>חזרה למסך ההתחברות</button>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 55%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Success without a modal.</b> The screen replaces the form so there's nothing stale to resubmit, echoes the address back for confidence, and pre-empts the real failure case (the mail landing in spam) with a cooldown before resend.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">06</span><span style="font-size: 16px; font-weight: 800">בחירת סיסמה חדשה</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 44px">
+          <div style="max-width: 420px">
+            <h1 style="margin: 0 0 8px; font-size: 28px; font-weight: 800">בחירת סיסמה חדשה</h1>
+            <p style="margin: 0 0 28px; font-size: 15px; line-height: 1.65; color: #8A94A6">בחרו סיסמה חדשה לחשבון <b dir="ltr" style="display: inline-block; color: #374151">dana@aroma.co.il</b>.</p>
+            <label for="a6-p1" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">סיסמה חדשה</label>
+            <div style="position: relative; margin-bottom: 10px">
+              <input id="a6-p1" type="password" dir="ltr" value="Carma2026!" style="width: 100%; height: 44px; padding: 0 14px 0 44px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #6366F1; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; box-shadow: 0 0 0 3px #E0DFFA">
+              <button style="position: absolute; top: 6px; left: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 10px; cursor: pointer"><i data-lucide="eye-off" style="width: 17px; height: 17px; color: #8A94A6"></i></button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px">
+              <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+              <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+              <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+              <span style="font-size: 12px; font-weight: 700; color: #4D7C0F">חוזק: חזקה</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 7px; margin-bottom: 22px">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #4D7C0F"><i data-lucide="check" style="width: 14px; height: 14px"></i>לפחות 8 תווים</div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #4D7C0F"><i data-lucide="check" style="width: 14px; height: 14px"></i>אות גדולה ואות קטנה</div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #4D7C0F"><i data-lucide="check" style="width: 14px; height: 14px"></i>ספרה או תו מיוחד</div>
+            </div>
+            <label for="a6-p2" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">אימות הסיסמה</label>
+            <input id="a6-p2" type="password" dir="ltr" value="Carma2026" style="width: 100%; height: 44px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #EF4444; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; margin-bottom: 8px">
+            <div style="display: flex; align-items: flex-start; gap: 7px; margin-bottom: 26px"><i data-lucide="alert-circle" style="width: 15px; height: 15px; color: #DC2626; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #DC2626">הסיסמאות אינן זהות.</span></div>
+            <button style="width: 100%; height: 48px; background: #EFF1F6; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #AEB6C4">שמירת הסיסמה</button>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 55%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Requirements as a live checklist</b> rather than a paragraph of rules — each line turns green as it's met, so "why is this rejected?" never arises. The submit button stays disabled while the confirmation mismatches, which is the only legitimate use of a disabled primary in this flow.</div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 22px">
+    <span style="width: 32px; height: 32px; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #FFFFFF">B</span>
+    <h2 style="margin: 0; font-size: 24px; font-weight: 800">Business registration</h2>
+    <span style="flex: 1; height: 1px; background: #D9DFEA"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, 1280px); gap: 44px; margin-bottom: 56px">
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">07</span><span style="font-size: 16px; font-weight: 800">יצירת חשבון עסקי</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 62%; padding: 42px 64px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 30px">
+          <h1 style="margin: 0 0 8px; font-size: 27px; font-weight: 800">הרשמת עסק חדש ל-CARMA</h1>
+          <p style="margin: 0 0 26px; font-size: 15px; line-height: 1.6; color: #8A94A6">נתחיל בחשבון האישי שלכם. את פרטי העסק נשלים בשלב הבא.</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; max-width: 560px">
+            <div>
+              <label for="b7-fn" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם פרטי</label>
+              <input id="b7-fn" type="text" value="דנה" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+            </div>
+            <div>
+              <label for="b7-ln" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם משפחה</label>
+              <input id="b7-ln" type="text" value="לוי" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+            </div>
+            <div style="grid-column: span 2">
+              <label for="b7-mail" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">אימייל עסקי</label>
+              <input id="b7-mail" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left">
+              <div style="margin-top: 7px; font-size: 12.5px; color: #8A94A6">לכאן יישלח קוד האימות, וזו תהיה כתובת ההתחברות שלכם.</div>
+            </div>
+            <div>
+              <label for="b7-tel" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">טלפון נייד</label>
+              <input id="b7-tel" type="text" dir="ltr" value="050-123-4567" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; font-variant-numeric: tabular-nums">
+            </div>
+            <div>
+              <label for="b7-role" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">התפקיד שלכם</label>
+              <div style="position: relative">
+                <div id="b7-role" style="display: flex; align-items: center; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-size: 14.5px; cursor: pointer">בעל/ת העסק</div>
+                <i data-lucide="chevron-down" style="position: absolute; top: 12px; left: 13px; width: 18px; height: 18px; color: #8A94A6; pointer-events: none"></i>
+              </div>
+            </div>
+            <div style="grid-column: span 2">
+              <label for="b7-pass" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">סיסמה</label>
+              <div style="position: relative">
+                <input id="b7-pass" type="password" dir="ltr" value="Carma2026!" style="width: 100%; height: 42px; padding: 0 14px 0 44px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left">
+                <button style="position: absolute; top: 5px; left: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 10px; cursor: pointer"><i data-lucide="eye-off" style="width: 17px; height: 17px; color: #8A94A6"></i></button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 9px">
+                <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+                <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+                <span style="flex: 1; height: 4px; background: #84CC16; border-radius: 999px"></span>
+                <span style="font-size: 12px; font-weight: 700; color: #4D7C0F">חוזק: חזקה</span>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; margin: 22px 0 20px; max-width: 560px">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 6px; background: #6366F1; display: flex; align-items: center; justify-content: center; margin-top: 1px"><i data-lucide="check" style="width: 13px; height: 13px; color: #FFFFFF"></i></span>
+            <span style="font-size: 13.5px; line-height: 1.55; color: #374151">קראתי ואני מאשר/ת את <span style="font-weight: 700; color: #4F46E5">תנאי השימוש</span> ו<span style="font-weight: 700; color: #4F46E5">מדיניות הפרטיות</span> של CARMA לעסקים.</span>
+          </div>
+          <button style="width: 100%; max-width: 560px; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer; margin-bottom: 18px">יצירת חשבון והמשך</button>
+          <div style="font-size: 14px; color: #8A94A6">יש לכם כבר חשבון? <span style="font-weight: 700; color: #4F46E5">התחברות</span></div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden; background: #29268C">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 60%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,23,42,.55) 0%, rgba(41,38,140,.92) 62%)"></div>
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 36px 32px">
+            <div style="font-size: 21px; font-weight: 800; color: #FFFFFF; line-height: 1.35; margin-bottom: 20px; text-wrap: pretty">למה עסקים מצטרפים ל-CARMA</div>
+            <div style="display: flex; flex-direction: column; gap: 16px">
+              <div style="display: flex; gap: 12px"><i data-lucide="users" style="width: 19px; height: 19px; color: #C7CBF7; flex: none; margin-top: 2px"></i><div><div style="font-size: 14.5px; font-weight: 700; color: #FFFFFF; margin-bottom: 2px">קהל של נהגים באזור שלכם</div><div style="font-size: 13px; line-height: 1.55; color: rgba(255,255,255,.72)">ההטבות מוצגות לנהגים שנוסעים ליד הסניפים.</div></div></div>
+              <div style="display: flex; gap: 12px"><i data-lucide="ticket" style="width: 19px; height: 19px; color: #C7CBF7; flex: none; margin-top: 2px"></i><div><div style="font-size: 14.5px; font-weight: 700; color: #FFFFFF; margin-bottom: 2px">אתם קובעים את התנאים</div><div style="font-size: 13px; line-height: 1.55; color: rgba(255,255,255,.72)">עלות בנקודות, מלאי, תוקף וסניפים.</div></div></div>
+              <div style="display: flex; gap: 12px"><i data-lucide="bar-chart-3" style="width: 19px; height: 19px; color: #C7CBF7; flex: none; margin-top: 2px"></i><div><div style="font-size: 14.5px; font-weight: 700; color: #FFFFFF; margin-bottom: 2px">מעקב אחרי כל מימוש</div><div style="font-size: 13px; line-height: 1.55; color: rgba(255,255,255,.72)">דוח מימושים מלא, בזמן אמת.</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Registration earns a value panel</b> — this is the one screen where a business is still deciding. Two fields share a row only when they're one idea (first/last name). Latin-content fields are LTR; Hebrew name fields stay RTL.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">08</span><span style="font-size: 16px; font-weight: 800">יצירת חשבון · שגיאות ולידציה</span><span style="padding: 2px 9px; background: #FEECEC; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #991B1B">error</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 62%; padding: 42px 64px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 26px">
+          <h1 style="margin: 0 0 8px; font-size: 27px; font-weight: 800">הרשמת עסק חדש ל-CARMA</h1>
+          <p style="margin: 0 0 18px; font-size: 15px; line-height: 1.6; color: #8A94A6">נתחיל בחשבון האישי שלכם. את פרטי העסק נשלים בשלב הבא.</p>
+          <div style="display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px; background: #FEECEC; border-radius: 14px; margin-bottom: 20px; max-width: 560px">
+            <i data-lucide="alert-circle" style="width: 18px; height: 18px; color: #DC2626; flex: none; margin-top: 2px"></i>
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: #991B1B; margin-bottom: 3px">לא ניתן ליצור את החשבון — <span style="font-variant-numeric: tabular-nums">3</span> שדות דורשים תיקון</div>
+              <div style="font-size: 13px; line-height: 1.55; color: #991B1B">אימייל עסקי · טלפון נייד · תנאי שימוש. <span style="font-weight: 700; text-decoration: underline">מעבר לשדה הראשון</span></div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; max-width: 560px">
+            <div>
+              <label for="b8-fn" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם פרטי</label>
+              <input id="b8-fn" type="text" value="דנה" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+            </div>
+            <div>
+              <label for="b8-ln" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם משפחה</label>
+              <input id="b8-ln" type="text" value="לוי" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+            </div>
+            <div style="grid-column: span 2">
+              <label for="b8-mail" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">אימייל עסקי</label>
+              <input id="b8-mail" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #EF4444; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; box-shadow: 0 0 0 3px #FEECEC">
+              <div style="display: flex; align-items: flex-start; gap: 7px; margin-top: 8px"><i data-lucide="alert-circle" style="width: 15px; height: 15px; color: #DC2626; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #DC2626">כבר קיים חשבון עם הכתובת הזו. <span style="font-weight: 700; text-decoration: underline">התחברו</span> או <span style="font-weight: 700; text-decoration: underline">אפסו סיסמה</span>.</span></div>
+            </div>
+            <div>
+              <label for="b8-tel" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">טלפון נייד</label>
+              <input id="b8-tel" type="text" dir="ltr" value="0501234" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #EF4444; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; font-variant-numeric: tabular-nums">
+              <div style="display: flex; align-items: flex-start; gap: 7px; margin-top: 8px"><i data-lucide="alert-circle" style="width: 15px; height: 15px; color: #DC2626; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #DC2626">יש להזין מספר נייד בן <span style="font-variant-numeric: tabular-nums">10</span> ספרות.</span></div>
+            </div>
+            <div>
+              <label for="b8-role" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">התפקיד שלכם</label>
+              <div style="position: relative">
+                <div id="b8-role" style="display: flex; align-items: center; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-size: 14.5px; color: #AEB6C4">בחרו תפקיד</div>
+                <i data-lucide="chevron-down" style="position: absolute; top: 12px; left: 13px; width: 18px; height: 18px; color: #8A94A6"></i>
+              </div>
+            </div>
+            <div style="grid-column: span 2">
+              <label for="b8-pass" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">סיסמה</label>
+              <input id="b8-pass" type="password" dir="ltr" value="carma" style="width: 100%; height: 42px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #F59E0B; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left">
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 9px">
+                <span style="flex: 1; height: 4px; background: #F59E0B; border-radius: 999px"></span>
+                <span style="flex: 1; height: 4px; background: #E3E7EF; border-radius: 999px"></span>
+                <span style="flex: 1; height: 4px; background: #E3E7EF; border-radius: 999px"></span>
+                <span style="font-size: 12px; font-weight: 700; color: #B45309">חוזק: חלשה</span>
+              </div>
+              <div style="display: flex; align-items: flex-start; gap: 7px; margin-top: 8px"><i data-lucide="alert-triangle" style="width: 15px; height: 15px; color: #B45309; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #92400E">הוסיפו אות גדולה וספרה כדי לחזק את הסיסמה.</span></div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; margin: 18px 0 16px; max-width: 560px">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 6px; border: 1px solid #EF4444; background: #FEECEC; margin-top: 1px"></span>
+            <span style="font-size: 13.5px; line-height: 1.55; color: #DC2626">יש לאשר את תנאי השימוש ומדיניות הפרטיות כדי להמשיך.</span>
+          </div>
+          <button style="width: 100%; max-width: 560px; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer">יצירת חשבון והמשך</button>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden; background: #29268C">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 60%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,23,42,.55) 0%, rgba(41,38,140,.92) 62%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Three severities in one form:</b> red blocks submission, amber advises but lets you pass (weak-but-legal password), and the checkbox error is stated in words rather than only coloured. Each message names the fix, and "email already exists" offers the two exits instead of a dead end.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">09</span><span style="font-size: 16px; font-weight: 800">אימות כתובת האימייל</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 54px">
+          <div style="max-width: 440px">
+            <span style="width: 54px; height: 54px; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center; margin-bottom: 22px"><i data-lucide="mail" style="width: 25px; height: 25px; color: #6366F1"></i></span>
+            <h1 style="margin: 0 0 10px; font-size: 28px; font-weight: 800">אימות כתובת האימייל</h1>
+            <p style="margin: 0 0 28px; font-size: 15px; line-height: 1.7; color: #374151">שלחנו קוד בן <span style="font-variant-numeric: tabular-nums">6</span> ספרות ל-<b dir="ltr" style="display: inline-block">dana@aroma.co.il</b>. הזינו אותו כאן כדי להמשיך להשלמת פרטי העסק.</p>
+            <div dir="ltr" style="display: flex; gap: 10px; margin-bottom: 12px">
+              <span style="width: 54px; height: 60px; border: 1px solid #D9DFEA; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums">4</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #D9DFEA; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums">8</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #D9DFEA; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums">1</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #6366F1; border-radius: 14px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px #E0DFFA"><span style="width: 2px; height: 24px; background: #6366F1"></span></span>
+              <span style="width: 54px; height: 60px; border: 1px solid #D9DFEA; border-radius: 14px; background: #FFFFFF"></span>
+              <span style="width: 54px; height: 60px; border: 1px solid #D9DFEA; border-radius: 14px; background: #FFFFFF"></span>
+            </div>
+            <div style="font-size: 12.5px; color: #8A94A6; margin-bottom: 26px">הקוד תקף ל-<span style="font-variant-numeric: tabular-nums">10</span> דקות. ניתן להדביק אותו ישירות.</div>
+            <button style="width: 100%; height: 48px; background: #EFF1F6; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #AEB6C4; margin-bottom: 22px">אישור והמשך</button>
+            <div style="display: flex; align-items: center; gap: 14px; font-size: 13.5px; color: #8A94A6">
+              <span>לא קיבלתם קוד?</span>
+              <span style="font-weight: 700; color: #4F46E5">שליחה חוזרת</span>
+              <span style="width: 1px; height: 14px; background: #E3E7EF"></span>
+              <span style="font-weight: 700; color: #4F46E5">שינוי כתובת האימייל</span>
+            </div>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 55%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>The code row is LTR</b> — numbers are entered left to right in Hebrew too, so the boxes fill from the left while the surrounding copy stays RTL. Paste of a full code is supported explicitly; "change email" is offered because a typo in step 07 is the most common cause of a stuck signup.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">10</span><span style="font-size: 16px; font-weight: 800">אימות · קוד שגוי</span><span style="padding: 2px 9px; background: #FEECEC; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #991B1B">error</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 58%; padding: 48px 72px; display: flex; flex-direction: column; box-sizing: border-box">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 26px; width: auto; align-self: flex-start; mix-blend-mode: multiply; margin-bottom: 54px">
+          <div style="max-width: 440px">
+            <span style="width: 54px; height: 54px; border-radius: 999px; background: #FEECEC; display: flex; align-items: center; justify-content: center; margin-bottom: 22px"><i data-lucide="alert-circle" style="width: 25px; height: 25px; color: #EF4444"></i></span>
+            <h1 style="margin: 0 0 10px; font-size: 28px; font-weight: 800">הקוד לא תקין</h1>
+            <p style="margin: 0 0 26px; font-size: 15px; line-height: 1.7; color: #374151">בדקו את <span style="font-variant-numeric: tabular-nums">6</span> הספרות במייל האחרון שקיבלתם. נותרו <span style="font-weight: 700; font-variant-numeric: tabular-nums">2</span> ניסיונות.</p>
+            <div dir="ltr" style="display: flex; gap: 10px; margin-bottom: 10px">
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">4</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">8</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">1</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">2</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">9</span>
+              <span style="width: 54px; height: 60px; border: 1px solid #EF4444; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #991B1B; background: #FEECEC; font-variant-numeric: tabular-nums">9</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 7px; margin-bottom: 24px"><i data-lucide="alert-circle" style="width: 15px; height: 15px; color: #DC2626; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #DC2626">הקוד שהוזן אינו תואם, או שפג תוקפו.</span></div>
+            <div style="display: flex; gap: 10px; margin-bottom: 22px">
+              <button style="flex: 1; height: 48px; background: #6366F1; border: none; border-radius: 14px; font-family: inherit; font-size: 15.5px; font-weight: 700; color: #FFFFFF; cursor: pointer">ניסיון נוסף</button>
+              <button style="height: 48px; padding: 0 20px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 14px; font-family: inherit; font-size: 15px; font-weight: 700; color: #374151; cursor: pointer">שליחת קוד חדש</button>
+            </div>
+            <div style="padding: 14px 16px; background: #F9FAFC; border-radius: 14px; font-size: 13px; line-height: 1.65; color: #374151">אחרי <span style="font-variant-numeric: tabular-nums">3</span> ניסיונות שגויים נחסום את הקוד לשעה, מטעמי אבטחה. תמיד אפשר <span style="font-weight: 700; color: #4F46E5">לבקש קוד חדש</span>.</div>
+          </div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 30% 55%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(165deg, rgba(41,38,140,.9) 0%, rgba(99,102,241,.55) 100%)"></div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>The failure state keeps the typed code visible</b> so the user can spot their own typo instead of retyping blind, and states the lockout policy before it bites. Two exits sit side by side: retry, or get a fresh code.</div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 22px">
+    <span style="width: 32px; height: 32px; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #FFFFFF">C</span>
+    <h2 style="margin: 0; font-size: 24px; font-weight: 800">Business onboarding</h2>
+    <span style="flex: 1; height: 1px; background: #D9DFEA"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, 1280px); gap: 44px">
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">11</span><span style="font-size: 16px; font-weight: 800">שלב 1 · פרטי העסק</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <span style="font-size: 13px; color: #8A94A6">שומר אוטומטית · <span style="font-variant-numeric: tabular-nums">09:41</span></span>
+          <button style="height: 34px; padding: 0 14px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer">שמירה ויציאה</button>
+        </div>
+        <div style="flex: 1; display: flex; min-height: 0">
+          <div style="width: 268px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF; padding: 30px 22px; box-sizing: border-box">
+            <div style="font-size: 12.5px; font-weight: 700; color: #AEB6C4; margin-bottom: 18px">השלמת פרטי העסק</div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: #EEEDFB; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #FFFFFF; font-variant-numeric: tabular-nums">1</span>
+                <div><div style="font-size: 13.5px; font-weight: 700; color: #3730A3">פרטי העסק</div><div style="font-size: 11.5px; color: #6366F1">בתהליך</div></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #8A94A6; font-variant-numeric: tabular-nums">2</span>
+                <div><div style="font-size: 13.5px; font-weight: 600; color: #8A94A6">סניפים וכתובות</div></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #8A94A6; font-variant-numeric: tabular-nums">3</span>
+                <div><div style="font-size: 13.5px; font-weight: 600; color: #8A94A6">מיתוג ואיש קשר</div></div>
+              </div>
+            </div>
+            <div style="height: 1px; background: #EFF1F6; margin: 22px 0"></div>
+            <div style="padding: 14px; background: #F9FAFC; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151">הפרטים האלה מוצגים לנהגים באפליקציה, ומשמשים אותנו לאישור העסק. אפשר לעצור באמצע ולהמשיך אחר כך.</div>
+          </div>
+          <div style="flex: 1; overflow: hidden; padding: 30px 36px; box-sizing: border-box">
+            <div style="max-width: 660px">
+              <h1 style="margin: 0 0 6px; font-size: 24px; font-weight: 800">פרטי העסק</h1>
+              <p style="margin: 0 0 24px; font-size: 14.5px; color: #8A94A6">שלב <span style="font-variant-numeric: tabular-nums">1</span> מתוך <span style="font-variant-numeric: tabular-nums">3</span> · כל השדות המסומנים ב-<span style="color: #EF4444">*</span> נדרשים לאישור העסק.</p>
+              <div style="padding: 22px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; margin-bottom: 14px">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px">
+                  <div style="grid-column: span 2">
+                    <label for="c11-name" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם העסק כפי שיוצג לנהגים <span style="color: #EF4444">*</span></label>
+                    <input id="c11-name" type="text" value="ארומה ישראל" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+                  </div>
+                  <div>
+                    <label for="c11-legal" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">שם משפטי <span style="color: #EF4444">*</span></label>
+                    <input id="c11-legal" type="text" value="ארומה אספרסו בר בע״מ" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none">
+                  </div>
+                  <div>
+                    <label for="c11-id" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">ח״פ / עוסק מורשה <span style="color: #EF4444">*</span></label>
+                    <div style="position: relative">
+                      <input id="c11-id" type="text" dir="ltr" value="514238711" style="width: 100%; height: 40px; padding: 0 14px 0 40px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #84CC16; border-radius: 12px; font-family: inherit; font-size: 14.5px; outline: none; text-align: left; font-variant-numeric: tabular-nums">
+                      <i data-lucide="check" style="position: absolute; top: 11px; left: 12px; width: 17px; height: 17px; color: #65A30D"></i>
+                    </div>
+                    <div style="margin-top: 7px; font-size: 12.5px; color: #4D7C0F">אומת מול רשם החברות.</div>
+                  </div>
+                  <div>
+                    <label for="c11-cat" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">קטגוריה <span style="color: #EF4444">*</span></label>
+                    <div style="position: relative">
+                      <div id="c11-cat" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-size: 14.5px; cursor: pointer"><i data-lucide="utensils-crossed" style="width: 16px; height: 16px; color: #EF4444"></i>אוכל ושתייה</div>
+                      <i data-lucide="chevron-down" style="position: absolute; top: 11px; left: 13px; width: 18px; height: 18px; color: #8A94A6"></i>
+                    </div>
+                  </div>
+                  <div>
+                    <label for="c11-size" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">מספר סניפים</label>
+                    <div style="position: relative">
+                      <div id="c11-size" style="display: flex; align-items: center; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-size: 14.5px; cursor: pointer">10–25 סניפים</div>
+                      <i data-lucide="chevron-down" style="position: absolute; top: 11px; left: 13px; width: 18px; height: 18px; color: #8A94A6"></i>
+                    </div>
+                  </div>
+                  <div style="grid-column: span 2">
+                    <label for="c11-desc" style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px">תיאור קצר לנהגים</label>
+                    <textarea id="c11-desc" style="width: 100%; height: 74px; padding: 11px 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; line-height: 1.55; resize: none; outline: none">בתי קפה בפריסה ארצית, קפה טרי ומאפים מהמקום.</textarea>
+                    <div style="display: flex; justify-content: space-between; margin-top: 7px"><span style="font-size: 12.5px; color: #8A94A6">מופיע בעמוד העסק באפליקציה.</span><span style="font-size: 12.5px; color: #8A94A6; font-variant-numeric: tabular-nums">48/160</span></div>
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px">
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #FFFFFF; cursor: pointer">המשך לסניפים<i data-lucide="chevron-left" style="width: 17px; height: 17px"></i></button>
+                <button style="height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">שמירה כטיוטה</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Onboarding drops the photography</b> — per the style guide, imagery never sits behind dense forms. The shell is a stripped app frame: logo, autosave stamp, exit. A vertical stepper on the start side gives a wizard on desktop what a progress bar gives on mobile, with room for step names. "Continue" points left; "back" would point right.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">12</span><span style="font-size: 16px; font-weight: 800">שלב 2 · סניפים וכתובות</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <span style="font-size: 13px; color: #8A94A6">שומר אוטומטית · <span style="font-variant-numeric: tabular-nums">09:44</span></span>
+          <button style="height: 34px; padding: 0 14px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer">שמירה ויציאה</button>
+        </div>
+        <div style="flex: 1; display: flex; min-height: 0">
+          <div style="width: 268px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF; padding: 30px 22px; box-sizing: border-box">
+            <div style="font-size: 12.5px; font-weight: 700; color: #AEB6C4; margin-bottom: 18px">השלמת פרטי העסק</div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #F2FAE6; display: flex; align-items: center; justify-content: center"><i data-lucide="check" style="width: 15px; height: 15px; color: #65A30D"></i></span>
+                <div><div style="font-size: 13.5px; font-weight: 600; color: #374151">פרטי העסק</div><div style="font-size: 11.5px; color: #4D7C0F">הושלם</div></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: #EEEDFB; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #FFFFFF; font-variant-numeric: tabular-nums">2</span>
+                <div><div style="font-size: 13.5px; font-weight: 700; color: #3730A3">סניפים וכתובות</div><div style="font-size: 11.5px; color: #6366F1">בתהליך</div></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #8A94A6; font-variant-numeric: tabular-nums">3</span>
+                <div><div style="font-size: 13.5px; font-weight: 600; color: #8A94A6">מיתוג ואיש קשר</div></div>
+              </div>
+            </div>
+            <div style="height: 1px; background: #EFF1F6; margin: 22px 0"></div>
+            <div style="padding: 14px; background: #F9FAFC; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151">נהגים רואים הטבות לפי הקרבה לסניף. אפשר להוסיף סניף אחד עכשיו ולהשלים את השאר אחר כך.</div>
+          </div>
+          <div style="flex: 1; overflow: hidden; padding: 30px 36px; box-sizing: border-box">
+            <div style="max-width: 660px">
+              <h1 style="margin: 0 0 6px; font-size: 24px; font-weight: 800">סניפים וכתובות</h1>
+              <p style="margin: 0 0 20px; font-size: 14.5px; color: #8A94A6">שלב <span style="font-variant-numeric: tabular-nums">2</span> מתוך <span style="font-variant-numeric: tabular-nums">3</span> · נדרש סניף אחד לפחות.</p>
+              <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                  <span style="width: 38px; height: 38px; flex: none; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center"><i data-lucide="map-pin" style="width: 18px; height: 18px; color: #6366F1"></i></span>
+                  <div style="flex: 1; min-width: 0">
+                    <div style="font-size: 14.5px; font-weight: 700">דיזנגוף 210, תל אביב</div>
+                    <div style="font-size: 12.5px; color: #8A94A6">ראשי · א׳–ה׳ <span style="font-variant-numeric: tabular-nums">07:00–22:00</span> · <span dir="ltr" style="display: inline-block; font-variant-numeric: tabular-nums">03-523-1180</span></div>
+                  </div>
+                  <span style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: #F2FAE6; border-radius: 8px; font-size: 11.5px; font-weight: 700; color: #3F6212"><i data-lucide="check" style="width: 12px; height: 12px"></i>כתובת אומתה</span>
+                  <button style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; cursor: pointer"><i data-lucide="pencil" style="width: 15px; height: 15px; color: #374151"></i></button>
+                  <button style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; cursor: pointer"><i data-lucide="trash-2" style="width: 15px; height: 15px; color: #DC2626"></i></button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                  <span style="width: 38px; height: 38px; flex: none; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center"><i data-lucide="map-pin" style="width: 18px; height: 18px; color: #6366F1"></i></span>
+                  <div style="flex: 1; min-width: 0">
+                    <div style="font-size: 14.5px; font-weight: 700">קניון רמת גן, קומה <span style="font-variant-numeric: tabular-nums">1</span></div>
+                    <div style="font-size: 12.5px; color: #8A94A6">א׳–ש׳ <span style="font-variant-numeric: tabular-nums">09:00–21:30</span></div>
+                  </div>
+                  <span style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: #FEF6E7; border-radius: 8px; font-size: 11.5px; font-weight: 700; color: #92400E">חסר טלפון</span>
+                  <button style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; cursor: pointer"><i data-lucide="pencil" style="width: 15px; height: 15px; color: #374151"></i></button>
+                  <button style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; cursor: pointer"><i data-lucide="trash-2" style="width: 15px; height: 15px; color: #DC2626"></i></button>
+                </div>
+              </div>
+              <div style="padding: 18px 20px; background: #FFFFFF; border: 1px dashed #C7CBF7; border-radius: 16px; margin-bottom: 14px">
+                <div style="font-size: 13.5px; font-weight: 800; margin-bottom: 14px">הוספת סניף</div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px 16px">
+                  <div>
+                    <label for="c12-addr" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">כתובת</label>
+                    <div style="position: relative">
+                      <i data-lucide="search" style="position: absolute; top: 11px; right: 12px; width: 17px; height: 17px; color: #8A94A6"></i>
+                      <input id="c12-addr" type="text" placeholder="התחילו להקליד כתובת ונשלים אותה" style="width: 100%; height: 40px; padding: 0 40px 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none">
+                    </div>
+                  </div>
+                  <div>
+                    <label for="c12-tel" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">טלפון הסניף</label>
+                    <input id="c12-tel" type="text" dir="ltr" placeholder="03-000-0000" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none; text-align: left">
+                  </div>
+                </div>
+                <button style="display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; background: #EEEDFB; border: none; border-radius: 10px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #3730A3; cursor: pointer; margin-top: 14px"><i data-lucide="plus" style="width: 16px; height: 16px"></i>הוספת הסניף</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px">
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #FFFFFF; cursor: pointer">המשך למיתוג<i data-lucide="chevron-left" style="width: 17px; height: 17px"></i></button>
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer"><i data-lucide="arrow-right" style="width: 16px; height: 16px"></i>חזרה</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Repeatable data as a list of rows + an add card,</b> not a modal-per-branch: a 12-branch chain shouldn't open twelve dialogs. Incomplete rows carry an amber badge rather than blocking the step — the wizard only hard-blocks what approval genuinely requires.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">13</span><span style="font-size: 16px; font-weight: 800">שלב 3 · מיתוג ואיש קשר</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <span style="font-size: 13px; color: #8A94A6">שומר אוטומטית · <span style="font-variant-numeric: tabular-nums">09:52</span></span>
+          <button style="height: 34px; padding: 0 14px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer">שמירה ויציאה</button>
+        </div>
+        <div style="flex: 1; display: flex; min-height: 0">
+          <div style="width: 268px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF; padding: 30px 22px; box-sizing: border-box">
+            <div style="font-size: 12.5px; font-weight: 700; color: #AEB6C4; margin-bottom: 18px">השלמת פרטי העסק</div>
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #F2FAE6; display: flex; align-items: center; justify-content: center"><i data-lucide="check" style="width: 15px; height: 15px; color: #65A30D"></i></span>
+                <div style="font-size: 13.5px; font-weight: 600; color: #374151">פרטי העסק</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #F2FAE6; display: flex; align-items: center; justify-content: center"><i data-lucide="check" style="width: 15px; height: 15px; color: #65A30D"></i></span>
+                <div style="font-size: 13.5px; font-weight: 600; color: #374151">סניפים וכתובות</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: #EEEDFB; border-radius: 12px">
+                <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #FFFFFF; font-variant-numeric: tabular-nums">3</span>
+                <div><div style="font-size: 13.5px; font-weight: 700; color: #3730A3">מיתוג ואיש קשר</div><div style="font-size: 11.5px; color: #6366F1">שלב אחרון</div></div>
+              </div>
+            </div>
+            <div style="height: 1px; background: #EFF1F6; margin: 22px 0"></div>
+            <div style="padding: 14px; background: #F9FAFC; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151">הלוגו מוצג לנהגים ליד כל הטבה. תמונת רקע היא רשות — אם לא תעלו, נשתמש בצבע הקטגוריה.</div>
+          </div>
+          <div style="flex: 1; overflow: hidden; padding: 30px 36px; box-sizing: border-box; display: flex; gap: 22px">
+            <div style="flex: 1; min-width: 0">
+              <h1 style="margin: 0 0 6px; font-size: 24px; font-weight: 800">מיתוג ואיש קשר</h1>
+              <p style="margin: 0 0 20px; font-size: 14.5px; color: #8A94A6">שלב <span style="font-variant-numeric: tabular-nums">3</span> מתוך <span style="font-variant-numeric: tabular-nums">3</span></p>
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; margin-bottom: 12px">
+                <div style="font-size: 13.5px; font-weight: 800; margin-bottom: 14px">לוגו העסק <span style="color: #EF4444">*</span></div>
+                <div style="display: flex; align-items: center; gap: 16px">
+                  <span style="width: 64px; height: 64px; flex: none; border-radius: 16px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; color: #4F46E5">א</span>
+                  <div style="flex: 1">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+                      <button style="height: 36px; padding: 0 14px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #374151; cursor: pointer">העלאת קובץ</button>
+                      <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #DC2626; cursor: pointer">הסרה</button>
+                    </div>
+                    <div style="font-size: 12.5px; color: #8A94A6">PNG או SVG · לפחות <span style="font-variant-numeric: tabular-nums">512×512</span> · עד <span style="font-variant-numeric: tabular-nums">2</span>MB</div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #EFF1F6"><i data-lucide="alert-triangle" style="width: 15px; height: 15px; color: #B45309; margin-top: 2px; flex: none"></i><span style="font-size: 12.5px; line-height: 1.5; color: #92400E">הקובץ שהועלה הוא <span style="font-variant-numeric: tabular-nums">240×240</span> — מומלץ להעלות גרסה גדולה יותר כדי שהלוגו לא ייראה מטושטש.</span></div>
+              </div>
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="font-size: 13.5px; font-weight: 800; margin-bottom: 14px">איש קשר לאישור העסק</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px">
+                  <div>
+                    <label for="c13-cn" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">שם מלא <span style="color: #EF4444">*</span></label>
+                    <input id="c13-cn" type="text" value="דנה לוי" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none">
+                  </div>
+                  <div>
+                    <label for="c13-cr" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">תפקיד</label>
+                    <input id="c13-cr" type="text" value="מנהלת שיווק" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none">
+                  </div>
+                  <div>
+                    <label for="c13-cm" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">אימייל <span style="color: #EF4444">*</span></label>
+                    <input id="c13-cm" type="text" dir="ltr" value="dana@aroma.co.il" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none; text-align: left">
+                  </div>
+                  <div>
+                    <label for="c13-ct" style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">טלפון <span style="color: #EF4444">*</span></label>
+                    <input id="c13-ct" type="text" dir="ltr" value="050-123-4567" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none; text-align: left; font-variant-numeric: tabular-nums">
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 14px">
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #FFFFFF; cursor: pointer">מעבר לסיכום<i data-lucide="chevron-left" style="width: 17px; height: 17px"></i></button>
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer"><i data-lucide="arrow-right" style="width: 16px; height: 16px"></i>חזרה</button>
+              </div>
+            </div>
+            <div style="width: 230px; flex: none">
+              <div style="font-size: 12.5px; font-weight: 700; color: #8A94A6; margin-bottom: 10px">כך העסק ייראה לנהג</div>
+              <div style="background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; overflow: hidden">
+                <div style="height: 76px; background: repeating-linear-gradient(135deg, #EFF1F6 0 8px, #E7EBF3 8px 16px)"></div>
+                <div style="padding: 14px">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
+                    <span style="width: 34px; height: 34px; flex: none; border-radius: 999px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #4F46E5">א</span>
+                    <div><div style="font-size: 14px; font-weight: 700">ארומה ישראל</div><div style="font-size: 11.5px; color: #8A94A6">אוכל ושתייה · <span style="font-variant-numeric: tabular-nums">12</span> סניפים</div></div>
+                  </div>
+                  <div style="height: 1px; background: #EFF1F6; margin-bottom: 10px"></div>
+                  <div style="font-size: 12.5px; line-height: 1.55; color: #374151">בתי קפה בפריסה ארצית, קפה טרי ומאפים מהמקום.</div>
+                </div>
+              </div>
+              <div style="margin-top: 12px; padding: 13px 14px; background: #EFF1F6; border-radius: 14px; font-size: 12px; line-height: 1.6; color: #374151">התצוגה מתעדכנת בזמן שאתם ממלאים. זו התצוגה באפליקציית הנהגים.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>The driver-facing preview is what makes this step trustworthy</b> — a business uploading a logo needs to see what it will look like in the app. The low-resolution warning is amber, not red: it's advice, not a blocker.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">14</span><span style="font-size: 16px; font-weight: 800">סיכום ושליחה לאישור</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <span style="font-size: 13px; color: #8A94A6">כל השינויים נשמרו</span>
+        </div>
+        <div style="flex: 1; overflow: hidden; padding: 32px 40px; box-sizing: border-box">
+          <div style="max-width: 900px; margin: 0 auto">
+            <h1 style="margin: 0 0 6px; font-size: 26px; font-weight: 800">סיכום לפני שליחה</h1>
+            <p style="margin: 0 0 22px; font-size: 14.5px; color: #8A94A6">בדקו שהפרטים נכונים. אחרי השליחה נבדוק את העסק ונעדכן אותכם במייל — בדרך כלל תוך <span style="font-variant-numeric: tabular-nums">2</span> ימי עסקים.</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px">
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px">
+                  <span style="font-size: 13.5px; font-weight: 800">פרטי העסק</span>
+                  <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; color: #4F46E5; cursor: pointer">עריכה</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 9px">
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">שם לתצוגה</span><span style="font-size: 13.5px; font-weight: 600">ארומה ישראל</span></div>
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">שם משפטי</span><span style="font-size: 13.5px; font-weight: 600">ארומה אספרסו בר בע״מ</span></div>
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">ח״פ</span><span dir="ltr" style="font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums">514238711</span></div>
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">קטגוריה</span><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600"><i data-lucide="utensils-crossed" style="width: 15px; height: 15px; color: #EF4444"></i>אוכל ושתייה</span></div>
+                </div>
+              </div>
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px">
+                  <span style="font-size: 13.5px; font-weight: 800">סניפים · <span style="font-variant-numeric: tabular-nums">2</span></span>
+                  <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; color: #4F46E5; cursor: pointer">עריכה</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 10px">
+                  <div style="display: flex; align-items: center; gap: 10px"><i data-lucide="map-pin" style="width: 16px; height: 16px; color: #8A94A6; flex: none"></i><span style="font-size: 13.5px; font-weight: 600">דיזנגוף 210, תל אביב</span><span style="margin-inline-start: auto; padding: 3px 8px; background: #F2FAE6; border-radius: 6px; font-size: 11px; font-weight: 700; color: #3F6212">מלא</span></div>
+                  <div style="display: flex; align-items: center; gap: 10px"><i data-lucide="map-pin" style="width: 16px; height: 16px; color: #8A94A6; flex: none"></i><span style="font-size: 13.5px; font-weight: 600">קניון רמת גן</span><span style="margin-inline-start: auto; padding: 3px 8px; background: #FEF6E7; border-radius: 6px; font-size: 11px; font-weight: 700; color: #92400E">חסר טלפון</span></div>
+                </div>
+              </div>
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px">
+                  <span style="font-size: 13.5px; font-weight: 800">מיתוג</span>
+                  <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; color: #4F46E5; cursor: pointer">עריכה</button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 14px"><span style="width: 44px; height: 44px; border-radius: 12px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #4F46E5; margin-inline-end: 14px">א</span><div><div style="font-size: 13.5px; font-weight: 600">aroma-logo.png</div><div style="font-size: 12.5px; color: #92400E"><span style="font-variant-numeric: tabular-nums">240×240</span> · מומלץ להחליף</div></div></div>
+              </div>
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px">
+                  <span style="font-size: 13.5px; font-weight: 800">איש קשר</span>
+                  <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; color: #4F46E5; cursor: pointer">עריכה</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 9px">
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">שם</span><span style="font-size: 13.5px; font-weight: 600">דנה לוי · מנהלת שיווק</span></div>
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">אימייל</span><span dir="ltr" style="font-size: 13.5px; font-weight: 600">dana@aroma.co.il</span></div>
+                  <div style="display: flex; gap: 12px"><span style="width: 96px; flex: none; font-size: 13px; color: #8A94A6">טלפון</span><span dir="ltr" style="font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums">050-123-4567</span></div>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+              <div style="flex: 1; font-size: 13px; line-height: 1.6; color: #374151">בשליחה אתם מאשרים שהפרטים נכונים ושאתם מוסמכים לייצג את העסק.</div>
+              <button style="height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">שמירה כטיוטה</button>
+              <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 22px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #FFFFFF; cursor: pointer"><i data-lucide="send" style="width: 16px; height: 16px"></i>שליחה לאישור</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Review is read-only with per-section edit links</b> — never a re-render of every field. Outstanding amber items are surfaced here rather than hidden, so the business chooses to fix or submit knowingly. Label/value pairs use a fixed label column so the values align down the card.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">15</span><span style="font-size: 16px; font-weight: 800">נשלח · ממתין לאישור</span><span style="padding: 2px 9px; background: #FEF6E7; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #92400E">pending</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <div style="display: flex; align-items: center; gap: 9px">
+            <span style="width: 30px; height: 30px; border-radius: 999px; background: #E0DFFA; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #3730A3">ד</span>
+            <span style="font-size: 13px; font-weight: 700">דנה לוי</span>
+            <i data-lucide="chevron-down" style="width: 15px; height: 15px; color: #8A94A6"></i>
+          </div>
+        </div>
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px">
+          <div style="width: 620px; padding: 40px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 24px; text-align: center; position: relative; overflow: hidden">
+            <img src="assets/carma-c.jpg" alt="" style="position: absolute; top: -34px; left: -34px; width: 150px; height: 150px; object-fit: contain; opacity: .07; mix-blend-mode: multiply">
+            <span style="width: 62px; height: 62px; border-radius: 999px; background: #FEF6E7; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 22px; position: relative"><i data-lucide="clock" style="width: 29px; height: 29px; color: #F59E0B"></i></span>
+            <h1 style="margin: 0 0 10px; font-size: 27px; font-weight: 800; position: relative">הבקשה נשלחה לאישור</h1>
+            <p style="margin: 0 auto 26px; max-width: 440px; font-size: 15px; line-height: 1.7; color: #374151; position: relative">אנחנו בודקים את הפרטים של <b>ארומה ישראל</b> ונעדכן אותך במייל <b dir="ltr" style="display: inline-block">dana@aroma.co.il</b> בדרך כלל תוך <span style="font-variant-numeric: tabular-nums">2</span> ימי עסקים.</p>
+            <div style="display: flex; align-items: center; gap: 0; padding: 18px 20px; background: #F9FAFC; border-radius: 16px; margin-bottom: 26px; position: relative">
+              <div style="flex: 1; text-align: center"><span style="width: 26px; height: 26px; border-radius: 999px; background: #84CC16; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px"><i data-lucide="check" style="width: 15px; height: 15px; color: #FFFFFF"></i></span><div style="font-size: 12.5px; font-weight: 700">הפרטים נשלחו</div><div style="font-size: 11.5px; color: #8A94A6; font-variant-numeric: tabular-nums">היום, 09:58</div></div>
+              <span style="width: 40px; height: 2px; background: #E3E7EF"></span>
+              <div style="flex: 1; text-align: center"><span style="width: 26px; height: 26px; border-radius: 999px; background: #F59E0B; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; animation: carma-pulse 1.8s ease-in-out infinite"><i data-lucide="search" style="width: 14px; height: 14px; color: #FFFFFF"></i></span><div style="font-size: 12.5px; font-weight: 700; color: #92400E">בבדיקה</div><div style="font-size: 11.5px; color: #8A94A6">עד 2 ימי עסקים</div></div>
+              <span style="width: 40px; height: 2px; background: #E3E7EF"></span>
+              <div style="flex: 1; text-align: center"><span style="width: 26px; height: 26px; border-radius: 999px; background: #EFF1F6; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px"><i data-lucide="gift" style="width: 14px; height: 14px; color: #AEB6C4"></i></span><div style="font-size: 12.5px; font-weight: 700; color: #8A94A6">פתיחת הפורטל</div><div style="font-size: 11.5px; color: #AEB6C4">יצירת הטבות</div></div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; position: relative">
+              <button style="height: 44px; padding: 0 20px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">צפייה בפרטים שנשלחו</button>
+              <button style="height: 44px; padding: 0 20px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">יצירת קשר עם התמיכה</button>
+            </div>
+            <div style="margin-top: 22px; font-size: 12.5px; color: #8A94A6; position: relative">אפשר לסגור את החלון — נמשיך משם כשתחזרו.</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>A waiting state needs three things:</b> what happened, what happens next, and what the user may do meanwhile. The three-stage tracker answers all of it without pretending to be live progress. The C symbol appears here as a faint watermark on a flat white card — never over photography.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">16</span><span style="font-size: 16px; font-weight: 800">העסק אושר · welcome</span><span style="padding: 2px 9px; background: #F2FAE6; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #3F6212">success</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 240px; flex: none; position: relative; overflow: hidden">
+          <img src="assets/carma-road.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 62%">
+          <div style="position: absolute; inset: 0; background: linear-gradient(255deg, rgba(99,102,241,.55) 0%, rgba(41,38,140,.9) 60%, rgba(15,23,42,.92) 100%)"></div>
+          <div style="position: absolute; inset: 0; padding: 34px 40px; display: flex; flex-direction: column">
+            <div style="display: inline-flex; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; background: #FFFFFF; border-radius: 999px; align-self: flex-start">
+              <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 17px; width: auto; mix-blend-mode: multiply">
+              <span style="width: 1px; height: 14px; background: #E3E7EF"></span>
+              <span style="font-size: 11.5px; font-weight: 800; color: #4F46E5">Business</span>
+            </div>
+            <div style="flex: 1"></div>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(132,204,22,.2); border: 1px solid rgba(132,204,22,.5); border-radius: 999px; font-size: 12.5px; font-weight: 700; color: #ECFCCB; align-self: flex-start; margin-bottom: 14px"><i data-lucide="check" style="width: 14px; height: 14px"></i>העסק אושר</span>
+            <h1 style="margin: 0 0 8px; font-size: 30px; font-weight: 800; color: #FFFFFF">ברוכים הבאים ל-CARMA, ארומה ישראל</h1>
+            <p style="margin: 0; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.85); max-width: 620px">הפורטל פתוח. מכאן אפשר ליצור הטבות, לנהל זמינות ולעקוב אחרי המימושים בכל הסניפים.</p>
+          </div>
+        </div>
+        <div style="flex: 1; padding: 30px 40px; box-sizing: border-box; overflow: hidden">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px">
+            <h2 style="margin: 0; font-size: 19px; font-weight: 800">שלושה צעדים כדי להתחיל</h2>
+            <span style="font-size: 13px; color: #8A94A6"><span style="font-variant-numeric: tabular-nums">1</span> מתוך <span style="font-variant-numeric: tabular-nums">3</span> הושלם</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px">
+            <div style="padding: 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+              <span style="width: 40px; height: 40px; border-radius: 999px; background: #F2FAE6; display: flex; align-items: center; justify-content: center; margin-bottom: 14px"><i data-lucide="check" style="width: 19px; height: 19px; color: #65A30D"></i></span>
+              <div style="font-size: 15px; font-weight: 700; margin-bottom: 5px">פרטי העסק הושלמו</div>
+              <div style="font-size: 13px; line-height: 1.6; color: #8A94A6; margin-bottom: 12px">הפרטים אושרו ומוצגים לנהגים.</div>
+              <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #4F46E5; cursor: pointer">צפייה בפרטים</button>
+            </div>
+            <div style="padding: 20px; background: #FFFFFF; border: 1px solid #C7CBF7; border-radius: 16px">
+              <span style="width: 40px; height: 40px; border-radius: 999px; background: #EEEDFB; display: flex; align-items: center; justify-content: center; margin-bottom: 14px"><i data-lucide="gift" style="width: 19px; height: 19px; color: #6366F1"></i></span>
+              <div style="font-size: 15px; font-weight: 700; margin-bottom: 5px">יצירת ההטבה הראשונה</div>
+              <div style="font-size: 13px; line-height: 1.6; color: #8A94A6; margin-bottom: 12px">קבעו עלות בנקודות, מלאי, תוקף וסניפים.</div>
+              <button style="display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 16px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #FFFFFF; cursor: pointer"><i data-lucide="plus" style="width: 15px; height: 15px"></i>יצירת הטבה</button>
+            </div>
+            <div style="padding: 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+              <span style="width: 40px; height: 40px; border-radius: 999px; background: #EFF1F6; display: flex; align-items: center; justify-content: center; margin-bottom: 14px"><i data-lucide="users" style="width: 19px; height: 19px; color: #8A94A6"></i></span>
+              <div style="font-size: 15px; font-weight: 700; margin-bottom: 5px">הוספת אנשי צוות</div>
+              <div style="font-size: 13px; line-height: 1.6; color: #8A94A6; margin-bottom: 12px">הזמינו מנהלי סניפים לאשר מימושים.</div>
+              <button style="background: none; border: none; padding: 0; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #4F46E5; cursor: pointer">הזמנת צוות</button>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; padding: 16px 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+            <i data-lucide="book-open" style="width: 19px; height: 19px; color: #6366F1; flex: none"></i>
+            <div style="flex: 1; font-size: 13.5px; line-height: 1.6; color: #374151">רוצים לראות מה עובד לעסקים אחרים? קראו את <b>המדריך להטבות שנהגים מממשים</b> — <span style="font-variant-numeric: tabular-nums">4</span> דקות קריאה.</div>
+            <button style="height: 38px; padding: 0 16px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #374151; cursor: pointer">למדריך</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>The only in-product screen that keeps the road photography</b> — a welcome moment, and the last of them. The logo sits in a white pill over the image per the brand rules, no C overlay. Three next steps, exactly one with a filled CTA, so the path forward is unambiguous.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">17</span><span style="font-size: 16px; font-weight: 800">נדרשים תיקונים</span><span style="padding: 2px 9px; background: #FEECEC; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #991B1B">rejected</span></div>
+      <div dir="rtl" style="width: 1280px; height: 800px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+        <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 28px">
+          <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 20px; width: auto; mix-blend-mode: multiply">
+          <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+          <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          <div style="flex: 1"></div>
+          <div style="display: flex; align-items: center; gap: 9px">
+            <span style="width: 30px; height: 30px; border-radius: 999px; background: #E0DFFA; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #3730A3">ד</span>
+            <span style="font-size: 13px; font-weight: 700">דנה לוי</span>
+            <i data-lucide="chevron-down" style="width: 15px; height: 15px; color: #8A94A6"></i>
+          </div>
+        </div>
+        <div style="flex: 1; padding: 34px 40px; box-sizing: border-box; overflow: hidden">
+          <div style="max-width: 780px; margin: 0 auto">
+            <div style="display: flex; align-items: flex-start; gap: 16px; padding: 22px 24px; background: #FEECEC; border-radius: 18px; margin-bottom: 16px">
+              <span style="width: 44px; height: 44px; flex: none; border-radius: 999px; background: #FFFFFF; display: flex; align-items: center; justify-content: center"><i data-lucide="alert-circle" style="width: 21px; height: 21px; color: #EF4444"></i></span>
+              <div>
+                <div style="font-size: 20px; font-weight: 800; color: #991B1B; margin-bottom: 6px">נדרשים תיקונים לפני אישור העסק</div>
+                <div style="font-size: 14px; line-height: 1.65; color: #991B1B">בדקנו את הבקשה של <b>ארומה ישראל</b> ומצאנו <span style="font-variant-numeric: tabular-nums">2</span> נושאים שצריך להשלים. אחרי התיקון שלחו את הבקשה שוב — הבדיקה החוזרת נמשכת בדרך כלל יום עסקים אחד.</div>
+              </div>
+            </div>
+            <div style="padding: 24px 26px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 18px; margin-bottom: 16px">
+              <div style="font-size: 14px; font-weight: 800; margin-bottom: 18px">מה צריך לתקן</div>
+              <div style="display: flex; flex-direction: column; gap: 14px">
+                <div style="display: flex; align-items: flex-start; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid #EFF1F6">
+                  <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #FEECEC; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #991B1B; font-variant-numeric: tabular-nums">1</span>
+                  <div style="flex: 1">
+                    <div style="font-size: 14.5px; font-weight: 700; margin-bottom: 4px">מספר ח״פ אינו תואם לשם המשפטי</div>
+                    <div style="font-size: 13.5px; line-height: 1.6; color: #374151">ברשם החברות מופיע ח״פ <span dir="ltr" style="display: inline-block; font-weight: 700; font-variant-numeric: tabular-nums">514238711</span> תחת שם אחר. בדקו את הספרות, או עדכנו את השם המשפטי כך שיתאים בדיוק לרישום.</div>
+                  </div>
+                  <button style="height: 36px; padding: 0 14px; flex: none; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer">תיקון פרטי העסק</button>
+                </div>
+                <div style="display: flex; align-items: flex-start; gap: 14px">
+                  <span style="width: 26px; height: 26px; flex: none; border-radius: 999px; background: #FEECEC; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #991B1B; font-variant-numeric: tabular-nums">2</span>
+                  <div style="flex: 1">
+                    <div style="font-size: 14.5px; font-weight: 700; margin-bottom: 4px">הלוגו באיכות נמוכה מדי</div>
+                    <div style="font-size: 13.5px; line-height: 1.6; color: #374151">הקובץ שהועלה הוא <span style="font-variant-numeric: tabular-nums">240×240</span> ונראה מטושטש באפליקציה. העלו PNG או SVG בגודל <span style="font-variant-numeric: tabular-nums">512×512</span> לפחות.</div>
+                  </div>
+                  <button style="height: 36px; padding: 0 14px; flex: none; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer">החלפת הלוגו</button>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+              <div style="flex: 1; font-size: 13px; line-height: 1.6; color: #8A94A6">שאר הפרטים תקינים ונשמרו — אין צורך למלא הכול מחדש. נבדק ב-<span style="font-variant-numeric: tabular-nums">22 באוג׳ 2026</span> על ידי צוות CARMA.</div>
+              <button style="height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">שאלה לתמיכה</button>
+              <button style="height: 44px; padding: 0 22px; background: #EFF1F6; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #AEB6C4">שליחה חוזרת לאישור</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Rejection is framed as a to-do list, not a verdict</b> — numbered items, each with the reason, the fix, and a button that jumps straight to the right step. Resubmit stays disabled until both are addressed, and the copy states explicitly that nothing else was lost.</div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">18</span><span style="font-size: 16px; font-weight: 800">טעינה ושגיאת שרת</span><span style="padding: 2px 9px; background: #EFF1F6; border-radius: 6px; font-size: 11.5px; font-weight: 700; color: #4B5563">system</span></div>
+      <div style="width: 1280px; min-height: 800px; display: flex; flex-direction: column; gap: 20px; box-sizing: border-box">
+        <div dir="rtl" style="flex: 0 0 auto; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column">
+          <div style="height: 56px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 26px">
+            <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 19px; width: auto; mix-blend-mode: multiply">
+            <span style="width: 1px; height: 14px; background: #E3E7EF"></span>
+            <span style="font-size: 11.5px; font-weight: 800; color: #4F46E5">Business</span>
+          </div>
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 44px; padding: 20px 26px">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px">
+              <img src="assets/carma-c.jpg" alt="" style="width: 52px; height: 52px; object-fit: contain; mix-blend-mode: multiply; animation: carma-pulse 1.5s ease-in-out infinite">
+              <span style="font-size: 13.5px; font-weight: 700; color: #8A94A6">טוען את החשבון…</span>
+              <span style="font-size: 12px; color: #AEB6C4">Full-page load · C symbol on a flat surface</span>
+            </div>
+            <span style="width: 1px; height: 130px; background: #E3E7EF"></span>
+            <div style="width: 460px">
+              <div style="padding: 20px 22px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <span style="display: block; width: 38%; height: 13px; background: #EFF1F6; border-radius: 999px; margin-bottom: 14px; animation: carma-shimmer 1.4s ease-in-out infinite"></span>
+                <div style="display: flex; gap: 12px; margin-bottom: 12px">
+                  <span style="flex: 1; height: 40px; background: #F1F3F8; border-radius: 12px; animation: carma-shimmer 1.4s ease-in-out .1s infinite"></span>
+                  <span style="flex: 1; height: 40px; background: #F1F3F8; border-radius: 12px; animation: carma-shimmer 1.4s ease-in-out .2s infinite"></span>
+                </div>
+                <span style="display: block; height: 40px; background: #F1F3F8; border-radius: 12px; margin-bottom: 12px; animation: carma-shimmer 1.4s ease-in-out .3s infinite"></span>
+                <span style="display: block; width: 40%; height: 40px; background: #EFF1F6; border-radius: 12px; animation: carma-shimmer 1.4s ease-in-out .4s infinite"></span>
+              </div>
+              <div style="margin-top: 10px; font-size: 12.5px; line-height: 1.55; color: #8A94A6">Resuming a saved onboarding draft: skeletons take the shape of the form that's coming, so the layout doesn't jump when data lands.</div>
+            </div>
+          </div>
+        </div>
+        <div dir="rtl" style="flex: 0 0 auto; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; flex-direction: column">
+          <div style="height: 56px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 26px">
+            <img src="assets/carma-logo.jpg" alt="CARMA" style="height: 19px; width: auto; mix-blend-mode: multiply">
+            <span style="width: 1px; height: 14px; background: #E3E7EF"></span>
+            <span style="font-size: 11.5px; font-weight: 800; color: #4F46E5">Business</span>
+            <div style="flex: 1"></div>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; background: #FEF6E7; border-radius: 8px; font-size: 12px; font-weight: 700; color: #92400E"><i data-lucide="wifi-off" style="width: 13px; height: 13px"></i>אין חיבור לשרת</span>
+          </div>
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px 26px; min-height: 0">
+            <div style="width: 560px; padding: 26px 32px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 20px; text-align: center">
+              <span style="width: 54px; height: 54px; border-radius: 999px; background: #FEECEC; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 18px"><i data-lucide="cloud-off" style="width: 25px; height: 25px; color: #EF4444"></i></span>
+              <div style="font-size: 21px; font-weight: 800; margin-bottom: 8px">משהו נתקע אצלנו</div>
+              <div style="font-size: 14px; line-height: 1.7; color: #374151; max-width: 400px; margin: 0 auto 20px">לא הצלחנו לשמור את פרטי העסק כרגע. <b>שום דבר לא נמחק</b> — הטופס שמור אצלנו ואפשר לנסות שוב.</div>
+              <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px">
+                <button style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #FFFFFF; cursor: pointer"><i data-lucide="refresh-cw" style="width: 16px; height: 16px"></i>ניסיון חוזר</button>
+                <button style="height: 44px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 14.5px; font-weight: 700; color: #374151; cursor: pointer">חזרה לטופס</button>
+              </div>
+              <div style="padding: 12px 16px; background: #F9FAFC; border-radius: 12px; font-size: 12.5px; color: #8A94A6">קוד שגיאה <span dir="ltr" style="display: inline-block; font-family: ui-monospace, Menlo, monospace">ERR-5031</span> · אם זה חוזר, שלחו לנו את הקוד ונטפל בזה.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 13px 16px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 14px; font-size: 12.5px; line-height: 1.6; color: #374151"><b>Two system states, one screen.</b> Loading: the C symbol pulses for a genuine full-page wait, and skeletons mirror the incoming form. Error: it says what failed, reassures that nothing was lost, offers retry plus a safe exit, and surfaces a support code — never a raw English API string.</div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  icons() {
+    if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 1.9 } });
+    else setTimeout(() => this.icons(), 120);
+  }
+  componentDidMount() { this.icons(); }
+  componentDidUpdate() { this.icons(); }
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
