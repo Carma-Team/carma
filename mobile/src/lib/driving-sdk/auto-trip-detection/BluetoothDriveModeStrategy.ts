@@ -15,6 +15,10 @@ export class BluetoothDriveModeStrategy implements TripDetectionStrategy {
   private targetDeviceId: string | null = null;
   private connectSub: { remove: () => void } | null = null;
   private disconnectSub: { remove: () => void } | null = null;
+  // Tracked from the same two broadcasts detection already listens to, rather than
+  // queried on demand: `getConnectedDevices()` is async and the caller needs an answer
+  // synchronously, at the instant a trip starts.
+  private connected = false;
 
   public onDetected?: () => void;
   public onLost?: () => void;
@@ -44,6 +48,7 @@ export class BluetoothDriveModeStrategy implements TripDetectionStrategy {
     this.connectSub = RNBluetoothClassic.onDeviceConnected((event: BluetoothDeviceEvent) => {
       if (event.device?.address === this.targetDeviceId) {
         console.log('[SDK] Target BT device connected:', event.device.name);
+        this.connected = true;
         this.onDetected?.();
       }
     });
@@ -51,6 +56,7 @@ export class BluetoothDriveModeStrategy implements TripDetectionStrategy {
     this.disconnectSub = RNBluetoothClassic.onDeviceDisconnected((event: BluetoothDeviceEvent) => {
       if (event.device?.address === this.targetDeviceId) {
         console.log('[SDK] Target BT device disconnected:', event.device.name);
+        this.connected = false;
         this.onLost?.();
       }
     });
@@ -65,5 +71,12 @@ export class BluetoothDriveModeStrategy implements TripDetectionStrategy {
     this.disconnectSub?.remove();
     this.connectSub = null;
     this.disconnectSub = null;
+    // Not "the device went away" — we simply stopped watching, and a stale true here
+    // would name a vehicle we can no longer confirm.
+    this.connected = false;
+  }
+
+  public getConnectedVehicleId(): string | null {
+    return this.connected ? this.targetDeviceId : null;
   }
 }

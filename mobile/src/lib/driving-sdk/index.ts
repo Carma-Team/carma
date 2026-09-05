@@ -258,6 +258,11 @@ export class DrivingSDK {
       accelAvailable: false,
       accelCoverage: 0,
       accelInitFailed: false,
+      // Resolved once, at start: L1 binding asks which vehicle the drive happened in, and
+      // a device that disconnects mid-trip did not change that answer. The raw identifier
+      // is passed straight into the host's hasher and never stored on the trip — a MAC
+      // address must not leave the device (CAR-310).
+      vehicleKeyHash: this.resolveVehicleKeyHash(),
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -279,6 +284,22 @@ export class DrivingSDK {
 
     if (this.onTripStart) this.onTripStart(tripId);
     return tripId;
+  }
+
+  /**
+   * The connected vehicle as an opaque key, or null when there is nothing to name: no
+   * vehicle connected, or a host that injected no hasher. A hasher that throws must not
+   * take the trip down with it — the trip is the product, the binding is an extra.
+   */
+  private resolveVehicleKeyHash(): string | null {
+    const vehicleId = this.autoDetection.getConnectedVehicleId();
+    if (!vehicleId || !this.config.vehicleKeyHasher) return null;
+    try {
+      return this.config.vehicleKeyHasher(vehicleId) || null;
+    } catch (e) {
+      console.warn('[SDK] vehicleKeyHasher threw — trip saved without a vehicle key', e);
+      return null;
+    }
   }
 
   public async stopTrip(): Promise<TripData | null> {
