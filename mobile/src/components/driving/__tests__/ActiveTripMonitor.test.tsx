@@ -10,8 +10,9 @@ jest.mock('@/context/AppContext', () => ({ useApp: () => ({ lang: 'HE' }) }))
 const tripState = (over: Record<string, unknown> = {}) => ({
   durationSeconds: 0,
   distanceKm: 0,
-  touchEpochs: 0,
-  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 },
+  screenInteractionSeconds: 0,
+  phoneMotionSeconds: 0,
+  eventCounts: { HARD_BRAKE: 0, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0 },
   ...over,
 }) as React.ComponentProps<typeof ActiveTripMonitor>['tripState']
 
@@ -40,7 +41,7 @@ describe('ActiveTripMonitor', () => {
   it('shows the event counts in debug mode', () => {
     render(
       <ActiveTripMonitor
-        tripState={tripState({ eventCounts: { HARD_BRAKE: 5, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0, SWERVE: 0 } })}
+        tripState={tripState({ eventCounts: { HARD_BRAKE: 5, AGGRESSIVE_ACCEL: 0, SHARP_TURN: 0 } })}
         onEnd={jest.fn()}
         showDebug
       />
