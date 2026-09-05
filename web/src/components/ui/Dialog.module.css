@@ -1,16 +1,28 @@
 .dialog {
   position: relative;
   border: none;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   padding: var(--space-lg);
-  max-width: min(480px, calc(100vw - var(--space-lg) * 2));
+  width: 100%;
   color: var(--color-text);
   background-color: var(--color-surface);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-overlay);
+}
+
+.sm {
+  max-width: min(480px, calc(100vw - var(--space-lg) * 2));
+}
+
+.lg {
+  max-width: min(640px, calc(100vw - var(--space-lg) * 2));
 }
 
 .dialog::backdrop {
-  background-color: rgba(15, 23, 42, 0.5);
+  background-color: var(--scrim);
+}
+
+.title {
+  padding-inline-end: var(--space-xl);
 }
 
 .body {
@@ -26,5 +38,5 @@
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
-  color: var(--color-text-muted);
+  color: var(--color-text-faint);
 }

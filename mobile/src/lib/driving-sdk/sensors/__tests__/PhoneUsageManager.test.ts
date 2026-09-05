@@ -1,17 +1,17 @@
 import { DrivingEventType } from '@/lib/driving-sdk/types';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
-// Only the accelerometer is subscribed here. Gyroscope samples are pushed in by the
-// host (CAR-82) and AppState is not consulted at all (CAR-45), so neither needs a mock.
-let accelHandler: ((data: { x: number; y: number; z: number }) => void) | null = null;
-
+// This class subscribes to nothing. Both IMU streams are pushed in by the host — the
+// gyroscope since CAR-82, the accelerometer since CAR-325 — and AppState is not consulted
+// at all (CAR-45). The mock below is the guard, not a stub: reaching for either sensor
+// throws, so a subscription creeping back fails here instead of quietly costing battery
+// on a device where nothing checks.
 jest.mock('expo-sensors', () => ({
-  Accelerometer: {
-    setUpdateInterval: jest.fn(),
-    addListener: jest.fn((handler: (data: { x: number; y: number; z: number }) => void) => {
-      accelHandler = handler;
-      return { remove: jest.fn() };
-    }),
+  get Accelerometer(): never {
+    throw new Error('PhoneUsageManager must not subscribe to the accelerometer (CAR-325)');
+  },
+  get Gyroscope(): never {
+    throw new Error('PhoneUsageManager must not subscribe to the gyroscope (CAR-82)');
   },
 }));
 
@@ -25,18 +25,18 @@ const MOUNTED_SAMPLES = new Array(10).fill(1.0);
 // HANDHELD_VARIANCE_THRESHOLD (0.025 g²).
 const HANDHELD_SAMPLES = [1.0, 1.6, 0.6, 1.7, 0.5, 1.6, 0.6, 1.7, 0.5, 1.6];
 
-function feedAccel(magnitudes: number[]) {
-  magnitudes.forEach((mag) => accelHandler?.({ x: mag, y: 0, z: 0 }));
-}
 
 describe('PhoneUsageManager', () => {
   let onEvent: jest.Mock;
   let onInteractionData: jest.Mock;
   let manager: PhoneUsageManager;
 
+  function feedAccel(magnitudes: number[]) {
+    magnitudes.forEach((mag) => manager.pushAccelSample(mag, 0, 0));
+  }
+
   beforeEach(() => {
     jest.useFakeTimers();
-    accelHandler = null;
     onEvent = jest.fn();
     onInteractionData = jest.fn();
     manager = new PhoneUsageManager(onEvent, onInteractionData);

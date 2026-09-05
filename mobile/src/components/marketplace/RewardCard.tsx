@@ -85,14 +85,29 @@ export function RewardCard({ reward, userPoints, vouchers, onRedeem, onVoucherPr
 
       {vouchers.length > 0 && (
         <View style={styles.voucherStrip}>
-          {vouchers.map(v => (
+          {/* Oldest first, so the number beside a voucher means the same thing on every
+              render — the server does not promise an order, and a driver holding two
+              would otherwise watch them swap places between refreshes. */}
+          {[...vouchers].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((v, i) => (
             <TouchableOpacity key={v.id} style={styles.voucherRow} onPress={() => onVoucherPress(v)}>
               <Ionicons name={ICONS.active} size={14} color={COLORS.brand} />
-              <Text style={styles.voucherCode} numberOfLines={1}>{v.code}</Text>
-              <Text style={styles.voucherExpiryInline}>
+              {/* The code lives in My Vouchers and in the QR modal. Here it said nothing
+                  a driver browsing the store can act on — what they need to know is that
+                  they already hold one, and that tapping opens the QR for the cashier. */}
+              <Text style={styles.voucherOwned} numberOfLines={1}>
+                {t('marketplace.voucher.owned')}{vouchers.length > 1 ? ` (${i + 1})` : ''}
+              </Text>
+              <Text style={styles.voucherExpiryInline} numberOfLines={1}>
                 {t('marketplace.voucher.expiry')} {expiryDate(v.expiresAt, lang)}
               </Text>
-              <Text style={styles.qrArrow}>QR →</Text>
+              <Text style={styles.qrLink}>{t('marketplace.voucher.showQR')}</Text>
+              {/* Forward, not back: in Hebrew the interface runs right to left, so the
+                  arrow that opens something points the other way. */}
+              <Ionicons
+                name={lang === 'HE' ? 'chevron-back' : 'chevron-forward'}
+                size={14}
+                color={COLORS.brandLight}
+              />
             </TouchableOpacity>
           ))}
         </View>
@@ -102,6 +117,19 @@ export function RewardCard({ reward, userPoints, vouchers, onRedeem, onVoucherPr
 }
 
 // ─── VoucherModal ─────────────────────────────────────────────────────────────
+
+// `isUsed` only separates redeemed from everything else, so an expired or cancelled
+// voucher used to read as active. The status field carries all four states.
+export const VOUCHER_STATUS_KEY: Record<Voucher['status'], string> = {
+  pending:   'marketplace.voucher.active',
+  used:      'marketplace.voucher.used',
+  expired:   'marketplace.voucher.expired',
+  cancelled: 'marketplace.voucher.cancelled',
+}
+
+/** Green only while the voucher can still be handed to a cashier. */
+export const isVoucherLive = (voucher: Voucher) => voucher.status === 'pending'
+
 interface VoucherModalProps {
   open: boolean
   voucher: Voucher | null
@@ -152,9 +180,9 @@ export function VoucherModal({ open, voucher, onClose, onCancelVoucher, cancelli
         <Text style={styles.voucherExpiry}>
           {t('marketplace.voucher.expiry')}: {expiryDate(voucher.expiresAt, lang)}
         </Text>
-        <View style={[styles.statusBadge, { backgroundColor: voucher.isUsed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)' }]}>
-          <Text style={{ color: voucher.isUsed ? '#ef4444' : '#22c55e', fontWeight: '700' }}>
-            {voucher.isUsed ? t('marketplace.voucher.used') : t('marketplace.voucher.active')}
+        <View style={[styles.statusBadge, { backgroundColor: isVoucherLive(voucher) ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)' }]}>
+          <Text style={{ color: isVoucherLive(voucher) ? '#22c55e' : '#ef4444', fontWeight: '700' }}>
+            {t(VOUCHER_STATUS_KEY[voucher.status])}
           </Text>
         </View>
 
@@ -204,9 +232,9 @@ const styles = StyleSheet.create({
   missingPointsHint: { color: '#f59e0b', fontSize: 11, fontWeight: '600', textAlign: 'right', marginTop: 6 },
   voucherStrip:     { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 6 },
   voucherRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  voucherCode:      { color: COLORS.text, fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
+  voucherOwned:     { color: COLORS.text, fontSize: 12, fontWeight: '700' },
   voucherExpiryInline: { color: COLORS.textMuted, fontSize: 11, flex: 1 },
-  qrArrow:          { color: COLORS.brandLight, fontSize: 12, fontWeight: '700' },
+  qrLink:           { color: COLORS.brandLight, fontSize: 12, fontWeight: '700' },
   cancelLink:       { color: COLORS.danger, fontSize: 13, fontWeight: '600', paddingVertical: 6 },
   cancelConfirm:    { alignItems: 'center', gap: 10 },
   cancelPrompt:     { color: COLORS.textMuted, fontSize: 13, textAlign: 'center' },

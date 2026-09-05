@@ -13,7 +13,7 @@ const he = {
     noAccount: 'אין לך חשבון?', hasAccount: 'יש לך חשבון?',
     loginBtn: 'היכנס', registerBtn: 'צור חשבון', guestLoginBtn: 'כניסה כאורח (לפיתוח)',
     emailPlaceholder: 'your@email.com', passwordPlaceholder: '••••••••',
-    namePlaceholder: 'ישראל ישראלי', cityPlaceholder: 'תל אביב',
+    namePlaceholder: 'ישראל ישראלי',
     citySelectPlaceholder: 'בחירת עיר',
     welcomeToast: 'ברוך הבא, {name}! 🎉', defaultUserName: 'משתמש',
     regionAck: 'קראתי ואני מבין/ה: השימוש ב-CARMA מותר רק בתחומי מדינת ישראל',
@@ -40,12 +40,12 @@ const he = {
       emailExists: 'האימייל כבר קיים במערכת', invalidCredentials: 'אימייל או סיסמה שגויים',
       invalidName: 'השם חייב להיות באורך 2 עד 80 תווים',
       invalidPassword: 'הסיסמה חייבת להיות באורך 8 עד 200 תווים',
-      cityTooLong: 'שם היישוב ארוך מדי (עד 80 תווים)',
       invalidPhone: 'מספר הטלפון לא תקין',
       badResetCode: 'הקוד שגוי או שפג תוקפו — אפשר לבקש קוד חדש',
       tooManyAttempts: 'יותר מדי בקשות. אפשר לנסות שוב בעוד {seconds} שניות',
       tooManyAttemptsNoWait: 'יותר מדי בקשות. אפשר לנסות שוב בעוד מספר דקות',
       invalidDetails: 'חלק מהפרטים אינם תקינים',
+      timeout: 'השרת אינו מגיב. כדאי לבדוק את החיבור ולנסות שוב',
       invalidAge: 'גיל חייב להיות בין 16 ל-120',
       invalidLicenseYear: 'שנת רישיון חייבת להיות בין 1950 לשנה הנוכחית',
       licenseYearBeforeAge: 'שנת הרישיון מוקדמת מהגיל שהוזן — בישראל אפשר לגשת לטסט מגיל 16 ו-9 חודשים',
@@ -54,12 +54,13 @@ const he = {
   dashboard: {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
-    thisWeek: 'השבוע',
-    weekTrips: 'נסיעות',
-    weekVsLast: 'בהשוואה לשבעת הימים שלפני כן',
-    weekNoTrips: 'אין נסיעות מדורגות בשבעת הימים האחרונים.',
-    weekNoComparison: 'שבוע ראשון',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
+    // מצב הבחירה למחיקה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
+    deleteTrips: 'מחיקת נסיעות',
+    selectAll: 'בחירת הכל',
+    clearSelection: 'ניקוי הבחירה',
+    selectedCount: 'נבחרו {count}',
+    deleteSelectedConfirm: 'למחוק את הנסיעות שנבחרו? הפעולה מסתירה אותן במכשיר הזה בלבד.',
     totalDistance: 'מרחק כולל', totalTrips: 'נסיעות',
     avgScore: 'ציון ממוצע', pointsToNextLevel: 'נקודות לרמה הבאה',
   },
@@ -84,6 +85,9 @@ const he = {
     finalScore: 'ציון סופי',
     detailUnavailable: 'לא ניתן היה לטעון את פירוט הנסיעה כרגע.',
     notSent: 'לא הצלחנו להביא את סיכום הנסיעה — אין חיבור לרשת. הנסיעה נשמרה במכשיר ותישלח אוטומטית.',
+    syncPending: 'בשליחה', syncFailed: 'לא נשלחה',
+    syncPendingDetail: 'ממתינה לשליחה',
+    syncFailedDetail: 'נשארה במכשיר',
     km: 'ק"מ',
     points: 'נקודות',
     pointsCapped: 'הגעת למכסת הנקודות לתקופה זו — נקודות נוספות ייספרו לאחר שהמכסה תתאפס.',
@@ -129,6 +133,8 @@ const he = {
   roadmap: {
     title: 'מסלול ההתקדמות', subtitle: 'הדרך שלך לנהיגה בטוחה יותר',
     currentLevel: 'רמה נוכחית', nextLevel: 'רמה הבאה', progress: 'התקדמות',
+    // המספר מגיע מהשרת, הניסוח לא — `perks` נשלח כפרוזה עברית ללא פרמטר שפה
+    pointsMultiplier: 'מכפיל נקודות',
     perks: 'הטבות', locked: 'נעול', unlocked: 'פתוח',
     pointsNeeded: 'נקודות נדרשות', completed: 'הושלם',
     pointsToNextLine: 'עוד {points} נקודות לרמה הבאה',
@@ -152,8 +158,14 @@ const he = {
     availablePoints: 'נקודות זמינות', reservedPoints: 'נקודות שמורות לשוברים פעילים',
     balanceAfter: 'יישארו לך',
     categories: { all: 'הכל', fuel: 'דלק', food: 'אוכל', eco: 'ירוק', entertainment: 'בידור', shopping: 'קניות' },
+    // הפרדה בין מה שאפשר לקנות למה שכבר נקנה — קטגוריה היא סיווג של הפרס, לא של הבעלות
+    tabStore: 'חנות', tabMyVouchers: 'השוברים שלי',
+    noVouchers: 'עדיין לא רכשת שוברים',
     voucher: {
       title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      // בכרטיס בחנות, במקום קוד השובר — הנהג שם לא עומד בקופה
+      owned: 'שובר שרכשת', showQR: 'הצג QR',
+      expired: 'פג תוקף', cancelled: 'בוטל',
       cancel: 'ביטול השובר',
       cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
       cancelSuccess: 'השובר בוטל והנקודות שוחררו',
@@ -225,9 +237,6 @@ const he = {
     disable: 'ביטול',
     driveModeFailed: 'לא הצלחנו לעדכן את מצב הנסיעה. נסו שוב.',
     selectDevice: 'בחירת מכשיר Bluetooth',
-    dataManagement: 'ניהול נתונים',
-    clearHistory: 'איפוס היסטוריית נסיעות',
-    clearHistoryConfirm: 'למחוק את כל היסטוריית הנסיעות המקומית?',
     version: 'גרסה',
   },
   stats: {
@@ -235,9 +244,13 @@ const he = {
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
+    // שורה אחת, בטוסט. מה נספר ומה שומר עליו — בלי לפתוח מסך בשביל משפט
+    streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
     },
   },
@@ -247,9 +260,13 @@ const he = {
     yes: 'כן', no: 'לא',
     done: 'סיום', points: 'נקודות', level: 'רמה', score: 'ציון', noData: 'אין נתונים',
     seeAll: 'ראה הכל',
-    historyCleared: 'ההיסטוריה נמחקה',
-    historyClearedDesc: 'היסטוריית הנסיעות הוסתרה',
+    tripsDeleted: 'הנסיעות נמחקו',
+    tripsDeletedDesc: 'הנסיעות שנבחרו הוסרו מההיסטוריה',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
+  },
+  fraud: {
+    declinedTitle: 'הנסיעה לא נספרה',
+    declinedMessage: 'הנסיעה זוהתה כנסיעה בתחבורה ציבורית ולכן לא קיבלה ניקוד. אם נהגת ברכב, הנסיעה הבאה תיספר — הבדיקה רצה מחדש בכל נסיעה.',
   },
   deviceGate: {
     regionTitle: 'לא זמין באזור שלך',

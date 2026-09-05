@@ -14,17 +14,16 @@
  * - `authApi.me()` — GET /api/auth/me — refresh user details on startup
  * - `tripsApi.list()` — GET /api/trips — sync trips on login
  * - `tripsApi.save()` — POST /api/trips — persist a completed trip
- * - USE_REAL_SERVER=false: all calls intercepted in client.ts (mock)
- * - USE_REAL_SERVER=true: calls go to the real server
+ * Every call goes to the real server either way — USE_REAL_SERVER only chooses
+ * between the local one and the deployed one (constants/serverConfig.ts).
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { DrivingSDK, TripData } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, RawExportFailure, checkDeviceCapabilities } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
-import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
@@ -119,8 +118,8 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
-  exportRawRecording: () => Promise<string | { error: 'none-recorded' | 'sharing-unavailable' }>
-  clearTripHistory: () => Promise<void>
+  exportRawRecording: () => Promise<string | RawExportFailure>
+  deleteTrips: (tripIds: string[]) => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
   setBtDevice: (device: BluetoothTarget) => Promise<void>
@@ -173,12 +172,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Filtered trips based on lastClearedHistory
+  // Two hides, not deletes: the server has no way to remove a trip (CAR-307). The
+  // cutoff is what the old settings-wide reset left behind on devices that used it,
+  // and is kept so those trips do not reappear; new deletions are per trip.
   const filteredTrips = useMemo(() => {
-    if (!user?.lastClearedHistory) return recentTrips;
-    const cutoff = new Date(user.lastClearedHistory).getTime();
-    return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
-  }, [recentTrips, user?.lastClearedHistory]);
+    const cutoff = user?.lastClearedHistory ? new Date(user.lastClearedHistory).getTime() : null;
+    const deleted = new Set(user?.deletedTripIds ?? []);
+    if (cutoff === null && deleted.size === 0) return recentTrips;
+    return recentTrips.filter(trip =>
+      !deleted.has(trip.id) &&
+      (cutoff === null || new Date(trip.startTime).getTime() > cutoff)
+    );
+  }, [recentTrips, user?.lastClearedHistory, user?.deletedTripIds]);
 
   // TripValidationManager (30s-start/3min-end/fraud rules) is CARMA-specific business
   // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
@@ -310,7 +315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const earnedPoints         = Math.round(serverPointsRaw);
 
     const newTrip: Trip = savedTrip
-      ? { ...savedTrip, score: savedTrip.avgScore }
+      ? savedTrip
       : {
           id: finalState.sessionId,
           userId: user?.id || 'guest',
@@ -319,7 +324,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           distanceKm: finalState.distanceKm,
           durationSeconds: finalState.durationSeconds,
           avgScore: serverScore,
-          score: serverScore,
           points: earnedPoints,
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
@@ -336,6 +340,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           aiInsight: null,
           pointsCapped: false,
           pendingSync: true,
+          // Not server-only: the SDK measured these during the trip we just
+          // ended, and they are already in the payload queued for sync. Writing
+          // null would report a healthy sensor as unknown until the save lands.
+          accelAvailable: lastTripDataRef.current?.accelAvailable ?? null,
+          accelInitFailed: lastTripDataRef.current?.accelInitFailed ?? null,
         };
 
     const existingTripsJson = await AsyncStorage.getItem('carma_trips');
@@ -385,9 +394,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return finalState;
   }, [user, addToast, lang]);
 
-  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
+  // The SDK's onTripEnd is a synchronous callback, so the promise `processEndTrip`
+  // returns had nowhere to go and was dropped. `stopTrip` then resolved while the save
+  // and the score it waits for were still in flight, and every caller that awaited
+  // `endTrip` — the end-of-trip spinner among them — carried on without a score
+  // (CAR-301). Holding it here is what gives `endTrip` something to wait on.
+  const endInFlightRef = useRef<Promise<TripState | null> | null>(null);
+  const handleTripEnded = useCallback(() => {
+    endInFlightRef.current = processEndTrip();
+  }, [processEndTrip]);
+
+  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: handleTripEnded });
   useScoringEvents(sdk, setTripState);
-  useFraudBinding(sdk, user, setTripState);
+  useFraudBinding(sdk, user, setTripState, addToast, lang);
   useRegionBinding(sdk, setTripState, addToast, lang);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
@@ -396,7 +415,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const gen = sessionRef.current;
       setRecentTrips(prev => {
         const updated = prev.map(t =>
-          t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
+          t.id === localId ? serverTrip : t
         );
         AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
         return updated;
@@ -505,7 +524,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const endTrip = useCallback(async () => {
+    // `stopTrip` fires onTripEnd before it resolves, so the ref is populated by the
+    // time this reads it. Swallowed on purpose: processEndTrip already reports every
+    // failure it knows about, and an unexpected throw must still let the caller take
+    // its spinner down rather than leaving it up forever.
     await sdk.stopTrip();
+    try {
+      await endInFlightRef.current;
+    } catch (e) {
+      console.error('[AppContext] End-of-trip processing failed', e);
+    } finally {
+      endInFlightRef.current = null;
+    }
     return tripRef.current;
   }, [sdk]);
 
@@ -588,23 +618,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
   const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
 
-  const clearTripHistory = useCallback(async () => {
+  const deleteTrips = useCallback(async (tripIds: string[]) => {
+    if (tripIds.length === 0) return;
     try {
-      const now = new Date().toISOString();
       if (user) {
-        const updatedUser = { ...user, lastClearedHistory: now };
+        // Union rather than append: the same trip can be selected again after a
+        // failed write, and a duplicate id would silently grow the stored list.
+        const merged = Array.from(new Set([...(user.deletedTripIds ?? []), ...tripIds]));
+        const updatedUser = { ...user, deletedTripIds: merged };
         setUserState(updatedUser);
         await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
       }
 
       const tr = lang === 'HE' ? he : en;
       addToast({
-        title: tr.common.historyCleared,
-        message: tr.common.historyClearedDesc,
+        title: tr.common.tripsDeleted,
+        message: tr.common.tripsDeletedDesc,
         type: 'success'
       });
     } catch (e) {
-      console.error('Failed to clear history', e);
+      console.error('Failed to delete trips', e);
     }
   }, [lang, addToast, user]);
 
@@ -618,7 +651,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
       startRawRecording, stopRawRecording, exportRawRecording,
-      clearTripHistory,
+      deleteTrips,
       sdk,
       btDevice, setBtDevice,
       userLevelState,

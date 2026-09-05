@@ -6,17 +6,22 @@
   padding: var(--space-xl);
 }
 
+.page {
+  padding: var(--space-xxl);
+}
+
 .spinner {
   width: 28px;
   height: 28px;
   border: 3px solid var(--color-border);
   border-inline-start-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  border-radius: var(--radius-full);
+  animation: carma-spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.skeleton {
+  display: inline-block;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-muted);
+  animation: carma-shimmer 1.4s ease-in-out infinite;
 }

@@ -1,0 +1,46 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-eyebrow);
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-xs);
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.crumb a {
+  color: inherit;
+}
+
+.crumb:last-child {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-dense);
+}
+
+.subtitle {
+  margin-top: var(--space-xs);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}

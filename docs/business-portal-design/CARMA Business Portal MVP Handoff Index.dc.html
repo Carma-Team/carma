@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200..800&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #F9FAFC; font-family: 'Assistant', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #4F46E5; text-decoration: none; }
+  a:hover { color: #4338CA; text-decoration: underline; }
+</style>
+</helmet>
+
+<div style="width: 960px; margin: 0 auto; padding: 56px 48px 100px; background: #F9FAFC; color: #0F172A; box-sizing: border-box">
+
+  <div style="margin-bottom: 36px">
+    <div style="display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px; background: #EEEDFB; border-radius: 999px; margin-bottom: 18px">
+      <span style="font-size: 12px; font-weight: 800; color: #4F46E5; letter-spacing: .04em">DEV HANDOFF</span>
+    </div>
+    <h1 style="margin: 0 0 10px; font-size: 34px; font-weight: 800; letter-spacing: -.02em">CARMA Business Portal — MVP Handoff Index</h1>
+    <p style="margin: 0; max-width: 680px; font-size: 15px; line-height: 1.6; color: #374151">The six canonical pages that make up the CARMA Business Web Portal MVP. This index exists only to make implementation scope unambiguous — it does not introduce new screens or product decisions.</p>
+  </div>
+
+  <div style="padding: 18px 22px; background: #FFF7ED; border: 1px solid #FDE0B0; border-radius: 16px; margin-bottom: 36px; display: flex; gap: 14px; align-items: flex-start">
+    <span style="width: 8px; height: 8px; border-radius: 999px; background: #EA580C; margin-top: 7px; flex-shrink: 0"></span>
+    <div style="font-size: 14px; line-height: 1.6; color: #7C2D12">
+      <b>Pages marked (SUPERSEDED) are archived reference only.</b> They must not be used for implementation — build only from the six canonical pages below.
+    </div>
+  </div>
+
+  <sc-for list="{{ pages }}" as="p" hint-placeholder-count="6">
+    <div style="background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 20px; padding: 26px 28px; margin-bottom: 14px; display: flex; gap: 22px; align-items: flex-start">
+      <div style="font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 700; color: #6366F1; letter-spacing: .06em; padding-top: 3px; flex-shrink: 0; width: 24px">{{ p.num }}</div>
+      <div style="flex: 1">
+        <div style="font-size: 18px; font-weight: 800; margin-bottom: 6px"><a href="{{ p.href }}">{{ p.title }}</a></div>
+        <div style="font-size: 14px; line-height: 1.6; color: #374151">{{ p.owns }}</div>
+        <sc-if value="{{ p.note }}">
+          <div style="margin-top: 10px; font-size: 13px; line-height: 1.5; color: #8A94A6">{{ p.note }}</div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-for>
+
+  <div style="display: flex; align-items: center; gap: 12px; margin: 40px 0 18px">
+    <span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1; letter-spacing: .1em">confirmed</span>
+    <span style="flex: 1; height: 1px; background: #E3E7EF"></span>
+  </div>
+
+  <div style="background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 20px; padding: 26px 28px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; gap: 12px; align-items: flex-start">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #84CC16; margin-top: 7px; flex-shrink: 0"></span>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #374151"><b>Login</b> is part of <b>CARMA Auth &amp; Onboarding</b> — not a separate page.</div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: flex-start">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #84CC16; margin-top: 7px; flex-shrink: 0"></span>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #374151"><b>Voucher lookup and redemption</b> are part of <b>CARMA Voucher Redemption</b> — not a separate page.</div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; margin: 40px 0 18px">
+    <span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1; letter-spacing: .1em">implementation notes</span>
+    <span style="flex: 1; height: 1px; background: #E3E7EF"></span>
+  </div>
+
+  <div style="background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 20px; padding: 26px 28px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; gap: 12px; align-items: flex-start">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #F59E0B; margin-top: 7px; flex-shrink: 0"></span>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #374151">Branch persistence / branch management requires new backend/API work.</div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: flex-start">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #F59E0B; margin-top: 7px; flex-shrink: 0"></span>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #374151">Branch-specific reward availability requires new backend work.</div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: flex-start">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #F59E0B; margin-top: 7px; flex-shrink: 0"></span>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #374151">Password change is not yet defined and is not implementation-ready.</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #E3E7EF; font-size: 12.5px; color: #8A94A6">
+    Superseded reference files (not implementation scope): CARMA Business Web Style Guide (SUPERSEDED), CARMA Registration &amp; Onboarding (SUPERSEDED).
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const pages = [
+      { num: '01', title: 'CARMA Business Web Style Guide', href: 'CARMA Business Web Style Guide.dc.html', owns: 'The design system: brand assets, typography, color, components, and RTL/Hebrew UI patterns shared across the portal.' },
+      { num: '02', title: 'CARMA Auth & Onboarding', href: 'CARMA Auth & Onboarding.dc.html', owns: 'Login, business account registration, and first-time setup — the full entry flow into the portal.', note: 'Login lives here, not on a separate page.' },
+      { num: '03', title: 'CARMA Rewards Management', href: 'CARMA Rewards Management.dc.html', owns: 'Creating, editing, and managing the rewards/offers a business makes available to CARMA members.' },
+      { num: '04', title: 'CARMA Voucher Redemption', href: 'CARMA Voucher Redemption.dc.html', owns: 'Looking up and redeeming member vouchers at the point of service.', note: 'Voucher lookup and redemption both live here, not on a separate page.' },
+      { num: '05', title: 'CARMA Business Profile & Branches', href: 'CARMA Business Profile & Branches.dc.html', owns: 'Managing business profile details and the list of branch locations.' },
+      { num: '06', title: 'CARMA Account Settings', href: 'CARMA Account Settings.dc.html', owns: 'Personal account details, read-only login email/phone, password-change entry point, logout, and account-level save/error states.' },
+    ];
+    return { pages };
+  }
+}
+
+</script>
+</body>
+</html>

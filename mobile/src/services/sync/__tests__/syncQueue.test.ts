@@ -60,6 +60,8 @@ function makeServerTrip(localTripId: string): Trip {
     startLocation: null,
     endLocation: null,
     aiInsight: null,
+    accelAvailable: null,
+    accelInitFailed: null,
     pointsCapped: false,
   };
 }
@@ -361,6 +363,39 @@ describe('retry budget and backoff', () => {
     // The next pass is the one that drops it, without another attempt
     await SyncManager.flushQueue();
     expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
+    expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+});
+
+// ─── Request timeout ──────────────────────────────────────────────────────────
+
+describe('request timeout (408)', () => {
+  let clock = 0;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-09-05T09:00:00.000Z');
+    jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // 408 is the one 4xx that must not be permanent: the request never reached an
+  // answer, so the trip is still unsent. Extending PERMANENT_FAILURE_STATUSES with
+  // it would delete a completed trip instead of sending it on the next attempt.
+  test('a trip whose upload times out stays queued and is retried', async () => {
+    mockSave.mockRejectedValueOnce(new ApiError(408, 'Request timed out after 30s'));
+    await SyncManager.enqueue(makePayload('trip_timeout'));
+
+    await SyncManager.flushQueue();
+    expect(await SyncManager.getQueueLength()).toBe(1);
+
+    clock += BACKOFF_MS[0];
+    mockSave.mockResolvedValueOnce(makeServerTrip('trip_timeout'));
+    await SyncManager.flushQueue();
+
+    expect(mockSave).toHaveBeenCalledTimes(2);
     expect(await SyncManager.getQueueLength()).toBe(0);
   });
 });

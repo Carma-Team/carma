@@ -261,7 +261,12 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
-  it('fails closed — not open — when accelerometer registration itself throws', async () => {
+  // The two cases below are the ones CAR-320 was filed on: a gate that stays shut for
+  // the rest of a trip suppresses every motion event, and a trip with no events reads
+  // as flawless driving. Both must degrade to GPS-only detection and say so outward,
+  // which is a deliberate reversal of the fail-closed half of CAR-189.
+
+  it('degrades to GPS-only detection when accelerometer registration throws, and reports why', async () => {
     manager.stop();
     const sensorsModule = jest.requireMock('expo-sensors');
     sensorsModule.Accelerometer.isAvailableAsync.mockRejectedValueOnce(new Error('boom'));
@@ -269,15 +274,30 @@ describe('SensorManager', () => {
     manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
     await manager.start();
 
-    // Same GPS-only spike the hardware-absent test above lets through — a
-    // registration failure must not be treated as "no hardware".
     sendFix({ t: 0, speed: 20 });
     sendFix({ t: 2000, speed: 14 });
 
-    expect(onEvent).not.toHaveBeenCalled();
-    // Hardware present, registration threw — the outward flag must say so, not "no hardware" (CAR-189).
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    // Hardware present, registration threw — the outward flag must say so, not "no
+    // hardware" (CAR-189). It is what marks the trip degraded now that the event fires.
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  it('degrades to GPS-only detection when a live subscription goes quiet mid-trip', () => {
+    feedAccelFor(10); // subscription established and delivering
+    jest.advanceTimersByTime(6000); // > SENSOR_STALE_MS with no sample: the sensor died
+
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 14 });
+
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    // Nothing threw and the hardware exists, so neither flag explains this one —
+    // the fraction is what shows the trip ran mostly blind.
+    expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: false });
+    expect(lastUpdate.accelCoverage).toBeGreaterThan(0);
+    expect(lastUpdate.accelCoverage).toBeLessThan(1);
   });
 
   // ── Accelerometer coverage over the window ─────────────────────────────────
@@ -400,6 +420,73 @@ describe('SensorManager', () => {
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
       expect(lastUpdate.lateralAccelG).toBeNull();
     }
+  });
+
+  // The four cases above apply their force perpendicular to gravity by construction,
+  // so the vertical component is ~0 in every one of them and the projection could be
+  // deleted without a single failure. This is the case that needs it: a force entirely
+  // along gravity leaves no horizontal component, so the IMU must not cross-confirm
+  // the GPS brake. Without the projection the raw magnitude (~0.45 g = 4.4 m/s²)
+  // clears IMU_CONFIRM_MS2 and the event fires.
+  it('does not cross-confirm a force that is purely vertical', async () => {
+    manager.stop();
+    onEvent.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    const gravity = { x: 0, y: 0, z: 1 };
+    settleGravity(gravity);
+    sendFix({ t: 0, speed: 20 });
+    mockAccelHandler?.(add(gravity, { x: 0, y: 0, z: 0.5 })); // straight down the gravity axis
+    sendFix({ t: 2000, speed: 14 });                          // −3.0 m/s², a real GPS brake
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  // ── Raw sample taps and GPS metadata passthrough ───────────────────────────
+
+  // The tap exists so RawSampleRecorder doesn't open a second Accelerometer
+  // subscription. It must carry the sample *before* gravity removal — the recorder's
+  // whole purpose is the unprocessed stream.
+  it('offers every accelerometer sample to onAccelSample, ungravity-removed', async () => {
+    const onAccelSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, undefined, onAccelSample);
+    await manager.start();
+
+    mockAccelHandler?.({ x: 0.1, y: 0.2, z: 1.0 });
+    mockAccelHandler?.({ x: 0.3, y: 0.4, z: 0.9 });
+
+    expect(onAccelSample).toHaveBeenCalledTimes(2);
+    expect(onAccelSample).toHaveBeenNthCalledWith(1, { x: 0.1, y: 0.2, z: 1.0 });
+    expect(onAccelSample).toHaveBeenNthCalledWith(2, { x: 0.3, y: 0.4, z: 0.9 });
+  });
+
+  it('offers every gyroscope sample to onGyroSample', async () => {
+    const onGyroSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, onGyroSample);
+    await manager.start();
+
+    mockGyroHandler?.({ x: 0.01, y: 0.02, z: 0.03 });
+
+    expect(onGyroSample).toHaveBeenCalledWith({ x: 0.01, y: 0.02, z: 0.03 });
+  });
+
+  // Horizontal accuracy is what the host uses to weigh a fix. `undefined` and a real
+  // 0 are different claims, so the null coalesce has to survive: expo reports null
+  // when accuracy is unknown, and that must not arrive as a confident 0 metres.
+  it('passes GPS accuracy through, and reports unknown accuracy as undefined', () => {
+    sendFix({ t: 0, speed: 20 });
+    expect(onUpdate.mock.calls[0][0].accuracy).toBe(5);
+
+    const noAccuracy = fix({ t: 2000, speed: 20 });
+    noAccuracy.coords.accuracy = null as any;
+    mockLocationHandler?.(noAccuracy);
+
+    const last = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(last.accuracy).toBeUndefined();
+    expect('accuracy' in last).toBe(true);
   });
 
   // ── GPS hygiene ────────────────────────────────────────────────────────────

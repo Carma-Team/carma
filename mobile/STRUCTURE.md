@@ -156,10 +156,12 @@ documented in `mobile/CLAUDE.md`.
 | `BatteryOptimizationPrompt.ts` | May | CARMA's nudge asking the driver to exempt the app from Android battery optimization (#17). Wraps the generic platform check in `driving-sdk/PowerManagement` and decides when to ask, what to say, and that it is asked only once. |
 | `rewardStock.ts` | Shaun | The reward-stock rules the marketplace uses. Formats the "left out of allocated" line, parses the stock field where blank means no cap, and decides what counts as sold out — for the card that disables it and the list that sorts it down. |
 | `FraudDetector.ts` | Dan | Sliding-window classifier that decides whether a session is private car travel. Buffers 60 samples of speed, lateral acceleration and yaw rate, scores three weighted signals against a 0.70 threshold, and reports the transport mode plus raw telemetry. |
+| `fraudPolicy.ts` | Dan | The Rule 3 decision: whether an evaluation is enough for the device to decline a journey on its own, and the report-once latch that keeps one journey from being classified twice. Holds no timing — the validator owns the clock and asks this for the verdict. |
 | `transportMode.ts` | Dan | The transport modes `FraudDetector` classifies a session into. Lives in CARMA rather than in `driving-sdk` because "was this a train" is this product's question, not a sensor library's. |
-| `weeklyTrend.ts` | May | Week-over-week driving trend from the trips the client already holds. Averages the scored trips of the last seven days against the seven before them and reports the direction between them; rolling windows rather than calendar weeks, which need a first day that differs by locale. |
+| `weeklyTrend.ts` | May | The last seven days of driving scores and the change against the seven before them, from the trips the client already holds. A rolling window rather than a calendar week, which needs a first day that differs by locale and would make the whole strip jump on the day it rolls over. |
 | `tripEvents.ts` | May | Adapts the server's trip-event timeline into the SDK's `DrivingEvent` shape. Lives here rather than in the map component because the mismatch is in the data, not in the rendering. |
 | `tripSummary.ts` | May | One shape for the end-of-trip summary, built either from the device's own trip data or from a trip the server returned. Both summary surfaces render this shape, so neither can show a field the other does not. |
+| `cityLabel.ts` | May | City display label — the one place a settlement becomes text. A city is a reference row carrying a name per language, so a screen that reads it through here re-renders the name when the language changes instead of showing whatever string the server stored. |
 | `regionCheck.ts` | May | Israel-only region check (team decision). Tests a fix the SDK already holds against an offline bounding box — no network, no permission request of its own, and no dependency on a geocoder's answer. |
 | `telemetrySigning.ts` | Shared | Signs the RFC-001 telemetry digest: canonical JSON over a hand-written SHA-256 and HMAC-SHA256 (FIPS 180-4 / FIPS 198-1). The primitive is hand-written because the app has no crypto dependency and cannot get one — expo-crypto ships no HMAC, Hermes exposes neither `crypto.subtle` nor `node:crypto`, a native module would break Expo Go, and the single caller signs synchronously inside the end-trip path. |
 | `driving-sdk/` | May | **Sensor-wrapper SDK** — its files are documented in its own README, deliberately not here |
@@ -228,7 +230,7 @@ One file per backend resource.
 
 | File | Backend route group |
 |---|---|
-| `client.ts` | Native `fetch` wrapper — attaches auth token, handles HTTP errors, switches between mock and real server via `USE_REAL_SERVER` flag in `constants/serverConfig.ts` |
+| `client.ts` | Native `fetch` wrapper — attaches auth token, handles HTTP errors, resolves the server host via the `USE_REAL_SERVER` flag in `constants/serverConfig.ts` |
 | `auth.api.ts` | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
 | `trips.api.ts` | `GET /api/trips`, `POST /api/trips` |
 | `fraud.api.ts` | `POST /api/trips/invalid` |

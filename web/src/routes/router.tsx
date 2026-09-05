@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
 import { RedemptionPage } from '@/pages/RedemptionPage';
+import { RedemptionHistoryPage } from '@/pages/RedemptionHistoryPage';
 import { RewardsPage } from '@/pages/RewardsPage';
 import { PermissionsPage } from '@/pages/PermissionsPage';
 import { InvitationsPage } from '@/pages/InvitationsPage';
@@ -81,6 +82,13 @@ export const routes: RouteObject[] = [
               { path: '/permissions', element: <PermissionsPage /> },
               { path: '/permissions/invitations', element: <InvitationsPage /> },
             ],
+          },
+          {
+            // CAR-80: OWNER/MANAGER only, same as AppShell's nav link — a
+            // CASHIER must be refused here even via a direct URL, not just
+            // have the nav item hidden.
+            element: <RequireBusinessRole allow={['OWNER', 'MANAGER']} />,
+            children: [{ path: '/redemption-history', element: <RedemptionHistoryPage /> }],
           },
           {
             element: <RequireAdmin />,
