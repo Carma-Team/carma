@@ -48,6 +48,8 @@ const mockSensorStop = jest.fn();
 const mockSensorResetCoverage = jest.fn();
 const mockPhoneStart = jest.fn();
 const mockPhoneStop = jest.fn();
+const mockPhonePushGyro = jest.fn();
+const mockPhonePushAccel = jest.fn();
 const mockAutoEnable = jest.fn();
 const mockRawStart = jest.fn();
 const mockRawStop = jest.fn(async () => undefined);
@@ -95,7 +97,8 @@ jest.mock('@/lib/driving-sdk/sensors/PhoneUsageManager', () => ({
     start() { return mockPhoneStart(); }
     stop() { return mockPhoneStop(); }
     updateSpeed() {}
-    pushGyroSample() {}
+    pushGyroSample(...args: any[]) { return mockPhonePushGyro(...args); }
+    pushAccelSample(...args: any[]) { return mockPhonePushAccel(...args); }
   },
 }));
 
@@ -902,6 +905,18 @@ describe('DrivingSDK', () => {
 
     expect(mockRawPushAccel).toHaveBeenCalledWith(1, 2, 3);
     expect(mockRawPushGyro).toHaveBeenCalledWith(4, 5, 6);
+  });
+
+  it('feeds the phone manager from the same subscriptions, opening none of its own', async () => {
+    await sdk.startTrip();
+
+    mockAccelPassthrough?.({ x: 1, y: 2, z: 3 });
+    mockGyroPassthrough?.({ x: 4, y: 5, z: 6 });
+
+    // One physical accelerometer, one listener: PhoneUsageManager reads it through the
+    // tap rather than subscribing beside SensorManager (CAR-325).
+    expect(mockPhonePushAccel).toHaveBeenCalledWith(1, 2, 3);
+    expect(mockPhonePushGyro).toHaveBeenCalledWith(4, 5, 6);
   });
 
   it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {

@@ -6,7 +6,7 @@
  * running a navigation app in the background.
  *
  * @description
- * IMU-based active interaction detector — v1.9.
+ * IMU-based active interaction detector — v1.10.
  * Detects active phone handling via IMU accelerometer-variance analysis and
  * a glass-tap transient proxy. Replaces a v1.x AppState-only approach that
  * caused false positives when the host app ran in the background behind
@@ -21,8 +21,12 @@
  * a gate meant a driver holding the phone while looking at the host app's own screen
  * measured as zero. The IMU answers the only question this class asks.
  *
- * Gyroscope samples can be pushed in via pushGyroSample(); the resulting rotational
- * features are exposed through getMotionFeatures() alongside the acceleration variance.
+ * v1.10: the class subscribes to nothing. Both IMU streams arrive through
+ * pushAccelSample() and pushGyroSample(), fed by whichever subscription the host already
+ * runs for motion-event detection — one physical sensor, one listener (CAR-325).
+ *
+ * The rotational features are exposed through getMotionFeatures() alongside the
+ * acceleration variance.
  * A hand stabilises orientation, a phone loose on a seat tumbles — CAR-174 uses that to
  * veto the acceleration-only hand-held read when rotation says otherwise.
  *
@@ -44,7 +48,6 @@
  * not app-specific scoring weights. They require empirical drive-test validation
  * before production launch.
  */
-import { Accelerometer } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 
 // ── IMU calibration constants ─────────────────────────────────────────────────
@@ -145,7 +148,6 @@ export class PhoneUsageManager {
   private isActive = false;
   private onEvent: (event: DrivingEvent) => void;
   private onInteractionData: (data: InteractionData) => void;
-  private accelSub: { remove: () => void } | null = null;
 
   private magnitudeWindow: number[] = [];
   // Angular-speed window, same span as magnitudeWindow so both features describe the
@@ -194,21 +196,16 @@ export class PhoneUsageManager {
     this.rotationWindow = [];
     this.speedKmh = 0;
 
-    Accelerometer.setUpdateInterval(100); // 10 Hz
-    this.accelSub = Accelerometer.addListener(({ x, y, z }) => this.handleAccel(x, y, z));
-
     this.startHandheldTimer();
 
-    console.log('[SDK-Phone] v1.9 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
+    console.log('[SDK-Phone] v1.10 started. variance_threshold=', HANDHELD_VARIANCE_THRESHOLD);
   }
 
   public stop(): void {
     this.isActive = false;
-    this.accelSub?.remove();
-    this.accelSub = null;
     this.stopHandheldTimer();
     console.log(
-      '[SDK-Phone] v1.9 stopped.',
+      '[SDK-Phone] v1.10 stopped.',
       `touchEpochs=${this.touchEpochs}`,
       `screenInteractionSeconds=${this.screenInteractionSeconds}`,
     );
@@ -309,7 +306,19 @@ export class PhoneUsageManager {
     };
   }
 
-  private handleAccel(x: number, y: number, z: number): void {
+  /**
+   * Feed one accelerometer sample (m/s^2 per axis, gravity still in it — the resting
+   * ~1 g baseline is what the tap threshold is set against). Expected at 10 Hz,
+   * the same cadence as the gyroscope so both windows cover the same second.
+   *
+   * Push-based for the same reason as pushGyroSample: the host already has the
+   * accelerometer subscribed for motion-event detection, and a second listener on one
+   * physical sensor is battery spent for nothing (CAR-325). No staleness handling to
+   * match the gyroscope's — that guards a host feeding from a source that can go quiet
+   * independently, whereas this stream starts and stops with the one the host's own
+   * detection depends on. Samples arriving outside a trip fall on the isActive guard.
+   */
+  public pushAccelSample(x: number, y: number, z: number): void {
     if (!this.isActive) return;
     const mag = Math.sqrt(x * x + y * y + z * z);
 

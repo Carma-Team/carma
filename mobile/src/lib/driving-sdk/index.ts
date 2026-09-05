@@ -139,13 +139,17 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
-      // Share SensorManager's gyroscope rather than letting PhoneUsageManager (and,
-      // during a staged session, rawRecorder) open a second subscription to the same sensor.
+      // Share SensorManager's subscriptions rather than letting PhoneUsageManager (and,
+      // during a staged session, rawRecorder) open a second listener on the same physical
+      // sensor. Both IMU streams are fanned out from here.
       ({ x, y, z }) => {
         this.phoneManager.pushGyroSample(x, y, z);
         this.rawRecorder.pushGyroSample(x, y, z);
       },
-      ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
+      ({ x, y, z }) => {
+        this.phoneManager.pushAccelSample(x, y, z);
+        this.rawRecorder.pushAccelSample(x, y, z);
+      },
     );
 
     this.phoneManager = new PhoneUsageManager(
