@@ -253,10 +253,6 @@ export interface TripData {
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
 }
 
-export type TripUpdateCallback = (data: Partial<TripData>) => void;
-export type EventCallback = (event: DrivingEvent) => void;
-export type StateChangeCallback = (isActive: boolean) => void;
-
 // ─── Fraud Detection Event ────────────────────────────────────────────────────
 // Fired by DrivingSDK.onFraudDetected when the configured TripValidator flags a
 // session as suspicious. Carries the classification and the raw telemetry behind

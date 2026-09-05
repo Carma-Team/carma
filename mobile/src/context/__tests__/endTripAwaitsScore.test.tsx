@@ -37,6 +37,9 @@ jest.mock('@/lib/driving-sdk', () => {
   const actual = jest.requireActual('@/lib/driving-sdk/types')
   return {
     ...actual,
+    // The device probe now comes from the entry point, so the mocked package has to
+    // supply it — mocking the deep DeviceCapabilities path would defeat CAR-334.
+    checkDeviceCapabilities: jest.fn().mockResolvedValue({ hasAccelerometer: true, hasGyroscope: true, osSupported: true }),
     DrivingSDK: class {
       onTripStart?: (id: string) => void
       onUpdate?: (data: unknown) => void

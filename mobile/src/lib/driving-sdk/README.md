@@ -431,11 +431,13 @@ Smaller pieces a host reaches for once it does anything beyond consuming events.
 | `SENSOR_STALE_MS` | entry point | **5000.** How long a sensor may go without delivering a sample before it stops counting as available. This is the cutoff behind `accelAvailable` / `gyroAvailable` on every sample, so a validator reasoning about sensor honesty needs the same number the library used |
 | `ValidationState` | entry point | The trip state machine's states, for a host that mirrors them in its own UI |
 | `RawExportFailure` | entry point | `{ error: 'none-recorded' }` or `{ error: 'sharing-unavailable' }` — see *Calibration recording* |
-| `checkDeviceCapabilities()` | `./DeviceCapabilities` | One-shot startup probe: which motion sensors the device exposes, and whether its OS meets the floor in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports and stops there — whether a missing sensor should block the user is the host's call |
-| `isBackgroundThrottlingRiskPlatform()`, `openAppSystemSettings()` | `./PowerManagement` | A platform check and a settings deep link, for building your own battery-optimisation nudge |
+| `checkDeviceCapabilities()` | entry point | One-shot startup probe: which motion sensors the device exposes, and whether its OS meets the floor in [`PLATFORM-CAPABILITIES.md`](./PLATFORM-CAPABILITIES.md). Reports and stops there — whether a missing sensor should block the user is the host's call |
+| `isBackgroundThrottlingRiskPlatform()`, `openAppSystemSettings()` | entry point | A platform check and a settings deep link, for building your own battery-optimisation nudge |
+| `DEFAULT_MOTION_THRESHOLDS` | entry point | The shipped brake / acceleration / turn thresholds. Spread it and override the one field you mean, rather than restating all of them, when passing `SDKConfig.motionThresholds` |
 
-The last two rows are reached by path rather than from the entry point, which is a wrinkle
-of the current export surface rather than a deliberate distinction.
+**Everything above comes from the entry point.** Importing any of it by a deeper path still
+resolves today, but it is not supported and will break as soon as this folder is published
+with an `exports` map.
 
 **Sensor availability is three-valued, not two.** `accelAvailable: false` on its own does not
 say why: the hardware may be absent, the subscription may have failed to register, or samples
