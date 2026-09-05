@@ -48,11 +48,14 @@
  *
  * @remarks No server calls — local logic only. Fires callbacks to DrivingSDK.
  */
+import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { DrivingEventType, DrivingEvent, MotionThresholds, SensorUpdate, SENSOR_STALE_MS } from '@/lib/driving-sdk/types';
 // Importing this registers the background-location TaskManager task at module load.
-import { DRIVING_SDK_LOCATION_TASK, setLocationHandler } from '@/lib/driving-sdk/sensors/locationTask';
+import {
+  DRIVING_SDK_LOCATION_TASK, setLocationHandler, setLocationErrorHandler,
+} from '@/lib/driving-sdk/sensors/locationTask';
 import {
   Horizontal2D, HorizontalBasis, VehicleFrameEstimator, horizontalBasis,
   projectHorizontal, yawRateAboutGravity,
@@ -130,6 +133,36 @@ const MS2_PER_G = 9.81;
 // not as a frozen last value — that's the exact shape CAR-162 is built to distrust.
 // Defined in types.ts so a TripValidator can apply the same cutoff to GPS speed.
 
+// One definition, used by start() and by the foreground retry behind it — two copies
+// of a config this long drift, and the retry would then ask for a different stream
+// than the one that failed.
+//
+// #17: cloud data shows some devices deliver these ticks at a ~6s median with >15s
+// gaps instead of the requested 2s — timeInterval/distanceInterval are hints, not
+// guarantees; Android's FusedLocationProviderClient can defer updates under
+// battery-saver/Doze or aggressive OEM power management, and a foreground service
+// raises priority but doesn't fully override it.
+// Tried raising accuracy to BestForNavigation to push cadence further, but on Android
+// expo-location's mapAccuracyToPriority maps both High and BestForNavigation to the
+// same PRIORITY_HIGH_ACCURACY, and the caller-supplied timeInterval/distanceInterval
+// still override the accuracy-derived defaults — so it's a no-op there and only costs
+// battery on iOS, where it is a distinct, higher-power tier. Staying on High; #17
+// remains open, not fixed by this tier.
+const LOCATION_UPDATE_OPTIONS: Location.LocationTaskOptions = {
+  accuracy: Location.Accuracy.High,
+  timeInterval: 2000,
+  distanceInterval: 5,
+  // iOS-only — Android ignores it. Without it CoreLocation assumes
+  // CLActivityTypeOther and tunes GPS for an unknown activity.
+  activityType: Location.ActivityType.AutomotiveNavigation,
+  pausesUpdatesAutomatically: false,
+  showsBackgroundLocationIndicator: true,
+  foregroundService: {
+    notificationTitle: 'Trip in progress',
+    notificationBody: 'Tracking your route and distance',
+  },
+};
+
 export class SensorManager {
   private accelSub: any = null;
   private gyroSub: any = null;
@@ -161,6 +194,12 @@ export class SensorManager {
   // tell the two apart; it no longer feeds the cross-confirm gate, which asks only
   // whether samples are arriving (see imuConfirms below, CAR-320).
   private accelInitFailed = false;
+  // True when the location stream could not be started, or the platform stopped it
+  // afterwards. The permission flag above cannot carry this: permission can be granted
+  // and the start still refused (CAR-326).
+  private locationStartFailed = false;
+  // Live only while a failed start is waiting for the app to reach the foreground.
+  private foregroundRetry: { remove: () => void } | null = null;
   private thresholds: MotionThresholds;
 
   // EMA gravity state — initialised to [0, 0, 1] (phone face-up assumption)
@@ -245,6 +284,7 @@ export class SensorManager {
     this.lastGyroSampleAtMs  = 0;
     this.resetSensorCoverage();
     this.backgroundLocationAvailable = false;
+    this.locationStartFailed = false;
     this.motionPrevMs = 0;
     this.motionPrevSpeedMs = 0;
     this.motionPrevHeadingDeg = null;
@@ -283,6 +323,10 @@ export class SensorManager {
         // through the same accumulation path. High accuracy = GPS only, avoiding
         // network/cell jumps that inflate distance when stationary (D-SDK-3).
         setLocationHandler((loc) => this.handleLocation(loc));
+        // A foreground service the platform kills mid-trip reports itself through the
+        // task, not through the call that started it — without this the stream simply
+        // went quiet, which is indistinguishable from a car standing still.
+        setLocationErrorHandler(() => { this.locationStartFailed = true; });
         const alreadyStarted = await Location
           .hasStartedLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK)
           .catch(() => false);
@@ -296,31 +340,7 @@ export class SensorManager {
           if (!this.isRunning) setLocationHandler(null);
           return;
         }
-        // #17: cloud data shows some devices deliver these ticks at a ~6s median
-        // with >15s gaps instead of the requested 2s — timeInterval/distanceInterval
-        // are hints, not guarantees; Android's FusedLocationProviderClient can defer
-        // updates under battery-saver/Doze or aggressive OEM power management, and a
-        // foreground service raises priority but doesn't fully override it.
-        // Tried raising accuracy to BestForNavigation to push cadence further, but on
-        // Android expo-location's mapAccuracyToPriority maps both High and
-        // BestForNavigation to the same PRIORITY_HIGH_ACCURACY, and the caller-supplied
-        // timeInterval/distanceInterval still override the accuracy-derived defaults —
-        // so it's a no-op there and only costs battery on iOS, where it is a distinct,
-        // higher-power tier. Staying on High; #17 remains open, not fixed by this tier.
-        await Location.startLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK, {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 2000,
-          distanceInterval: 5,
-          // iOS-only — Android ignores it. Without it CoreLocation assumes
-          // CLActivityTypeOther and tunes GPS for an unknown activity.
-          activityType: Location.ActivityType.AutomotiveNavigation,
-          pausesUpdatesAutomatically: false,
-          showsBackgroundLocationIndicator: true,
-          foregroundService: {
-            notificationTitle: 'Trip in progress',
-            notificationBody: 'Tracking your route and distance',
-          },
-        });
+        await this.startLocationUpdates();
         if (run !== this.runId) {
           // Started after the fact. Undo it only when nothing newer is live: stop()
           // already ran and won't come back to clean this up, so we do it ourselves —
@@ -380,6 +400,60 @@ export class SensorManager {
     }
   }
 
+  /**
+   * Starts the location stream, recording whether it actually started. Android 12+
+   * refuses a foreground-service start from an app that is already in the background,
+   * which is precisely the state an automatically started trip begins in: the failure
+   * used to reach a console line and nothing else, so the trip ran with no location at
+   * all and reported itself as healthy (CAR-326).
+   *
+   * Its own try, for the same reason the accelerometer below has one: a location
+   * failure must not skip the IMU, and it must not be attributed to anything else.
+   */
+  private async startLocationUpdates(): Promise<void> {
+    try {
+      await Location.startLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK, LOCATION_UPDATE_OPTIONS);
+      this.locationStartFailed = false;
+    } catch (err) {
+      console.error('[SensorManager] Could not start location updates:', err);
+      this.locationStartFailed = true;
+      this.retryWhenForeground();
+    }
+  }
+
+  /**
+   * One more attempt when the app next reaches the foreground, where the platform rule
+   * that refused the first one no longer applies. Armed only after a failure, and
+   * removed as soon as it fires, so a trip that started cleanly subscribes to nothing.
+   *
+   * This is the library's only use of AppState, and it is worth saying why: phone-usage
+   * measurement deliberately gave it up (CAR-45), because foreground/background is not
+   * what it was actually measuring. Here it is — the condition being waited on is
+   * literally "the app is in the foreground".
+   */
+  private retryWhenForeground(): void {
+    if (this.foregroundRetry) return;
+    // The same generation guard every await in start() carries: a stop(), or a newer
+    // start(), retires this attempt rather than letting it resume into a stopped state.
+    const run = this.runId;
+    this.foregroundRetry = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      this.clearForegroundRetry();
+      if (run !== this.runId || !this.isRunning) return;
+      // No second retry behind this one: a failure that survives the foreground is not
+      // the platform rule this works around, and the flag already reports it.
+      void Location
+        .startLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK, LOCATION_UPDATE_OPTIONS)
+        .then(() => { if (run === this.runId) this.locationStartFailed = false; })
+        .catch((err) => console.error('[SensorManager] Location updates failed in the foreground too:', err));
+    });
+  }
+
+  private clearForegroundRetry(): void {
+    this.foregroundRetry?.remove();
+    this.foregroundRetry = null;
+  }
+
   public stop() {
     if (!this.isRunning) return;
     this.isRunning = false;
@@ -390,8 +464,10 @@ export class SensorManager {
       clearInterval(this.speedTicker);
       this.speedTicker = null;
     }
+    this.clearForegroundRetry();
     try {
       setLocationHandler(null);
+      setLocationErrorHandler(null);
       Location.hasStartedLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK)
         .then((started) => { if (started) return Location.stopLocationUpdatesAsync(DRIVING_SDK_LOCATION_TASK); })
         .catch(() => {});
@@ -467,6 +543,7 @@ export class SensorManager {
       accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
+      locationStartFailed: this.locationStartFailed,
       lat:          loc.coords.latitude,
       lng:          loc.coords.longitude,
       accuracy:     loc.coords.accuracy ?? undefined,
@@ -543,6 +620,7 @@ export class SensorManager {
       accelCoverage: this.accelCoverage(),
       accelInitFailed: this.accelInitFailed,
       backgroundLocationAvailable: this.backgroundLocationAvailable,
+      locationStartFailed: this.locationStartFailed,
     });
   }
 

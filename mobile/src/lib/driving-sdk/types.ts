@@ -229,6 +229,13 @@ export interface SensorUpdate {
   // automatic (background) tracking cannot run, distinct from it just not
   // having happened yet.
   backgroundLocationAvailable: boolean;
+  // Whether starting the location stream itself failed, or the platform stopped it
+  // afterwards. Distinct from the permission flag above, which answers only whether
+  // the user agreed: Android 12+ refuses a foreground-service start from an app that
+  // is already in the background, so a granted permission and a dead location stream
+  // are the normal case for an automatically started trip (CAR-326). Mirrors
+  // accelInitFailed, which answers the same question for the accelerometer.
+  locationStartFailed: boolean;
   lat?: number;
   lng?: number;
   accuracy?: number;

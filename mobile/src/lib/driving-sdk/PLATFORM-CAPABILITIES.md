@@ -100,6 +100,18 @@ what was asked for; neither the accuracy tier nor the interval settings
 override this. The only reliable lever is the user exempting the app from
 battery optimisation. See `PowerManagement.ts`.
 
+**Starting the location stream can be refused outright on Android 12 and above.**
+A foreground service may not be started by an app that is already in the background.
+This is not a corner case for a driving library: a trip started automatically, from a
+Bluetooth connection, begins in exactly that state, and the refusal arrives as a
+rejected promise rather than as a denied permission. Location permission can be fully
+granted and the stream still never start, so the two are reported as separate facts
+(`backgroundLocationAvailable` and `locationStartFailed` on every sensor update).
+The SDK makes one further attempt when the app next reaches the foreground, where the
+rule no longer applies; a host that needs the driver told about it reads the flag.
+The same flag covers a foreground service the platform kills later in the trip, which
+is reported through the background task rather than through the call that started it.
+
 **Bluetooth connection state is observable only as ACL connect/disconnect.**
 `react-native-bluetooth-classic` reports that *a* device attached or detached, never
 which profile it bound. Per-profile state (A2DP, hands-free) needs the Android profile
