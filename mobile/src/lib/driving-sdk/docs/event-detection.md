@@ -2,7 +2,7 @@ Current behaviour.
 
 # Event detection
 
-Part of [`driving-sdk`](../README.md) — how motion events and hand-held
+Part of [`driving-sdk`](../README.md) — how motion events and distraction
 detection are actually computed. The README's Sensor Event API section
 covers the consumer-facing `on()`/`off()` surface; this file is the
 mechanism behind it.
@@ -174,11 +174,12 @@ the forward direction is still unknown.
 
 Both the accelerometer and gyroscope subscriptions `SensorManager` already holds open are
 also offered, raw, to other consumers, so that a second reader of the same sensor does not
-have to power it twice: `PhoneUsageManager` and `RawSampleRecorder` (the latter only while a
-staged calibration session is active — see the README's "Calibration recording" section).
+have to power it twice: `PhoneUsageManager` (distraction detection, gyro only — see below)
+and `RawSampleRecorder` (both, only while a staged calibration session is active — see the
+README's "Calibration recording" section and CAR-31).
 
-`PhoneUsageManager` subscribes to nothing of its own: both of its streams arrive through
-these taps, so an ordinary trip holds exactly one listener per physical sensor.
+`PhoneUsageManager` subscribes to nothing of its own: its one stream arrives through these
+taps, so an ordinary trip holds exactly one listener per physical sensor.
 Neither tap affects motion-event detection above; both fire unconditionally
 at 10 Hz regardless of whether anything is currently listening. A tap fired outside a trip
 reaches a stopped `PhoneUsageManager` and is discarded there.
@@ -191,58 +192,44 @@ magnetometer subscription at all.
 
 ---
 
-## Hand-held detection — `PhoneUsageManager`
+## Distraction detection — `PhoneUsageManager`
 
-Answers one question: **is the phone in a hand, or fixed to the vehicle?**
-Touches delivered to other apps are not observable — see
-[`PLATFORM-CAPABILITIES.md`](../PLATFORM-CAPABILITIES.md) — so device motion
-is used as a proxy. One delta is emitted per second via `onInteractionData`
+Answers two questions, one second at a time: **was the driver working the screen,
+or merely moving the phone?** Touches delivered to other apps are not observable —
+see [`PLATFORM-CAPABILITIES.md`](../PLATFORM-CAPABILITIES.md) — so device motion is
+used as a proxy. One delta per counter is emitted per second via `onInteractionData`
 (see [trip-lifecycle.md](./trip-lifecycle.md) for the accounting), plus the
 `PHONE_USAGE` event.
 
-- **Variance window:** accelerometer magnitude over a rolling **10 samples at 10 Hz** (a 1-second window). Gyroscope samples, when the host pushes them in, share the same window.
-- **Hand-held threshold:** variance above **0.025 g²**. A phone on a vehicle mount sits at ~0.002–0.010 g² (road vibration only); a hand-held phone at ~0.030–0.150 g² (micro hand-movements).
-- **Rotation veto:** a phone loose on a seat also bounces
-  enough to trip the acceleration threshold, but it tumbles — a hand keeps the
-  phone's orientation stable, a loose phone doesn't. So a high-variance
-  reading only counts as hand-held when rotation variance over the same
-  window stays below **0.5 (rad/s)²**; at or above it, the acceleration spike
-  is read as a tumbling phone rather than a hand. If the host never calls
-  `pushGyroSample()`, the veto is skipped and the decision falls back to
-  acceleration alone.
-- **Glass-tap proxy:** a single sample above **1.8 g** total magnitude flags a touch-epoch transient, with a **1 500 ms** cooldown so one physical tap isn't counted several times across the 10 Hz stream. This fires regardless of foreground/background.
-- **Paired-peak tap signature:** reported as `gyroTapPairs` on the motion features, and
-  independent of everything above — it changes no decision the manager makes. A jolt
-  through the suspension drives mostly the vertical accelerometer axis; a finger on glass
-  produces a small *rotational* kick on both in-plane axes at once, because the hand's
-  grip resists it. A pair is both X and Y between **0.2 and 0.7 rad/s** on the same
-  sample, counted on the sample that enters the band rather than on every sample inside
-  it; a tap is two pairs within **400 ms**. The Z axis is excluded on purpose — in a flat
-  mounting it is the vehicle's own yaw, and including it would let a turn qualify.
-  The 10 Hz feed puts a floor of 100 ms under the repeat gap, so the tightest gaps the
-  method describes cannot be resolved at this sample rate.
-- **`PHONE_USAGE`** fires once per hand-held stretch, not once per second — it re-arms as soon as a single tick falls below the combined threshold, so one pickup can produce more than one event.
+Both counters read the gyroscope alone. The accelerometer is not an input to either:
+a single-sample force threshold cannot separate a finger on glass from a pothole,
+which is what the earlier touch-epoch proxy did.
+
+- **Variance window:** angular-speed magnitude over a rolling **10 samples at 10 Hz** (a 1-second window), pushed in by the host via `pushGyroSample()`. A host that never calls it reports zero on both counters, exactly like a device with no gyroscope.
+- **Paired-peak tap signature:** a jolt through the suspension rotates the phone either far more or far less than a finger does; a finger on glass produces a small *rotational* kick on both in-plane axes at once, because the hand's grip resists it. A pair is both X and Y between **0.2 and 0.7 rad/s** on the same sample, counted on the sample that enters the band rather than on every sample inside it; a tap is two pairs within **400 ms**. The Z axis is excluded on purpose — in a flat mounting it is the vehicle's own yaw, and including it would let a turn qualify. The 10 Hz feed puts a floor of 100 ms under the repeat gap, so the tightest gaps the method describes cannot be resolved at this sample rate.
+- **`screenInteractionSeconds`:** 1 for a second in which a tap signature completed. Repetition is the cadence — one tap is already two rotational kicks, and what separates typing from a single knock is that the signature repeats at all.
+- **`phoneMotionSeconds`:** 1 for a second with rotation variance at or above **0.5 (rad/s)²** and no tap signature in it. A phone that is mounted, pocketed or on a seat turns only with the vehicle; a phone being handled turns independently of it.
+- **The two are mutually exclusive, and screen interaction wins.** Typing necessarily moves the phone, so without the precedence a second of it would count twice, once against each baseline.
+- **`PHONE_USAGE`** fires once per distracted stretch, not once per second — it re-arms as soon as a single tick counts neither, so one pickup can produce more than one event.
 
 ```mermaid
 flowchart TD
-    A[Accel variance sample] --> B{accelVariance ><br/>0.025 g²?}
-    B -- no --> Z[Not hand-held]
-    B -- yes --> C{Gyro sample<br/>ever pushed?}
-    C -- no --> D[Hand-held<br/>accel-only fallback]
-    C -- yes --> E{rotationVariance <<br/>0.5 rad²/s²?}
-    E -- yes, low rotation --> D
-    E -- no, tumbling --> Z
-    D --> F[PHONE_USAGE + InteractionData tick]
-    Z --> G[InteractionData tick, no event]
+    A[1 s gyro window] --> B{Tap signature<br/>completed?}
+    B -- yes --> C[screenInteractionSeconds += 1]
+    B -- no --> D{rotationVariance >=<br/>0.5 rad²/s²?}
+    D -- yes --> E[phoneMotionSeconds += 1]
+    D -- no --> F[InteractionData tick, no event]
+    C --> G[PHONE_USAGE + InteractionData tick]
+    E --> G
 ```
 
-> **These constants are IMU calibration values, not tuned parameters.** They
-> were chosen from expected separation margins and **have never been
-> validated against real drive data** — the rotation threshold most of all,
-> since no drive-test data backs it yet. The glass-tap
-> proxy also cannot distinguish a finger tap from a sharp road bump. Treat
-> all of these as indicative until calibrated. The tap-signature band and repeat gap are
-> the patent's own worked example and carry the same caveat.
+> **These constants are IMU calibration values, not tuned parameters.** They were
+> chosen from expected separation margins and **have never been validated against
+> real drive data** (tracked as CAR-183). The rotation threshold in particular was
+> previously a ceiling vetoing an acceleration-based read and is now a floor in its
+> own right; the value carries over because the same labelled set fits both it and
+> the tap band. The tap-signature band and repeat gap are the patent's own worked
+> example and carry the same caveat. Treat all of them as indicative until calibrated.
 
 ---
 
@@ -261,7 +248,7 @@ check.
 
 After an event of a given type fires, the same type is suppressed for
 **500 ms** — **except `PHONE_USAGE`, which is exempt from the cooldown
-entirely** and is re-armed by its own hand-held stretch instead. Each type
+entirely** and is re-armed by its own distracted stretch instead. Each type
 has an independent cooldown window — a `SHARP_TURN`
 does not suppress a concurrent `HARD_BRAKE`.
 

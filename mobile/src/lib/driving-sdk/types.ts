@@ -242,8 +242,9 @@ export interface TripData {
   waypoints: RouteWaypoint[];      // GPS track — downsampled to 2s intervals of GPS-fix time while moving
   averageSpeed: number;
   maxSpeed: number;
-  touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds, no speed gate
+  screenInteractionSeconds: number; // v2.0 — seconds carrying a tap cadence, no speed gate
+  phoneMotionSeconds: number;       // v2.0 — seconds the phone was moved without one; the
+                                    // two are mutually exclusive
                                     // (per-second samples arrive via onInteractionData)
   accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
                              // why — see accelInitFailed

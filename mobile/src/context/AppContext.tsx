@@ -35,6 +35,7 @@ import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
 import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import { signTelemetryDigest } from '@/lib/telemetrySigning'
+import Constants from 'expo-constants'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
@@ -76,8 +77,8 @@ function buildTelemetryDigest(
     hardBrakes:               state.eventCounts.HARD_BRAKE,
     aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
     sharpTurns:               state.eventCounts.SHARP_TURN,
-    touchEpochs:              state.touchEpochs,
     screenInteractionSeconds: state.screenInteractionSeconds,
+    phoneMotionSeconds:       state.phoneMotionSeconds,
     startTime,
     endTime,
     timestamp:                Date.now(),
@@ -118,7 +119,7 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
-  exportRawRecording: () => Promise<string | RawExportFailure>
+  exportRawRecording: (filePath?: string) => Promise<string | RawExportFailure>
   deleteTrips: (tripIds: string[]) => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
@@ -128,6 +129,12 @@ interface AppContextValue {
 }
 
 type UserPatch = Partial<AppUser>
+
+// Stamped on a staged recording's header so an offline reader can tell which handset
+// produced a drive (CAR-212). The device *name* rather than a model string: the app has
+// no device-info dependency to add one, and this label only has to tell the handful of
+// phones that record calibration drives apart from each other.
+const DEVICE_MODEL = Constants.deviceName ?? 'unknown'
 
 const AppContext = createContext<AppContextValue | null>(null)
 
@@ -253,8 +260,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hardBrakes: finalState.eventCounts.HARD_BRAKE,
       aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
       sharpTurns: finalState.eventCounts.SHARP_TURN,
-      touchEpochs: finalState.touchEpochs,
       screenInteractionSeconds: finalState.screenInteractionSeconds,
+      phoneMotionSeconds: finalState.phoneMotionSeconds,
       penalties: 0,         // server computes — placeholder only
       accelAvailable: lastTripDataRef.current?.accelAvailable,
       accelInitFailed: lastTripDataRef.current?.accelInitFailed,
@@ -328,7 +335,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          touchEpochs: finalState.touchEpochs,
+          // Still required by the trip schema, and nothing measures it any more —
+          // the column goes with CAR-188.
+          touchEpochs: 0,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
           effectiveRiskMultiplier: serverEffectiveRisk,
@@ -612,11 +621,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const startRawRecording = useCallback(
-    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform),
+    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform, DEVICE_MODEL),
     [sdk]
   );
   const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
-  const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
+  const exportRawRecording = useCallback((filePath?: string) => sdk.exportRawRecording(filePath), [sdk]);
 
   const deleteTrips = useCallback(async (tripIds: string[]) => {
     if (tripIds.length === 0) return;

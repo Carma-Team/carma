@@ -38,7 +38,7 @@ let mockGyroPassthrough: ((sample: { x: number; y: number; z: number }) => void)
 let mockAccelPassthrough: ((sample: { x: number; y: number; z: number }) => void) | null = null;
 let mockPhoneEmit: ((event: DrivingEvent) => void) | null = null;
 let mockPhoneInteraction:
-  | ((data: { touchEpochs: number; screenInteractionSeconds: number; speedKmh: number }) => void)
+  | ((data: { screenInteractionSeconds: number; phoneMotionSeconds: number; speedKmh: number }) => void)
   | null = null;
 let mockDetected: (() => void) | null = null;
 let mockLost: (() => void) | null = null;
@@ -619,10 +619,11 @@ describe('DrivingSDK', () => {
   it('accumulates phone interaction metrics onto the trip (per-tick deltas, CAR-175)', async () => {
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 3, screenInteractionSeconds: 1, speedKmh: 40 });
-    mockPhoneInteraction?.({ touchEpochs: 4, screenInteractionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 0, phoneMotionSeconds: 1, speedKmh: 42 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 42 });
 
-    expect(tripData()).toMatchObject({ touchEpochs: 7, screenInteractionSeconds: 2 });
+    expect(tripData()).toMatchObject({ screenInteractionSeconds: 2, phoneMotionSeconds: 1 });
   });
 
   it('passes each per-second sample to the host with its speed, ungated (CAR-184)', async () => {
@@ -630,8 +631,8 @@ describe('DrivingSDK', () => {
     sdk.onInteractionData = (data) => received.push(data);
     await startTripReady();
 
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 3 });
-    mockPhoneInteraction?.({ touchEpochs: 0, screenInteractionSeconds: 1, speedKmh: 40 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 3 });
+    mockPhoneInteraction?.({ screenInteractionSeconds: 1, phoneMotionSeconds: 0, speedKmh: 40 });
 
     expect(received).toMatchObject([
       { screenInteractionSeconds: 1, speedKmh: 3 },
@@ -894,7 +895,7 @@ describe('DrivingSDK', () => {
     await sdk.startRawRecording('handheld', 'ios');
 
     expect(mockSensorStart).toHaveBeenCalledTimes(1);
-    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios');
+    expect(mockRawStart).toHaveBeenCalledWith('handheld', 'ios', undefined);
   });
 
   it('taps the same accel/gyro subscriptions SensorManager already keeps powered', async () => {
@@ -907,16 +908,19 @@ describe('DrivingSDK', () => {
     expect(mockRawPushGyro).toHaveBeenCalledWith(4, 5, 6);
   });
 
-  it('feeds the phone manager from the same subscriptions, opening none of its own', async () => {
+  it('feeds the phone manager the gyroscope tap and nothing else', async () => {
     await sdk.startTrip();
 
     mockAccelPassthrough?.({ x: 1, y: 2, z: 3 });
     mockGyroPassthrough?.({ x: 4, y: 5, z: 6 });
 
-    // One physical accelerometer, one listener: PhoneUsageManager reads it through the
-    // tap rather than subscribing beside SensorManager (CAR-325).
-    expect(mockPhonePushAccel).toHaveBeenCalledWith(1, 2, 3);
+    // One physical gyroscope, one listener: PhoneUsageManager reads it through the tap
+    // rather than subscribing beside SensorManager (CAR-325).
     expect(mockPhonePushGyro).toHaveBeenCalledWith(4, 5, 6);
+    // Acceleration is not an input to distraction detection since CAR-187 — a
+    // single-sample force threshold cannot tell a finger from a pothole — so the
+    // accelerometer tap must not reach the phone manager at all.
+    expect(mockPhonePushAccel).not.toHaveBeenCalled();
   });
 
   it('records every GPS fix passed to handleSensorUpdate, unthinned', async () => {

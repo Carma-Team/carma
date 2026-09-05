@@ -114,6 +114,12 @@ export type FriendRequest = Schemas['FriendRequestOut'];
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export type DrivingStats = Schemas['DrivingStats'];
 
+// ─── Staged calibration recordings ────────────────────────────────────────────
+// One drive in the server's index (CAR-213). The row the upload route returns —
+// the client reads `sessionId` off it and nothing else, but the alias is what
+// keeps a field rename on the server a type error here rather than `undefined`.
+export type RawRecording = Schemas['RawRecordingOut'];
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // The one place a hand-written type beats the generated one: `payload` varies by
 // `type`, and OpenAPI flattens it to an opaque object. The union below keeps each

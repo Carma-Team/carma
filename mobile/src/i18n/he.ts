@@ -72,7 +72,7 @@ const he = {
     eventsDetected: 'אירועים שזוהו', safetyTip: 'נהיגה רגועה ללא בלימות פתע מעלה את הציון שלך!',
     duration: 'זמן', distance: 'מרחק', score: 'ציון', events: 'אירועים',
     hardBrakes: 'בלימה חזקה', aggressiveAccels: 'האצה חריגה',
-    sharpTurns: 'פנייה חדה', phoneTouches: 'נגיעות בטלפון',
+    sharpTurns: 'פנייה חדה', screenSeconds: 'שניות מסך', phoneMotionSeconds: 'שניות תנועה',
     trafficLight: { green: 'נסיעה מצוינת!', yellow: 'שים לב', red: 'נהיגה מסוכנת' },
     riskHourBonus: 'בונוס שעת סיכון', riskMultiplier: 'מכפיל סיכון',
     aiInsight: 'תובנת AI', summary: 'סיכום נסיעה',
