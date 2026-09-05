@@ -308,7 +308,25 @@ export class DrivingSDK {
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
 
-    this.currentTripData.endTime = new Date();
+    // The trip ended when the vehicle last moved, not when Rule 2 finished proving it
+    // had stopped. The validator only reports an end after 3 continuous minutes below its
+    // stop threshold, and nothing is recorded during those minutes — the waypoint gate
+    // below needs 3 km/h. Stamping `now` therefore hands the server a duration with a
+    // 180 s hole at the end of it, and `coverage = covered_s / duration` (telemetry.py)
+    // falls under its 0.5 gate for every trip shorter than about six minutes, which drops
+    // the speeding component out of the score entirely (CAR-298).
+    //
+    // The last waypoint is the honest end: it is the last instant the trace can account
+    // for, and it is what the coverage ratio is measured against. Clamped both ways — the
+    // waypoint carries GPS fix time while `tripStartMs` is wall clock, so a clock step
+    // must not produce an end before the start or in the future.
+    const endedAtMs = Math.min(Date.now(), Math.max(this.lastWaypointTs ?? 0, this.tripStartMs));
+    this.currentTripData.endTime = new Date(endedAtMs);
+    this.currentTripData.durationSeconds = Math.floor((endedAtMs - this.tripStartMs) / 1000);
+    // Recomputed off the trimmed duration rather than left at the ticker's last value,
+    // which divided the same distance by the stop-detection tail as well.
+    const hours = this.currentTripData.durationSeconds / 3600;
+    this.currentTripData.averageSpeed = hours > 0 ? this.currentTripData.distanceKm / hours : 0;
     // The validator outlives the trip unless it is stopped here — its ticker keeps running on
     // the last speed it saw, and start() early-returns while that ticker is alive, so the next
     // session inherits this one's state instead of resetting.
