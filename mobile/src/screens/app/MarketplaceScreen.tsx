@@ -243,7 +243,9 @@ export default function MarketplaceScreen() {
         {/* What is on sale versus what this driver already owns. Kept out of the
             category row on purpose: a category classifies the reward, not the
             ownership, and one row doing both is harder to read than two. */}
-        <View style={COMMON_STYLES.tabsContainer}>
+        {/* The reward list sat straight against the tabs. 16 matches the gap the
+            leaderboard leaves under its own tab row. */}
+        <View style={[COMMON_STYLES.tabsContainer, { marginBottom: 16 }]}>
           {([['store', 'marketplace.tabStore'], ['vouchers', 'marketplace.tabMyVouchers']] as const).map(([key, labelKey]) => (
             <TouchableOpacity
               key={key}

@@ -66,6 +66,12 @@ async function renderBoard(n: number, myRank: number | null = null) {
 const rowCount = () => screen.getByTestId('leaderboard-list').props.data.length
 const moreButton = () => screen.queryByText(he.dashboard.showMore)
 
+// The first test in this file mounts the whole screen and pulls in the list, the icon
+// set and the filter row on a cold module cache. That lands well under a second on its
+// own and has crossed jest's 5s default when the suite runs in parallel, so the gate
+// failed on machine load rather than on anything the test asserts.
+jest.setTimeout(20000)
+
 beforeEach(() => jest.clearAllMocks())
 
 describe('LeaderboardScreen batching', () => {

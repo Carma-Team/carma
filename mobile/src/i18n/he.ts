@@ -53,11 +53,6 @@ const he = {
   dashboard: {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
-    thisWeek: 'השבוע',
-    weekTrips: 'נסיעות',
-    weekVsLast: 'בהשוואה לשבעת הימים שלפני כן',
-    weekNoTrips: 'אין נסיעות מדורגות בשבעת הימים האחרונים.',
-    weekNoComparison: 'שבוע ראשון',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
     // מצב הבחירה למחיקה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
     deleteTrips: 'מחיקת נסיעות',
@@ -167,6 +162,8 @@ const he = {
     noVouchers: 'עדיין לא רכשת שוברים',
     voucher: {
       title: 'השובר שלך', scanQR: 'סריקת QR', expiry: 'תפוגה', used: 'מומש', active: 'פעיל',
+      // בכרטיס בחנות, במקום קוד השובר — הנהג שם לא עומד בקופה
+      owned: 'שובר שרכשת', showQR: 'הצג QR',
       expired: 'פג תוקף', cancelled: 'בוטל',
       cancel: 'ביטול השובר',
       cancelConfirm: 'לבטל את השובר? הנקודות ישוחררו חזרה ליתרה הזמינה.',
@@ -250,7 +247,9 @@ const he = {
     streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
-      // Indexed by Date.getDay() — Sunday first, matching the strip's week start.
+      vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
+      // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
+      // by its own weekday, not by its position in the row.
       days: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
     },
   },
