@@ -1,7 +1,9 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import styles from './Alert.module.css';
 
-type AlertTone = 'error' | 'warning' | 'success' | 'info';
+// Matches StatusBadge's tone names (Badge.tsx) — 'danger', not 'error' —
+// since both consume the same shared tone-* classes in styles/tones.css.
+type AlertTone = 'danger' | 'warning' | 'success' | 'info';
 
 type AlertProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
   tone: AlertTone;
@@ -11,7 +13,7 @@ type AlertProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
 };
 
 const icons: Record<AlertTone, ReactNode> = {
-  error: <AlertCircleIcon />,
+  danger: <AlertCircleIcon />,
   warning: <AlertTriangleIcon />,
   success: <CheckCircleIcon />,
   info: <AlertCircleIcon />,
@@ -22,7 +24,7 @@ const icons: Record<AlertTone, ReactNode> = {
 // first invalid field). Not for confirming destructive actions — use Dialog.
 export function Alert({ tone, title, children, action, role, className, ...props }: AlertProps) {
   return (
-    <div className={[styles.alert, styles[tone], className].filter(Boolean).join(' ')} role={role ?? 'alert'} {...props}>
+    <div className={[styles.alert, `tone-${tone}`, className].filter(Boolean).join(' ')} role={role ?? 'alert'} {...props}>
       <span className={styles.icon} aria-hidden="true">
         {icons[tone]}
       </span>

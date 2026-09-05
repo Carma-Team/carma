@@ -41,6 +41,9 @@
      carries the emphasis text-transform would on Latin strings. */
   --font-size-eyebrow: 12.5px;
   --letter-spacing-eyebrow: 0.04em;
+  /* Field helper/validation text under a label (Forms section of the style
+     guide) — same size as the eyebrow token but regular weight, no tracking. */
+  --font-size-hint: 12.5px;
   /* Large metrics (e.g. KPI numbers) */
   --font-size-metric: 32px;
 

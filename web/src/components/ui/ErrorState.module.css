@@ -14,7 +14,8 @@
   align-items: flex-start;
   text-align: start;
   padding: var(--space-md);
-  background-color: var(--color-danger-surface);
   border-radius: var(--radius-lg);
+  /* Background comes from the shared global tone-danger class
+     (styles/tones.css), applied alongside this one. */
 }
 

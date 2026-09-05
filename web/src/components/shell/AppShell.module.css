@@ -30,7 +30,7 @@
 
 .brandTag {
   font-size: var(--font-size-eyebrow);
-  font-weight: 800;
+  font-weight: var(--font-weight-heading);
   color: var(--color-primary-strong);
 }
 

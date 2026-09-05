@@ -29,7 +29,9 @@ type ErrorStateProps = ErrorStateBaseProps &
 export function ErrorState({ title, message, variant = 'page', retryLabel, onRetry, className, ...rest }: ErrorStateProps) {
   return (
     <div
-      className={[styles.container, variant === 'banner' && styles.banner, className].filter(Boolean).join(' ')}
+      className={[styles.container, variant === 'banner' && styles.banner, variant === 'banner' && 'tone-danger', className]
+        .filter(Boolean)
+        .join(' ')}
       role="alert"
       {...rest}
     >

@@ -9,55 +9,13 @@
   white-space: nowrap;
 }
 
+/* Tint/text color comes from the shared global tone-* classes
+   (styles/tones.css), applied alongside this one — not redeclared here. */
+
 .dot {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-full);
-}
-
-.success {
-  background-color: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.success .dot {
-  background-color: var(--color-success);
-}
-
-.warning {
-  background-color: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.warning .dot {
-  background-color: var(--color-warning);
-}
-
-.danger {
-  background-color: var(--color-danger-surface);
-  color: var(--color-danger-text);
-}
-
-.danger .dot {
-  background-color: var(--color-danger);
-}
-
-.neutral {
-  background-color: var(--color-neutral-surface);
-  color: var(--color-neutral-text);
-}
-
-.neutral .dot {
-  background-color: var(--color-neutral);
-}
-
-.info {
-  background-color: var(--color-primary-surface);
-  color: var(--color-primary-text);
-}
-
-.info .dot {
-  background-color: var(--color-primary);
 }
 
 .count {

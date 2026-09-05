@@ -5,7 +5,7 @@ import { Alert } from './Alert';
 describe('Alert', () => {
   it('renders as an alert with its title and message', () => {
     render(
-      <Alert tone="error" title="Could not save">
+      <Alert tone="danger" title="Could not save">
         Try again.
       </Alert>,
     );

@@ -33,22 +33,5 @@
   margin-top: var(--space-sm);
 }
 
-.error {
-  background-color: var(--color-danger-surface);
-  color: var(--color-danger-text);
-}
-
-.warning {
-  background-color: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.success {
-  background-color: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.info {
-  background-color: var(--color-primary-surface);
-  color: var(--color-primary-text);
-}
+/* Tint/text color comes from the shared global tone-* classes
+   (styles/tones.css), applied alongside this one — not redeclared here. */

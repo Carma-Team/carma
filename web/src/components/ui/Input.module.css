@@ -96,24 +96,28 @@
   background-color: var(--color-surface-muted);
 }
 
-.error {
+/* Compound selectors (`.input.error`, not just `.error`) on purpose — two
+   classes outrank `.search`'s single class regardless of which rule the
+   bundler happens to emit first, so a search-variant field in an error
+   state can't silently lose its red border to declaration order. */
+.input.error {
   border-color: var(--color-danger);
 }
 
-.error:focus {
+.input.error:focus {
   box-shadow: var(--shadow-focus-ring-danger);
 }
 
-.warning {
+.input.warning {
   border-color: var(--color-warning);
 }
 
-.success {
+.input.success {
   border-color: var(--color-success);
 }
 
 .message {
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-hint);
   line-height: 1.5;
   color: var(--color-text-faint);
 }

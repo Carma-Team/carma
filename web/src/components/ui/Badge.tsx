@@ -15,11 +15,11 @@ type StatusBadgeProps = HTMLAttributes<HTMLSpanElement> & {
 // a red "Food & drink" chip is not an error).
 export function StatusBadge({ tone, icon, children, className, ...props }: StatusBadgeProps) {
   return (
-    <span className={[styles.badge, styles[tone], className].filter(Boolean).join(' ')} {...props}>
+    <span className={[styles.badge, `tone-${tone}`, className].filter(Boolean).join(' ')} {...props}>
       {icon ? (
         <span aria-hidden="true">{icon}</span>
       ) : (
-        <span className={styles.dot} aria-hidden="true" />
+        <span className={[styles.dot, `tone-${tone}-dot`].join(' ')} aria-hidden="true" />
       )}
       {children}
     </span>
