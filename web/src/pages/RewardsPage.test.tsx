@@ -548,6 +548,42 @@ describe('RewardsPage', () => {
     expect(screen.getAllByRole('button', { name: /^ארכיון/ })).toHaveLength(1);
   });
 
+  it('makes a just-archived reward appear under the Archived tab immediately, with consistent tab counts, and no remount or refetch', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ id: 'a', titleHe: 'הטבה לארכוב' })],
+    });
+    vi.mocked(retireReward).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('הטבה לארכוב')).toBeInTheDocument());
+
+    // Before archiving: one reward under "All", none under "Archived".
+    expect(screen.getByRole('button', { name: 'הכל 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ארכיון 0' })).toBeInTheDocument();
+
+    // The per-card action's accessible name is the bare label — the tab's
+    // own "ארכיון 0" carries a count, so this exact match can't collide.
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(retireReward).toHaveBeenCalledWith('a'));
+    // Still on the default "All" tab, which excludes archived rewards by
+    // definition — the reward should already be gone from view here.
+    await waitFor(() => expect(screen.queryByText('הטבה לארכוב')).not.toBeInTheDocument());
+
+    // The counts update from the same local state change — no second
+    // `listRewards` call, i.e. no refetch, was needed to get here.
+    expect(listRewards).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'הכל 0' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ארכיון 1' })).toBeInTheDocument();
+
+    // Switching tabs — no remount of RewardsPage — reveals it right away.
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון 1' }));
+    expect(screen.getByText('הטבה לארכוב')).toBeInTheDocument();
+  });
+
   it('filters the visible rewards by search text, matching either language', async () => {
     vi.mocked(listRewards).mockResolvedValue({
       outcome: 'ok',
@@ -563,5 +599,110 @@ describe('RewardsPage', () => {
 
     expect(screen.getByText('קפה גדול')).toBeInTheDocument();
     expect(screen.queryByText('שטיפת רכב')).not.toBeInTheDocument();
+  });
+
+  it('shows the total (archived excluded) and active counts in the header subtitle', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [
+        reward({ id: 'a', isActive: true }),
+        reward({ id: 'b', isActive: false }),
+        reward({ id: 'c', archivedAt: '2026-01-01T00:00:00.000Z' }),
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText('2 הטבות · 1 פעילות')).toBeInTheDocument();
+  });
+
+  it('shows a "no results" empty state for a search that matches nothing, distinct from having no rewards at all', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward({ titleHe: 'קפה', titleEn: 'Coffee' })] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('קפה')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText('חיפוש הטבה'), { target: { value: 'zzz' } });
+
+    expect(await screen.findByText('לא נמצאו הטבות')).toBeInTheDocument();
+    expect(screen.getByText('נסו חיפוש או סינון אחר.')).toBeInTheDocument();
+  });
+
+  it('shows an "archive is empty" message on the Archived tab when nothing is archived yet', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    const [archivedTab] = screen.getAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+
+    expect(await screen.findByText('הארכיון ריק כרגע.')).toBeInTheDocument();
+  });
+
+  // ── CAR-339 review follow-up: cross-action guard, tab a11y, sold-out CTA ──
+
+  it('disables the archive action while a pause/resume toggle is in flight for the same (only) reward', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward({ isActive: true })] });
+    let resolveToggle: (value: { outcome: 'ok'; reward: Reward }) => void = () => {};
+    vi.mocked(setRewardActive).mockReturnValue(new Promise((resolve) => (resolveToggle = resolve)));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
+
+    expect(screen.getByRole('button', { name: 'ארכיון' })).toBeDisabled();
+
+    await act(async () => {
+      resolveToggle({ outcome: 'ok', reward: reward({ isActive: false }) });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'ארכיון' })).not.toBeDisabled();
+  });
+
+  it('disables pause/resume while an archive confirmation is in flight for the same (only) reward', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward({ isActive: true })] });
+    let resolveRetire: (value: { outcome: 'ok' }) => void = () => {};
+    vi.mocked(retireReward).mockReturnValue(new Promise((resolve) => (resolveRetire = resolve)));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
+    const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
+
+    expect(screen.getByRole('button', { name: 'השהיה' })).toBeDisabled();
+
+    await act(async () => {
+      resolveRetire({ outcome: 'ok' });
+      await Promise.resolve();
+    });
+    expect(retireReward).toHaveBeenCalledWith('r1');
+  });
+
+  it('marks the currently selected lifecycle tab with aria-current for assistive technology', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: 'הכל 1' })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: 'פעילות 1' })).not.toHaveAttribute('aria-current');
+
+    fireEvent.click(screen.getByRole('button', { name: 'פעילות 1' }));
+
+    expect(screen.getByRole('button', { name: 'הכל 1' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'פעילות 1' })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it("gives the sold-out reward's \"add stock\" action primary visual emphasis, unlike the plain Edit action", async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ id: 'active', stock: 5, available: 2 }), reward({ id: 'soldout', stock: 5, available: 0 })],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText('שובר')).toHaveLength(2));
+
+    const editButton = screen.getByRole('button', { name: 'עריכה' });
+    const addStockButton = screen.getByRole('button', { name: 'הוספת מלאי' });
+    expect(editButton.className).not.toMatch(/primary/);
+    expect(addStockButton.className).toMatch(/primary/);
   });
 });

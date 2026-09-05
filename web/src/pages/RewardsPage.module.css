@@ -38,7 +38,7 @@
   cursor: pointer;
 }
 
-.tab[data-active='true'] {
+.tab[aria-current='true'] {
   color: var(--color-primary-text);
   border-bottom-color: var(--color-primary);
 }

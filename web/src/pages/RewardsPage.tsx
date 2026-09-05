@@ -148,7 +148,10 @@ export function RewardsPage() {
   }
 
   async function handleToggleActive(reward: Reward) {
-    if (togglingId !== null) return;
+    // Also bails while an archive is in flight (for this reward or any
+    // other) — same cross-action guard the buttons below enforce, so a
+    // pause/resume PATCH can never race the reward's own archive DELETE.
+    if (togglingId !== null || retiringId !== null) return;
     setTogglingId(reward.id);
     const result = await setRewardActive(reward.id, !reward.isActive);
     setTogglingId(null);
@@ -170,7 +173,11 @@ export function RewardsPage() {
   }
 
   async function handleConfirmRetire() {
-    if (!retireTarget || retireInFlight.current || liveVoucherCheck.status !== 'ok') return;
+    // togglingId here would mean a pause/resume for this reward started
+    // after the dialog opened but before this confirm ran — the button that
+    // opens this dialog is itself disabled while any toggle is in flight, so
+    // this is a defensive second gate on the same cross-action rule.
+    if (!retireTarget || retireInFlight.current || togglingId !== null || liveVoucherCheck.status !== 'ok') return;
     const target = retireTarget;
     retireInFlight.current = true;
     setRetiringId(target.id);
@@ -180,7 +187,16 @@ export function RewardsPage() {
     setRetireTarget(null);
 
     if (result.outcome === 'ok') {
-      setRewards((prev) => prev.filter((r) => r.id !== target.id));
+      // Updated in place, not removed — the reward still belongs in local
+      // state under the Archived tab (matchesTab), the same "map, don't
+      // filter" shape handleToggleActive uses for its own PATCH response.
+      // DELETE returns no body (see retireReward), so there's no server
+      // reward to merge; `archivedAt: now` mirrors what the server just set
+      // (`archived_at = datetime.now(UTC)` in services/business.py) closely
+      // enough — nothing in the UI renders the exact archive timestamp,
+      // only whether it's set.
+      const archivedAt = new Date().toISOString();
+      setRewards((prev) => prev.map((r) => (r.id === target.id ? { ...r, archivedAt } : r)));
       setRetireErrors((prev) => {
         if (!(target.id in prev)) return prev;
         const rest = { ...prev };
@@ -260,13 +276,20 @@ export function RewardsPage() {
       {!noRewardsAtAll && (
         <div className={styles.toolbar}>
           {canManage && (
+            // Plain buttons filtering one grid, not a tabpanel-switching
+            // widget, so this deliberately reaches for `aria-current`
+            // rather than the full ARIA tabs pattern (role="tablist"/"tab"
+            // + arrow-key navigation) — `aria-current="true"` is the
+            // correct, honest way to expose "the currently selected item in
+            // a set of related filters" without committing to keyboard
+            // behaviour this widget doesn't implement.
             <div className={styles.tabs}>
               {TABS.map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   className={styles.tab}
-                  data-active={activeTab === tab}
+                  aria-current={activeTab === tab ? 'true' : undefined}
                   onClick={() => setActiveTab(tab)}
                 >
                   {t(`rewards.${TAB_KEY[tab]}`)} <CountBadge>{tabCounts[tab]}</CountBadge>
@@ -369,25 +392,37 @@ export function RewardsPage() {
 
                 {canManage && !archived && (
                   <div className={styles.actions}>
-                    <Button variant="secondary" onClick={() => setFormState({ mode: 'edit', reward })}>
+                    <Button
+                      variant={state === 'soldOut' ? 'primary' : 'secondary'}
+                      onClick={() => setFormState({ mode: 'edit', reward })}
+                    >
                       {state === 'soldOut' ? t('rewards.addStockButton') : t('rewards.editButton')}
                     </Button>
-                    {/* Any in-flight toggle disables every card's button, not
-                        just this one's — the same interleaving guard as the
-                        archive button just below (CAR-202 review, B3). */}
-                    <Button variant="secondary" disabled={togglingId !== null} onClick={() => handleToggleActive(reward)}>
+                    {/* Disabled whenever *any* toggle or archive is in
+                        flight — not just this card's, and not just this
+                        action's. CAR-202's pre-commit review (B3) found that
+                        a second card's confirm dialog opening while another
+                        reward's DELETE was in flight let the first request's
+                        completion silently clear the second reward's
+                        still-unconfirmed dialog; the same interleaving is
+                        possible between a pause/resume PATCH and an archive
+                        DELETE on the very same reward, so both buttons below
+                        share one combined guard rather than two independent
+                        ones. */}
+                    <Button
+                      variant="secondary"
+                      disabled={togglingId !== null || retiringId !== null}
+                      onClick={() => handleToggleActive(reward)}
+                    >
                       {toggling
                         ? t(reward.isActive ? 'rewards.pausingLabel' : 'rewards.resumingLabel')
                         : t(reward.isActive ? 'rewards.pauseButton' : 'rewards.resumeButton')}
                     </Button>
-                    {/* Disabled whenever *any* archive is in flight, not just
-                        this card's — CAR-202's pre-commit review (B3) found that
-                        allowing a second card's confirm dialog to open while
-                        another reward's DELETE was in flight let the first
-                        request's completion silently clear the second reward's
-                        still-unconfirmed dialog. One in-flight archive at a
-                        time removes the interleaving entirely. */}
-                    <Button variant="secondary" disabled={retiringId !== null} onClick={() => openRetireDialog(reward)}>
+                    <Button
+                      variant="secondary"
+                      disabled={retiringId !== null || togglingId !== null}
+                      onClick={() => openRetireDialog(reward)}
+                    >
                       {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
                     </Button>
                   </div>
