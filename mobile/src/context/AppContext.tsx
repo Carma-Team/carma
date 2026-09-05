@@ -14,8 +14,8 @@
  * - `authApi.me()` — GET /api/auth/me — refresh user details on startup
  * - `tripsApi.list()` — GET /api/trips — sync trips on login
  * - `tripsApi.save()` — POST /api/trips — persist a completed trip
- * - USE_REAL_SERVER=false: all calls intercepted in client.ts (mock)
- * - USE_REAL_SERVER=true: calls go to the real server
+ * Every call goes to the real server either way — USE_REAL_SERVER only chooses
+ * between the local one and the deployed one (constants/serverConfig.ts).
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'

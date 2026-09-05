@@ -230,7 +230,7 @@ One file per backend resource.
 
 | File | Backend route group |
 |---|---|
-| `client.ts` | Native `fetch` wrapper — attaches auth token, handles HTTP errors, switches between mock and real server via `USE_REAL_SERVER` flag in `constants/serverConfig.ts` |
+| `client.ts` | Native `fetch` wrapper — attaches auth token, handles HTTP errors, resolves the server host via the `USE_REAL_SERVER` flag in `constants/serverConfig.ts` |
 | `auth.api.ts` | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
 | `trips.api.ts` | `GET /api/trips`, `POST /api/trips` |
 | `fraud.api.ts` | `POST /api/trips/invalid` |
