@@ -76,6 +76,7 @@ function tickAt80(): void {
     gyroAvailable: true,
     accelInitFailed: false,
     backgroundLocationAvailable: true,
+    locationStartFailed: false,
   });
   jest.advanceTimersByTime(1000);
 }

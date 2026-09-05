@@ -15,6 +15,7 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 // the current ts-jest transform and babel (jest-expo).
 
 let mockLocationHandler: ((loc: any) => void) | null = null;
+let mockLocationErrorHandler: ((err: any) => void) | null = null;
 let mockAccelHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
 let mockGyroHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
 let mockAccelAvailable = true;
@@ -25,6 +26,22 @@ let mockAccelAvailable = true;
 jest.mock('@/lib/driving-sdk/sensors/locationTask', () => ({
   DRIVING_SDK_LOCATION_TASK: 'driving-sdk-location-task',
   setLocationHandler: jest.fn((h: any) => { mockLocationHandler = h; }),
+  setLocationErrorHandler: jest.fn((h: any) => { mockLocationErrorHandler = h; }),
+}));
+
+// SensorManager is the only file in this graph that touches react-native, and it uses
+// one member of it. Replacing the module outright is what keeps the assertions below
+// about this class's listener rather than about every listener the RN test
+// environment happens to register at import time.
+const mockAppStateRemove = jest.fn();
+const mockAppStateAdd = jest.fn((_event: string, handler: any) => {
+  mockAppStateHandler = handler;
+  return { remove: mockAppStateRemove };
+});
+let mockAppStateHandler: ((state: string) => void) | null = null;
+
+jest.mock('react-native', () => ({
+  AppState: { addEventListener: (e: string, h: any) => mockAppStateAdd(e, h) },
 }));
 
 jest.mock('expo-location', () => ({
@@ -259,6 +276,78 @@ describe('SensorManager', () => {
     expect(event.type).toBe(DrivingEventType.HARD_BRAKE);
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
+  });
+
+  // ── A location start the platform refused (CAR-326) ───────────────────────
+  // Android 12+ rejects a foreground-service start from an app already in the
+  // background, which is the state every automatically started trip begins in. The
+  // failure used to reach a console line and stop there, so the trip ran with no
+  // location and still reported itself healthy.
+
+  it('reports a location start the platform refused, distinctly from a denied permission', async () => {
+    manager.stop();
+    const locationModule = jest.requireMock('expo-location');
+    locationModule.startLocationUpdatesAsync.mockRejectedValueOnce(new Error('boom'));
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    sendFix({ t: 0, speed: 20 });
+
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    // Permission was granted and the start still failed - one flag cannot carry both.
+    expect(lastUpdate).toMatchObject({
+      backgroundLocationAvailable: true,
+      locationStartFailed: true,
+    });
+  });
+
+  it('retries once when the app reaches the foreground, and clears the flag', async () => {
+    manager.stop();
+    const locationModule = jest.requireMock('expo-location');
+    locationModule.startLocationUpdatesAsync.mockRejectedValueOnce(new Error('boom'));
+    mockAppStateAdd.mockClear();
+    mockAppStateRemove.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    expect(mockAppStateAdd).toHaveBeenCalledTimes(1);
+    const onAppStateChange = mockAppStateHandler!;
+    locationModule.startLocationUpdatesAsync.mockClear();
+
+    // Anything short of the foreground is not the condition being waited on.
+    onAppStateChange('background');
+    expect(locationModule.startLocationUpdatesAsync).not.toHaveBeenCalled();
+
+    onAppStateChange('active');
+    await Promise.resolve();
+
+    expect(locationModule.startLocationUpdatesAsync).toHaveBeenCalledTimes(1);
+    sendFix({ t: 0, speed: 20 });
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate.locationStartFailed).toBe(false);
+    // Removed as soon as it fired - one retry, not a listener for the rest of the trip.
+    expect(mockAppStateRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits on nothing when the location stream started cleanly', async () => {
+    manager.stop();
+    mockAppStateAdd.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    expect(mockAppStateAdd).not.toHaveBeenCalled();
+  });
+
+  // A foreground service the platform kills mid-trip reports itself through the task,
+  // not through the call that started it, and used to be swallowed the same way.
+  it('reports the location stream dying after it started', () => {
+    sendFix({ t: 0, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].locationStartFailed).toBe(false);
+
+    mockLocationErrorHandler?.({ message: 'foreground service died' });
+    sendFix({ t: 2000, speed: 20 });
+
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].locationStartFailed).toBe(true);
   });
 
   // The two cases below are the ones CAR-320 was filed on: a gate that stays shut for

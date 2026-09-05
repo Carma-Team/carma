@@ -232,6 +232,7 @@ describe('DrivingSDK', () => {
       accelCoverage: 1,
       accelInitFailed: false,
       backgroundLocationAvailable: true,
+      locationStartFailed: false,
       ...update,
     });
   }
