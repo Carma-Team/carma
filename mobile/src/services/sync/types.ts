@@ -55,6 +55,12 @@ export interface ValidTripPayload {
   accelAvailable?:  boolean;
   accelInitFailed?: boolean;
   accelCoverage?:   number;
+  // L1 vehicle binding (CAR-310): HMAC of the connected vehicle's Bluetooth address,
+  // never the address itself. Null when no vehicle was connected — the field must
+  // distinguish "no vehicle" from "a vehicle whose key is empty", so it is nullable
+  // rather than omitted. The server column arrives with CAR-309; until then this rides
+  // the wire and is ignored, which is the order the two halves were planned in.
+  vehicleKeyHash?:  string | null;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;
