@@ -131,11 +131,11 @@ async def confirm_verification(db: AsyncSession, user: User, code: str) -> Messa
         row.consumed_at = _now()
         await db.commit()
         raise _rejected(user, "email_changed")
-    if row.attempts >= _MAX_ATTEMPTS:
-        raise _rejected(user, "too_many_attempts")
-
     if not verify_code(code, row.code_hash):
         row.attempts += 1
+        # Spending the row *is* the cap - the lookup above only returns unconsumed
+        # ones, so there is no separate "too many attempts" guard to reach. The
+        # driver's way forward is a new code, which is one request away.
         if row.attempts >= _MAX_ATTEMPTS:
             row.consumed_at = _now()
         await db.commit()
