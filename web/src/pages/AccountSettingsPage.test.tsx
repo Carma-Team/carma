@@ -126,7 +126,7 @@ describe('AccountSettingsPage', () => {
     expect(screen.getByText('שינוי סיסמה — בקרוב')).toBeInTheDocument();
   });
 
-  it('signs out immediately when there is nothing unsaved', () => {
+  it('signs out immediately, with no confirmation dialog', () => {
     const logout = vi.fn();
     vi.mocked(useAuth).mockReturnValue(asAuth(OWNER, logout));
     renderPage();
@@ -136,7 +136,10 @@ describe('AccountSettingsPage', () => {
     expect(logout).toHaveBeenCalledOnce();
   });
 
-  it('confirms before signing out over an unsaved name edit', () => {
+  // Canonical design: logout is reversible and never gated behind a
+  // confirmation, even over an unsaved edit — unlike BusinessProfilePage's
+  // tab-switch guard, which the design does not carry over to logout here.
+  it('signs out immediately even with an unsaved name edit, still with no confirmation dialog', () => {
     const logout = vi.fn();
     vi.mocked(useAuth).mockReturnValue(asAuth(OWNER, logout));
     renderPage();
@@ -144,10 +147,6 @@ describe('AccountSettingsPage', () => {
     fireEvent.change(screen.getByDisplayValue('Dana Levi'), { target: { value: 'Something else' } });
     fireEvent.click(screen.getByRole('button', { name: 'התנתקות' }));
 
-    expect(screen.getByText('לצאת בלי לשמור?')).toBeInTheDocument();
-    expect(logout).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'להתנתק בלי לשמור' }));
     expect(logout).toHaveBeenCalledOnce();
   });
 });

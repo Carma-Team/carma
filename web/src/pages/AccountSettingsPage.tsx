@@ -33,7 +33,6 @@ export function AccountSettingsPage() {
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const savedBannerTimeout = useRef<number | undefined>(undefined);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -89,19 +88,6 @@ export function AccountSettingsPage() {
       return;
     }
     setSaveState('error');
-  }
-
-  function handleLogoutClick() {
-    if (dirty) {
-      setLogoutDialogOpen(true);
-      return;
-    }
-    void logout();
-  }
-
-  function confirmLogoutWithoutSaving() {
-    setLogoutDialogOpen(false);
-    void logout();
   }
 
   return (
@@ -175,7 +161,7 @@ export function AccountSettingsPage() {
               </Text>
               <Text variant="caption">{t('accountSettings.logoutSubtitle')}</Text>
             </div>
-            <Button type="button" variant="secondary" leadingIcon={<LogOutIcon />} onClick={handleLogoutClick}>
+            <Button type="button" variant="secondary" leadingIcon={<LogOutIcon />} onClick={() => void logout()}>
               {t('accountSettings.logoutButton')}
             </Button>
           </Card>
@@ -237,24 +223,6 @@ export function AccountSettingsPage() {
         <div className={styles.dialogActions}>
           <Button variant="primary" onClick={() => setPasswordDialogOpen(false)}>
             {t('accountSettings.passwordDialogCloseButton')}
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={logoutDialogOpen}
-        onClose={() => setLogoutDialogOpen(false)}
-        title={t('accountSettings.logoutDialogTitle')}
-        closeLabel={t('accountSettings.logoutDialogCloseLabel')}
-        tone="warning"
-      >
-        <Text variant="body">{t('accountSettings.logoutDialogBody')}</Text>
-        <div className={styles.dialogActions}>
-          <Button variant="primary" onClick={() => setLogoutDialogOpen(false)}>
-            {t('accountSettings.logoutDialogStayButton')}
-          </Button>
-          <Button variant="danger" onClick={confirmLogoutWithoutSaving}>
-            {t('accountSettings.logoutDialogLeaveButton')}
           </Button>
         </div>
       </Dialog>

@@ -528,11 +528,6 @@ export type TranslationMap = {
     logoutTitle: string;
     logoutSubtitle: string;
     logoutButton: string;
-    logoutDialogTitle: string;
-    logoutDialogBody: string;
-    logoutDialogStayButton: string;
-    logoutDialogLeaveButton: string;
-    logoutDialogCloseLabel: string;
     unsavedChangesLabel: string;
     savingLabel: string;
     savedLabel: string;
