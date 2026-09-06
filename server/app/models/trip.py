@@ -15,6 +15,12 @@ if TYPE_CHECKING:
     from app.models.event import Event
     from app.models.user import User
 
+# The five behaviours the v2 engine scores, mirroring `WeakestFactor` in
+# app/services/scoring.py. Spelled out again rather than imported: no other model
+# reaches into a service, and this one column is not worth being the exception.
+# `test_trip_weakest_factor.py` fails if the two lists ever drift apart.
+WEAKEST_FACTORS = ("braking", "acceleration", "cornering", "speeding", "distraction")
+
 
 class Trip(Base):
     __tablename__ = "trips"
@@ -61,6 +67,15 @@ class Trip(Base):
     # assert "the accelerometer was never live" about trips nobody ever measured.
     accel_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     accel_init_failed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # The behaviour that cost this trip the most (CAR-185), stored so the "one
+    # thing to fix" line survives past the save response (CAR-186).
+    #
+    # NULL carries two answers and cannot separate them: a trip scored before
+    # this landed was never asked, and a trip whose worst subscore is still above
+    # 90 has nothing worth naming. Both mean the same thing to the screen — show
+    # no line — which is why one column is enough.
+    weakest_factor: Mapped[str | None] = mapped_column(Enum(*WEAKEST_FACTORS, name="weakest_factor"), nullable=True)
 
     ai_insight: Mapped[str | None] = mapped_column(String(500))
     start_location: Mapped[str | None] = mapped_column(String(200))

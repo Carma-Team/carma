@@ -156,8 +156,9 @@ class TripOut(CamelModel):
     user_level: int | None = None
     # The behaviour with the largest weighted score loss (scoring.md §3.5), or
     # None when the winner's subscore is above 90 — nothing worth naming. The
-    # ranking, not the sentence: the client writes the copy. Save-response
-    # only, like points_capped and user_level; None on list/detail reads.
+    # ranking, not the sentence: the client writes the copy. Read off the row
+    # (CAR-186), so it says the same thing on every read of the trip and not
+    # only in the save response.
     weakest_factor: WeakestFactor | None = None
 
     @classmethod
@@ -166,7 +167,6 @@ class TripOut(CamelModel):
         trip: Any,
         points_capped: bool = False,
         user_level: int | None = None,
-        weakest_factor: WeakestFactor | None = None,
     ) -> TripOut:
         return cls.model_validate(
             {
@@ -196,7 +196,7 @@ class TripOut(CamelModel):
                 "idempotency_key": trip.idempotency_key,
                 "points_capped": points_capped,
                 "user_level": user_level,
-                "weakest_factor": weakest_factor,
+                "weakest_factor": trip.weakest_factor,
             }
         )
 

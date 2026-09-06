@@ -756,6 +756,7 @@ async def save(
         distance_km=distance,
         avg_score=score_v2,
         score_v2=score_v2,
+        weakest_factor=weakest_factor,
         scoring_version=scoring.CONFIG.version,
         points=round(points_v2),
         risk_multiplier=risk_multiplier,
@@ -870,6 +871,4 @@ async def save(
         gps_confidence=gps.confidence,
         points_capped=points_capped,
     )
-    return TripOut.from_orm_trip(
-        trip, points_capped=points_capped, user_level=level_after, weakest_factor=weakest_factor
-    )
+    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
