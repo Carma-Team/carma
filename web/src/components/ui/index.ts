@@ -7,6 +7,7 @@ export { Card } from './Card';
 export { MetricCard } from './MetricCard';
 export { StatusBadge, CountBadge } from './Badge';
 export { Alert } from './Alert';
+export type { AlertTone } from './Alert';
 export { Dialog } from './Dialog';
 export { LoadingState, Skeleton } from './LoadingState';
 export { ErrorState } from './ErrorState';

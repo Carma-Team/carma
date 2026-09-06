@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 
 from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
+from app.schemas.business_profile import BusinessProfileOut, BusinessProfileResponse, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut
 from app.schemas.redemption import BusinessRedemptionListOut
 from app.schemas.reward import (
@@ -23,6 +24,32 @@ from app.schemas.reward import (
 from app.services import business as business_service
 
 router = APIRouter(prefix="/api/business", tags=["business"])
+
+
+# ── Profile (CAR-341) ────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/profile",
+    response_model=BusinessProfileResponse,
+    response_model_by_alias=True,
+    summary="The authenticated business's own profile record",
+)
+async def get_profile(membership: CurrentBusinessMembership) -> BusinessProfileResponse:
+    return BusinessProfileResponse(profile=BusinessProfileOut.from_orm_business(membership.business))
+
+
+@router.patch(
+    "/profile",
+    response_model=BusinessProfileResponse,
+    response_model_by_alias=True,
+    summary="Update the authenticated business's name, category or address",
+)
+async def update_profile(
+    dto: BusinessProfileUpdateIn, membership: CurrentBusinessManager, db: DbSession
+) -> BusinessProfileResponse:
+    profile = await business_service.update_profile(db, membership.business, dto)
+    return BusinessProfileResponse(profile=profile)
 
 
 @router.get(

@@ -22,6 +22,7 @@ from app.models import (
     Reward,
     User,
 )
+from app.schemas.business_profile import BusinessProfileOut, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut, SoldOutRewardOut, TopRewardOut
 from app.schemas.redemption import BusinessRedemptionOut
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
@@ -140,6 +141,27 @@ async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: s
     existing = await assert_membership_allowed(db, user_id, business_id)
     if existing is None:
         db.add(BusinessMembership(business_id=business_id, user_id=user_id, role=BusinessMembershipRole.OWNER))
+
+
+# ── Business profile (CAR-341) ──────────────────────────────────────────────
+
+
+async def update_profile(db: AsyncSession, business: Business, dto: BusinessProfileUpdateIn) -> BusinessProfileOut:
+    """Apply an owner/manager's edit to their own business record.
+
+    `registration_number` is deliberately absent from `BusinessProfileUpdateIn`
+    (see its own docstring) — there is no path, here or anywhere else, that
+    writes it after `services.business_join_requests.approve` sets it once.
+    """
+    changes = dto.model_dump(exclude_unset=True)
+    if "category" in changes and changes["category"] is not None:
+        changes["category"] = _parse_category(changes["category"])
+    for field, value in changes.items():
+        setattr(business, field, value)
+
+    await db.commit()
+    audit("business.profile.updated", business_id=business.id, fields=sorted(changes))
+    return BusinessProfileOut.from_orm_business(business)
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
