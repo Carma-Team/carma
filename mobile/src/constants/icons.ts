@@ -71,6 +71,8 @@ export const ICONS = {
   trendFlat:      'remove'                    as IoniconName,
   // Trip waiting to reach the server — not an error, so no warning triangle.
   notSent:        'cloud-offline'             as IoniconName,
+  // The night-hours points incentive on a trip summary.
+  night:          'moon-outline'              as IoniconName,
 } as const;
 
 /** Returns the outline variant of an icon name (for inactive/unfocused state). */
