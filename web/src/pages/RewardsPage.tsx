@@ -20,7 +20,7 @@ import {
   type RewardTab,
 } from '@/lib/rewardState';
 import { RewardForm } from '@/components/business/RewardForm';
-import { Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton } from '@/components/ui';
+import { Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton, CategoryIcon } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
 
@@ -345,9 +345,7 @@ export function RewardsPage() {
             return (
               <Card key={reward.id} className={styles.card}>
                 <div className={styles.cardTop}>
-                  <span className={styles.categoryIcon} data-category={category} aria-hidden="true">
-                    {t(`rewards.${categoryTranslationKey(category)}`).charAt(0)}
-                  </span>
+                  <CategoryIcon category={category} label={t(`rewards.${categoryTranslationKey(category)}`)} />
                   {archived ? (
                     <StatusBadge tone="neutral">{t('rewards.stateArchived')}</StatusBadge>
                   ) : (
