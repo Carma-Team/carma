@@ -8,7 +8,7 @@ import {
   type BusinessRequestActionResult,
   type BusinessRequestStatus,
 } from '@/lib/api/businessRequests';
-import { Card, Heading, Text, Button, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
+import { Card, Heading, Text, Button, Select, StatusBadge, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
 import inputStyles from '@/components/ui/Input.module.css';
 import styles from './BusinessRequestsReviewPage.module.css';
 
@@ -215,12 +215,8 @@ export function BusinessRequestsReviewPage() {
         <Heading level={1}>{t('businessRequests.title')}</Heading>
         <Text variant="body">{t('businessRequests.subtitle')}</Text>
         <div className={styles.filterRow}>
-          <label htmlFor="business-requests-filter" className={styles.filterLabel}>
-            {t('businessRequests.filterLabel')}
-          </label>
-          <select
-            id="business-requests-filter"
-            className={inputStyles.input}
+          <Select
+            label={t('businessRequests.filterLabel')}
             value={filter}
             // Disabled while a mutation is in flight: `handleApprove`/
             // `confirmReject` close over this render's `filter` for their
@@ -240,7 +236,7 @@ export function BusinessRequestsReviewPage() {
                 {t(`businessRequests.filter${filterKey(value)}`)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -291,9 +287,9 @@ export function BusinessRequestsReviewPage() {
                       <Text variant="caption">{formatDate(request.createdAt)}</Text>
                     </td>
                     <td>
-                      <span className={styles.statusBadge} data-status={request.status}>
+                      <StatusBadge tone={statusTone(request.status)}>
                         {t(`businessRequests.status${statusKey(request.status)}`)}
-                      </span>
+                      </StatusBadge>
                       {request.status !== 'pending' && request.reviewerNote && (
                         <Text variant="caption">
                           {t('businessRequests.reviewerNoteLabel')}: {request.reviewerNote}
@@ -345,6 +341,7 @@ export function BusinessRequestsReviewPage() {
         onClose={closeReject}
         title={t('businessRequests.rejectModalTitle')}
         closeLabel={t('businessRequests.rejectModalCloseLabel')}
+        tone="danger"
       >
         <div className={inputStyles.field}>
           <label htmlFor="reject-reviewer-note" className={inputStyles.label}>
@@ -352,7 +349,7 @@ export function BusinessRequestsReviewPage() {
           </label>
           <textarea
             id="reject-reviewer-note"
-            className={styles.textarea}
+            className={[styles.textarea, inputStyles.input, rejectNoteError && inputStyles.error].filter(Boolean).join(' ')}
             maxLength={500}
             autoFocus
             aria-invalid={Boolean(rejectNoteError)}
@@ -400,6 +397,12 @@ function statusKey(status: BusinessRequestStatus): 'Pending' | 'Approved' | 'Rej
   if (status === 'approved') return 'Approved';
   if (status === 'rejected') return 'Rejected';
   return 'Pending';
+}
+
+function statusTone(status: BusinessRequestStatus): 'success' | 'warning' | 'neutral' {
+  if (status === 'approved') return 'success';
+  if (status === 'rejected') return 'neutral';
+  return 'warning';
 }
 
 function categoryKey(category: string): 'Fuel' | 'Food' | 'Eco' | 'Entertainment' | 'Shopping' | 'Other' {

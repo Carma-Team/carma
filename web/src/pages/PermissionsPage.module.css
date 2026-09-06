@@ -30,16 +30,6 @@
   gap: var(--space-xs);
 }
 
-.selfBadge {
-  display: inline-flex;
-  padding: 0 var(--space-xs);
-  border-radius: 999px;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-label);
-  background-color: var(--color-primary-surface);
-  color: var(--color-primary-text);
-}
-
 .actions {
   display: flex;
   gap: var(--space-sm);
