@@ -448,6 +448,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The authenticated business's own profile record */
+        get: operations["get_profile_api_business_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update the authenticated business's name, category or address */
+        patch: operations["update_profile_api_business_profile_patch"];
+        trace?: never;
+    };
     "/api/business/rewards": {
         parameters: {
             query?: never;
@@ -1337,6 +1355,71 @@ export interface components {
          * @enum {string}
          */
         BusinessMembershipRole: "OWNER" | "MANAGER" | "CASHIER";
+        /**
+         * BusinessProfileOut
+         * @description The business's own editable record (CAR-341) — distinct from `UserOut`'s
+         *     denormalized `business_*` fields, which exist for the driver-facing app and
+         *     carry only what a nav shell needs, not the full record.
+         */
+        BusinessProfileOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Namehe */
+            nameHe: string | null;
+            /** Category */
+            category: string;
+            /** Address */
+            address: string | null;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
+            /** Registrationnumber */
+            registrationNumber: string | null;
+            /** Ownername */
+            ownerName: string | null;
+            /** Owneremail */
+            ownerEmail: string | null;
+        };
+        /** BusinessProfileResponse */
+        BusinessProfileResponse: {
+            profile: components["schemas"]["BusinessProfileOut"];
+        };
+        /**
+         * BusinessProfileUpdateIn
+         * @description Partial update — only the fields actually sent are applied, same
+         *     `exclude_unset=True` convention as `BusinessRewardPatchIn`.
+         *
+         *     `name_he` is the one field a caller may clear: sent explicitly as null it
+         *     falls back to `name`, and omitting it leaves the existing value alone.
+         *     Every other field here backs a column the product never allows to go
+         *     empty, so an explicit null on any of them is rejected at the API boundary
+         *     rather than reaching `setattr` and failing at commit against a NOT NULL
+         *     constraint (or, for `address`, silently leaving the business without one).
+         *
+         *     `address`, `location_lat` and `location_lng` must be sent together or not
+         *     at all. `BusinessRegistrationPage`'s own confirm-location step is what
+         *     actually produces that pair today (geocode the typed address, let the
+         *     applicant confirm or drag the pin) — a PATCH that changed the text alone
+         *     would leave the map pin pointing at the old place while the address on
+         *     screen said something else.
+         */
+        BusinessProfileUpdateIn: {
+            /** Name */
+            name?: string | null;
+            /** Namehe */
+            nameHe?: string | null;
+            /** Category */
+            category?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Locationlat */
+            locationLat?: number | null;
+            /** Locationlng */
+            locationLng?: number | null;
+        };
         /** BusinessRedemptionListOut */
         BusinessRedemptionListOut: {
             /** Redemptions */
@@ -3329,6 +3412,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoucherResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_api_business_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileResponse"];
+                };
+            };
+        };
+    };
+    update_profile_api_business_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessProfileUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileResponse"];
                 };
             };
             /** @description Validation Error */

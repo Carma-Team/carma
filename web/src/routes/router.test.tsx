@@ -10,6 +10,7 @@ import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/bus
 import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
 import { listBusinessRequests } from '@/lib/api/businessRequests';
 import { listRedemptionHistory } from '@/lib/api/redemptionHistory';
+import { getBusinessProfile } from '@/lib/api/businessProfile';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -40,6 +41,11 @@ vi.mock('@/lib/api/businessRequests', async (importOriginal) => {
 vi.mock('@/lib/api/redemptionHistory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/redemptionHistory')>();
   return { ...actual, listRedemptionHistory: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessProfile', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessProfile')>();
+  return { ...actual, getBusinessProfile: vi.fn(), updateBusinessProfile: vi.fn() };
 });
 
 const businessUser = {
@@ -87,6 +93,7 @@ describe('routes', () => {
     vi.mocked(acceptInvitation).mockReset();
     vi.mocked(listBusinessRequests).mockReset();
     vi.mocked(listRedemptionHistory).mockReset();
+    vi.mocked(getBusinessProfile).mockReset();
   });
 
   // CAR-255: an ADMIN reaches the review page even with no business
@@ -216,14 +223,27 @@ describe('routes', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
+  it('renders the real business profile page inside the shell at /business-profile for an OWNER (CAR-341)', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(getBusinessProfile).mockResolvedValue({
+      outcome: 'ok',
+      profile: {
+        id: 'b1',
+        name: 'Aroma Israel',
+        nameHe: null,
+        category: 'food',
+        address: 'Dizengoff 210, Tel Aviv',
+        locationLat: 32.07,
+        locationLng: 34.78,
+        registrationNumber: '514032897',
+        ownerName: 'Dana Levi',
+        ownerEmail: 'dana@aroma-israel.co.il',
+      },
+    });
 
     renderAt('/business-profile');
 
-    // Not `getByText` — the sidebar's own disabled nav items carry the same
-    // "coming soon" badge copy. The heading is the page-level marker.
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקרוב' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'פרטי העסק' })).toBeInTheDocument());
   });
 
   it('renders the real rewards page inside the shell at /rewards for an OWNER (CAR-202)', async () => {
