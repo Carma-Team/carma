@@ -17,7 +17,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import audit
-from app.models import Business, BusinessCategory, BusinessJoinRequest, BusinessJoinRequestStatus, User, UserRole
+from app.models import (
+    Business,
+    BusinessBranch,
+    BusinessCategory,
+    BusinessJoinRequest,
+    BusinessJoinRequestStatus,
+    User,
+    UserRole,
+)
 from app.schemas.business_join_request import (
     BusinessJoinRequestAdminListOut,
     BusinessJoinRequestAdminOut,
@@ -284,14 +292,29 @@ async def approve(db: AsyncSession, admin: User, request_id: str) -> BusinessJoi
         registration_number=request.registration_number,
     )
     db.add(business)
-    # Flushed so `business.id` exists before the membership row below is built
-    # from it — the FK the OWNER row needs, not yet assigned on an unflushed
-    # ORM object.
+    # Flushed so `business.id` exists before the membership and branch rows
+    # below are built from it — the FK each needs, not yet assigned on an
+    # unflushed ORM object.
     await db.flush()
     # CAR-74: authorization for /api/business/* now comes from this row, not
     # from `owner_user_id` — without it the applicant's first request after
     # approval would 403.
     await business_service.ensure_owner_membership(db, business.id, applicant.id)
+    # CAR-341 continuation: every business needs at least one branch the
+    # moment it exists, not only once 0034_business_branches's backfill next
+    # runs — that migration only ever covers businesses that predate it.
+    # 0036_branch_on_legacy_insert's deferred trigger is the backstop for a
+    # future rollback to a server image that no longer adds this row itself —
+    # it only acts when a transaction commits a `Business` with none, so this
+    # explicit insert is still what runs day to day, not a fallback path.
+    db.add(
+        BusinessBranch(
+            business_id=business.id,
+            address=request.address,
+            location_lat=request.location_lat,
+            location_lng=request.location_lng,
+        )
+    )
     applicant.role = UserRole.BUSINESS
     request.status = BusinessJoinRequestStatus.APPROVED
     request.reviewed_at = datetime.now(UTC)

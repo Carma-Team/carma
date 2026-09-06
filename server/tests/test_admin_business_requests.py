@@ -173,6 +173,12 @@ async def test_approve_creates_business_sets_owner_and_flips_role(
         assert membership is not None, "approval must create the OWNER membership, not just owner_user_id"
         assert membership.role == BusinessMembershipRole.OWNER
 
+        # CAR-341 continuation: exactly one — the explicit insert in `approve`
+        # is what should create it; 0036_branch_on_legacy_insert's deferred
+        # trigger must see it already there at commit and stay out of the way.
+        branches = await business_service.list_branches(db_session, business)
+        assert len(branches) == 1, "approve() must create exactly one branch, not a duplicate from the DB trigger"
+
         refreshed_request = await db_session.get(BusinessJoinRequest, request.id)
         assert refreshed_request is not None
         assert refreshed_request.status == BusinessJoinRequestStatus.APPROVED

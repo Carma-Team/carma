@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 
 from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
+from app.schemas.business_branch import BranchCreateIn, BranchListResponse, BranchResponse, BranchUpdateIn
 from app.schemas.business_profile import BusinessProfileResponse, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut
 from app.schemas.redemption import BusinessRedemptionListOut
@@ -51,6 +52,45 @@ async def update_profile(
 ) -> BusinessProfileResponse:
     profile = await business_service.update_profile(db, membership.business, dto)
     return BusinessProfileResponse(profile=profile)
+
+
+# ── Branches (CAR-341 continuation) ─────────────────────────────────────────
+
+
+@router.get(
+    "/branches",
+    response_model=BranchListResponse,
+    response_model_by_alias=True,
+    summary="List every branch of the authenticated business, inactive included",
+)
+async def list_branches(membership: CurrentBusinessMembership, db: DbSession) -> BranchListResponse:
+    branches = await business_service.list_branches(db, membership.business)
+    return BranchListResponse(branches=branches)
+
+
+@router.post(
+    "/branches",
+    response_model=BranchResponse,
+    response_model_by_alias=True,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a branch to the authenticated business",
+)
+async def create_branch(dto: BranchCreateIn, membership: CurrentBusinessManager, db: DbSession) -> BranchResponse:
+    branch = await business_service.create_branch(db, membership.business, dto)
+    return BranchResponse(branch=branch)
+
+
+@router.patch(
+    "/branches/{branch_id}",
+    response_model=BranchResponse,
+    response_model_by_alias=True,
+    summary="Update or deactivate/reactivate an owned branch",
+)
+async def update_branch(
+    branch_id: str, dto: BranchUpdateIn, membership: CurrentBusinessManager, db: DbSession
+) -> BranchResponse:
+    branch = await business_service.update_branch(db, membership.business, branch_id, dto)
+    return BranchResponse(branch=branch)
 
 
 @router.get(

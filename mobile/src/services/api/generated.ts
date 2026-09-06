@@ -466,6 +466,41 @@ export interface paths {
         patch: operations["update_profile_api_business_profile_patch"];
         trace?: never;
     };
+    "/api/business/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every branch of the authenticated business, inactive included */
+        get: operations["list_branches_api_business_branches_get"];
+        put?: never;
+        /** Add a branch to the authenticated business */
+        post: operations["create_branch_api_business_branches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/branches/{branch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update or deactivate/reactivate an owned branch */
+        patch: operations["update_branch_api_business_branches__branch_id__patch"];
+        trace?: never;
+    };
     "/api/business/rewards": {
         parameters: {
             query?: never;
@@ -1079,6 +1114,69 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * BranchCreateIn
+         * @description A new branch always supplies address and coordinates together — there
+         *     is no partial state to reject the way `BranchUpdateIn` has to for a PATCH.
+         */
+        BranchCreateIn: {
+            /** Name */
+            name?: string | null;
+            /** Address */
+            address: string;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
+        };
+        /** BranchListResponse */
+        BranchListResponse: {
+            /** Branches */
+            branches: components["schemas"]["BranchOut"][];
+        };
+        /** BranchOut */
+        BranchOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Address */
+            address: string | null;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
+            /** Isactive */
+            isActive: boolean;
+        };
+        /** BranchResponse */
+        BranchResponse: {
+            branch: components["schemas"]["BranchOut"];
+        };
+        /**
+         * BranchUpdateIn
+         * @description Partial update, same `exclude_unset=True` convention as
+         *     `BusinessProfileUpdateIn`.
+         *
+         *     `name` is the one field a caller may clear — sent explicitly as null it
+         *     falls back to showing the address alone (see the approved design's own
+         *     "no name shows the address" note). `address`, `location_lat` and
+         *     `location_lng` must be sent together or not at all, and `is_active`
+         *     cannot be nulled, for the same reasons `BusinessProfileUpdateIn` rejects
+         *     an explicit null on its own non-clearable fields.
+         */
+        BranchUpdateIn: {
+            /** Name */
+            name?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Locationlat */
+            locationLat?: number | null;
+            /** Locationlng */
+            locationLng?: number | null;
+            /** Isactive */
+            isActive?: boolean | null;
+        };
         /** BusinessInvitationAcceptOut */
         BusinessInvitationAcceptOut: {
             /** Businessid */
@@ -1394,17 +1492,15 @@ export interface components {
          *
          *     `name_he` is the one field a caller may clear: sent explicitly as null it
          *     falls back to `name`, and omitting it leaves the existing value alone.
-         *     Every other field here backs a column the product never allows to go
-         *     empty, so an explicit null on any of them is rejected at the API boundary
+         *     `name` and `category` back a column the product never allows to go
+         *     empty, so an explicit null on either is rejected at the API boundary
          *     rather than reaching `setattr` and failing at commit against a NOT NULL
-         *     constraint (or, for `address`, silently leaving the business without one).
+         *     constraint.
          *
-         *     `address`, `location_lat` and `location_lng` must be sent together or not
-         *     at all. `BusinessRegistrationPage`'s own confirm-location step is what
-         *     actually produces that pair today (geocode the typed address, let the
-         *     applicant confirm or drag the pin) — a PATCH that changed the text alone
-         *     would leave the map pin pointing at the old place while the address on
-         *     screen said something else.
+         *     Deliberately has no `address`/`location_lat`/`location_lng` — a business's
+         *     location is branch data now (CAR-341 continuation), edited only through
+         *     `/api/business/branches`. Keeping a second address-editing path here
+         *     would let this PATCH and a branch edit disagree about which one is real.
          */
         BusinessProfileUpdateIn: {
             /** Name */
@@ -1413,12 +1509,6 @@ export interface components {
             nameHe?: string | null;
             /** Category */
             category?: string | null;
-            /** Address */
-            address?: string | null;
-            /** Locationlat */
-            locationLat?: number | null;
-            /** Locationlng */
-            locationLng?: number | null;
         };
         /** BusinessRedemptionListOut */
         BusinessRedemptionListOut: {
@@ -3465,6 +3555,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_branches_api_business_branches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchListResponse"];
+                };
+            };
+        };
+    };
+    create_branch_api_business_branches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_branch_api_business_branches__branch_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                branch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchResponse"];
                 };
             };
             /** @description Validation Error */
