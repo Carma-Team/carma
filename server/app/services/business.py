@@ -237,6 +237,11 @@ async def list_branches(db: AsyncSession, business: Business) -> list[BranchOut]
 
 
 async def create_branch(db: AsyncSession, business: Business, dto: BranchCreateIn) -> BranchOut:
+    """A newly created branch is always the most recently created one, so it
+    can never become the earliest-active/canonical branch `_default_branch`
+    resolves to — nothing here can change which branch that is, so unlike
+    `update_branch` this needs no lock and never touches the legacy mirror.
+    """
     branch = BusinessBranch(
         business_id=business.id,
         name=dto.name,
@@ -250,9 +255,22 @@ async def create_branch(db: AsyncSession, business: Business, dto: BranchCreateI
     return BranchOut.from_orm_branch(branch)
 
 
+async def _locked_business(db: AsyncSession, business_id: str) -> None:
+    """Lock the Business row for the rest of the caller's transaction — same
+    pattern `business_memberships._locked_business` uses for its own
+    last-OWNER invariant. Two concurrent branch mutations for this business
+    either both get everything they need, in turn, or the second blocks
+    entirely until the first commits or rolls back; a different business
+    locks a different row, so this never serializes unrelated businesses.
+    """
+    await db.execute(select(Business.id).where(Business.id == business_id).with_for_update())
+
+
 async def _owned_branch(db: AsyncSession, business: Business, branch_id: str) -> BusinessBranch:
     """Load a branch that belongs to this business, or 404 — same
-    another-business-is-also-404 rule as `_owned_reward`.
+    another-business-is-also-404 rule as `_owned_reward`. Always called
+    *after* `_locked_business` from `update_branch` — see its own docstring —
+    so the state this reads can't shift under the caller mid-decision.
     """
     branch = await db.scalar(
         select(BusinessBranch).where(BusinessBranch.id == branch_id, BusinessBranch.business_id == business.id)
@@ -262,13 +280,49 @@ async def _owned_branch(db: AsyncSession, business: Business, branch_id: str) ->
     return branch
 
 
+def _last_active_branch_conflict() -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {"code": LAST_ACTIVE_BRANCH, "message": "A business must have at least one active branch"},
+    )
+
+
+async def _sync_legacy_location_mirror(db: AsyncSession, business: Business) -> None:
+    """Keeps `Business.address/location_lat/location_lng` in step with the
+    current canonical branch while both schemas coexist (CAR-341
+    continuation's expand phase — see 0034_business_branches's own note on
+    why those columns aren't dropped yet).
+
+    An older, still-running server image reads these three columns
+    directly, never `business_branches` — without this, editing the
+    canonical branch, or deactivating/reactivating a branch in a way that
+    changes *which* branch is canonical, would leave that image showing a
+    stale location the moment either happens. Always called from inside
+    `_locked_business`'s lock, after the triggering change has been applied
+    (a flush, not yet a commit) — `_default_branch`'s read must see that
+    change to resolve the *new* canonical branch, not the one about to be
+    superseded. Removing this call is part of the future contract migration,
+    alongside dropping the columns themselves.
+    """
+    canonical = await _default_branch(db, business.id)
+    business.address = canonical.address
+    business.location_lat = canonical.location_lat
+    business.location_lng = canonical.location_lng
+
+
 async def update_branch(db: AsyncSession, business: Business, branch_id: str, dto: BranchUpdateIn) -> BranchOut:
     """Apply an owner/manager's edit to one of their own branches.
 
     Refuses to deactivate a business's last active branch — the approved
     design's own invariant ("every business has at least one branch") would
-    otherwise leave `_default_branch` with nothing to find.
+    otherwise leave `_default_branch` with nothing to find. Locks the
+    Business row before reading anything the decision depends on: without
+    it, two concurrent deactivations of two *different* branches could each
+    observe the other's branch as still active and both proceed, leaving
+    zero — the count and the branch's own `is_active` both have to be read
+    fresh, under the lock, never from a load taken before it.
     """
+    await _locked_business(db, business.id)
     branch = await _owned_branch(db, business, branch_id)
     changes = dto.model_dump(exclude_unset=True)
 
@@ -279,13 +333,18 @@ async def update_branch(db: AsyncSession, business: Business, branch_id: str, dt
             .where(BusinessBranch.business_id == business.id, BusinessBranch.is_active.is_(True))
         )
         if (active_count or 0) <= 1:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                {"code": LAST_ACTIVE_BRANCH, "message": "A business must have at least one active branch"},
-            )
+            await db.rollback()
+            raise _last_active_branch_conflict()
 
     for field, value in changes.items():
         setattr(branch, field, value)
+
+    # Flushed so `_sync_legacy_location_mirror`'s own read sees this change —
+    # relevant whenever the edit could move which branch is canonical (an
+    # address/coordinate edit on the canonical branch itself, or an
+    # is_active flip either direction), harmless no-op otherwise.
+    await db.flush()
+    await _sync_legacy_location_mirror(db, business)
 
     await db.commit()
     audit("business.branch.updated", business_id=business.id, branch_id=branch.id, fields=sorted(changes))
