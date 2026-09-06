@@ -11,6 +11,7 @@ import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/
 import { listBusinessRequests } from '@/lib/api/businessRequests';
 import { listRedemptionHistory } from '@/lib/api/redemptionHistory';
 import { getBusinessProfile } from '@/lib/api/businessProfile';
+import { listBranches } from '@/lib/api/businessBranches';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -46,6 +47,11 @@ vi.mock('@/lib/api/redemptionHistory', async (importOriginal) => {
 vi.mock('@/lib/api/businessProfile', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/businessProfile')>();
   return { ...actual, getBusinessProfile: vi.fn(), updateBusinessProfile: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessBranches', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessBranches')>();
+  return { ...actual, listBranches: vi.fn() };
 });
 
 const businessUser = {
@@ -94,6 +100,7 @@ describe('routes', () => {
     vi.mocked(listBusinessRequests).mockReset();
     vi.mocked(listRedemptionHistory).mockReset();
     vi.mocked(getBusinessProfile).mockReset();
+    vi.mocked(listBranches).mockReset();
   });
 
   // CAR-255: an ADMIN reaches the review page even with no business
@@ -239,6 +246,12 @@ describe('routes', () => {
         ownerName: 'Dana Levi',
         ownerEmail: 'dana@aroma-israel.co.il',
       },
+    });
+    vi.mocked(listBranches).mockResolvedValue({
+      outcome: 'ok',
+      branches: [
+        { id: 'br1', name: null, address: 'Dizengoff 210, Tel Aviv', locationLat: 32.07, locationLng: 34.78, isActive: true },
+      ],
     });
 
     renderAt('/business-profile');

@@ -14,6 +14,7 @@ from app.core.pagination import decode_cursor, encode_cursor
 from app.core.security import normalise_voucher_code
 from app.models import (
     Business,
+    BusinessBranch,
     BusinessCategory,
     BusinessMembership,
     BusinessMembershipRole,
@@ -22,6 +23,7 @@ from app.models import (
     Reward,
     User,
 )
+from app.schemas.business_branch import BranchCreateIn, BranchOut, BranchUpdateIn
 from app.schemas.business_profile import BusinessProfileOut, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut, SoldOutRewardOut, TopRewardOut
 from app.schemas.redemption import BusinessRedemptionOut
@@ -172,7 +174,8 @@ async def _owner_contact(db: AsyncSession, business_id: str) -> User | None:
 
 async def get_profile(db: AsyncSession, business: Business) -> BusinessProfileOut:
     owner = await _owner_contact(db, business.id)
-    return BusinessProfileOut.from_orm_business(business, owner)
+    default_branch = await _default_branch(db, business.id)
+    return BusinessProfileOut.from_orm_business(business, owner, default_branch)
 
 
 async def update_profile(db: AsyncSession, business: Business, dto: BusinessProfileUpdateIn) -> BusinessProfileOut:
@@ -181,8 +184,8 @@ async def update_profile(db: AsyncSession, business: Business, dto: BusinessProf
     `registration_number` is deliberately absent from `BusinessProfileUpdateIn`
     (see its own docstring) — there is no path, here or anywhere else, that
     writes it after `services.business_join_requests.approve` sets it once.
-    `BusinessProfileUpdateIn`'s own validators are what keep `address` from
-    ever landing here without `location_lat`/`location_lng` alongside it.
+    Location fields are absent too (see the schema's own docstring) — an
+    address/coordinate edit only ever reaches `update_branch` below.
     """
     changes = dto.model_dump(exclude_unset=True)
     if "category" in changes and changes["category"] is not None:
@@ -193,6 +196,100 @@ async def update_profile(db: AsyncSession, business: Business, dto: BusinessProf
     await db.commit()
     audit("business.profile.updated", business_id=business.id, fields=sorted(changes))
     return await get_profile(db, business)
+
+
+# ── Business branches (CAR-341 continuation) ────────────────────────────────
+
+# Structured 409 — a client branches on `detail["code"]`, same convention as
+# every other business-scoped conflict in this module.
+LAST_ACTIVE_BRANCH = "LAST_ACTIVE_BRANCH"
+
+
+async def _default_branch(db: AsyncSession, business_id: str) -> BusinessBranch:
+    """The branch `BusinessProfileOut`'s address/coordinate mirror reads from.
+
+    The earliest-created *active* branch — the same "earliest row wins"
+    convention `_owner_contact` uses for OWNER memberships, rather than a
+    persisted `is_default` flag that could disagree with it. Always finds a
+    row: every business gets one at creation (`business_join_requests.approve`)
+    or migration backfill (`0034_business_branches`), and `update_branch`
+    below refuses to deactivate the last active one.
+    """
+    branch = await db.scalar(
+        select(BusinessBranch)
+        .where(BusinessBranch.business_id == business_id, BusinessBranch.is_active.is_(True))
+        .order_by(BusinessBranch.created_at.asc())
+        .limit(1)
+    )
+    assert branch is not None, "every business must have at least one active branch"
+    return branch
+
+
+async def list_branches(db: AsyncSession, business: Business) -> list[BranchOut]:
+    branches = (
+        await db.scalars(
+            select(BusinessBranch)
+            .where(BusinessBranch.business_id == business.id)
+            .order_by(BusinessBranch.created_at.asc())
+        )
+    ).all()
+    return [BranchOut.from_orm_branch(b) for b in branches]
+
+
+async def create_branch(db: AsyncSession, business: Business, dto: BranchCreateIn) -> BranchOut:
+    branch = BusinessBranch(
+        business_id=business.id,
+        name=dto.name,
+        address=dto.address,
+        location_lat=dto.location_lat,
+        location_lng=dto.location_lng,
+    )
+    db.add(branch)
+    await db.commit()
+    audit("business.branch.created", business_id=business.id, branch_id=branch.id)
+    return BranchOut.from_orm_branch(branch)
+
+
+async def _owned_branch(db: AsyncSession, business: Business, branch_id: str) -> BusinessBranch:
+    """Load a branch that belongs to this business, or 404 — same
+    another-business-is-also-404 rule as `_owned_reward`.
+    """
+    branch = await db.scalar(
+        select(BusinessBranch).where(BusinessBranch.id == branch_id, BusinessBranch.business_id == business.id)
+    )
+    if branch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Branch not found")
+    return branch
+
+
+async def update_branch(db: AsyncSession, business: Business, branch_id: str, dto: BranchUpdateIn) -> BranchOut:
+    """Apply an owner/manager's edit to one of their own branches.
+
+    Refuses to deactivate a business's last active branch — the approved
+    design's own invariant ("every business has at least one branch") would
+    otherwise leave `_default_branch` with nothing to find.
+    """
+    branch = await _owned_branch(db, business, branch_id)
+    changes = dto.model_dump(exclude_unset=True)
+
+    if changes.get("is_active") is False and branch.is_active:
+        active_count = await db.scalar(
+            select(func.count())
+            .select_from(BusinessBranch)
+            .where(BusinessBranch.business_id == business.id, BusinessBranch.is_active.is_(True))
+        )
+        if (active_count or 0) <= 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"code": LAST_ACTIVE_BRANCH, "message": "A business must have at least one active branch"},
+            )
+
+    for field, value in changes.items():
+        setattr(branch, field, value)
+
+    await db.commit()
+    audit("business.branch.updated", business_id=business.id, branch_id=branch.id, fields=sorted(changes))
+    return BranchOut.from_orm_branch(branch)
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
