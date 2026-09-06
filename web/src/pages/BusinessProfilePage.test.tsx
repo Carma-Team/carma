@@ -166,6 +166,7 @@ describe('BusinessProfilePage', () => {
     fireEvent.change(screen.getByDisplayValue('Aroma Israel'), { target: { value: 'Something else' } });
     fireEvent.click(screen.getByRole('tab', { name: /סניפים/ }));
 
+    expect(document.querySelector('dialog')).toHaveAttribute('open');
     expect(screen.getByText('לצאת בלי לשמור?')).toBeInTheDocument();
     // Still on the details tab — the switch has not happened yet.
     expect(screen.getByDisplayValue('Something else')).toBeInTheDocument();
@@ -182,7 +183,11 @@ describe('BusinessProfilePage', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /סניפים/ }));
 
-    expect(screen.queryByText('לצאת בלי לשמור?')).not.toBeInTheDocument();
+    // Dialog (native <dialog>) always renders its children in the DOM — only
+    // the `open` attribute (toggled by the mocked showModal/close above)
+    // says whether it's actually showing, so that's what a "no dialog"
+    // assertion has to check, not text presence.
+    expect(document.querySelector('dialog')).not.toHaveAttribute('open');
     expect(screen.getByRole('tab', { name: /סניפים/ })).toHaveAttribute('aria-selected', 'true');
   });
 
