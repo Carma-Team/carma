@@ -303,6 +303,10 @@ async def approve(db: AsyncSession, admin: User, request_id: str) -> BusinessJoi
     # CAR-341 continuation: every business needs at least one branch the
     # moment it exists, not only once 0034_business_branches's backfill next
     # runs — that migration only ever covers businesses that predate it.
+    # 0036_branch_on_legacy_insert's deferred trigger is the backstop for a
+    # future rollback to a server image that no longer adds this row itself —
+    # it only acts when a transaction commits a `Business` with none, so this
+    # explicit insert is still what runs day to day, not a fallback path.
     db.add(
         BusinessBranch(
             business_id=business.id,

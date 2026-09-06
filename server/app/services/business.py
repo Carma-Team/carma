@@ -211,9 +211,11 @@ async def _default_branch(db: AsyncSession, business_id: str) -> BusinessBranch:
     The earliest-created *active* branch — the same "earliest row wins"
     convention `_owner_contact` uses for OWNER memberships, rather than a
     persisted `is_default` flag that could disagree with it. Always finds a
-    row: every business gets one at creation (`business_join_requests.approve`)
-    or migration backfill (`0034_business_branches`), and `update_branch`
-    below refuses to deactivate the last active one.
+    row: every business gets one at creation (`business_join_requests.approve`),
+    migration backfill (`0034_business_branches`), or — for a business a
+    previous server image inserted without one — `0036_branch_on_legacy_insert`'s
+    deferred DB trigger. `update_branch` below refuses to deactivate the last
+    active one.
     """
     branch = await db.scalar(
         select(BusinessBranch)

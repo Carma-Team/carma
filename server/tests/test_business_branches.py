@@ -447,6 +447,58 @@ async def test_legacy_write_never_resurrects_a_deactivated_branch_as_canonical(d
         await _cleanup(db_session, business, owner)
 
 
+# ─── Mixed-version compatibility — the legacy-insert DB trigger ──────────────
+#
+# `business_join_requests.approve()`'s own explicit `BusinessBranch` insert
+# (proven in test_admin_business_requests.py) only covers the *new* image.
+# A previous image's `approve()` predates `business_branches` and creates a
+# `Business` with no branch at all — `0036_branch_on_legacy_insert`'s
+# deferred constraint trigger is the other half: exercised here with a raw
+# `Business` insert that never goes through `approve()` or `create_branch`,
+# the same shape the old image would leave behind.
+
+
+@pytest.mark.asyncio
+async def test_legacy_business_insert_without_a_branch_gets_one_automatically(db_session: AsyncSession) -> None:
+    owner = User(
+        email=f"_biz_{uuid.uuid4().hex[:10]}@carmatest.co.il",
+        password_hash="x",
+        role=UserRole.BUSINESS,
+        name="Legacy Biz Owner",
+    )
+    db_session.add(owner)
+    await db_session.flush()
+
+    business = Business(
+        owner_user_id=owner.id,
+        name="Legacy-Created Biz",
+        category=BusinessCategory.FOOD,
+        location_lat=32.06,
+        location_lng=34.77,
+        address="Legacy Insert Address",
+        registration_number=f"51{uuid.uuid4().int % 10**7:07d}",
+    )
+    db_session.add(business)
+    # No BusinessBranch added — exactly what a previous server image's
+    # `approve()` leaves behind: one INSERT, no knowledge of this table.
+    await db_session.commit()
+    business_id, owner_id = business.id, owner.id
+
+    try:
+        default = await business_service._default_branch(db_session, business_id)
+        assert default.address == "Legacy Insert Address"
+        assert default.location_lat == 32.06
+        assert default.location_lng == 34.77
+        assert default.is_active is True
+
+        all_branches = await business_service.list_branches(db_session, business)
+        assert len(all_branches) == 1
+    finally:
+        await db_session.execute(delete(Business).where(Business.id == business_id))
+        await db_session.execute(delete(User).where(User.id == owner_id))
+        await db_session.commit()
+
+
 # ─── Concurrency — the last-active-branch invariant under real races ─────────
 
 
