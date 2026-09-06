@@ -73,6 +73,23 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: 'פרטי העסק' })).toHaveAttribute('href', '/business-profile');
     expect(screen.getByRole('link', { name: 'צוות והרשאות' })).toHaveAttribute('href', '/permissions');
     expect(screen.getByRole('link', { name: 'היסטוריית מימושים' })).toHaveAttribute('href', '/redemption-history');
+    expect(screen.getByRole('link', { name: 'הגדרות' })).toHaveAttribute('href', '/account-settings');
+  });
+
+  // CAR-342: unlike every business/admin nav item above, Account Settings is
+  // the signed-in user's own personal details, not a business capability —
+  // it must stay reachable regardless of role.
+  it('shows the Settings nav link for every role, business or admin', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { ...baseUser, role: 'ADMIN' as const, businessMembershipRole: null },
+      login: vi.fn(),
+      logout,
+      retry: vi.fn(),
+    });
+    renderShell();
+
+    expect(screen.getByRole('link', { name: 'הגדרות' })).toHaveAttribute('href', '/account-settings');
   });
 
   it('renders nav items with no backing route as non-interactive text, not dead links', () => {

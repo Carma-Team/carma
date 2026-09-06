@@ -103,6 +103,12 @@
   cursor: default;
 }
 
+.sidebarFooter {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .badge {
   font-size: 10.5px;
   font-weight: var(--font-weight-label);
