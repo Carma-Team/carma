@@ -23,10 +23,10 @@
 CARMA is a mobile platform for young drivers in Israel that rates driving behavior in real time. Drivers earn a CARMA Score from GPS and IMU sensor data, and turn safe driving into points they can redeem with partner businesses.
 
 <p align="center">
-  <img src="screenshots/1.JPG" width="170">
-  <img src="screenshots/2.JPG" width="170">
-  <img src="screenshots/3.JPG" width="170">
-  <img src="screenshots/4.JPG" width="170">
+  <img src="screenshots/leaderboard.jpg" width="170">
+  <img src="screenshots/rewards-store.jpg" width="170">
+  <img src="screenshots/trip-summary.jpg" width="170">
+  <img src="screenshots/home-dashboard.jpg" width="170">
 </p>
 <p align="center"><sub>The app in action</sub></p>
 
