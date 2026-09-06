@@ -16,6 +16,11 @@ from app.schemas.leaderboard import (
 )
 from app.services import friends
 from app.services.cities import COUNTRY
+from app.services.scoring import CONFIG
+
+# Coalesced to the same prior the payload substitutes (CAR-19 review), so the
+# rank a row gets is always computed from the number it's shown with.
+_RANK_SCORE = func.coalesce(User.driver_score, CONFIG.prior_score)
 
 
 async def locations(db: AsyncSession) -> LocationsOut:
@@ -46,7 +51,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
             await db.scalars(
                 select(User)
                 .where(User.role == UserRole.DRIVER, User.id.in_(ids | {current.id}))
-                .order_by(User.driver_score.desc().nullslast(), User.created_at.asc())
+                .order_by(_RANK_SCORE.desc(), User.created_at.asc())
                 .limit(100)
             )
         ).all()
@@ -60,10 +65,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
                 board_where.append(User.city_code == target_city)
         users = (
             await db.scalars(
-                select(User)
-                .where(*board_where)
-                .order_by(User.driver_score.desc().nullslast(), User.created_at.asc())
-                .limit(100)
+                select(User).where(*board_where).order_by(_RANK_SCORE.desc(), User.created_at.asc()).limit(100)
             )
         ).all()
         statuses = await friends.status_map(db, current.id, [u.id for u in users])
@@ -96,17 +98,8 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
     # board never answers with a national rank.
     my_rank: int | None = None
     if not any(u.id == current.id for u in users) and type_ != "friends":
-        # nullslast() puts a NULL driver_score behind every real value, not
-        # merely behind values above the prior, so a NULL viewer is only
-        # outranked by non-NULL rows — never compared against the prior itself.
-        if current.driver_score is None:
-            above = await db.scalar(
-                select(func.count()).select_from(User).where(*board_where, User.driver_score.is_not(None))
-            )
-        else:
-            above = await db.scalar(
-                select(func.count()).select_from(User).where(*board_where, User.driver_score > current.driver_score)
-            )
+        current_score = current.driver_score if current.driver_score is not None else CONFIG.prior_score
+        above = await db.scalar(select(func.count()).select_from(User).where(*board_where, _RANK_SCORE > current_score))
         my_rank = (above or 0) + 1
 
     return LeaderboardOut(entries=entries, current_user_id=current.id, my_rank=my_rank)

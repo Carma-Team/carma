@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
 from app.models import City, User, UserRole
 from app.services import leaderboard as svc
+from app.services.scoring import CONFIG
 
 # A city of this test's own. Cities are reference rows now (CAR-218), so the
 # isolation a random name used to give comes from a code nothing else uses.
@@ -146,18 +147,20 @@ async def test_the_board_ranks_by_driver_score_not_points(db_session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_a_null_driver_score_sorts_behind_every_real_value(db_session: AsyncSession) -> None:
-    """nullslast(): a driver with no completed trips must never sit above a
-    driver with a real (even low) score."""
-    unscored = await _driver(db_session, points=9000, driver_score=None)
-    scored_low = await _driver(db_session, points=1, driver_score=1.0)
+async def test_a_null_driver_score_ranks_at_the_prior_it_displays(db_session: AsyncSession) -> None:
+    """A driver with no completed trips is shown CONFIG.prior_score (CAR-19
+    review by @mayh) — so they must rank exactly where that value falls, not
+    behind every real score regardless of how low."""
+    above_prior = await _driver(db_session, points=9000, driver_score=CONFIG.prior_score + 1)
+    unscored = await _driver(db_session, points=1, driver_score=None)
+    below_prior = await _driver(db_session, points=1, driver_score=CONFIG.prior_score - 1)
     try:
-        board = await svc.get(db_session, scored_low, "city", CITY_CODE)
+        board = await svc.get(db_session, unscored, "city", CITY_CODE)
         ranks = {e.user_id: e.rank for e in board.entries}
 
-        assert ranks[scored_low.id] < ranks[unscored.id]
+        assert ranks[above_prior.id] < ranks[unscored.id] < ranks[below_prior.id]
     finally:
-        await _cleanup(db_session, unscored, scored_low)
+        await _cleanup(db_session, above_prior, unscored, below_prior)
 
 
 @pytest.mark.asyncio
