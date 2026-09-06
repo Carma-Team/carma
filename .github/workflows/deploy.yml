@@ -203,70 +203,74 @@ jobs:
       # because the previous revision keeps answering `ok` until traffic moves.
       # What is left is the pair that does mean something: the revision provisioned
       # and holds all the traffic, and then a real request to it comes back ok.
+      #
+      # A plain `run:` rather than azure/cli@v2 like the steps above, because this
+      # is the one that needs curl as well as az. The runner image ships both and
+      # `azure/login` above authenticates its az; the azure-cli container is not
+      # documented to carry curl, and a missing one here would fail every deploy
+      # while the app was healthy - the exact false alarm this step exists to end.
       - name: Verify the new revision serves
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            set -euo pipefail
-            RG=${{ secrets.AZURE_RESOURCE_GROUP }}
-            APP=${{ secrets.AZURE_CONTAINER_APP }}
+        run: |
+          set -euo pipefail
+          RG=${{ secrets.AZURE_RESOURCE_GROUP }}
+          APP=${{ secrets.AZURE_CONTAINER_APP }}
 
-            REVISION=$(az containerapp show -n "$APP" -g "$RG" \
-              --query properties.latestRevisionName -o tsv)
-            FQDN=$(az containerapp show -n "$APP" -g "$RG" \
-              --query properties.configuration.ingress.fqdn -o tsv)
-            echo "verifying $REVISION at https://$FQDN"
+          REVISION=$(az containerapp show -n "$APP" -g "$RG" \
+            --query properties.latestRevisionName -o tsv)
+          FQDN=$(az containerapp show -n "$APP" -g "$RG" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "verifying $REVISION at https://$FQDN"
 
-            dump_logs() {
-              az containerapp logs show -n "$APP" -g "$RG" \
-                --revision "$REVISION" --tail 100 --type console || true
-            }
+          dump_logs() {
+            az containerapp logs show -n "$APP" -g "$RG" \
+              --revision "$REVISION" --tail 100 --type console || true
+          }
 
-            READY=false
-            for _ in $(seq 1 30); do
-              # Queried separately on purpose: a two-element --query projection
-              # prints one value per line rather than tab-separated, so `read` into
-              # two names silently leaves the second one empty.
-              PROV=$(az containerapp revision show -n "$APP" -g "$RG" \
-                --revision "$REVISION" --query properties.provisioningState -o tsv)
-              TRAFFIC=$(az containerapp revision show -n "$APP" -g "$RG" \
-                --revision "$REVISION" --query properties.trafficWeight -o tsv)
-              if [ "$PROV" = "Failed" ]; then
-                echo "::error::revision $REVISION failed to provision. Traffic stays on the previous revision, so production is still up on the old image."
-                dump_logs
-                exit 1
-              fi
-              if [ "$PROV" = "Provisioned" ] && [ "$TRAFFIC" = "100" ]; then
-                READY=true
-                break
-              fi
-              sleep 10
-            done
-
-            if [ "$READY" != true ]; then
-              echo "::error::revision $REVISION did not take traffic within 5 minutes (provisioningState=$PROV trafficWeight=$TRAFFIC)."
+          READY=false
+          for _ in $(seq 1 30); do
+            # Queried separately on purpose: a two-element --query projection
+            # prints one value per line rather than tab-separated, so `read` into
+            # two names silently leaves the second one empty.
+            PROV=$(az containerapp revision show -n "$APP" -g "$RG" \
+              --revision "$REVISION" --query properties.provisioningState -o tsv)
+            TRAFFIC=$(az containerapp revision show -n "$APP" -g "$RG" \
+              --revision "$REVISION" --query properties.trafficWeight -o tsv)
+            if [ "$PROV" = "Failed" ]; then
+              echo "::error::revision $REVISION failed to provision. Traffic stays on the previous revision, so production is still up on the old image."
               dump_logs
               exit 1
             fi
+            if [ "$PROV" = "Provisioned" ] && [ "$TRAFFIC" = "100" ]; then
+              READY=true
+              break
+            fi
+            sleep 10
+          done
 
-            # A cold start on this app measured 24s against 1.6s warm, so the
-            # per-request timeout has to clear the cold path or every attempt aborts
-            # mid-boot and a healthy deploy reads as broken.
-            BODY=""
-            for _ in $(seq 1 6); do
-              BODY=$(curl -fsS --max-time 45 "https://$FQDN/health" || true)
-              case "$BODY" in
-                *'"status":"ok"'*'"db":"ok"'*)
-                  echo "health ok: $BODY"
-                  exit 0
-                  ;;
-              esac
-              sleep 10
-            done
-
-            echo "::error::$REVISION holds traffic but /health never returned ok. Last body: ${BODY:-<empty>}"
+          if [ "$READY" != true ]; then
+            echo "::error::revision $REVISION did not take traffic within 5 minutes (provisioningState=$PROV trafficWeight=$TRAFFIC)."
             dump_logs
             exit 1
+          fi
+
+          # A cold start on this app measured 24s against 1.6s warm, so the
+          # per-request timeout has to clear the cold path or every attempt aborts
+          # mid-boot and a healthy deploy reads as broken.
+          BODY=""
+          for _ in $(seq 1 6); do
+            BODY=$(curl -fsS --max-time 45 "https://$FQDN/health" || true)
+            case "$BODY" in
+              *'"status":"ok"'*'"db":"ok"'*)
+                echo "health ok: $BODY"
+                exit 0
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "::error::$REVISION holds traffic but /health never returned ok. Last body: ${BODY:-<empty>}"
+          dump_logs
+          exit 1
 
       - name: Report what shipped
         uses: azure/cli@v2
