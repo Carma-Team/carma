@@ -11,8 +11,8 @@ binding is Phase 2). signals.binding has no default, so writing a value now
 means fabricating one the CHECK constraint exists to keep honest. Those
 three arrive as a Phase 2 migration once there is a writer for them.
 
-Revision ID: 0027_trip_occupancy
-Revises: 0026_business_invitations
+Revision ID: 0034_trip_occupancy
+Revises: 0033_drop_users_city
 Create Date: 2026-08-30 00:00:00.000000
 """
 
@@ -23,8 +23,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from alembic import op
 
-revision: str = "0027_trip_occupancy"
-down_revision: str | None = "0030_scoring_version_flat_ids"
+revision: str = "0034_trip_occupancy"
+down_revision: str | None = "0033_drop_users_city"
 branch_labels: str | None = None
 depends_on: str | None = None
 

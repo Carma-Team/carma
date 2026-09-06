@@ -1,9 +1,11 @@
 """Live DB integration tests for the occupancy declaration (CAR-220).
 
-Both tests exist because an in-session assertion would pass even if `declare()`
-never committed — the row is visible to the writer's own session either way.
-The first opens a second session against the same engine to prove the row
-survives past the request; the second exercises the actual exclusion path in
+`test_declare_persists_across_a_fresh_session` and
+`test_declared_passenger_trip_excluded_from_rolling_driver_score` exist because
+an in-session assertion would pass even if `declare()` never committed — the
+row is visible to the writer's own session either way. The first opens a
+second session against the same engine to prove the row survives past the
+request; the second exercises the actual exclusion path in
 `trips._compute_score` rather than re-stating its WHERE clause.
 """
 
