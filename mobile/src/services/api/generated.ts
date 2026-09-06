@@ -2014,6 +2014,8 @@ export interface components {
             rank: number;
             /** Score */
             score: number;
+            /** Driverscore */
+            driverScore: number;
             /** Distancekm */
             distanceKm: number;
             user: components["schemas"]["LeaderboardUserSummary"];

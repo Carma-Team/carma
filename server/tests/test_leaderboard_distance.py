@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
 from app.models import City, User, UserRole
 from app.services import leaderboard as svc
+from app.services.scoring import CONFIG
 
 # A city of this test's own. Cities are reference rows now (CAR-218), so the
 # isolation a random name used to give comes from a code nothing else uses.
@@ -32,7 +33,14 @@ async def _ensure_city(db: AsyncSession) -> None:
         await db.commit()
 
 
-async def _driver(db: AsyncSession, *, points: int, distance: float = 0.0, private: bool = False) -> User:
+async def _driver(
+    db: AsyncSession,
+    *,
+    points: int,
+    distance: float = 0.0,
+    private: bool = False,
+    driver_score: float | None = None,
+) -> User:
     await _ensure_city(db)
     user = User(
         email=f"_lbkm_{uuid.uuid4().hex[:10]}@carmatest.co.il",
@@ -43,6 +51,7 @@ async def _driver(db: AsyncSession, *, points: int, distance: float = 0.0, priva
         total_points=points,
         total_distance=distance,
         is_private=private,
+        driver_score=driver_score,
     )
     db.add(user)
     await db.commit()
@@ -119,6 +128,57 @@ async def test_every_board_type_carries_the_field(db_session: AsyncSession) -> N
                 assert mine and mine[0].distance_km == pytest.approx(61.0)
     finally:
         await _cleanup(db_session, viewer)
+
+
+@pytest.mark.asyncio
+async def test_the_board_ranks_by_driver_score_not_points(db_session: AsyncSession) -> None:
+    """CAR-19: a high-points, low-driver_score driver must rank below a
+    low-points, high-driver_score one — the opposite of the old total_points
+    sort, and the whole reason this ticket exists."""
+    grinder = await _driver(db_session, points=5000, driver_score=40.0)
+    careful = await _driver(db_session, points=100, driver_score=95.0)
+    try:
+        board = await svc.get(db_session, careful, "city", CITY_CODE)
+        ranks = {e.user_id: e.rank for e in board.entries}
+
+        assert ranks[careful.id] < ranks[grinder.id]
+    finally:
+        await _cleanup(db_session, grinder, careful)
+
+
+@pytest.mark.asyncio
+async def test_a_null_driver_score_ranks_at_the_prior_it_displays(db_session: AsyncSession) -> None:
+    """A driver with no completed trips is shown CONFIG.prior_score (CAR-19
+    review by @mayh) — so they must rank exactly where that value falls, not
+    behind every real score regardless of how low."""
+    above_prior = await _driver(db_session, points=9000, driver_score=CONFIG.prior_score + 1)
+    unscored = await _driver(db_session, points=1, driver_score=None)
+    below_prior = await _driver(db_session, points=1, driver_score=CONFIG.prior_score - 1)
+    try:
+        board = await svc.get(db_session, unscored, "city", CITY_CODE)
+        ranks = {e.user_id: e.rank for e in board.entries}
+
+        assert ranks[above_prior.id] < ranks[unscored.id] < ranks[below_prior.id]
+    finally:
+        await _cleanup(db_session, above_prior, unscored, below_prior)
+
+
+@pytest.mark.asyncio
+async def test_my_rank_counts_by_driver_score_when_off_the_visible_board(db_session: AsyncSession) -> None:
+    """my_rank is computed separately from the top-100 query (leaderboard.py),
+    so it needs its own coverage that the same metric switch reached it.
+
+    The viewer is private so they're excluded from `users` (same as the board
+    itself), which is what makes the my_rank branch run at all.
+    """
+    first = await _driver(db_session, points=1, driver_score=90.0)
+    second = await _driver(db_session, points=1, driver_score=80.0)
+    viewer = await _driver(db_session, points=9000, driver_score=10.0, private=True)
+    try:
+        board = await svc.get(db_session, viewer, "city", CITY_CODE)
+        assert board.my_rank == 3
+    finally:
+        await _cleanup(db_session, first, second, viewer)
 
 
 @pytest.mark.asyncio
