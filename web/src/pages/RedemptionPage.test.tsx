@@ -532,7 +532,14 @@ describe('RedemptionPage', () => {
       expect(screen.queryByText('Connection error')).not.toBeInTheDocument();
     });
 
-    it('shows a specific, reassuring message — not the generic fallback — when the redeem action itself fails unexpectedly', async () => {
+    // ── CAR-340 review: unexpected_error at confirm must never claim the
+    // voucher was not consumed without proof — vouchers.ts's toResult says an
+    // unexpected_error response "may well have reached the server," so the
+    // redemption may have actually gone through despite the client-side
+    // failure. handleConfirm re-peeks before saying anything, exactly like
+    // its already_used recovery. ──────────────────────────────────────────
+
+    it('re-peeks after an unexpected redeem failure and only shows the reassuring "not consumed" message once that re-peek proves it', async () => {
       vi.mocked(peekVoucher).mockResolvedValue({ outcome: 'ok', voucher: makeVoucher() });
       vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'unexpected_error' });
 
@@ -546,6 +553,51 @@ describe('RedemptionPage', () => {
       // Not the generic lookup-phase fallback, which says nothing about the
       // voucher being safe to retry.
       expect(screen.queryByText('משהו השתבש')).not.toBeInTheDocument();
+      // One peek for the initial lookup, a second as the reconciliation
+      // re-peek that actually earned this message.
+      expect(peekVoucher).toHaveBeenCalledTimes(2);
+    });
+
+    it('shows the already-used failure card, not a "not consumed" claim, when reconciliation reveals the redemption actually went through', async () => {
+      const redeemedAt = '2026-08-20T10:00:00.000Z';
+      vi.mocked(peekVoucher)
+        .mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher() })
+        // The unexpected_error response reached the client after the server
+        // had already committed the redemption — the reconciliation re-peek
+        // is how the page discovers that.
+        .mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher({ status: 'used', redeemedAt }) });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'unexpected_error' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByText('השובר כבר מומש')).toBeInTheDocument());
+      expect(screen.getByText(new Date(redeemedAt).toLocaleString('he-IL'))).toBeInTheDocument();
+      expect(screen.queryByText('המימוש נכשל')).not.toBeInTheDocument();
+      expect(screen.queryByText(/השובר לא נצרך/)).not.toBeInTheDocument();
+    });
+
+    it('never claims the voucher was not consumed when an unexpected redeem failure cannot be reconciled either way', async () => {
+      vi.mocked(peekVoucher)
+        .mockResolvedValueOnce({ outcome: 'ok', voucher: makeVoucher() })
+        // The reconciliation re-peek itself fails — nothing is proven either
+        // way, so this must stay in the unresolved, safety-first state.
+        .mockResolvedValueOnce({ outcome: 'network_error' });
+      vi.mocked(consumeVoucher).mockResolvedValue({ outcome: 'unexpected_error' });
+
+      renderPage();
+      await enterCode('TXQ947ZKPS');
+      fireEvent.click(screen.getByRole('button', { name: 'מימוש ההטבה' }));
+      fireEvent.click(screen.getByRole('button', { name: 'כן, מימוש ההטבה' }));
+
+      await waitFor(() => expect(screen.getByText('המימוש לא אושר')).toBeInTheDocument());
+      expect(screen.getByText(/אל תמסרו את המוצר/)).toBeInTheDocument();
+      // Must never claim the voucher definitely was not consumed when the
+      // application cannot establish that fact.
+      expect(screen.queryByText('המימוש נכשל')).not.toBeInTheDocument();
+      expect(screen.queryByText(/השובר לא נצרך/)).not.toBeInTheDocument();
     });
 
     it('falls back to a safe, translated message for an unexpected failure, without any raw server text or status code', async () => {

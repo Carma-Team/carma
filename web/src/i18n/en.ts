@@ -88,6 +88,9 @@ const en: TranslationMap = {
     failureConfirmUnexpectedTitle: 'Redemption failed',
     failureConfirmUnexpectedMessage:
       'The check succeeded, but the redemption itself failed. The voucher was not used — you can try again.',
+    failureConfirmUnexpectedUnknownTitle: 'Redemption not confirmed',
+    failureConfirmUnexpectedUnknownMessage:
+      "The voucher was valid, but we couldn't confirm whether the redemption went through. Do not hand over the goods — check the code again before trying to redeem it.",
   },
   auth: {
     signInTitle: 'Sign in to the Business Portal',

@@ -38,13 +38,25 @@ type Step =
 // voucher that has simply been expired for days (found on lookup) is not the
 // same situation as one that expired in the seconds between lookup and
 // confirm (found only as a 409) — see failureCopyKeys.
+// `unexpected_error`'s `notConsumed` is deliberately unlike `network_error`:
+// vouchers.ts reserves `network_error` for *no response at all* (offline,
+// DNS, CORS, a dropped connection), so a confirm-time network_error can
+// honestly say "we don't know" without checking anything further. But
+// `unexpected_error` is vouchers.ts's catch-all for a response that *did*
+// arrive — any other status, a 409 with an unrecognized code, or a body that
+// failed to parse — and its own comment says the request "may well have
+// reached the server." At confirm time that means the redemption may have
+// actually gone through despite the client-side failure, so whether it's
+// safe to say "not consumed" is only known once a re-peek confirms it (see
+// handleConfirm) — `undefined`/`false` must render as unresolved, never as
+// a safe-to-retry claim.
 type Failure =
   | { outcome: 'not_valid_here' }
   | { outcome: 'already_used'; redeemedAt: string | null }
   | { outcome: 'expired'; phase: 'lookup' | 'confirm'; expiresAt: string | null }
   | { outcome: 'rate_limited'; retryAfterSeconds: number | null }
   | { outcome: 'network_error'; phase: 'lookup' | 'confirm' }
-  | { outcome: 'unexpected_error'; phase: 'lookup' | 'confirm' };
+  | { outcome: 'unexpected_error'; phase: 'lookup' | 'confirm'; notConsumed?: boolean };
 
 // The outcomes whose copy never depends on which phase discovered them.
 const FAILURE_KEYS: Record<
@@ -80,9 +92,15 @@ function failureCopyKeys(failure: Failure): { title: keyof TranslationMap['redem
         ? { title: 'failureExpiredTitle', message: 'failureExpiredMessage' }
         : { title: 'statusExpired', message: 'failureAlreadyExpiredMessage' };
     case 'unexpected_error':
-      return failure.phase === 'confirm'
+      // Only a re-peek that actually confirmed the voucher is still not USED
+      // (handleConfirm's reconciliation) earns the reassuring "not consumed"
+      // copy — an unresolved confirm-phase failure gets the same
+      // don't-hand-over-the-goods framing as a confirm-phase network error,
+      // never a guess dressed up as a fact.
+      if (failure.phase !== 'confirm') return { title: 'failureUnexpectedTitle', message: 'failureUnexpectedMessage' };
+      return failure.notConsumed
         ? { title: 'failureConfirmUnexpectedTitle', message: 'failureConfirmUnexpectedMessage' }
-        : { title: 'failureUnexpectedTitle', message: 'failureUnexpectedMessage' };
+        : { title: 'failureConfirmUnexpectedUnknownTitle', message: 'failureConfirmUnexpectedUnknownMessage' };
     default:
       return FAILURE_KEYS[failure.outcome];
   }
@@ -210,6 +228,34 @@ export function RedemptionPage() {
       setStep({
         kind: 'failure',
         failure: { outcome: 'already_used', redeemedAt: peeked.outcome === 'ok' ? peeked.voucher.redeemedAt : null },
+      });
+      return;
+    }
+    if (result.outcome === 'unexpected_error') {
+      // Unlike network_error — vouchers.ts reserves that for no response at
+      // all — an unexpected_error response can arrive *after* the request
+      // reached the server (a bad status, an unrecognized 409 code, a body
+      // that failed to parse; see toResult's own comment), so the redemption
+      // may have actually gone through. Telling the cashier it definitely
+      // didn't would be a guess dressed up as a fact, so this re-peeks
+      // before saying anything — same guard-held-through-the-lookup shape as
+      // the already_used recovery above, for the same reason.
+      const peeked = await peekVoucher(voucher.code);
+      redeemInFlight.current = false;
+      if (peeked.outcome === 'ok' && peeked.voucher.status === 'used') {
+        // The redemption did go through — this is the exact same state a
+        // fresh peek or a 409 would have reported, so it gets that card,
+        // not a special-cased "well, actually" variant of this one.
+        setStep({ kind: 'failure', failure: { outcome: 'already_used', redeemedAt: peeked.voucher.redeemedAt } });
+        return;
+      }
+      // Any other resolved status (pending, expired, ...) rules out 'used'
+      // and so proves the voucher was not consumed — only that case may
+      // render the reassuring copy. A re-peek that itself fails to resolve
+      // proves nothing either way and must stay in the unresolved state.
+      setStep({
+        kind: 'failure',
+        failure: { outcome: 'unexpected_error', phase: 'confirm', notConsumed: peeked.outcome === 'ok' && peeked.voucher.status !== 'used' },
       });
       return;
     }

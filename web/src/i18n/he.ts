@@ -85,6 +85,8 @@ const he: TranslationMap = {
     failureUnexpectedMessage: 'נסו שוב.',
     failureConfirmUnexpectedTitle: 'המימוש נכשל',
     failureConfirmUnexpectedMessage: 'הבדיקה עברה בהצלחה, אך המימוש עצמו נכשל. השובר לא נצרך — ניתן לנסות שוב.',
+    failureConfirmUnexpectedUnknownTitle: 'המימוש לא אושר',
+    failureConfirmUnexpectedUnknownMessage: 'השובר היה תקף, אך לא הצלחנו לוודא אם המימוש בוצע. אל תמסרו את המוצר — בדקו את הקוד שוב לפני ניסיון מימוש נוסף.',
   },
   auth: {
     signInTitle: 'התחברות לפורטל העסקים',

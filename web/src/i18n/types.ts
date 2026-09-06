@@ -97,6 +97,8 @@ export type TranslationMap = {
     failureUnexpectedMessage: string;
     failureConfirmUnexpectedTitle: string;
     failureConfirmUnexpectedMessage: string;
+    failureConfirmUnexpectedUnknownTitle: string;
+    failureConfirmUnexpectedUnknownMessage: string;
   };
   auth: {
     signInTitle: string;
