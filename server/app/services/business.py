@@ -303,6 +303,15 @@ async def _sync_legacy_location_mirror(db: AsyncSession, business: Business) -> 
     change to resolve the *new* canonical branch, not the one about to be
     superseded. Removing this call is part of the future contract migration,
     alongside dropping the columns themselves.
+
+    This is one half of the compatibility bridge: the direction for writes
+    made by *this*, new code. The other direction — a still-running previous
+    server image writing straight to these columns, since it predates
+    `business_branches` entirely — is bridged by
+    `0035_branch_legacy_sync`'s DB trigger instead, since
+    that old process cannot be made to call this function. The trigger's own
+    write lands on `business_branches`, which carries no trigger of its own,
+    so the two directions cannot chase each other into a loop.
     """
     canonical = await _default_branch(db, business.id)
     business.address = canonical.address

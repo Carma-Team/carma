@@ -366,6 +366,87 @@ async def test_reactivating_an_earlier_branch_restores_it_as_the_legacy_mirror(d
         await _cleanup(db_session, business, owner)
 
 
+# ─── Mixed-version compatibility — the legacy-sync DB trigger ────────────────
+#
+# `_sync_legacy_location_mirror` (proven above) only covers writes made by
+# *this* code. During a migrate-then-rollout deploy, or after a rollback, a
+# still-running previous server image writes straight to
+# `Business.address/location_lat/location_lng` — it predates
+# `business_branches` entirely, so it can never be made to call that
+# function. `0035_branch_legacy_sync`'s DB trigger is the
+# other half of the bridge: it is exercised here exactly as the old image
+# would exercise it, with a raw column write that never goes through
+# `update_branch`.
+
+
+@pytest.mark.asyncio
+async def test_legacy_write_to_business_columns_reaches_the_canonical_branch(db_session: AsyncSession) -> None:
+    business, owner = await _make_business(db_session)
+    try:
+        [canonical] = await business_service.list_branches(db_session, business)
+
+        # A previous server image's `update_profile` — no `update_branch`
+        # call, no `business_branches` row touched directly.
+        # The trigger's write lands outside SQLAlchemy's knowledge — expire
+        # the identity-mapped `BusinessBranch` it targets so the read below
+        # actually hits the database, rather than returning the pre-write
+        # instance already cached from `_make_business`, the same way a
+        # later, separate request would see it. Scoped to that one object:
+        # `expire_all()` would also expire `business`, and a bare attribute
+        # access on an expired object outside a proper awaited load trips
+        # `MissingGreenlet` on an async session.
+        stale_branch = await db_session.get(BusinessBranch, canonical.id)
+        assert stale_branch is not None
+        db_session.expire(stale_branch)
+
+        business.address = "Legacy Image Write"
+        business.location_lat = 32.55
+        business.location_lng = 34.55
+        await db_session.commit()
+
+        refreshed = await business_service._default_branch(db_session, business.id)
+        assert refreshed.id == canonical.id
+        assert refreshed.address == "Legacy Image Write"
+        assert refreshed.location_lat == 32.55
+        assert refreshed.location_lng == 34.55
+    finally:
+        await _cleanup(db_session, business, owner)
+
+
+@pytest.mark.asyncio
+async def test_legacy_write_never_resurrects_a_deactivated_branch_as_canonical(db_session: AsyncSession) -> None:
+    """The trigger targets whichever branch `_default_branch` would resolve
+    to right now — a legacy write must land on the *current* canonical
+    branch, not on whichever branch happened to be canonical when the
+    business row was first created.
+    """
+    business, owner = await _make_business(db_session)
+    try:
+        [original] = await business_service.list_branches(db_session, business)
+        newer = await _add_branch(db_session, business, address="Newer branch", lat=32.2, lng=34.6)
+        await business_service.update_branch(
+            db_session, business, original.id, BranchUpdateIn.model_validate({"isActive": False})
+        )
+
+        # See the sibling test above for why this expires only the one
+        # `BusinessBranch` the trigger is about to update, not the whole
+        # session.
+        stale_branch = await db_session.get(BusinessBranch, newer.id)
+        assert stale_branch is not None
+        db_session.expire(stale_branch)
+
+        business.address = "Legacy Image Write"
+        business.location_lat = 32.55
+        business.location_lng = 34.55
+        await db_session.commit()
+
+        branches = {b.id: b for b in await business_service.list_branches(db_session, business)}
+        assert branches[newer.id].address == "Legacy Image Write"
+        assert branches[original.id].address != "Legacy Image Write"
+    finally:
+        await _cleanup(db_session, business, owner)
+
+
 # ─── Concurrency — the last-active-branch invariant under real races ─────────
 
 
