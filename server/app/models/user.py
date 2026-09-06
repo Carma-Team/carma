@@ -73,6 +73,11 @@ class User(Base, TimestampMixin):
     last_cleared_history: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Nothing reads this to allow or refuse anything yet, deliberately. Registration
+    # still hands out a token to an unverified address; turning that into a
+    # requirement is a product decision, and making it while no mail provider is
+    # configured would mean nobody can sign up at all.
+    is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Failed sign-ins are `LoginFailure` rows, not a column here — see that model
     # for why the address they came from is part of the key.
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -9,6 +9,7 @@ from app.core.deps import CurrentUser, DbSession, RequireBrowserHeader, is_brows
 from app.core.limiter import client_ip, limiter
 from app.schemas.auth import (
     AuthOut,
+    EmailVerifyIn,
     LoginIn,
     MessageOut,
     OtpRegisterIn,
@@ -20,6 +21,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserOut
 from app.services import auth as auth_service
+from app.services import email_verification as email_verification_service
 from app.services import users as users_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -166,3 +168,30 @@ async def password_reset_request(request: Request, dto: OtpRequestIn, db: DbSess
 @limiter.limit(SENSITIVE_LIMIT)
 async def password_reset_confirm(request: Request, dto: PasswordResetIn, db: DbSession) -> MessageOut:
     return await auth_service.reset_password(db, dto, client_ip(request))
+
+
+# ─── Email address verification ──────────────────────────────────────────────
+# Both halves need a session: this proves an address on an account, not an
+# address. Nothing refuses an unverified one yet - see `User.is_email_verified`.
+
+
+@router.post(
+    "/email/verify/request",
+    response_model=OtpSent,
+    response_model_by_alias=True,
+    summary="Send a verification code to the signed-in account's email",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def email_verify_request(request: Request, user: CurrentUser, db: DbSession) -> OtpSent:
+    return await email_verification_service.request_verification(db, user)
+
+
+@router.post(
+    "/email/verify/confirm",
+    response_model=MessageOut,
+    response_model_by_alias=True,
+    summary="Confirm the signed-in account's email with a verification code",
+)
+@limiter.limit(SENSITIVE_LIMIT)
+async def email_verify_confirm(request: Request, user: CurrentUser, dto: EmailVerifyIn, db: DbSession) -> MessageOut:
+    return await email_verification_service.confirm_verification(db, user, dto.code)
