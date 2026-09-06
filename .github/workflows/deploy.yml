@@ -90,6 +90,17 @@ permissions:
   contents: read
   id-token: write
 
+# The verify step below reads `latestRevisionName` live, so two overlapping runs
+# would each poll whichever revision the other just created - one times out on a
+# healthy prod, the other reports green for an image it never shipped. Serializing
+# the workflow is what keeps a run's pass/fail about its own commit.
+#
+# cancel-in-progress is false because a cancelled run can leave a half-applied
+# migration behind; a queued deploy waits instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check-secrets:
     runs-on: ubuntu-latest
