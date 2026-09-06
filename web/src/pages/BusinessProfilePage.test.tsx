@@ -288,12 +288,12 @@ describe('BusinessProfilePage', () => {
     vi.mocked(geocodeAddress).mockResolvedValue({ outcome: 'unavailable' });
     fireEvent.click(screen.getByRole('button', { name: 'שמירת שינויים' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'הזנה ידנית של המיקום' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'סימון מיקום ידני' })).toBeInTheDocument());
     expect(updateBusinessProfile).not.toHaveBeenCalled();
 
     // Manual placement reaches the same confirm step with no pin yet — the
     // Continue button stays disabled until one is actually placed.
-    fireEvent.click(screen.getByRole('button', { name: 'הזנה ידנית של המיקום' }));
+    fireEvent.click(screen.getByRole('button', { name: 'סימון מיקום ידני' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'אישור המיקום' })).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'אישור והמשך' })).toBeDisabled();
   });
