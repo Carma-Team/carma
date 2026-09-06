@@ -443,7 +443,7 @@ The bar of **80** is the same 80 the level cap uses, so "a good day" means one t
 
 ### Driver and passenger are not distinguished
 
-- **There is no driver-versus-passenger classifier.** Any trip taken as a passenger is scored as if the user drove it.
+- **There is no automatic driver-versus-passenger classifier.** A voluntary declaration channel exists (`driver-identification.md` §3.3) — a confirmed-passenger trip is excluded from the rolling driver score from that point forward — but nothing detects an undeclared passenger trip, so most are still scored as if the user drove them.
 - **It contaminates all five components, not only distraction.** A passenger's phone handling reads as distraction, and the driver's braking and cornering are attributed to the passenger.
 - **The contamination is biased, not random.** A passenger uses their phone far more freely than a driver, so passenger trips push the distraction component — our heaviest, at 0.30 — in one direction.
 - **Manual trip deletion is not a substitute.** It relies on the user, it is unverifiable, and it only ever removes trips the user dislikes.

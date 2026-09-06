@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Header
 
 from app.core.deps import CurrentUser, DbSession
+from app.schemas.occupancy import OccupancyDeclarationIn, OccupancyOut
 from app.schemas.trip import SaveTripIn, TripDetailOut, TripList, TripOut, TripSingle
+from app.services import occupancy as occupancy_service
 from app.services import trips as trips_service
 
 router = APIRouter(prefix="/api/trips", tags=["trips"])
@@ -34,3 +36,25 @@ async def save_trip(
 async def get_trip(trip_id: str, user: CurrentUser, db: DbSession) -> TripSingle:
     trip = await trips_service.get_by_id(db, user.id, trip_id)
     return TripSingle(trip=TripDetailOut.from_orm_trip_detail(trip))
+
+
+@router.post(
+    "/{trip_id}/occupancy",
+    response_model=OccupancyOut,
+    response_model_by_alias=True,
+    summary="Declare or answer whether the caller was driving this trip",
+)
+async def declare_occupancy(
+    trip_id: str, dto: OccupancyDeclarationIn, user: CurrentUser, db: DbSession
+) -> OccupancyOut:
+    return await occupancy_service.declare(db, user.id, trip_id, dto)
+
+
+@router.get(
+    "/{trip_id}/occupancy",
+    response_model=OccupancyOut,
+    response_model_by_alias=True,
+    summary="Read the occupancy verdict for a trip",
+)
+async def get_occupancy(trip_id: str, user: CurrentUser, db: DbSession) -> OccupancyOut:
+    return await occupancy_service.get(db, user.id, trip_id)
