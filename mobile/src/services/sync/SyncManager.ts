@@ -5,16 +5,15 @@
  * @description
  * Manages a FIFO queue in AsyncStorage. When the API fails (network down / 5xx),
  * the trip is enqueued. On the next launch or foreground return, `flushQueue`
- * attempts to send all items in order — stopping completely on the first network
- * error to avoid wasting resources.
+ * attempts to send all items in order — halting on the first one it cannot send,
+ * so a dead server is not hammered once per queued trip.
  *
  * @remarks
  * - Idempotency: each trip carries a `localTripId`; the server must store a
  *   UNIQUE idempotency_key so retries after timeout are safe.
  * - Double-enqueue guard: if `localTripId` is already in the queue it is not added again.
- * - A transient failure never deletes a trip — it only delays the next attempt.
- *   Retention policy and the value of MAX_FAILURES_BEFORE_DROP are open questions:
- *   see docs/trip-sync-queue.md.
+ * - A failed upload never deletes a trip. Only age does, and then it is abandoned
+ *   rather than deleted — the row survives on the device. See docs/trip-sync-queue.md.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Trip } from '@/types';
@@ -36,10 +35,17 @@ const RATE_LIMITED = 429;
 // on every single foreground return, which is what used to cost battery.
 export const BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
-// PLACEHOLDER — not a calibrated number, and deliberately far beyond any plausible
-// outage. It exists so local storage has *some* bound while the real retention policy
-// is decided; nothing in the project documents one today. See docs/trip-sync-queue.md.
-export const MAX_FAILURES_BEFORE_DROP = 50;
+// How long an unsent trip may live in the queue, measured from `queuedAt`. Age rather
+// than attempt count, because a counter cannot tell a long outage from a trip the server
+// will never accept, and counting attempts is what once deleted real trips (CAR-138).
+// 30 days is our reward cycle. No telematics vendor publishes a local-queue TTL, so this
+// is our number and not an industry one.
+export const MAX_QUEUE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Consecutive failures after which the head item stops holding up the queue behind it.
+// High enough that a short outage never triggers a skip, low enough that a trip the server
+// keeps refusing stops blocking within one session. A 429 does not count — see `failures`.
+export const STUCK_AFTER = 3;
 
 // ─── Module-level flush mutex ─────────────────────────────────────────────────
 // Prevents concurrent flushes if AppState fires multiple 'active' events quickly.
@@ -50,7 +56,7 @@ let isFlushing = false;
 
 // Items queued by a build that predates the two-counter fields read back without them.
 // Treat that as a clean slate rather than as an exhausted budget — a trip already
-// waiting on someone's phone must not be deleted by the upgrade that was meant to save it.
+// waiting on a driver's phone must not be deleted by the upgrade meant to save it.
 function withRetryState(item: SyncQueueItem): SyncQueueItem {
   return {
     ...item,
@@ -70,6 +76,10 @@ export const SyncManager = {
   // AppContext wires this to update recentTrips with the server-assigned ID
   onTripSynced: undefined as ((localId: string, serverTrip: Trip) => void) | undefined,
 
+  // AppContext wires this to mark the local row as given up on. The trip is not deleted:
+  // it leaves the queue and stays in history flagged as never sent.
+  onTripAbandoned: undefined as ((localId: string) => void) | undefined,
+
   // ─── enqueue ───────────────────────────────────────────────────────────────
   // Appends a trip to the persistent queue. Idempotent: duplicate localTripId is ignored.
   async enqueue(payload: ValidTripPayload): Promise<void> {
@@ -87,7 +97,6 @@ export const SyncManager = {
       queuedAt: new Date(Date.now()).toISOString(),
       failures: 0,
       backoffStep: 0,
-      lastAttemptAt: null,
       nextAttemptAt: null,
     });
 
@@ -97,7 +106,8 @@ export const SyncManager = {
 
   // ─── flushQueue ────────────────────────────────────────────────────────────
   // Sequential FIFO flush. Halts on the first item that fails or is still backing off,
-  // to avoid hammering a dead server and to preserve battery.
+  // to avoid hammering a dead server and to preserve battery. The one exception is an
+  // item that is already stuck: see STUCK_AFTER.
   async flushQueue(): Promise<void> {
     if (isFlushing) return;
     isFlushing = true;
@@ -118,18 +128,26 @@ export const SyncManager = {
         const item = withRetryState(items[i]);
         const now = Date.now();
 
-        // The only count that deletes anything. A trip reaches this having failed to
-        // upload MAX_FAILURES_BEFORE_DROP times for reasons the server called permanent
-        // on none of them — an outcome we have no policy for yet.
-        if (item.failures >= MAX_FAILURES_BEFORE_DROP) {
-          console.warn(`[SyncManager] Dropping ${item.id} — ${item.failures} failed uploads`);
+        // The only thing that takes a trip out of the queue unsent. Checked ahead of the
+        // backoff gate so an aged-out trip is released rather than waiting out a retry it
+        // is no longer entitled to. Abandoned, not deleted — the row stays in history.
+        if (now - Date.parse(item.queuedAt) >= MAX_QUEUE_AGE_MS) {
+          console.warn(`[SyncManager] Abandoning ${item.id} — queued since ${item.queuedAt}`);
+          this.onTripAbandoned?.(item.id);
           continue;
         }
+
+        // A stuck item is stepped over instead of halting the pass, so one trip the server
+        // will not take cannot block every trip behind it. The evidence that separates a
+        // broken trip from a broken network is whether those later items then succeed — if
+        // the network is down they fail too, and the whole skip costs one extra request.
+        const isStuck = item.failures >= STUCK_AFTER;
 
         // Still backing off. Halt rather than skip ahead: a later trip jumping the queue
         // gains nothing and breaks the FIFO order the rest of this method preserves.
         if (item.nextAttemptAt && now < Date.parse(item.nextAttemptAt)) {
           remaining.push(item);
+          if (isStuck) continue;
           haltedAt = i;
           break;
         }
@@ -155,9 +173,9 @@ export const SyncManager = {
             continue;
           }
 
-          // Network error or transient server error (0, 5xx, 408, 429) — HALT.
-          // Back off and preserve all subsequent items untouched. Nothing here deletes
-          // a trip: the driver completed it, and none of these answers say otherwise.
+          // Network error or transient server error (0, 5xx, 408, 429) — back off and, unless
+          // this item is already stuck, halt with every later item untouched. Nothing here
+          // deletes a trip: the driver completed it, and none of these answers say otherwise.
           const isRateLimited = status === RATE_LIMITED;
           const retryAfterSeconds =
             error instanceof ApiError ? error.retryAfterSeconds : undefined;
@@ -174,12 +192,12 @@ export const SyncManager = {
             ...item,
             // A 429 is the server rationing capacity shared with every other driver
             // behind the same carrier NAT. It is not this trip's failure, so it delays
-            // the retry without ever bringing the trip closer to being deleted.
+            // the retry without ever counting towards STUCK_AFTER.
             failures: isRateLimited ? item.failures : item.failures + 1,
             backoffStep,
-            lastAttemptAt: new Date(now).toISOString(),
             nextAttemptAt: new Date(now + waitMs).toISOString(),
           });
+          if (isStuck) continue;
           haltedAt = i;
           break;
         }

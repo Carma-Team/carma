@@ -3,7 +3,9 @@
  * @owner May (Mobile & Frontend UI Lead)
  * @brief One shape for the end-of-trip summary, built either from the device's own
  * trip data or from a trip the server returned. Both summary surfaces render this
- * shape, so neither can show a field the other does not.
+ * shape, so neither can show a field the other does not. It also owns the rule for
+ * which unscored state a row is in, which the trip list reads too so the list and
+ * the detail screen cannot disagree.
  *
  * @description
  * The post-trip modal reads live SDK memory while the trip-detail screen reads the
@@ -19,7 +21,21 @@ import type { Trip } from '@/types';
  * no answer from it there is no score to render — and rendering 0 told the driver
  * they drove badly when the app simply had no network.
  */
-export type TripSummaryState = 'scored' | 'pending' | 'tooShort';
+export type TripSummaryState = 'scored' | 'pending' | 'failed' | 'tooShort';
+
+/**
+ * Which unscored state a history row is in, or null once the server has scored it.
+ *
+ * A row the queue gave up on carries `syncFailed` *on top of* `pendingSync`, never
+ * instead of it: the placeholder zero is still a placeholder, so every filter that
+ * drops an unscored trip must keep dropping this one (see `weeklyScoreTrend`). The two
+ * flags therefore disagree on purpose, and `syncFailed` is the later answer — it wins
+ * everywhere the state is shown rather than filtered. Both surfaces read it from here
+ * so the precedence cannot drift apart between the list and the detail screen.
+ */
+export function syncStateOf(trip: Trip): 'failed' | 'pending' | null {
+  return trip.syncFailed ? 'failed' : trip.pendingSync ? 'pending' : null;
+}
 
 export interface TripSummary {
   id?: string;
@@ -77,9 +93,9 @@ export function fromLocalTrip(
  * A trip out of history. Waypoints and events arrive separately because the list
  * endpoint returns neither — only GET /api/trips/:id does.
  *
- * `pendingSync` is the only thing separating a real zero from an unsent trip: the
- * locally-created row fills the required score fields with zeros, so without the
- * flag this screen would repeat exactly the lie the modal no longer tells.
+ * The sync flags are the only thing separating a real zero from an unsent trip: the
+ * locally-created row fills the required score fields with zeros, so without them this
+ * screen would repeat exactly the lie the modal no longer tells. See `syncStateOf`.
  */
 export function fromServerTrip(
   trip: Trip,
@@ -88,7 +104,7 @@ export function fromServerTrip(
 ): TripSummary {
   return {
     id: trip.id,
-    state: trip.pendingSync ? 'pending' : 'scored',
+    state: syncStateOf(trip) ?? 'scored',
     score:  trip.avgScore,
     points: Math.round(trip.points || 0),
     distanceKm:      trip.distanceKm ?? 0,

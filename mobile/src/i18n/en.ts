@@ -81,6 +81,7 @@ const en: TranslationMap = {
     finalScore: 'Final Score',
     detailUnavailable: 'Trip details could not be loaded right now.',
     notSent: 'We could not fetch your trip summary — no connection. The trip is saved on this device and will be sent automatically.',
+    notSentFailed: 'This trip was never sent. It stayed on this device too long to keep trying, so it has no score — the drive itself is still recorded below.',
     syncPending: 'Sending', syncFailed: 'Not sent',
     syncPendingDetail: 'waiting to be sent',
     syncFailedDetail: 'stayed on this device',
