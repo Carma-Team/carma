@@ -20,7 +20,7 @@ import type { FollowStatus, LeaderboardEntry, LeaderboardType } from '@/types'
 
 type SearchState = 'idle' | 'loading' | 'found' | 'not_found'
 
-const INSTALL_LINK = 'https://carma.app/download'
+const INSTALL_LINK = 'https://github.com/Carma-Team/carma'
 
 // How many drivers render before the viewer asks for more, and how many each press
 // adds. The endpoint caps at 100 rows, so this is purely about not handing someone a

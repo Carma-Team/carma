@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react'
-import { Animated, Text, StyleSheet, View } from 'react-native'
+import { Animated, Text, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { COLORS } from '@/constants/theme'
+import { useTranslation } from '@/hooks/useTranslation'
 import type { ToastMessage } from '@/types'
 
 interface ToastProps {
@@ -16,6 +18,7 @@ const typeColors: Record<ToastMessage['type'], string> = {
 }
 
 export function Toast({ toast, onDismiss }: ToastProps) {
+  const { t } = useTranslation()
   const opacity = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
@@ -28,6 +31,17 @@ export function Toast({ toast, onDismiss }: ToastProps) {
 
   return (
     <Animated.View style={[styles.container, { opacity, borderLeftColor: typeColors[toast.type] }]}>
+      {/* `left`, not `start`: the X stays on the physical left in Hebrew too, where a
+          start-anchored button would jump to the other side of the toast. */}
+      <TouchableOpacity
+        style={styles.close}
+        onPress={() => onDismiss(toast.id)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t('common.close')}
+      >
+        <Ionicons name="close" size={16} color={COLORS.textMuted} />
+      </TouchableOpacity>
       {!!toast.title && <Text style={styles.title}>{toast.title}</Text>}
       <Text style={styles.text}>{toast.message}</Text>
     </Animated.View>
@@ -37,7 +51,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
 // ToastContainer: place at root level inside AppProvider
 export function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: (id: string) => void }) {
   return (
-    <View style={styles.wrapper} pointerEvents="none">
+    <View style={styles.wrapper} pointerEvents="box-none">
       {toasts.map(t => <Toast key={t.id} toast={t} onDismiss={onDismiss} />)}
     </View>
   )
@@ -45,7 +59,8 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; 
 
 const styles = StyleSheet.create({
   wrapper:   { position: 'absolute', top: 60, left: 16, right: 16, zIndex: 999 },
-  container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
+  container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, paddingLeft: 34, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
+  close:     { position: 'absolute', left: 8, top: 8, padding: 2, zIndex: 1 },
   title:     { color: COLORS.text, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   text:      { color: COLORS.text, fontSize: 14, fontWeight: '500' },
 })
