@@ -77,6 +77,13 @@ class User(Base, TimestampMixin):
     # still hands out a token to an unverified address; turning that into a
     # requirement is a product decision, and making it while no mail provider is
     # configured would mean nobody can sign up at all.
+    #
+    # Whoever adds a way to *change* an email must set this back to False in the
+    # same change. No route accepts one today — `UpdateProfileIn` has no email
+    # field and nothing outside registration assigns `User.email` — which is the
+    # only reason a verified flag cannot currently outlive the address it was
+    # earned for. `email_verification.confirm_verification` refuses a code minted
+    # for a different address, but that guards the code, not the flag.
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Failed sign-ins are `LoginFailure` rows, not a column here — see that model
     # for why the address they came from is part of the key.
