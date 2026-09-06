@@ -2690,6 +2690,11 @@ export interface components {
             name?: string | null;
             /** Email */
             email?: string | null;
+            /**
+             * Isemailverified
+             * @default false
+             */
+            isEmailVerified: boolean;
             /** Phone */
             phone?: string | null;
             role: components["schemas"]["UserRole"];

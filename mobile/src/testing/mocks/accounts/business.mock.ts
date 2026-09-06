@@ -17,6 +17,7 @@ const user: AppUser = {
   id: 'mock-business-user',
   name: 'Mock Business',
   email: EMAIL,
+  isEmailVerified: true,
   role: 'BUSINESS',
   language: 'HE',
   points: 0,
