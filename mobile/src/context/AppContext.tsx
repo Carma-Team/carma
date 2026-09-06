@@ -34,7 +34,7 @@ import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
-import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
+import { fromLocalTrip, mergeUnsentTrips, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import { buildValidTripPayload } from '@/lib/tripPayload'
 import { vehicleKeyHash } from '@/lib/vehicleKey'
 import Constants from 'expo-constants'
@@ -185,13 +185,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    *
    * The cache is read unfiltered: `setUser` drops it on a driver change, so whatever
    * is left is this driver's own.
+   *
+   * The server's answer is merged into the cache rather than replacing it. A trip still
+   * in the sync queue is not on the server, and this runs before the queue is flushed on
+   * a cold start — replacing the list wholesale erased an offline trip on the first
+   * online launch after recording it, so neither sync outcome had a row left to update.
    */
   const refreshTrips = useCallback(async (gen: number) => {
     try {
-      const serverData = await tripsApi.list();
+      const [serverData, raw] = await Promise.all([
+        tripsApi.list(),
+        AsyncStorage.getItem('carma_trips'),
+      ]);
       if (gen !== sessionRef.current) return;
-      setRecentTrips(serverData.trips);
-      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+      const merged = mergeUnsentTrips(raw ? (JSON.parse(raw) as Trip[]) : [], serverData.trips);
+      setRecentTrips(merged);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(merged));
     } catch {
       const cached = await AsyncStorage.getItem('carma_trips');
       if (gen !== sessionRef.current || !cached) return;
@@ -373,24 +382,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Both sync outcomes rewrite one cached row. Going through the cache rather than
   // through `prev` keeps the persist out of the setRecentTrips updater, which React
   // double-invokes under StrictMode — and it is the pattern processEndTrip already uses.
-  const patchCachedTrip = useCallback(async (
+  // Serialised, because it is a read-then-write and both callers fire it without
+  // awaiting. Two trips crossing the age bound in one flush pass are abandoned in the
+  // same tick, so unchained they both read the pre-patch cache and the second write
+  // drops the first — leaving a trip that will never be sent still telling the driver
+  // it will be.
+  const cacheWrites = useRef<Promise<void>>(Promise.resolve());
+
+  const patchCachedTrip = useCallback((
     gen: number,
     localId: string,
     patch: (t: Trip) => Trip,
   ) => {
-    try {
-      const raw = await AsyncStorage.getItem('carma_trips');
-      // The row belongs to whoever was signed in when the sync resolved.
-      if (gen !== sessionRef.current || !raw) return;
-      const updated = (JSON.parse(raw) as Trip[]).map(t => (t.id === localId ? patch(t) : t));
-      setRecentTrips(updated);
-      await AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
-    } catch (e) {
-      // Neither caller can do anything about it, and both are fire-and-forget. Worth
-      // logging rather than swallowing: an abandoned trip that fails to be marked keeps
-      // telling the driver it will be sent automatically, and nothing is retrying it.
-      console.error('[AppContext] Failed to update cached trip', e);
-    }
+    cacheWrites.current = cacheWrites.current.then(async () => {
+      try {
+        const raw = await AsyncStorage.getItem('carma_trips');
+        // The row belongs to whoever was signed in when the sync resolved.
+        if (gen !== sessionRef.current || !raw) return;
+        const updated = (JSON.parse(raw) as Trip[]).map(t => (t.id === localId ? patch(t) : t));
+        setRecentTrips(updated);
+        await AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
+      } catch (e) {
+        // Neither caller can do anything about it, and both are fire-and-forget. Worth
+        // logging rather than swallowing: an abandoned trip that fails to be marked keeps
+        // telling the driver it will be sent automatically, and nothing is retrying it.
+        console.error('[AppContext] Failed to update cached trip', e);
+      }
+    });
+    return cacheWrites.current;
   }, []);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──

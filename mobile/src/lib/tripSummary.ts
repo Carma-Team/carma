@@ -37,6 +37,28 @@ export function syncStateOf(trip: Trip): 'failed' | 'pending' | null {
   return trip.syncFailed ? 'failed' : trip.pendingSync ? 'pending' : null;
 }
 
+/**
+ * The trip list as it should be stored after the server answers: the server's rows, plus
+ * the cached rows the server does not have yet because they never left the device.
+ *
+ * Replacing the list outright is what the refresh used to do, and it erased an offline
+ * trip on the first online launch after recording it — before the queue had retried it
+ * even once, and long before anything could mark it as given up on. A row only survives
+ * on the strength of its own sync state, so a trip genuinely deleted on the server still
+ * disappears here.
+ *
+ * Newest first, by start time, because the two lists are separately ordered and the list
+ * this feeds reads position as recency.
+ */
+export function mergeUnsentTrips(cached: Trip[], fromServer: Trip[]): Trip[] {
+  const onServer = new Set(fromServer.map(t => t.id));
+  const unsent = cached.filter(t => !onServer.has(t.id) && syncStateOf(t) !== null);
+  if (unsent.length === 0) return fromServer;
+  return [...unsent, ...fromServer].sort(
+    (a, b) => Date.parse(b.startTime) - Date.parse(a.startTime),
+  );
+}
+
 export interface TripSummary {
   id?: string;
   state: TripSummaryState;
