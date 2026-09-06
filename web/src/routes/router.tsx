@@ -14,6 +14,7 @@ import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
 import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
+import { AccountSettingsPage } from '@/pages/AccountSettingsPage';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RequireBusinessRole } from './RequireBusinessRole';
 import { RequireAdmin } from './RequireAdmin';
@@ -68,6 +69,11 @@ export const routes: RouteObject[] = [
           // does its own role check, because it is the one route an ADMIN
           // must also reach (see its own comment for why).
           { path: '/', element: <LandingRoute /> },
+          // /account-settings (CAR-342) sits outside every role gate below,
+          // same as / — it is the signed-in user's own personal details, not
+          // a business capability, so ADMIN and every business role alike
+          // must reach it.
+          { path: '/account-settings', element: <AccountSettingsPage /> },
           {
             element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
             children: [
