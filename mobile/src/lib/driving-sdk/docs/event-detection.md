@@ -35,8 +35,13 @@ flowchart LR
     D -- no matching force --> E[Rejected — GPS glitch]
     D -- confirmed --> F[No severity assigned]
     F --> G{Per-type<br/>cooldown active?}
-    G -- yes --> E
-    G -- no --> H[DrivingEvent dispatched]
+    G -- yes --> I[Not stored on the trip]
+    G -- no --> H[Stored on the trip]
+    F --> J{Listener conditions met?}
+    J -- no --> E
+    J -- yes --> K{That listener's<br/>cooldown active?}
+    K -- yes --> E
+    K -- no --> L[Listener called]
 ```
 
 ### When the accelerometer is missing or dies
@@ -246,17 +251,27 @@ check.
 
 ## Per-event cooldown
 
-After an event of a given type fires, the same type is suppressed for
-**5 seconds** — **except `PHONE_USAGE`, which is exempt from the cooldown
-entirely** and is re-armed by its own distracted stretch instead. Each type
-has an independent cooldown window — a `SHARP_TURN`
-does not suppress a concurrent `HARD_BRAKE`.
+Two windows of **5 seconds** each, both exempting `PHONE_USAGE` — which is a
+duration the host sums rather than a discrete manoeuvre, and is re-armed by its
+own distracted stretch instead.
+
+**The report window is per type.** After an event of a given type is stored on
+the trip, the same type is not stored again for 5 seconds, whatever the speed.
+Each type is independent: a `SHARP_TURN` does not suppress a concurrent
+`HARD_BRAKE`.
+
+**The listener window is per listener, and starts after its conditions.** A
+listener that was held back — below its `minSpeedKmh`, say — has not started a
+window, so the next event of that type reaches it normally. One stamp shared by
+both used to mean a turn dropped by a speed gate still sealed the type and
+swallowed the qualifying turn behind it. It is per listener rather than per type
+because `minSpeedKmh` belongs to a listener: with two listeners on one type at
+different thresholds there is no single answer to whether the gate was passed.
 
 The span is a merge, not a detection window: a manoeuvre held longer than the
 motion detector's own evaluation window would otherwise be reported once per
 detection, while a consumer collapsing hits over a wider span counts it once.
 Detection itself is unchanged, so a short hard event is still reported.
-`PHONE_USAGE` is exempt — it has its own cadence.
 
 ## Warm-up guard
 
