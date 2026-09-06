@@ -447,10 +447,51 @@ describe('DrivingSDK', () => {
     emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 0 });
     expect(handler).not.toHaveBeenCalled();
 
-    // Past the cooldown, which is applied before the speed gate — the suppressed
-    // event above still stamped the type.
     sendSensorUpdate({ currentSpeed: 20 });
     emitSensorEvent(DrivingEventType.HARD_BRAKE, { atMs: 5100 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  // CAR-300. A roundabout entered below the gate and exited sharply above it three
+  // seconds later: the entry used to seal the type and the exit was never counted.
+  it('does not let an event a listener never heard seal its window', async () => {
+    const handler = jest.fn();
+    sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 25 }, handler);
+    await startTripReady();
+
+    sendSensorUpdate({ currentSpeed: 20 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 0 });
+    sendSensorUpdate({ currentSpeed: 30 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 3000 });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0].speedKmh).toBe(30);
+  });
+
+  // The other half of the same decision: what the client reports still collapses to one
+  // entry per type per window, because the server merges over that window and takes the
+  // larger of the two counts.
+  it('still reports one entry for that pair, whatever the speeds were', async () => {
+    sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 25 }, jest.fn());
+    await startTripReady();
+
+    sendSensorUpdate({ currentSpeed: 20 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 0 });
+    sendSensorUpdate({ currentSpeed: 30 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 3000 });
+
+    expect(tripData()?.events).toHaveLength(1);
+  });
+
+  it('holds a listener to its own window once it has actually heard an event', async () => {
+    const handler = jest.fn();
+    sdk.on(DrivingEventType.SHARP_TURN, { minSpeedKmh: 25 }, handler);
+    await startTripReady();
+
+    sendSensorUpdate({ currentSpeed: 30 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 0 });
+    emitSensorEvent(DrivingEventType.SHARP_TURN, { atMs: 3000 });
+
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
