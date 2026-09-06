@@ -14,8 +14,8 @@ keyed on a phone number because nobody is signed in when one is minted, and
 relaxing its phone column to nullable would have touched the one table the
 login, registration and reset doors all read.
 
-Revision ID: 0034_email_verification
-Revises: 0033_drop_users_city
+Revision ID: 0037_email_verification
+Revises: 24b7ca343591
 Create Date: 2026-09-06 00:00:00.000000
 """
 
@@ -25,8 +25,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0034_email_verification"
-down_revision: str | None = "0033_drop_users_city"
+revision: str = "0037_email_verification"
+down_revision: str | None = "24b7ca343591"
 branch_labels: str | None = None
 depends_on: str | None = None
 
