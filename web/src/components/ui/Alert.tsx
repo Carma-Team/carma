@@ -4,7 +4,7 @@ import styles from './Alert.module.css';
 
 // Matches StatusBadge's tone names (Badge.tsx) — 'danger', not 'error' —
 // since both consume the same shared tone-* classes in styles/tones.css.
-export type AlertTone = 'danger' | 'warning' | 'success' | 'info';
+export type AlertTone = 'danger' | 'warning' | 'success' | 'info' | 'neutral';
 
 type AlertProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
   tone: AlertTone;
@@ -18,6 +18,9 @@ const icons: Record<AlertTone, ReactNode> = {
   warning: <AlertTriangleIcon />,
   success: <CheckCircleIcon />,
   info: <AlertCircleIcon />,
+  // A connectivity/unknown-state message — not wrong (danger), not a caution
+  // (warning), just "we can't tell right now."
+  neutral: <AlertCircleIcon />,
 };
 
 // A tinted banner — inline list-load failures, and the form validation

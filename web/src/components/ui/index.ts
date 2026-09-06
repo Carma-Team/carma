@@ -5,6 +5,7 @@ export { Select } from './Select';
 export { Switch } from './Switch';
 export { Card } from './Card';
 export { MetricCard } from './MetricCard';
+export { CategoryIcon } from './CategoryIcon';
 export { StatusBadge, CountBadge } from './Badge';
 export { Alert } from './Alert';
 export type { AlertTone } from './Alert';

@@ -1,12 +1,37 @@
+.entryWrap {
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.hero {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.entryCard {
+  display: flex;
+  flex-direction: column;
+}
+
 .centered {
   max-width: 28rem;
   margin: 0 auto;
   text-align: center;
 }
 
-.codeInput input,
+/* `Input` forwards `className` straight onto the <input> element itself
+   (not a wrapper), so this targets the field directly. */
 .codeInput {
   text-align: center;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 1.125rem;
+  font-weight: var(--font-weight-label);
+  letter-spacing: 0.04em;
+}
+
+.fullWidth {
+  width: 100%;
+  margin-top: var(--space-md);
 }
 
 .reviewCard {
@@ -14,20 +39,19 @@
   margin: 0 auto;
 }
 
-.statusBadge {
-  display: inline-flex;
-  align-self: flex-start;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: 999px;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-label);
-  background-color: var(--color-surface-muted);
-  color: var(--color-text-muted);
+.rewardSummary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  text-align: center;
+  padding-bottom: var(--space-md);
 }
 
-.statusBadge[data-status='pending'] {
-  background-color: var(--color-primary-surface);
-  color: var(--color-primary-text);
+.costValue {
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .detailRow {
@@ -45,8 +69,26 @@
 
 .actions {
   display: flex;
+  flex-direction: column;
   gap: var(--space-sm);
   margin-top: var(--space-md);
+}
+
+.confirmSummary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  margin-top: var(--space-md);
+  background-color: var(--color-surface-muted);
+  border-radius: var(--radius-md);
+}
+
+.confirmDivider {
+  width: 1px;
+  height: 14px;
+  background-color: var(--color-border);
 }
 
 .successBadge {
@@ -61,4 +103,9 @@
   color: var(--color-success);
   font-size: 2rem;
   font-weight: 800;
+}
+
+.failureWrap {
+  max-width: 28rem;
+  margin: 0 auto;
 }

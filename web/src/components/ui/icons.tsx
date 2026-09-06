@@ -1,7 +1,7 @@
-// Small inline icon set shared across the ui/ primitives (Alert, Dialog, …) —
-// extracted here so a tone-aware Dialog (CAR-341) can reuse Alert's icons
-// instead of redefining them.
-
+// Small inline icon set shared by tone-driven components (Alert, Dialog) —
+// no icon library is installed, so these stay hand-drawn and few. Add to
+// this set only when a second component needs the same glyph; a one-off
+// belongs in the component that uses it.
 export function AlertCircleIcon() {
   return (
     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">

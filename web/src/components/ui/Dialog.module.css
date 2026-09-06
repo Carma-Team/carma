@@ -33,26 +33,21 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-md);
-  padding-inline-end: var(--space-xl);
 }
 
 .iconCircle {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-md);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-full);
 }
 
 .headerText {
   flex: 1;
   min-width: 0;
-}
-
-.headerText .title {
-  padding-inline-end: 0;
 }
 
 .closeButton {

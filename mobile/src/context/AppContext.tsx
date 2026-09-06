@@ -5,7 +5,8 @@
  * @description
  * Central context managing all global state:
  * - **User**: loaded from AsyncStorage, refreshed from server on auth, logout
- * - **Trip**: `processEndTrip` — score calculation, server persistence, points/level update
+ * - **Trip**: `processEndTrip` — server persistence, points/level update. The payload
+ *   itself is shaped in `lib/tripPayload.ts`; nothing here computes a score.
  * - **Trip list**: synced with server on login, persisted to AsyncStorage
  * - **UI**: toasts, language, loading state
  * - **SDK**: registers conditional event listeners on DrivingSDK
@@ -34,13 +35,12 @@ import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
 import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
-import { signTelemetryDigest } from '@/lib/telemetrySigning'
+import { buildValidTripPayload } from '@/lib/tripPayload'
 import { vehicleKeyHash } from '@/lib/vehicleKey'
 import Constants from 'expo-constants'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
-import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
 import { levelDisplay, detectLevelChange } from '@/lib/gamification'
 import type { GamificationLevel } from '@/lib/gamification'
 import { INITIAL_TRIP_STATE, type TripState } from './tripState'
@@ -50,44 +50,6 @@ import { useFraudBinding } from './fraudBinding'
 import { useRegionBinding } from './regionBinding'
 
 export type { TripState } from './tripState'
-
-// ─── TelemetryDigest builder ──────────────────────────────────────────────────
-// Produces the raw-sensor canonical snapshot defined in RFC-001 v1.7 §3.1.
-// avgScore, points, and phoneSeconds are absent — server is the sole scoring oracle.
-// timestamp is injected at call time to enable server-side replay detection.
-
-function buildTelemetryDigest(
-  state: TripState,
-  startTime: string,
-  endTime: string,
-  // Read from TripData (via lastTripDataRef at the call site), not TripState — accel
-  // health is SDK trip data, not part of the reducer-shaped trip state (CAR-189).
-  //
-  // Optional on purpose: a trip that ended with no SDK data at all knows nothing about
-  // the accelerometer, and `undefined` is that. Defaulting to `false` here turned that
-  // silence into the claim "the sensor was not live", which is the one thing the field
-  // must never say on its own — and it disagreed with the top-level payload, which
-  // sends the same values with no default at all.
-  accelAvailable: boolean | undefined,
-  accelInitFailed: boolean | undefined,
-  accelCoverage: number | undefined,
-): TelemetryDigest {
-  return {
-    distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
-    durationSeconds:          state.durationSeconds,
-    hardBrakes:               state.eventCounts.HARD_BRAKE,
-    aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
-    sharpTurns:               state.eventCounts.SHARP_TURN,
-    screenInteractionSeconds: state.screenInteractionSeconds,
-    phoneMotionSeconds:       state.phoneMotionSeconds,
-    startTime,
-    endTime,
-    timestamp:                Date.now(),
-    accelAvailable,
-    accelInitFailed,
-    accelCoverage,
-  };
-}
 
 /**
  * The Bluetooth device the driver picked as "their car", held locally only.
@@ -239,54 +201,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
     const endTime = new Date().toISOString();
 
-    // RFC-001 v1.5: build and sign raw-sensor digest — no score params, server scores authoritatively.
-    // Signing failure must never block the trip from being saved (payload sent unsigned as fallback).
-    let telemetryDigest:  TelemetryDigest | undefined;
-    let payloadSignature: string | undefined;
-    try {
-      telemetryDigest  = buildTelemetryDigest(
-        finalState, tripStartTime, endTime,
-        lastTripDataRef.current?.accelAvailable,
-        lastTripDataRef.current?.accelInitFailed,
-        lastTripDataRef.current?.accelCoverage,
-      );
-      payloadSignature = signTelemetryDigest(telemetryDigest);
-    } catch (sigErr) {
-      console.error('[AppContext] Digest signing failed — payload sent unsigned', sigErr);
-    }
-
-    const validTripPayload: ValidTripPayload = {
-      localTripId: finalState.sessionId,
-      startTime: tripStartTime,
-      endTime,
-      distanceKm: finalState.distanceKm,
-      durationSeconds: finalState.durationSeconds,
-      avgScore: 0,        // server computes — placeholder only
-      points: 0,          // server computes — placeholder only
-      hardBrakes: finalState.eventCounts.HARD_BRAKE,
-      aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
-      sharpTurns: finalState.eventCounts.SHARP_TURN,
-      screenInteractionSeconds: finalState.screenInteractionSeconds,
-      phoneMotionSeconds: finalState.phoneMotionSeconds,
-      penalties: 0,         // server computes — placeholder only
-      accelAvailable: lastTripDataRef.current?.accelAvailable,
-      accelInitFailed: lastTripDataRef.current?.accelInitFailed,
-      accelCoverage: lastTripDataRef.current?.accelCoverage,
-      vehicleKeyHash: lastTripDataRef.current?.vehicleKeyHash ?? null,
-      telemetryDigest,
-      payloadSignature,
-      routeWaypoints: lastTripDataRef.current?.waypoints,
-      events: lastTripDataRef.current?.events?.map(e => ({
-        type: e.type,
-        timestamp: e.timestamp.toISOString(),
-        severity: e.severity,
-        speedKmh: e.speedKmh,
-        location: e.location,
-        peakLongitudinalG: e.peakLongitudinalG,
-        peakLateralG: e.peakLateralG,
-        durationMs: e.durationMs,
-      })),
-    };
+    const validTripPayload = buildValidTripPayload(
+      finalState, lastTripDataRef.current, tripStartTime, endTime,
+    );
 
     let savedTrip: Trip | null = null;
     let isPermanentFailure = false;

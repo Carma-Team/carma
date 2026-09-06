@@ -7,9 +7,9 @@ type DialogSize = 'sm' | 'lg';
 
 // Confirm-dialog icon, per the style guide's "Modal / dialog" pattern — a
 // tone-tinted circle beside the title. Only the two tones that pattern uses
-// for a confirmation (warning for a reversible-but-notable action, danger for
-// a destructive one) are supported; a plain informational/form dialog passes
-// no tone at all.
+// for a confirmation (warning for a reversible-but-notable action, danger
+// for a destructive one) are supported; a plain informational/form dialog
+// passes no tone at all.
 type DialogTone = 'warning' | 'danger';
 
 const toneIcons: Record<DialogTone, ReactNode> = {
