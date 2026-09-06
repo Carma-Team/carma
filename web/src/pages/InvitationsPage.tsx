@@ -9,8 +9,7 @@ import {
   type InvitationRole,
   type PendingInvitation,
 } from '@/lib/api/businessInvitations';
-import { Card, Heading, Text, Button, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
-import inputStyles from '@/components/ui/Input.module.css';
+import { Card, Heading, Text, Button, Input, Select, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
 import styles from './InvitationsPage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
@@ -184,8 +183,7 @@ export function InvitationsPage() {
       <Card className={styles.createCard}>
         <Heading level={2}>{t('invitations.createSectionTitle')}</Heading>
         <div className={styles.createRow}>
-          <select
-            className={inputStyles.input}
+          <Select
             aria-label={t('invitations.roleSelectLabel')}
             value={selectedRole}
             disabled={creating || created !== null}
@@ -196,7 +194,7 @@ export function InvitationsPage() {
                 {t(`permissions.roleLabel${roleKey(role)}`)}
               </option>
             ))}
-          </select>
+          </Select>
           {/* Disabled for as long as `created` holds a just-created
               invitation, not only while `creating` is in flight — its link
               and token are shown exactly once (see
@@ -300,51 +298,33 @@ export function InvitationsPage() {
           <div className={styles.createdPanel}>
             <Text variant="body">{t('invitations.validityNotice')}</Text>
 
-            <div className={styles.field}>
-              <Text variant="label" as="span" id="invitation-link-label">
-                {t('invitations.linkLabel')}
-              </Text>
-              <div className={styles.copyRow}>
-                <input
-                  className={inputStyles.input}
-                  dir="ltr"
-                  readOnly
-                  aria-labelledby="invitation-link-label"
-                  value={created.url}
-                />
-                {/* `aria-live` on the button itself — its own visible label is
-                    what changes ("Copy link" -> "Copied"), and that is also
-                    the confirmation a screen reader needs announced. */}
-                <Button
-                  variant="secondary"
-                  aria-live="polite"
-                  onClick={() => copyToClipboard('link', created.url)}
-                >
-                  {copied === 'link' ? t('invitations.copiedLabel') : t('invitations.copyLinkButton')}
-                </Button>
+            <div className={styles.copyRow}>
+              <div className={styles.copyField}>
+                <Input label={t('invitations.linkLabel')} dir="ltr" readOnly value={created.url} />
               </div>
+              {/* `aria-live` on the button itself — its own visible label is
+                  what changes ("Copy link" -> "Copied"), and that is also
+                  the confirmation a screen reader needs announced. */}
+              <Button
+                variant="secondary"
+                aria-live="polite"
+                onClick={() => copyToClipboard('link', created.url)}
+              >
+                {copied === 'link' ? t('invitations.copiedLabel') : t('invitations.copyLinkButton')}
+              </Button>
             </div>
 
-            <div className={styles.field}>
-              <Text variant="label" as="span" id="invitation-code-label">
-                {t('invitations.codeLabel')}
-              </Text>
-              <div className={styles.copyRow}>
-                <input
-                  className={inputStyles.input}
-                  dir="ltr"
-                  readOnly
-                  aria-labelledby="invitation-code-label"
-                  value={created.token}
-                />
-                <Button
-                  variant="secondary"
-                  aria-live="polite"
-                  onClick={() => copyToClipboard('code', created.token)}
-                >
-                  {copied === 'code' ? t('invitations.copiedLabel') : t('invitations.copyCodeButton')}
-                </Button>
+            <div className={styles.copyRow}>
+              <div className={styles.copyField}>
+                <Input label={t('invitations.codeLabel')} dir="ltr" readOnly value={created.token} />
               </div>
+              <Button
+                variant="secondary"
+                aria-live="polite"
+                onClick={() => copyToClipboard('code', created.token)}
+              >
+                {copied === 'code' ? t('invitations.copiedLabel') : t('invitations.copyCodeButton')}
+              </Button>
             </div>
 
             <Button onClick={handleDoneWithCreated}>{t('invitations.doneButton')}</Button>
@@ -360,6 +340,7 @@ export function InvitationsPage() {
         }}
         title={t('invitations.revokeConfirmTitle')}
         closeLabel={t('invitations.revokeConfirmCloseLabel')}
+        tone="danger"
       >
         <Text variant="body">{t('invitations.revokeConfirmBody')}</Text>
         <div className={styles.actions}>

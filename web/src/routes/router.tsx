@@ -8,12 +8,13 @@ import { InvitationsPage } from '@/pages/InvitationsPage';
 import { AcceptInvitationPage } from '@/pages/AcceptInvitationPage';
 import { AcceptInvitationEntryPage } from '@/pages/AcceptInvitationEntryPage';
 import { CreateAccountPage } from '@/pages/CreateAccountPage';
-import { ComingSoonPage } from '@/pages/ComingSoonPage';
+import { BusinessProfilePage } from '@/pages/BusinessProfilePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { SignInPage } from '@/pages/SignInPage';
 import { BusinessRegistrationPage } from '@/pages/BusinessRegistrationPage';
 import { BusinessRequestStatusPage } from '@/pages/BusinessRequestStatusPage';
 import { BusinessRequestsReviewPage } from '@/pages/BusinessRequestsReviewPage';
+import { AccountSettingsPage } from '@/pages/AccountSettingsPage';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RequireBusinessRole } from './RequireBusinessRole';
 import { RequireAdmin } from './RequireAdmin';
@@ -21,8 +22,8 @@ import { LandingRoute } from './LandingRoute';
 
 // The shell (CAR-204) wraps every authenticated route, including 404 — an
 // unknown path still renders inside the sidebar/header chrome, not a blank
-// page. /business-profile renders ComingSoonPage until its own ticket lands;
-// /redemption is CAR-68, /rewards is CAR-202. CAR-116 wraps the four real
+// page. /business-profile is CAR-341; /redemption is CAR-68, /rewards is
+// CAR-202. CAR-116 wraps the four real
 // business routes in one `RequireBusinessRole` allowing all three roles —
 // a null/ambiguous membership (no membership, or more than one — CAR-258
 // fails closed rather than guessing) must not reach any of them, while the
@@ -68,12 +69,17 @@ export const routes: RouteObject[] = [
           // does its own role check, because it is the one route an ADMIN
           // must also reach (see its own comment for why).
           { path: '/', element: <LandingRoute /> },
+          // /account-settings (CAR-342) sits outside every role gate below,
+          // same as / — it is the signed-in user's own personal details, not
+          // a business capability, so ADMIN and every business role alike
+          // must reach it.
+          { path: '/account-settings', element: <AccountSettingsPage /> },
           {
             element: <RequireBusinessRole allow={['OWNER', 'MANAGER', 'CASHIER']} />,
             children: [
               { path: '/redemption', element: <RedemptionPage /> },
               { path: '/rewards', element: <RewardsPage /> },
-              { path: '/business-profile', element: <ComingSoonPage /> },
+              { path: '/business-profile', element: <BusinessProfilePage /> },
             ],
           },
           {

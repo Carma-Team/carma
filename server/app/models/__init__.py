@@ -1,5 +1,6 @@
 from app.models.base import Base
 from app.models.business import Business
+from app.models.business_branch import BusinessBranch
 from app.models.business_invitation import BusinessInvitation
 from app.models.business_join_request import BusinessJoinRequest
 from app.models.business_membership import BusinessMembership
@@ -43,6 +44,7 @@ __all__ = [
     "NOTIFICATION_LEVEL_UP",
     "Base",
     "Business",
+    "BusinessBranch",
     "BusinessCategory",
     "BusinessInvitation",
     "BusinessJoinRequest",

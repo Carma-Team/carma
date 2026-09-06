@@ -10,6 +10,8 @@ import { listMembers, changeMemberRole, revokeMemberAccess } from '@/lib/api/bus
 import { listInvitations, previewInvitation, acceptInvitation } from '@/lib/api/businessInvitations';
 import { listBusinessRequests } from '@/lib/api/businessRequests';
 import { listRedemptionHistory } from '@/lib/api/redemptionHistory';
+import { getBusinessProfile } from '@/lib/api/businessProfile';
+import { listBranches } from '@/lib/api/businessBranches';
 import { routes } from './router';
 
 vi.mock('@/lib/auth/authApi', async (importOriginal) => {
@@ -40,6 +42,16 @@ vi.mock('@/lib/api/businessRequests', async (importOriginal) => {
 vi.mock('@/lib/api/redemptionHistory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/redemptionHistory')>();
   return { ...actual, listRedemptionHistory: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessProfile', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessProfile')>();
+  return { ...actual, getBusinessProfile: vi.fn(), updateBusinessProfile: vi.fn() };
+});
+
+vi.mock('@/lib/api/businessBranches', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/businessBranches')>();
+  return { ...actual, listBranches: vi.fn() };
 });
 
 const businessUser = {
@@ -87,6 +99,8 @@ describe('routes', () => {
     vi.mocked(acceptInvitation).mockReset();
     vi.mocked(listBusinessRequests).mockReset();
     vi.mocked(listRedemptionHistory).mockReset();
+    vi.mocked(getBusinessProfile).mockReset();
+    vi.mocked(listBranches).mockReset();
   });
 
   // CAR-255: an ADMIN reaches the review page even with no business
@@ -203,14 +217,46 @@ describe('routes', () => {
     expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
-  it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
+  // CAR-342: Account Settings is the signed-in user's own personal details,
+  // not a business capability — unlike every route above it sits outside
+  // `RequireBusinessRole`, so even a null/ambiguous membership must still
+  // reach it rather than hitting the access-restricted state.
+  it('renders the real account-settings page inside the shell at /account-settings regardless of business membership', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/account-settings');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'החשבון שלי' })).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('renders the real business profile page inside the shell at /business-profile for an OWNER (CAR-341)', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
+    vi.mocked(getBusinessProfile).mockResolvedValue({
+      outcome: 'ok',
+      profile: {
+        id: 'b1',
+        name: 'Aroma Israel',
+        nameHe: null,
+        category: 'food',
+        address: 'Dizengoff 210, Tel Aviv',
+        locationLat: 32.07,
+        locationLng: 34.78,
+        registrationNumber: '514032897',
+        ownerName: 'Dana Levi',
+        ownerEmail: 'dana@aroma-israel.co.il',
+      },
+    });
+    vi.mocked(listBranches).mockResolvedValue({
+      outcome: 'ok',
+      branches: [
+        { id: 'br1', name: null, address: 'Dizengoff 210, Tel Aviv', locationLat: 32.07, locationLng: 34.78, isActive: true },
+      ],
+    });
 
     renderAt('/business-profile');
 
-    // Not `getByText` — the sidebar's own disabled nav items carry the same
-    // "coming soon" badge copy. The heading is the page-level marker.
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'בקרוב' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'פרטי העסק' })).toBeInTheDocument());
   });
 
   it('renders the real rewards page inside the shell at /rewards for an OWNER (CAR-202)', async () => {

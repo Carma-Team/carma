@@ -10,8 +10,7 @@ import {
   type BusinessMember,
   type BusinessMembershipRole,
 } from '@/lib/api/businessMembers';
-import { Card, Heading, Text, Button, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
-import inputStyles from '@/components/ui/Input.module.css';
+import { Card, Heading, Text, Button, Select, StatusBadge, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
 import styles from './PermissionsPage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
@@ -188,7 +187,7 @@ export function PermissionsPage() {
                         <Text variant="label" as="span">
                           {member.name ?? t('permissions.unnamedMemberLabel')}
                         </Text>
-                        {isSelf && <span className={styles.selfBadge}>{t('permissions.youBadge')}</span>}
+                        {isSelf && <StatusBadge tone="info">{t('permissions.youBadge')}</StatusBadge>}
                       </div>
                       {member.email && (
                         <Text variant="caption" dir="ltr">
@@ -198,8 +197,7 @@ export function PermissionsPage() {
                       <Text variant="caption">{t(`permissions.roleDescription${roleKey(member.role)}`)}</Text>
                     </td>
                     <td>
-                      <select
-                        className={inputStyles.input}
+                      <Select
                         aria-label={t('permissions.roleColumnLabel')}
                         value={member.role}
                         disabled={mutatingId !== null}
@@ -210,7 +208,7 @@ export function PermissionsPage() {
                             {t(`permissions.roleLabel${roleKey(role)}`)}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </td>
                     <td>
                       <Button
@@ -243,6 +241,7 @@ export function PermissionsPage() {
         }}
         title={t('permissions.revokeConfirmTitle')}
         closeLabel={t('permissions.revokeConfirmCloseLabel')}
+        tone="danger"
       >
         <Text variant="body">{t('permissions.revokeConfirmBody')}</Text>
         <div className={styles.actions}>

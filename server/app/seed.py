@@ -19,6 +19,7 @@ from app.core.security import hash_password
 from app.database import SessionLocal
 from app.models import (
     Business,
+    BusinessBranch,
     BusinessCategory,
     FriendStatus,
     Redemption,
@@ -365,6 +366,23 @@ async def run() -> None:
                 for k, v in biz.items():
                     setattr(existing_b, k, v)
                 biz_by_name[name] = existing_b
+        await db.flush()
+
+        # Every business needs at least one branch (CAR-341 continuation) —
+        # a fresh dev DB migrates before it seeds, so 0034_business_branches's
+        # own backfill never sees these rows; only a re-run against an
+        # already-seeded DB would.
+        for seeded_biz in biz_by_name.values():
+            has_branch = await db.scalar(select(BusinessBranch.id).where(BusinessBranch.business_id == seeded_biz.id))
+            if has_branch is None:
+                db.add(
+                    BusinessBranch(
+                        business_id=seeded_biz.id,
+                        address=seeded_biz.address,
+                        location_lat=seeded_biz.location_lat,
+                        location_lng=seeded_biz.location_lng,
+                    )
+                )
         await db.flush()
 
         # --- Rewards ---

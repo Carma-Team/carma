@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
@@ -129,6 +129,21 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
     [waypoints]
   );
 
+  // Stepping between trips swaps the route inside the same mounted map, and
+  // `initialRegion` is read once at mount — so the next trip inherited whatever the
+  // viewer had zoomed into on the previous one. Re-frame it whenever the route changes.
+  // Keyed by the route itself, not by the array's identity: the summary is rebuilt
+  // whenever the trip list refreshes, and re-framing on that would yank the map back
+  // from wherever the viewer had just zoomed in on the trip they are still looking at.
+  const mapRef = useRef<any>(null);
+  const routeKey = `${waypoints.length}:${waypoints[0]?.ts}:${waypoints[waypoints.length - 1]?.ts}`;
+  const framedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!region || framedKey.current === routeKey) return;
+    framedKey.current = routeKey;
+    mapRef.current?.animateToRegion(region, 0);
+  }, [region, routeKey]);
+
   if (waypoints.length < 2 || !MapView || !region) {
     return <MapFallback />;
   }
@@ -146,7 +161,7 @@ export function TripMapPlaceholder({ waypoints = [], events = [] }: TripMapProps
       {/* Android pops a native directions toolbar over the map when a marker is
           tapped, which is a second control that looks like ours and goes to the same
           place. Our own button above is the one route out (CAR-241). */}
-      <MapView style={styles.map} initialRegion={region} toolbarEnabled={false}>
+      <MapView ref={mapRef} style={styles.map} initialRegion={region} toolbarEnabled={false}>
         <Polyline
           coordinates={coordinates}
           strokeColor={COLORS.brand}

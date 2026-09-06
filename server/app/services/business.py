@@ -14,6 +14,7 @@ from app.core.pagination import decode_cursor, encode_cursor
 from app.core.security import normalise_voucher_code
 from app.models import (
     Business,
+    BusinessBranch,
     BusinessCategory,
     BusinessMembership,
     BusinessMembershipRole,
@@ -22,6 +23,8 @@ from app.models import (
     Reward,
     User,
 )
+from app.schemas.business_branch import BranchCreateIn, BranchOut, BranchUpdateIn
+from app.schemas.business_profile import BusinessProfileOut, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut, SoldOutRewardOut, TopRewardOut
 from app.schemas.redemption import BusinessRedemptionOut
 from app.schemas.reward import BusinessRewardIn, BusinessRewardPatchIn, BusinessVoucherOut, RewardOut
@@ -140,6 +143,223 @@ async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: s
     existing = await assert_membership_allowed(db, user_id, business_id)
     if existing is None:
         db.add(BusinessMembership(business_id=business_id, user_id=user_id, role=BusinessMembershipRole.OWNER))
+
+
+# ── Business profile (CAR-341) ──────────────────────────────────────────────
+
+
+async def _owner_contact(db: AsyncSession, business_id: str) -> User | None:
+    """The user who should appear as this business's contact person.
+
+    Reads `business_memberships` — CAR-74's authorization source of truth —
+    never `Business.owner_user_id`. That FK predates memberships, is null on
+    a business created before CAR-77, and per `services.users.profile_out`
+    is no longer how the app decides who owns what; using it here would show
+    an unrelated or stale account (or none) as "the account owner" on a
+    business that actually has a real OWNER member. A business can hold more
+    than one OWNER row (`services.business_memberships.change_role` only
+    guarantees at least one, never at most one) — the earliest-created one is
+    treated as canonical, since that is the membership CAR-77's approval flow
+    itself created first.
+    """
+    owner: User | None = await db.scalar(
+        select(User)
+        .join(BusinessMembership, BusinessMembership.user_id == User.id)
+        .where(BusinessMembership.business_id == business_id, BusinessMembership.role == BusinessMembershipRole.OWNER)
+        .order_by(BusinessMembership.created_at.asc())
+        .limit(1)
+    )
+    return owner
+
+
+async def get_profile(db: AsyncSession, business: Business) -> BusinessProfileOut:
+    owner = await _owner_contact(db, business.id)
+    default_branch = await _default_branch(db, business.id)
+    return BusinessProfileOut.from_orm_business(business, owner, default_branch)
+
+
+async def update_profile(db: AsyncSession, business: Business, dto: BusinessProfileUpdateIn) -> BusinessProfileOut:
+    """Apply an owner/manager's edit to their own business record.
+
+    `registration_number` is deliberately absent from `BusinessProfileUpdateIn`
+    (see its own docstring) — there is no path, here or anywhere else, that
+    writes it after `services.business_join_requests.approve` sets it once.
+    Location fields are absent too (see the schema's own docstring) — an
+    address/coordinate edit only ever reaches `update_branch` below.
+    """
+    changes = dto.model_dump(exclude_unset=True)
+    if "category" in changes and changes["category"] is not None:
+        changes["category"] = _parse_category(changes["category"])
+    for field, value in changes.items():
+        setattr(business, field, value)
+
+    await db.commit()
+    audit("business.profile.updated", business_id=business.id, fields=sorted(changes))
+    return await get_profile(db, business)
+
+
+# ── Business branches (CAR-341 continuation) ────────────────────────────────
+
+# Structured 409 — a client branches on `detail["code"]`, same convention as
+# every other business-scoped conflict in this module.
+LAST_ACTIVE_BRANCH = "LAST_ACTIVE_BRANCH"
+
+
+async def _default_branch(db: AsyncSession, business_id: str) -> BusinessBranch:
+    """The branch `BusinessProfileOut`'s address/coordinate mirror reads from.
+
+    The earliest-created *active* branch — the same "earliest row wins"
+    convention `_owner_contact` uses for OWNER memberships, rather than a
+    persisted `is_default` flag that could disagree with it. Always finds a
+    row: every business gets one at creation (`business_join_requests.approve`),
+    migration backfill (`0034_business_branches`), or — for a business a
+    previous server image inserted without one — `0036_branch_on_legacy_insert`'s
+    deferred DB trigger. `update_branch` below refuses to deactivate the last
+    active one.
+    """
+    branch = await db.scalar(
+        select(BusinessBranch)
+        .where(BusinessBranch.business_id == business_id, BusinessBranch.is_active.is_(True))
+        .order_by(BusinessBranch.created_at.asc())
+        .limit(1)
+    )
+    assert branch is not None, "every business must have at least one active branch"
+    return branch
+
+
+async def list_branches(db: AsyncSession, business: Business) -> list[BranchOut]:
+    branches = (
+        await db.scalars(
+            select(BusinessBranch)
+            .where(BusinessBranch.business_id == business.id)
+            .order_by(BusinessBranch.created_at.asc())
+        )
+    ).all()
+    return [BranchOut.from_orm_branch(b) for b in branches]
+
+
+async def create_branch(db: AsyncSession, business: Business, dto: BranchCreateIn) -> BranchOut:
+    """A newly created branch is always the most recently created one, so it
+    can never become the earliest-active/canonical branch `_default_branch`
+    resolves to — nothing here can change which branch that is, so unlike
+    `update_branch` this needs no lock and never touches the legacy mirror.
+    """
+    branch = BusinessBranch(
+        business_id=business.id,
+        name=dto.name,
+        address=dto.address,
+        location_lat=dto.location_lat,
+        location_lng=dto.location_lng,
+    )
+    db.add(branch)
+    await db.commit()
+    audit("business.branch.created", business_id=business.id, branch_id=branch.id)
+    return BranchOut.from_orm_branch(branch)
+
+
+async def _locked_business(db: AsyncSession, business_id: str) -> None:
+    """Lock the Business row for the rest of the caller's transaction — same
+    pattern `business_memberships._locked_business` uses for its own
+    last-OWNER invariant. Two concurrent branch mutations for this business
+    either both get everything they need, in turn, or the second blocks
+    entirely until the first commits or rolls back; a different business
+    locks a different row, so this never serializes unrelated businesses.
+    """
+    await db.execute(select(Business.id).where(Business.id == business_id).with_for_update())
+
+
+async def _owned_branch(db: AsyncSession, business: Business, branch_id: str) -> BusinessBranch:
+    """Load a branch that belongs to this business, or 404 — same
+    another-business-is-also-404 rule as `_owned_reward`. Always called
+    *after* `_locked_business` from `update_branch` — see its own docstring —
+    so the state this reads can't shift under the caller mid-decision.
+    """
+    branch = await db.scalar(
+        select(BusinessBranch).where(BusinessBranch.id == branch_id, BusinessBranch.business_id == business.id)
+    )
+    if branch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Branch not found")
+    return branch
+
+
+def _last_active_branch_conflict() -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {"code": LAST_ACTIVE_BRANCH, "message": "A business must have at least one active branch"},
+    )
+
+
+async def _sync_legacy_location_mirror(db: AsyncSession, business: Business) -> None:
+    """Keeps `Business.address/location_lat/location_lng` in step with the
+    current canonical branch while both schemas coexist (CAR-341
+    continuation's expand phase — see 0034_business_branches's own note on
+    why those columns aren't dropped yet).
+
+    An older, still-running server image reads these three columns
+    directly, never `business_branches` — without this, editing the
+    canonical branch, or deactivating/reactivating a branch in a way that
+    changes *which* branch is canonical, would leave that image showing a
+    stale location the moment either happens. Always called from inside
+    `_locked_business`'s lock, after the triggering change has been applied
+    (a flush, not yet a commit) — `_default_branch`'s read must see that
+    change to resolve the *new* canonical branch, not the one about to be
+    superseded. Removing this call is part of the future contract migration,
+    alongside dropping the columns themselves.
+
+    This is one half of the compatibility bridge: the direction for writes
+    made by *this*, new code. The other direction — a still-running previous
+    server image writing straight to these columns, since it predates
+    `business_branches` entirely — is bridged by
+    `0035_branch_legacy_sync`'s DB trigger instead, since
+    that old process cannot be made to call this function. The trigger's own
+    write lands on `business_branches`, which carries no trigger of its own,
+    so the two directions cannot chase each other into a loop.
+    """
+    canonical = await _default_branch(db, business.id)
+    business.address = canonical.address
+    business.location_lat = canonical.location_lat
+    business.location_lng = canonical.location_lng
+
+
+async def update_branch(db: AsyncSession, business: Business, branch_id: str, dto: BranchUpdateIn) -> BranchOut:
+    """Apply an owner/manager's edit to one of their own branches.
+
+    Refuses to deactivate a business's last active branch — the approved
+    design's own invariant ("every business has at least one branch") would
+    otherwise leave `_default_branch` with nothing to find. Locks the
+    Business row before reading anything the decision depends on: without
+    it, two concurrent deactivations of two *different* branches could each
+    observe the other's branch as still active and both proceed, leaving
+    zero — the count and the branch's own `is_active` both have to be read
+    fresh, under the lock, never from a load taken before it.
+    """
+    await _locked_business(db, business.id)
+    branch = await _owned_branch(db, business, branch_id)
+    changes = dto.model_dump(exclude_unset=True)
+
+    if changes.get("is_active") is False and branch.is_active:
+        active_count = await db.scalar(
+            select(func.count())
+            .select_from(BusinessBranch)
+            .where(BusinessBranch.business_id == business.id, BusinessBranch.is_active.is_(True))
+        )
+        if (active_count or 0) <= 1:
+            await db.rollback()
+            raise _last_active_branch_conflict()
+
+    for field, value in changes.items():
+        setattr(branch, field, value)
+
+    # Flushed so `_sync_legacy_location_mirror`'s own read sees this change —
+    # relevant whenever the edit could move which branch is canonical (an
+    # address/coordinate edit on the canonical branch itself, or an
+    # is_active flip either direction), harmless no-op otherwise.
+    await db.flush()
+    await _sync_legacy_location_mirror(db, business)
+
+    await db.commit()
+    audit("business.branch.updated", business_id=business.id, branch_id=branch.id, fields=sorted(changes))
+    return BranchOut.from_orm_branch(branch)
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
