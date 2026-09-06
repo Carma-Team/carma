@@ -11,6 +11,7 @@ from app.models.base import Base
 from app.models.enums import BusinessCategory
 
 if TYPE_CHECKING:
+    from app.models.business_branch import BusinessBranch
     from app.models.reward import Reward
     from app.models.user import User
 
@@ -32,6 +33,15 @@ class Business(Base):
         default=BusinessCategory.OTHER,
         nullable=False,
     )
+    # Superseded by `business_branches` (CAR-341 continuation) as of
+    # 0034_business_branches: the profile API and the Branches UI both read
+    # and write branch rows now, never these three directly. Kept live, not
+    # frozen — a still-running previous server image can write here directly
+    # during a migrate-then-rollout deploy or after a rollback, and
+    # 0035_branch_legacy_sync's DB trigger is what keeps
+    # that write from going unseen by the new, branch-backed profile. Dropping
+    # a NOT NULL column here has to outlive a full deploy cycle regardless
+    # (see 0033_drop_users_city's own note on the same hazard).
     location_lat: Mapped[float] = mapped_column(Float, nullable=False)
     location_lng: Mapped[float] = mapped_column(Float, nullable=False)
     address: Mapped[str | None] = mapped_column(String(200))
@@ -40,6 +50,7 @@ class Business(Base):
 
     owner: Mapped[User | None] = relationship(back_populates="business")
     rewards: Mapped[list[Reward]] = relationship(back_populates="business", cascade="all, delete-orphan")
+    branches: Mapped[list[BusinessBranch]] = relationship(back_populates="business", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_businesses_category", "category"),

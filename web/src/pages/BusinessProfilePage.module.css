@@ -294,3 +294,7 @@
   background: var(--color-bg);
   border-radius: var(--radius-md);
 }
+
+.branchErrorText {
+  color: var(--color-danger-text);
+}

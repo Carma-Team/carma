@@ -1,18 +1,20 @@
 """Business profile read/update (CAR-341) — auth guards and the field boundary.
 
-Three things that would hurt if they broke:
+Two things that would hurt if they broke:
   1. `registration_number` (the ח.פ./tax id) becoming editable through this
      endpoint despite `BusinessProfileUpdateIn` never declaring it — there is
      no verification workflow for changing it yet (see the approved design's
      own "flagged, not built" note), so it must stay server-side read-only no
      matter what a client sends.
-  2. `address` changing without `location_lat`/`location_lng` moving with it
-     — the business's displayed address and its actual map/marketplace point
-     silently diverging.
-  3. An explicit null reaching a NOT-NULL column (`name`, `category`,
-     `address`) and failing ugly at commit instead of a clean 422 — `name_he`
-     is the one field that must still accept an explicit null (it's nullable
-     on the model, and null is how a caller clears the override).
+  2. An explicit null reaching a NOT-NULL column (`name`, `category`) and
+     failing ugly at commit instead of a clean 422 — `name_he` is the one
+     field that must still accept an explicit null (it's nullable on the
+     model, and null is how a caller clears the override).
+
+`address`/`location_lat`/`location_lng` moved to branch data (CAR-341
+continuation, see `test_business_branches.py`) — this file only checks that
+`BusinessProfileOut` still mirrors the default branch correctly, never that
+editing one works, since `BusinessProfileUpdateIn` no longer accepts them.
 """
 
 from __future__ import annotations
@@ -25,7 +27,15 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
-from app.models import Business, BusinessCategory, BusinessMembership, BusinessMembershipRole, User, UserRole
+from app.models import (
+    Business,
+    BusinessBranch,
+    BusinessCategory,
+    BusinessMembership,
+    BusinessMembershipRole,
+    User,
+    UserRole,
+)
 from app.schemas.business_profile import BusinessProfileUpdateIn
 from app.services import business as business_service
 
@@ -75,6 +85,18 @@ async def _make_business(
     db.add(business)
     await db.flush()
     db.add(BusinessMembership(user_id=owner.id, business_id=business.id, role=role))
+    # Every business needs at least one branch as of the CAR-341 continuation
+    # (`services.business._default_branch` asserts one exists) — mirrors
+    # `business`'s own address/coordinates, same as a real approval or the
+    # 0034_business_branches backfill would produce.
+    db.add(
+        BusinessBranch(
+            business_id=business.id,
+            address=business.address,
+            location_lat=business.location_lat,
+            location_lng=business.location_lng,
+        )
+    )
     await db.commit()
     await db.refresh(business)
     return business, owner
@@ -123,48 +145,19 @@ async def test_update_applies_only_sent_fields(db_session: AsyncSession) -> None
         await _cleanup(db_session, business, owner)
 
 
-@pytest.mark.asyncio
-async def test_update_moves_address_and_coordinates_together(db_session: AsyncSession) -> None:
-    business, owner = await _make_business(db_session)
-    try:
-        out = await business_service.update_profile(
-            db_session,
-            business,
-            BusinessProfileUpdateIn.model_validate(
-                {"address": "New Address 5", "locationLat": 32.08, "locationLng": 34.79}
-            ),
-        )
-        assert out.address == "New Address 5"
-        assert out.location_lat == 32.08
-        assert out.location_lng == 34.79
-        # The ORM row itself, not just the response DTO — a stale `.business`
-        # elsewhere in the same request must never see the two disagree.
-        assert business.location_lat == 32.08
-        assert business.location_lng == 34.79
-    finally:
-        await _cleanup(db_session, business, owner)
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"address": "New Address 5"},
-        {"locationLat": 32.08},
-        {"locationLng": 34.79},
-        {"address": "New Address 5", "locationLat": 32.08},
-    ],
-)
-def test_address_and_coordinates_reject_a_partial_set(payload: dict[str, object]) -> None:
-    # Schema-level, no DB needed — the whole point is this never reaches a
-    # session at all.
-    with pytest.raises(ValidationError):
-        BusinessProfileUpdateIn.model_validate(payload)
-
-
-@pytest.mark.parametrize("field", ["name", "category", "address", "locationLat", "locationLng"])
+@pytest.mark.parametrize("field", ["name", "category"])
 def test_explicit_null_is_rejected_for_non_clearable_fields(field: str) -> None:
     with pytest.raises(ValidationError):
         BusinessProfileUpdateIn.model_validate({field: None})
+
+
+def test_update_in_has_no_location_fields() -> None:
+    # The server-side half of "Business Details isn't a second
+    # address-editing path" — proven at the schema level, not just that the
+    # web form hides the fields.
+    assert "address" not in BusinessProfileUpdateIn.model_fields
+    assert "location_lat" not in BusinessProfileUpdateIn.model_fields
+    assert "location_lng" not in BusinessProfileUpdateIn.model_fields
 
 
 @pytest.mark.asyncio
@@ -217,6 +210,32 @@ async def test_get_profile_returns_current_record_and_coordinates(db_session: As
         assert out.registration_number == business.registration_number
         assert out.location_lat == business.location_lat
         assert out.location_lng == business.location_lng
+    finally:
+        await _cleanup(db_session, business, owner)
+
+
+@pytest.mark.asyncio
+async def test_get_profile_reflects_a_branch_edit_not_the_frozen_business_columns(db_session: AsyncSession) -> None:
+    """Proves the profile mirror is live, not a copy frozen at creation —
+    `Business.address/location_lat/location_lng` never change again after
+    this migration, so a stale mirror would silently diverge the moment
+    someone edits the default branch through `/api/business/branches`.
+    """
+    business, owner = await _make_business(db_session)
+    try:
+        default_branch = await business_service._default_branch(db_session, business.id)
+        default_branch.address = "New Address 5"
+        default_branch.location_lat = 32.08
+        default_branch.location_lng = 34.79
+        await db_session.commit()
+
+        out = await business_service.get_profile(db_session, business)
+        assert out.address == "New Address 5"
+        assert out.location_lat == 32.08
+        assert out.location_lng == 34.79
+        # The legacy columns are frozen — this is the divergence the mirror
+        # exists to hide from anything still reading BusinessProfileOut.
+        assert business.address != out.address
     finally:
         await _cleanup(db_session, business, owner)
 

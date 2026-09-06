@@ -8,45 +8,59 @@ import {
   type BusinessProfile,
   type BusinessProfileUpdatePayload,
 } from '@/lib/api/businessProfile';
+import {
+  listBranches,
+  createBranch,
+  updateBranch,
+  type Branch,
+  type BranchCreatePayload,
+  type BranchResult,
+  type BranchUpdatePayload,
+} from '@/lib/api/businessBranches';
 import { geocodeAddress } from '@/lib/api/geocoding';
 import { BUSINESS_CATEGORIES, normalizeBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { LocationConfirmMap } from '@/components/business/LocationConfirmMap';
-import { Card, Heading, Text, Button, Input, Select, Dialog, PageHeader, ErrorState, LoadingState, Skeleton } from '@/components/ui';
+import {
+  Card,
+  Heading,
+  Text,
+  Button,
+  Input,
+  Select,
+  Switch,
+  StatusBadge,
+  Dialog,
+  PageHeader,
+  ErrorState,
+  LoadingState,
+  Skeleton,
+} from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './BusinessProfilePage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
 type Tab = 'details' | 'branches';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-// The address field can't just PATCH straight through like the others — its
-// coordinates have to move with it (see BusinessProfileUpdatePayload's own
-// comment), so an address edit detours through the same geocode-then-confirm
-// steps BusinessRegistrationPage uses to produce that pair in the first
-// place, before the actual save happens.
-type SaveStep = 'form' | 'geocoding' | 'geocodeError' | 'confirmLocation';
 
 type FormState = {
   name: string;
   nameHe: string;
   category: BusinessCategory;
-  address: string;
 };
 
-type FieldErrors = Partial<Record<'name' | 'address', string>>;
+type FieldErrors = Partial<Record<'name', string>>;
 
 function formFromProfile(profile: BusinessProfile): FormState {
   return {
     name: profile.name,
     nameHe: profile.nameHe ?? '',
     category: normalizeBusinessCategory(profile.category),
-    address: profile.address ?? '',
   };
 }
 
 function validate(form: FormState, t: (key: string) => string): FieldErrors {
   const errors: FieldErrors = {};
   if (form.name.trim().length < 2) errors.name = t('businessProfile.validationRequired');
-  if (form.address.trim().length < 2) errors.address = t('businessProfile.validationAddressRequired');
   return errors;
 }
 
@@ -65,16 +79,19 @@ function displayName(profile: BusinessProfile, lang: 'HE' | 'EN'): string {
 
 const SAVED_BANNER_MS = 3000;
 
+type BranchModalMode = { kind: 'create' } | { kind: 'edit'; branch: Branch };
+
 export function BusinessProfilePage() {
   const { t, lang } = useTranslation();
   const { user } = useAuth();
   // Same role split Rewards already draws (CAR-116/CAR-202): OWNER/MANAGER
-  // edit, CASHIER gets the read-only view — matching update_profile's
-  // CurrentBusinessManager gate server-side (routers/business.py).
+  // edit, CASHIER gets the read-only view — matching update_profile's and
+  // update_branch's CurrentBusinessManager gate server-side.
   const canManage = hasBusinessRole(user?.businessMembershipRole, ['OWNER', 'MANAGER']);
 
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [profile, setProfile] = useState<BusinessProfile | null>(null);
+  const [branches, setBranches] = useState<Branch[] | null>(null);
   const [tab, setTab] = useState<Tab>('details');
   // Set only while a tab switch is blocked on an unsaved edit — the confirm
   // dialog's own target, not a second copy of `tab`.
@@ -85,36 +102,32 @@ export function BusinessProfilePage() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const savedBannerTimeout = useRef<number | undefined>(undefined);
 
-  // The address-change detour (see SaveStep). `pendingLat`/`pendingLng` are
-  // `null` whenever the map currently shows no complete, confirmed position
-  // — LocationConfirmMap's own invariant — so "Continue" can gate on that
-  // directly instead of trusting a stale value from before the applicant's
-  // latest edit.
-  const [saveStep, setSaveStep] = useState<SaveStep>('form');
-  const [geocodeErrorReason, setGeocodeErrorReason] = useState<'rate_limited' | 'unavailable' | null>(null);
-  const [pendingLat, setPendingLat] = useState<number | null>(null);
-  const [pendingLng, setPendingLng] = useState<number | null>(null);
+  const [branchModal, setBranchModal] = useState<BranchModalMode | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
-  const addressRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getBusinessProfile().then((result) => {
-      if (cancelled) return;
-      if (result.outcome === 'ok') {
-        setProfile(result.profile);
-        setForm(formFromProfile(result.profile));
-        setStatus('ready');
-      } else if (result.outcome === 'forbidden') {
-        setStatus('forbidden');
-      } else {
-        setStatus('error');
-      }
-    });
+    load();
     return () => {
       cancelled = true;
     };
+
+    function load() {
+      Promise.all([getBusinessProfile(), listBranches()]).then(([profileResult, branchesResult]) => {
+        if (cancelled) return;
+        if (profileResult.outcome === 'ok' && branchesResult.outcome === 'ok') {
+          setProfile(profileResult.profile);
+          setForm(formFromProfile(profileResult.profile));
+          setBranches(branchesResult.branches);
+          setStatus('ready');
+        } else if (profileResult.outcome === 'forbidden' || branchesResult.outcome === 'forbidden') {
+          setStatus('forbidden');
+        } else {
+          setStatus('error');
+        }
+      });
+    }
   }, []);
 
   useEffect(() => () => window.clearTimeout(savedBannerTimeout.current), []);
@@ -137,12 +150,13 @@ export function BusinessProfilePage() {
 
   function retry() {
     setStatus('loading');
-    getBusinessProfile().then((result) => {
-      if (result.outcome === 'ok') {
-        setProfile(result.profile);
-        setForm(formFromProfile(result.profile));
+    Promise.all([getBusinessProfile(), listBranches()]).then(([profileResult, branchesResult]) => {
+      if (profileResult.outcome === 'ok' && branchesResult.outcome === 'ok') {
+        setProfile(profileResult.profile);
+        setForm(formFromProfile(profileResult.profile));
+        setBranches(branchesResult.branches);
         setStatus('ready');
-      } else if (result.outcome === 'forbidden') {
+      } else if (profileResult.outcome === 'forbidden' || branchesResult.outcome === 'forbidden') {
         setStatus('forbidden');
       } else {
         setStatus('error');
@@ -163,19 +177,11 @@ export function BusinessProfilePage() {
     setTab(next);
   }
 
-  function resetSaveStep() {
-    setSaveStep('form');
-    setGeocodeErrorReason(null);
-    setPendingLat(null);
-    setPendingLng(null);
-  }
-
   function discardAndSwitchTab() {
     if (!profile || !pendingTab) return;
     setForm(formFromProfile(profile));
     setErrors({});
     setSaveState('idle');
-    resetSaveStep();
     setTab(pendingTab);
     setPendingTab(null);
   }
@@ -185,22 +191,17 @@ export function BusinessProfilePage() {
     setForm(formFromProfile(profile));
     setErrors({});
     setSaveState('idle');
-    resetSaveStep();
   }
 
-  async function doSave(coords: { lat: number; lng: number } | null) {
+  async function doSave() {
     if (!form) return;
     setSaveState('saving');
-    const base = {
+    const payload: BusinessProfileUpdatePayload = {
       name: form.name.trim(),
       nameHe: form.nameHe.trim() === '' ? null : form.nameHe.trim(),
       category: form.category,
     };
-    const payload: BusinessProfileUpdatePayload = coords
-      ? { ...base, address: form.address.trim(), locationLat: coords.lat, locationLng: coords.lng }
-      : base;
     const result = await updateBusinessProfile(payload);
-    resetSaveStep();
 
     if (result.outcome === 'ok') {
       setProfile(result.profile);
@@ -213,40 +214,6 @@ export function BusinessProfilePage() {
     setSaveState('error');
   }
 
-  // Separate from handleSave so the geocode-error step's "Try again" can
-  // re-run exactly this without a synthetic FormEvent — same split
-  // BusinessRegistrationPage itself uses between handleFormSubmit and
-  // runGeocode.
-  async function runGeocode(address: string) {
-    setSaveStep('geocoding');
-    const result = await geocodeAddress(address);
-    if (result.outcome === 'found') {
-      setPendingLat(result.lat);
-      setPendingLng(result.lng);
-      setSaveStep('confirmLocation');
-    } else if (result.outcome === 'not_found') {
-      // Left `null` deliberately — the map must open with no pin, not a
-      // fallback point that looks like a real answer (see LocationConfirmMap).
-      setPendingLat(null);
-      setPendingLng(null);
-      setSaveStep('confirmLocation');
-    } else {
-      setGeocodeErrorReason(result.outcome);
-      setSaveStep('geocodeError');
-    }
-  }
-
-  function useManualLocation() {
-    setPendingLat(null);
-    setPendingLng(null);
-    setSaveStep('confirmLocation');
-  }
-
-  function confirmLocationAndSave() {
-    if (pendingLat === null || pendingLng === null) return;
-    void doSave({ lat: pendingLat, lng: pendingLng });
-  }
-
   async function handleSave(event: FormEvent) {
     event.preventDefault();
     if (!form || !profile || saveState === 'saving') return;
@@ -255,17 +222,19 @@ export function BusinessProfilePage() {
     if (Object.keys(fieldErrors).length > 0) {
       setErrors(fieldErrors);
       if (fieldErrors.name) nameRef.current?.focus();
-      else if (fieldErrors.address) addressRef.current?.focus();
       return;
     }
     setErrors({});
+    await doSave();
+  }
 
-    const addressChanged = form.address.trim() !== (profile.address ?? '').trim();
-    if (addressChanged) {
-      await runGeocode(form.address);
-      return;
-    }
-    await doSave(null);
+  function handleBranchSaved(branch: Branch) {
+    setBranches((prev) => {
+      if (!prev) return prev;
+      const exists = prev.some((b) => b.id === branch.id);
+      return exists ? prev.map((b) => (b.id === branch.id ? branch : b)) : [...prev, branch];
+    });
+    setBranchModal(null);
   }
 
   if (status === 'loading') {
@@ -285,7 +254,7 @@ export function BusinessProfilePage() {
     return <ErrorState title={t('businessProfile.forbiddenTitle')} message={t('businessProfile.forbiddenMessage')} />;
   }
 
-  if (status === 'error' || !profile || !form) {
+  if (status === 'error' || !profile || !form || !branches) {
     return (
       <ErrorState
         title={t('businessProfile.loadErrorTitle')}
@@ -345,79 +314,6 @@ export function BusinessProfilePage() {
 
       {tab === 'details' ? (
         <div id="business-profile-panel-details" role="tabpanel" aria-labelledby="business-profile-tab-details">
-          {saveStep === 'geocoding' && (
-            <Card className={styles.card}>
-              <LoadingState label={t('businessRegistration.geocodingLabel')} />
-            </Card>
-          )}
-
-          {saveStep === 'geocodeError' && (
-            <Card className={styles.card}>
-              <Heading level={3}>
-                {t(
-                  geocodeErrorReason === 'rate_limited'
-                    ? 'businessRegistration.geocodeRateLimitedTitle'
-                    : 'businessRegistration.geocodeUnavailableTitle',
-                )}
-              </Heading>
-              <Text variant="body">
-                {t(
-                  geocodeErrorReason === 'rate_limited'
-                    ? 'businessRegistration.geocodeRateLimitedMessage'
-                    : 'businessRegistration.geocodeUnavailableMessage',
-                )}
-              </Text>
-              <div className={styles.dialogActions}>
-                <Button type="button" onClick={() => runGeocode(form.address)}>
-                  {t('businessRegistration.geocodeRetryButton')}
-                </Button>
-                <Button type="button" variant="secondary" onClick={useManualLocation}>
-                  {t('businessRegistration.geocodeManualLocationButton')}
-                </Button>
-                <Button type="button" variant="text" onClick={resetSaveStep}>
-                  {t('businessProfile.cancelButton')}
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          {saveStep === 'confirmLocation' && (
-            <Card className={styles.card}>
-              <Heading level={3}>{t('businessRegistration.confirmLocationTitle')}</Heading>
-              <Text variant="body">
-                {t(
-                  pendingLat !== null
-                    ? 'businessRegistration.confirmLocationFoundSubtitle'
-                    : 'businessRegistration.confirmLocationNotFoundSubtitle',
-                )}
-              </Text>
-              <LocationConfirmMap
-                latitude={pendingLat}
-                longitude={pendingLng}
-                onChange={(lat, lng) => {
-                  setPendingLat(lat);
-                  setPendingLng(lng);
-                }}
-                latLabel={t('businessRegistration.latLabel')}
-                lngLabel={t('businessRegistration.lngLabel')}
-              />
-              <Text variant="caption">{t('businessRegistration.osmAttributionNote')}</Text>
-              <div className={styles.dialogActions}>
-                <Button
-                  type="button"
-                  disabled={pendingLat === null || pendingLng === null || saveState === 'saving'}
-                  onClick={confirmLocationAndSave}
-                >
-                  {saveState === 'saving' ? t('businessProfile.savingLabel') : t('businessRegistration.confirmLocationContinueButton')}
-                </Button>
-                <Button type="button" variant="secondary" disabled={saveState === 'saving'} onClick={resetSaveStep}>
-                  {t('businessRegistration.confirmLocationBackButton')}
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          {saveStep === 'form' && (
           <form onSubmit={handleSave} noValidate>
             <div className={styles.layout}>
               <div className={styles.main}>
@@ -468,15 +364,6 @@ export function BusinessProfilePage() {
                           </option>
                         ))}
                       </Select>
-                      <Input
-                        ref={addressRef}
-                        label={t('businessProfile.addressLabel')}
-                        required
-                        maxLength={200}
-                        value={form.address}
-                        error={errors.address}
-                        onChange={(event) => setForm({ ...form, address: event.target.value })}
-                      />
                     </div>
                   ) : (
                     <ReadOnlyDetails profile={profile} t={t} />
@@ -539,15 +426,14 @@ export function BusinessProfilePage() {
               </div>
             )}
           </form>
-          )}
         </div>
       ) : (
         <div id="business-profile-panel-branches" role="tabpanel" aria-labelledby="business-profile-tab-branches">
           <BranchesTab
-            profile={profile}
-            displayName={displayName(profile, lang)}
+            branches={branches}
             canManage={canManage}
-            onEditAddress={() => requestTabChange('details')}
+            onAdd={() => setBranchModal({ kind: 'create' })}
+            onEdit={(branch) => setBranchModal({ kind: 'edit', branch })}
             t={t}
           />
         </div>
@@ -570,6 +456,10 @@ export function BusinessProfilePage() {
           </Button>
         </div>
       </Dialog>
+
+      {branchModal && (
+        <BranchModal mode={branchModal} onClose={() => setBranchModal(null)} onSaved={handleBranchSaved} t={t} />
+      )}
     </div>
   );
 }
@@ -587,7 +477,6 @@ function ReadOnlyDetails({ profile, t }: { profile: BusinessProfile; t: (key: st
         <span dir="ltr">{profile.registrationNumber ?? '—'}</span>
       </div>
       <ReadOnlyRow label={t('businessProfile.categoryLabel')} value={t(`businessProfile.${categoryLabelKey(category)}`)} />
-      <ReadOnlyRow label={t('businessProfile.addressLabel')} value={profile.address ?? '—'} />
     </div>
   );
 }
@@ -663,57 +552,300 @@ function ContactCard({ profile, t }: { profile: BusinessProfile; t: (key: string
 }
 
 function BranchesTab({
-  profile,
-  displayName: name,
+  branches,
   canManage,
-  onEditAddress,
+  onAdd,
+  onEdit,
   t,
 }: {
-  profile: BusinessProfile;
-  displayName: string;
+  branches: Branch[];
   canManage: boolean;
-  onEditAddress: () => void;
+  onAdd: () => void;
+  onEdit: (branch: Branch) => void;
   t: (key: string) => string;
 }) {
-  const hasAddress = Boolean(profile.address && profile.address.trim() !== '');
   return (
     <div className={styles.branchesWrap}>
       <div className={styles.branchesHeader}>
         <Heading level={2}>{t('businessProfile.branchesSectionTitle')}</Heading>
         <div className={styles.saveBarSpacer} />
-        {/* Real per-branch data doesn't exist yet (one location per business
-            today — see the PR notes), so this stays disabled rather than
-            opening a form with nowhere real to save to. */}
-        <Button type="button" variant="secondary" disabled title={t('shell.comingSoonBadge')}>
-          <PlusIcon /> {t('businessProfile.addBranchButton')}
-        </Button>
-      </div>
-      <Card className={styles.branchCard}>
-        <span className={styles.branchIcon} aria-hidden="true">
-          <MapPinIcon />
-        </span>
-        <div className={styles.branchInfo}>
-          <Text variant="label" as="p">
-            {name}
-          </Text>
-          <Text variant="caption">{hasAddress ? profile.address : t('businessProfile.branchesNoAddress')}</Text>
-        </div>
         {canManage && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={onEditAddress}
-            aria-label={t('businessProfile.branchesEditButton')}
-          >
-            <PencilIcon />
+          <Button type="button" variant="secondary" onClick={onAdd}>
+            <PlusIcon /> {t('businessProfile.addBranchButton')}
           </Button>
         )}
-      </Card>
-      <Text variant="caption" className={styles.branchesNote}>
-        {t('businessProfile.addBranchComingSoonNote')}
-      </Text>
+      </div>
+      {branches.map((branch) => (
+        <Card key={branch.id} className={styles.branchCard}>
+          <span className={styles.branchIcon} aria-hidden="true">
+            <MapPinIcon />
+          </span>
+          <div className={styles.branchInfo}>
+            {branch.name && (
+              <Text variant="label" as="p">
+                {branch.name}
+              </Text>
+            )}
+            <Text variant="caption">{branch.address ?? t('businessProfile.branchesNoAddress')}</Text>
+          </div>
+          <StatusBadge tone={branch.isActive ? 'success' : 'neutral'}>
+            {t(branch.isActive ? 'businessProfile.branchStatusActive' : 'businessProfile.branchStatusInactive')}
+          </StatusBadge>
+          {canManage && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onEdit(branch)}
+              aria-label={t('businessProfile.branchesEditButton')}
+            >
+              <PencilIcon />
+            </Button>
+          )}
+        </Card>
+      ))}
     </div>
+  );
+}
+
+type BranchSaveStep = 'form' | 'geocoding' | 'geocodeError' | 'confirmLocation';
+
+// The same geocode-then-confirm detour `BusinessRegistrationPage` and the
+// Business Details tab (before location moved here) both use — reused via
+// `geocodeAddress`/`LocationConfirmMap` rather than a second implementation,
+// just orchestrated locally since this dialog is the only caller that scopes
+// it to one branch instead of a whole page.
+function BranchModal({
+  mode,
+  onClose,
+  onSaved,
+  t,
+}: {
+  mode: BranchModalMode;
+  onClose: () => void;
+  onSaved: (branch: Branch) => void;
+  t: (key: string) => string;
+}) {
+  const isEdit = mode.kind === 'edit';
+  const initial = mode.kind === 'edit' ? mode.branch : null;
+
+  const [name, setName] = useState(initial?.name ?? '');
+  const [address, setAddress] = useState(initial?.address ?? '');
+  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [addressError, setAddressError] = useState<string | undefined>(undefined);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+
+  const [step, setStep] = useState<BranchSaveStep>('form');
+  const [geocodeErrorReason, setGeocodeErrorReason] = useState<'rate_limited' | 'unavailable' | null>(null);
+  const [pendingLat, setPendingLat] = useState<number | null>(initial?.locationLat ?? null);
+  const [pendingLng, setPendingLng] = useState<number | null>(initial?.locationLng ?? null);
+
+  function handleResult(result: BranchResult) {
+    setStep('form');
+    if (result.outcome === 'ok') {
+      onSaved(result.branch);
+      return;
+    }
+    setSaveState('error');
+    setSaveErrorMessage(
+      result.outcome === 'conflict' && result.code === 'LAST_ACTIVE_BRANCH'
+        ? t('businessProfile.branchLastActiveError')
+        : t('businessProfile.branchSaveErrorMessage'),
+    );
+  }
+
+  async function doSave(coords: { lat: number; lng: number } | null) {
+    setSaveState('saving');
+    setSaveErrorMessage(null);
+    const trimmedName = name.trim();
+
+    if (mode.kind === 'edit') {
+      const base = { name: trimmedName === '' ? null : trimmedName, isActive };
+      const payload: BranchUpdatePayload = coords
+        ? { ...base, address: address.trim(), locationLat: coords.lat, locationLng: coords.lng }
+        : base;
+      handleResult(await updateBranch(mode.branch.id, payload));
+      return;
+    }
+
+    // A new branch always supplies address and coordinates together —
+    // `handleSubmit` never reaches here without them (see below).
+    if (!coords) return;
+    const payload: BranchCreatePayload = {
+      name: trimmedName === '' ? null : trimmedName,
+      address: address.trim(),
+      locationLat: coords.lat,
+      locationLng: coords.lng,
+    };
+    handleResult(await createBranch(payload));
+  }
+
+  async function runGeocode() {
+    setStep('geocoding');
+    const result = await geocodeAddress(address);
+    if (result.outcome === 'found') {
+      setPendingLat(result.lat);
+      setPendingLng(result.lng);
+      setStep('confirmLocation');
+    } else if (result.outcome === 'not_found') {
+      setPendingLat(null);
+      setPendingLng(null);
+      setStep('confirmLocation');
+    } else {
+      setGeocodeErrorReason(result.outcome);
+      setStep('geocodeError');
+    }
+  }
+
+  function useManualLocation() {
+    setPendingLat(null);
+    setPendingLng(null);
+    setStep('confirmLocation');
+  }
+
+  function confirmLocationAndSave() {
+    if (pendingLat === null || pendingLng === null) return;
+    void doSave({ lat: pendingLat, lng: pendingLng });
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (saveState === 'saving') return;
+
+    const trimmedAddress = address.trim();
+    if (trimmedAddress.length < 2) {
+      setAddressError(t('businessProfile.validationAddressRequired'));
+      return;
+    }
+    setAddressError(undefined);
+
+    const addressChanged = !isEdit || trimmedAddress !== (initial?.address ?? '').trim();
+    if (addressChanged) {
+      void runGeocode();
+      return;
+    }
+    void doSave(null);
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t(isEdit ? 'businessProfile.branchModalEditTitle' : 'businessProfile.branchModalAddTitle')}
+      closeLabel={t('businessProfile.leaveDialogCloseLabel')}
+      size="lg"
+    >
+      {step === 'geocoding' && <LoadingState label={t('businessRegistration.geocodingLabel')} />}
+
+      {step === 'geocodeError' && (
+        <>
+          <Heading level={3}>
+            {t(
+              geocodeErrorReason === 'rate_limited'
+                ? 'businessRegistration.geocodeRateLimitedTitle'
+                : 'businessRegistration.geocodeUnavailableTitle',
+            )}
+          </Heading>
+          <Text variant="body">
+            {t(
+              geocodeErrorReason === 'rate_limited'
+                ? 'businessRegistration.geocodeRateLimitedMessage'
+                : 'businessRegistration.geocodeUnavailableMessage',
+            )}
+          </Text>
+          <div className={styles.dialogActions}>
+            <Button type="button" onClick={() => void runGeocode()}>
+              {t('businessRegistration.geocodeRetryButton')}
+            </Button>
+            <Button type="button" variant="secondary" onClick={useManualLocation}>
+              {t('businessRegistration.geocodeManualLocationButton')}
+            </Button>
+            <Button type="button" variant="text" onClick={() => setStep('form')}>
+              {t('businessProfile.cancelButton')}
+            </Button>
+          </div>
+        </>
+      )}
+
+      {step === 'confirmLocation' && (
+        <>
+          <Heading level={3}>{t('businessRegistration.confirmLocationTitle')}</Heading>
+          <Text variant="body">
+            {t(
+              pendingLat !== null
+                ? 'businessRegistration.confirmLocationFoundSubtitle'
+                : 'businessRegistration.confirmLocationNotFoundSubtitle',
+            )}
+          </Text>
+          <LocationConfirmMap
+            latitude={pendingLat}
+            longitude={pendingLng}
+            onChange={(lat, lng) => {
+              setPendingLat(lat);
+              setPendingLng(lng);
+            }}
+            latLabel={t('businessRegistration.latLabel')}
+            lngLabel={t('businessRegistration.lngLabel')}
+          />
+          <Text variant="caption">{t('businessRegistration.osmAttributionNote')}</Text>
+          <div className={styles.dialogActions}>
+            <Button
+              type="button"
+              disabled={pendingLat === null || pendingLng === null || saveState === 'saving'}
+              onClick={confirmLocationAndSave}
+            >
+              {saveState === 'saving' ? t('businessProfile.savingLabel') : t('businessRegistration.confirmLocationContinueButton')}
+            </Button>
+            <Button type="button" variant="secondary" disabled={saveState === 'saving'} onClick={() => setStep('form')}>
+              {t('businessRegistration.confirmLocationBackButton')}
+            </Button>
+          </div>
+        </>
+      )}
+
+      {step === 'form' && (
+        <form onSubmit={handleSubmit} noValidate>
+          <div className={styles.fields}>
+            <Input
+              label={t('businessProfile.branchNameLabel')}
+              helperText={t('businessProfile.branchNameHint')}
+              maxLength={120}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <Input
+              label={t('businessProfile.addressLabel')}
+              required
+              maxLength={200}
+              value={address}
+              error={addressError}
+              onChange={(event) => setAddress(event.target.value)}
+            />
+            {isEdit && (
+              <Switch
+                label={t('businessProfile.branchActiveToggleLabel')}
+                checked={isActive}
+                onChange={(event) => setIsActive(event.target.checked)}
+              />
+            )}
+            {saveState === 'error' && saveErrorMessage && (
+              <Text variant="caption" role="alert" className={styles.branchErrorText}>
+                {saveErrorMessage}
+              </Text>
+            )}
+          </div>
+          <div className={styles.dialogActions}>
+            <Button type="submit" variant="primary" disabled={saveState === 'saving'}>
+              {saveState === 'saving' ? t('businessProfile.savingLabel') : t('businessProfile.branchSaveButton')}
+            </Button>
+            <Button type="button" variant="secondary" onClick={onClose} disabled={saveState === 'saving'}>
+              {t('businessProfile.cancelButton')}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Dialog>
   );
 }
 

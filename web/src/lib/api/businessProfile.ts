@@ -17,6 +17,9 @@ export type BusinessProfile = {
   name: string;
   nameHe: string | null;
   category: string;
+  // Mirrors the business's default branch (CAR-341 continuation) — read-only
+  // here. Editing a business's location happens only through
+  // `lib/api/businessBranches.ts`, never through `BusinessProfileUpdatePayload`.
   address: string | null;
   locationLat: number;
   locationLng: number;
@@ -34,22 +37,17 @@ export type BusinessProfile = {
   ownerEmail: string | null;
 };
 
-// What the edit form actually collects and the server actually accepts — a
-// subset of `BusinessProfileOut` (registrationNumber/owner* excluded, see
-// their own comments). `nameHe: null` is sent explicitly to clear the Hebrew
-// override back to the `name` fallback, never omitted — same "omitting a
-// PATCH field means leave it alone" convention as RewardPayload's
-// stock/expiresAt. `address` only ever travels together with the coordinate
-// pair BusinessRegistrationPage's own geocode-and-confirm flow produced for
-// it — never alone — so the type itself makes "address without coordinates"
-// impossible to construct, not just something the server happens to reject.
-type LocationUpdate = { address: string; locationLat: number; locationLng: number };
-
+// What the Business Details form actually collects and the server actually
+// accepts — a subset of `BusinessProfileOut` (registrationNumber/owner*/
+// address/locationLat/locationLng excluded, see their own comments).
+// `nameHe: null` is sent explicitly to clear the Hebrew override back to the
+// `name` fallback, never omitted — same "omitting a PATCH field means leave
+// it alone" convention as RewardPayload's stock/expiresAt.
 export type BusinessProfileUpdatePayload = {
   name: string;
   nameHe: string | null;
   category: string;
-} & (LocationUpdate | { address?: undefined; locationLat?: undefined; locationLng?: undefined });
+};
 
 export type BusinessProfileResult =
   | { outcome: 'ok'; profile: BusinessProfile }

@@ -559,7 +559,17 @@ export type TranslationMap = {
     branchesNoAddress: string;
     branchesEditButton: string;
     addBranchButton: string;
-    addBranchComingSoonNote: string;
+    branchStatusActive: string;
+    branchStatusInactive: string;
+    branchModalAddTitle: string;
+    branchModalEditTitle: string;
+    branchNameLabel: string;
+    branchNameOptionalBadge: string;
+    branchNameHint: string;
+    branchActiveToggleLabel: string;
+    branchSaveButton: string;
+    branchSaveErrorMessage: string;
+    branchLastActiveError: string;
   };
   accountSettings: {
     title: string;

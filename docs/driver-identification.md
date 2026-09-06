@@ -375,9 +375,13 @@ tuning oracle to anyone probing the detector.
 
 ### 3.4 Database requirements
 
-Four migrations. All are Alembic revisions under `server/alembic/`.
+Five migrations. All are Alembic revisions under `server/alembic/`.
 
 #### M1 — `trip_occupancy` table
+
+Two migrations, because three columns can only take a real value once their producers exist.
+
+**M1a** — the table, its identity, and every column a producer can populate today:
 
 | Column | Type | Constraints |
 |---|---|---|
@@ -385,9 +389,6 @@ Four migrations. All are Alembic revisions under `server/alembic/`.
 | `verdict` | `String(16)` | NOT NULL |
 | `source` | `String(16)` | NOT NULL |
 | `likelihood` | `Float` | NULL |
-| `calibration_version` | `String(32)` | NOT NULL |
-| `enforcement_rung` | `SmallInteger` | NOT NULL, `CHECK (enforcement_rung BETWEEN 0 AND 4 AND enforcement_rung <> 3)` |
-| `signals` | `JSONB` | NOT NULL |
 | `co_travel` | `JSONB` | NULL |
 | `reversal` | `JSONB` | NULL |
 | `excluded_from_driver_score` | `Boolean` | NOT NULL, default `false` |
@@ -395,8 +396,20 @@ Four migrations. All are Alembic revisions under `server/alembic/`.
 
 One row per trip, not per evaluation — §2.2.5 requires overwrite semantics.
 
-The `CHECK` constraint is deliberate: rung 3 is unreachable for occupancy evidence, and a
-database constraint survives a service refactor that a Pydantic validator does not.
+**M1b** — the three columns that are outputs of L1/L2/L3, added once those exist:
+
+| Column | Type | Constraints |
+|---|---|---|
+| `calibration_version` | `String(32)` | NOT NULL |
+| `enforcement_rung` | `SmallInteger` | NOT NULL, `CHECK (enforcement_rung BETWEEN 0 AND 4 AND enforcement_rung <> 3)` |
+| `signals` | `JSONB` | NOT NULL |
+
+None of the three has a default that would not fabricate a value: `signals.binding` in
+particular has no meaningful placeholder before L1 vehicle binding exists to write one, and the
+`CHECK` on `enforcement_rung` exists precisely to keep a rung-3 write out of the table — a
+database constraint survives a service refactor that a Pydantic validator does not. Backfilling
+`NOT NULL` columns onto a live table is a migration in its own right; M1b lands as one once L1/L2/L3
+give it something real to write.
 
 #### M2 — Vehicle identity
 
@@ -633,7 +646,8 @@ Dependency-ordered. Each phase is blocked by the one above it.
 | Phase | Deliverable | Depends on | Surface |
 |---|---|---|---|
 | **1** | Label channel: post-trip prompt + permanent "I was a passenger" control (§3.3) | — | `mobile/` |
-| **2** | Vehicle identity: `vehicle_key_hash`, M1–M4 migrations, index (§3.4) | 1 | `server/`, `mobile/`, `alembic/` |
+| **2** | Vehicle identity: `vehicle_key_hash`, M1a–M4 migrations, index (§3.4) | 1 | `server/`, `mobile/`, `alembic/` |
+| **2b** | M1b migration, once L1–L3 exist to populate it (§3.4), CAR-309 | 2, 5 | `server/`, `alembic/` |
 | **3** | Co-travel matcher + reversal (§2.3.2, §4.3) | 2 | `server/` |
 | **4** | Per-user baseline, F5 (§2.3.3) | 3 | `server/` |
 | **5** | Supervised classifier, F1–F4 (§2.3.3) | 4, CAR-164 for F1 | `server/`, `mobile/` |
