@@ -1,16 +1,21 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { StatusBar } from 'expo-status-bar';
-import { I18nManager, View, ActivityIndicator } from 'react-native';
-import { COLORS } from '@/constants/theme';
+import * as SplashScreen from 'expo-splash-screen';
+import { I18nManager, View } from 'react-native';
 import { useDriveMode } from '@/hooks/useDriveMode';
 import { ToastContainer } from '@/components/ui/Toast';
+import SplashAnimation from '@/components/ui/SplashAnimation';
 import UnsupportedDeviceScreen from '@/screens/auth/UnsupportedDeviceScreen';
 
 // Allow RTL so the OS respects direction style — actual direction is set per render
 I18nManager.allowRTL(true);
+
+// Without this the native splash goes as soon as the bundle mounts, leaving a
+// blank frame before the animated one. SplashAnimation hides it on mount.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Dev-only manual test accounts (mock-business@carma.dev / mock-driver@carma.dev,
 // password "mock") — see src/testing/mocks. Never runs outside __DEV__, so it
@@ -23,6 +28,8 @@ function RootLayoutNav() {
   useDriveMode();
   const segments = useSegments();
   const direction = lang === 'HE' ? 'rtl' : 'ltr';
+  const [splashDone, setSplashDone] = useState(false);
+  const handleSplashDone = useCallback(() => setSplashDone(true), []);
 
   useEffect(() => {
     if (isLoading) return;
@@ -52,16 +59,17 @@ function RootLayoutNav() {
     }
   }, [user, isLoading, segments, router]);
 
-  if (deviceBlocked) {
-    return <UnsupportedDeviceScreen />;
+  // Ahead of the deviceBlocked check on purpose: SplashAnimation is what hides
+  // the native splash, so a branch that returns before it strands a blocked
+  // device on the launch image forever.
+  if (isLoading || !splashDone) {
+    return (
+      <SplashAnimation ready={!isLoading} onDone={handleSplashDone} />
+    );
   }
 
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.dark }}>
-        <ActivityIndicator size="large" color={COLORS.brand} />
-      </View>
-    );
+  if (deviceBlocked) {
+    return <UnsupportedDeviceScreen />;
   }
 
   return (
