@@ -12,6 +12,8 @@ import { useApp }   from '@/context/AppContext'
 import { useTranslation } from '@/hooks/useTranslation'
 import { authApi }  from '@/services/api/auth.api'
 import { leaderboardApi } from '@/services/api/leaderboard.api'
+import { cityLabel } from '@/lib/cityLabel'
+import type { City } from '@/types'
 import { authErrorMessage } from '@/lib/authErrors'
 import { COLORS, COMMON_STYLES, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
@@ -21,12 +23,14 @@ interface FormState {
   email:       string
   password:    string
   phone:       string
-  city:        string
+  // The picked city's code, never its label. The server resolves the row; a label was
+  // only ever needed by the free-text field this screen no longer has (CAR-224).
+  cityCode:    string
   age:         string
   licenseYear: string
 }
 
-const INITIAL: FormState = { name: '', email: '', password: '', phone: '', city: '', age: '', licenseYear: '' }
+const INITIAL: FormState = { name: '', email: '', password: '', phone: '', cityCode: '', age: '', licenseYear: '' }
 
 // Every bound below is `RegisterIn` in server/app/schemas/auth.py. They are checked
 // here so the driver is told which field is wrong: the server answers all of them
@@ -35,7 +39,6 @@ const MIN_NAME = 2
 const MAX_NAME = 80
 const MIN_PASSWORD = 8
 const MAX_PASSWORD = 200
-const MAX_CITY = 80
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_RE = /^[\d\s+()-]{6,20}$/
 // Digits only, checked before the numeric bounds below: `Number('abc')` is NaN, and
@@ -62,25 +65,40 @@ export default function RegisterScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { loginUser, addToast } = useApp()
-  const { t } = useTranslation()
+  const { t, lang }               = useTranslation()
   const [form,      setForm]      = useState<FormState>(INITIAL)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState('')
-  const [cities,    setCities]    = useState<string[]>([])
+  // The rows, not labels: the label depends on `lang`, which can change later.
+  const [cities,    setCities]    = useState<City[]>([])
   const [regionAck, setRegionAck] = useState(false)
 
   useEffect(() => {
-    leaderboardApi.getLocations()
-      .then(data => setCities(Object.values(data.citiesByCountry)[0] ?? []))
-      // Expected, not exceptional: /api/leaderboard/locations requires a bearer
-      // token and registration has none yet, so this 401s on every fresh install.
-      // An empty list is the signal to fall back to a free-text city field below.
+    // The public list, not the leaderboard's. That one needs a bearer token
+    // registration does not have yet, so it 401'd on every fresh install, and
+    // even when it answered it only held cities that already have a driver -
+    // the circularity CAR-218 exists to break.
+    leaderboardApi.getCities()
+      .then(data => setCities(data.cities))
+      // An empty list leaves an empty picker, which is the honest state: city is
+      // optional, and a free-text box here is what let two spellings of one
+      // settlement back into the data.
       .catch(() => setCities([]))
   }, [])
 
   /** Updates a single registration form field without resetting others. */
   function update(field: keyof FormState, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  // Derived here rather than stored: the labels depend on `lang`, and building
+  // them once when the list arrives left them in whatever language was active
+  // at mount.
+  const cityOptions = cities.map(c => ({ value: c.code, label: cityLabel(c, lang) }))
+
+  /** The picker deals in codes, and a code is all the server is sent. */
+  function pickCity(code: string) {
+    setForm(prev => ({ ...prev, cityCode: code }))
   }
 
   /**
@@ -105,7 +123,7 @@ export default function RegisterScreen() {
         // City is optional — '' means the placeholder is still showing, i.e. no
         // pick was made, not "picked nothing." Send undefined so the server sees
         // an unanswered field, not an empty string.
-        city:        form.city    || undefined,
+        cityCode:    form.cityCode || undefined,
         age:         form.age         ? Number(form.age)         : undefined,
         licenseYear: form.licenseYear ? Number(form.licenseYear) : undefined,
       })
@@ -148,7 +166,8 @@ export default function RegisterScreen() {
     password:    form.password && (form.password.length < MIN_PASSWORD || form.password.length > MAX_PASSWORD)
       ? t('auth.errors.invalidPassword') : '',
     phone:       form.phone && !PHONE_RE.test(form.phone)            ? t('auth.errors.invalidPhone')     : '',
-    city:        form.city && form.city.trim().length > MAX_CITY     ? t('auth.errors.cityTooLong')      : '',
+    // Never typed, only set by picking from the list, so it has nothing to reject.
+    cityCode:    '',
     age:         form.age && (Number.isNaN(age) || age < MIN_AGE || age > MAX_AGE)
       ? t('auth.errors.invalidAge') : '',
     licenseYear: form.licenseYear && (Number.isNaN(licenseYear) || licenseYear < MIN_LICENSE_YEAR || licenseYear > CURRENT_YEAR)
@@ -173,7 +192,7 @@ export default function RegisterScreen() {
     { key: 'email',       label: t('auth.email'),       placeholder: t('auth.emailPlaceholder'), keyboard: 'email-address', required: true },
     { key: 'password',    label: t('auth.password'),    placeholder: t('auth.passwordPlaceholder'), secure: true, required: true },
     { key: 'phone',       label: t('auth.phone'),       placeholder: '050-0000000', keyboard: 'phone-pad' },
-    { key: 'city',        label: t('auth.city'),        placeholder: t('auth.cityPlaceholder') },
+    { key: 'cityCode',    label: t('auth.city'),        placeholder: t('auth.citySelectPlaceholder') },
     { key: 'age',         label: t('auth.age'),         placeholder: '25', keyboard: 'numeric' },
     { key: 'licenseYear', label: t('auth.licenseYear'), placeholder: '2020', keyboard: 'numeric' },
   ]
@@ -205,15 +224,16 @@ export default function RegisterScreen() {
               {field.label}
               {field.required && <Text style={styles.required}> *</Text>}
             </Text>
-            {/* No list to pick from — keep the free-text field rather than a picker
-                nobody can fill. Drop this branch once the city list is reachable
-                before login (CAR-218). */}
-            {field.key === 'city' && cities.length > 0 ? (
+            {/* The list is public, so the picker is the only way a city is chosen.
+                The free-text fallback is gone with the 401 that needed it: it took
+                whatever was typed, which is how two spellings of one settlement
+                got back into a list CAR-218 exists to make canonical (CAR-224). */}
+            {field.key === 'cityCode' ? (
               <LocationPicker
-                value={form.city}
-                options={cities}
+                value={form.cityCode}
+                options={cityOptions}
                 placeholder={t('auth.citySelectPlaceholder')}
-                onChange={v => update('city', v)}
+                onChange={pickCity}
                 style={styles.cityTrigger}
               />
             ) : (

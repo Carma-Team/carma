@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -7,6 +8,8 @@ from pydantic import AliasChoices, Field, model_validator
 
 from app.schemas._base import CamelModel
 from app.services.scoring import WeakestFactor, risk_multiplier_earned
+
+_log = logging.getLogger("carma.trips")
 
 
 class SaveTripIn(CamelModel):
@@ -35,6 +38,16 @@ class SaveTripIn(CamelModel):
         validation_alias=AliasChoices("riskMultiplier", "risk_multiplier"),
         deprecated=True,
     )
+    # IMU health from the SDK (CAR-189). None means the client did not say, which
+    # is not the same as False - see the column comments on Trip.
+    accel_available: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("accelAvailable", "accel_available"),
+    )
+    accel_init_failed: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("accelInitFailed", "accel_init_failed"),
+    )
     telemetry_digest: dict[str, Any] | None = Field(
         default=None,
         validation_alias=AliasChoices("telemetryDigest", "telemetry_digest"),
@@ -54,11 +67,50 @@ class SaveTripIn(CamelModel):
     end_location: str | None = None
     ai_insight: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _warn_on_unknown_keys(cls, data: Any) -> Any:
+        """Say out loud what is about to be dropped.
+
+        `CamelModel` sets no `extra=`, so pydantic's default `ignore` applies and
+        an unrecognised key is discarded without an error, a warning, or a log
+        line. That is how CAR-189's two IMU fields arrived for a whole release
+        and were never stored, and CAR-227 adds a third to this same payload.
+
+        Forbidding extras would 422 every client already in the field, and this
+        schema deliberately keeps accepting fields it no longer uses (see
+        `risk_multiplier`). So this only reports; it never rejects.
+        """
+        if not isinstance(data, dict):
+            return data
+        unknown = sorted(str(k) for k in data if k not in _ACCEPTED_KEYS)
+        if unknown:
+            _log.warning("SaveTripIn ignored unknown field(s): %s", ", ".join(unknown))
+        return data
+
     @model_validator(mode="after")
     def _defaults(self) -> SaveTripIn:
         if self.start_time is None:
             self.start_time = datetime.now(UTC)
         return self
+
+
+def _accepted_keys(model: type[CamelModel]) -> frozenset[str]:
+    """Every spelling the model will actually bind, alias forms included."""
+    names: set[str] = set()
+    for name, field in model.model_fields.items():
+        names.add(name)
+        if isinstance(field.alias, str):
+            names.add(field.alias)
+        va = field.validation_alias
+        if isinstance(va, str):
+            names.add(va)
+        elif isinstance(va, AliasChoices):
+            names.update(c for c in va.choices if isinstance(c, str))
+    return frozenset(names)
+
+
+_ACCEPTED_KEYS = _accepted_keys(SaveTripIn)
 
 
 class TripOut(CamelModel):
@@ -88,6 +140,10 @@ class TripOut(CamelModel):
     start_location: str | None
     end_location: str | None
     ai_insight: str | None
+    # Read back so a trip's IMU health is inspectable. None on every trip saved
+    # before CAR-228.
+    accel_available: bool | None
+    accel_init_failed: bool | None
     status: str
     idempotency_key: str | None = None
     # True when the daily anti-grind caps (scoring.md "Points") reduced the award —
@@ -134,6 +190,8 @@ class TripOut(CamelModel):
                 "start_location": trip.start_location,
                 "end_location": trip.end_location,
                 "ai_insight": trip.ai_insight,
+                "accel_available": trip.accel_available,
+                "accel_init_failed": trip.accel_init_failed,
                 "status": trip.status.value.lower(),
                 "idempotency_key": trip.idempotency_key,
                 "points_capped": points_capped,

@@ -6,6 +6,18 @@
  * through which an app injects its own trip-start, trip-end and suspicion rules.
  */
 
+// ─── Raw calibration recording ────────────────────────────────────────────────
+
+/**
+ * Why `exportRawRecording()` could not share a file. Declared here rather than
+ * inline at each boundary: the same union was written out in the recorder, in the
+ * SDK's public method and in the host's context type, so adding a case meant
+ * remembering three files.
+ */
+export interface RawExportFailure {
+  error: 'none-recorded' | 'sharing-unavailable';
+}
+
 // ─── Trip Validation ──────────────────────────────────────────────────────────
 
 export enum ValidationState {
@@ -26,10 +38,12 @@ export const SENSOR_STALE_MS = 5000;
 export interface ValidationSample {
   speedKmh: number;
   timestamp: number;          // Date.now()
-  // Vehicle-frame readings, read only by validators that classify motion. Both are
-  // null when the frame could not be resolved — no GPS heading, gravity not converged,
-  // or the forward direction not yet learned. Null is "not measured", which never
-  // satisfies a threshold; 0 would be a claim of no force (docs/fraud-detection.md §3.2).
+  // Vehicle-frame readings, read only by validators that classify motion. All three
+  // are null when the frame could not be resolved — no GPS heading, gravity not
+  // converged, or the forward direction not yet learned. Null is "not measured", which
+  // never satisfies a threshold; 0 would be a claim of no force
+  // (docs/fraud-detection.md §3.2).
+  longitudinalAccelG?: number | null; // signed, positive forward
   lateralAccelG?: number | null;  // signed, positive to the left of travel
   yawRate?: number | null;        // rad/s about gravity, signed — not the device Z axis
   // Present only on ticks that carried a GPS fix. A validator that gates on where the
@@ -50,7 +64,6 @@ export enum DrivingEventType {
   HARD_BRAKE      = 'HARD_BRAKE',       // EVT_BRAKE   — spec §א table 1
   AGGRESSIVE_ACCEL = 'AGGRESSIVE_ACCEL', // EVT_ACCEL   — spec §א table 1
   SHARP_TURN      = 'SHARP_TURN',        // EVT_TURN    — spec §א table 1
-  SWERVE          = 'SWERVE',            // EVT_SWERVE  — spec §א table 1
   PHONE_USAGE     = 'PHONE_USAGE'        // not in spec table — detected separately
 }
 
@@ -168,6 +181,11 @@ export interface SDKConfig {
   motionThresholds?: Partial<MotionThresholds>;
   // Custom trip-start/trip-end/fraud rules. Omit to use DefaultTripValidator.
   tripValidator?: TripValidator;
+  // Turns the connected vehicle's identifier into the opaque key the host wants stamped
+  // on the trip. Injected rather than computed here for the same reason `tripValidator`
+  // is: the salt is the host's secret and the SDK has no business holding one. Omit and
+  // `vehicleKeyHash` stays null.
+  vehicleKeyHasher?: (vehicleId: string) => string | null;
 }
 
 export interface RouteWaypoint {
@@ -211,6 +229,13 @@ export interface SensorUpdate {
   // automatic (background) tracking cannot run, distinct from it just not
   // having happened yet.
   backgroundLocationAvailable: boolean;
+  // Whether starting the location stream itself failed, or the platform stopped it
+  // afterwards. Distinct from the permission flag above, which answers only whether
+  // the user agreed: Android 12+ refuses a foreground-service start from an app that
+  // is already in the background, so a granted permission and a dead location stream
+  // are the normal case for an automatically started trip (CAR-326). Mirrors
+  // accelInitFailed, which answers the same question for the accelerometer.
+  locationStartFailed: boolean;
   lat?: number;
   lng?: number;
   accuracy?: number;
@@ -229,8 +254,9 @@ export interface TripData {
   waypoints: RouteWaypoint[];      // GPS track — downsampled to 2s intervals of GPS-fix time while moving
   averageSpeed: number;
   maxSpeed: number;
-  touchEpochs: number;             // v1.7 — glass-tap proxy + foreground interaction count
-  screenInteractionSeconds: number; // v1.7 — IMU-confirmed hand-held seconds, no speed gate
+  screenInteractionSeconds: number; // v2.0 — seconds carrying a tap cadence, no speed gate
+  phoneMotionSeconds: number;       // v2.0 — seconds the phone was moved without one; the
+                                    // two are mutually exclusive
                                     // (per-second samples arrive via onInteractionData)
   accelAvailable: boolean;   // ever confirmed live this trip; false alone says nothing about
                              // why — see accelInitFailed
@@ -238,11 +264,11 @@ export interface TripData {
                              // samples for. The three fields answer different questions:
                              // "ever alive", "why not", "how much of the way"
   accelInitFailed: boolean;  // true only if accelerometer registration itself threw (CAR-189)
+  // The vehicle this trip was recorded in, as an opaque key from `vehicleKeyHasher`.
+  // Null means no vehicle was connected when the trip started, or the host injected no
+  // hasher — never an empty string, which would read as a vehicle whose key is blank.
+  vehicleKeyHash: string | null;
 }
-
-export type TripUpdateCallback = (data: Partial<TripData>) => void;
-export type EventCallback = (event: DrivingEvent) => void;
-export type StateChangeCallback = (isActive: boolean) => void;
 
 // ─── Fraud Detection Event ────────────────────────────────────────────────────
 // Fired by DrivingSDK.onFraudDetected when the configured TripValidator flags a

@@ -89,7 +89,7 @@ export function fromServerTrip(
   return {
     id: trip.id,
     state: trip.pendingSync ? 'pending' : 'scored',
-    score:  trip.avgScore ?? trip.score ?? 0,
+    score:  trip.avgScore,
     points: Math.round(trip.points || 0),
     distanceKm:      trip.distanceKm ?? 0,
     durationSeconds: trip.durationSeconds ?? 0,

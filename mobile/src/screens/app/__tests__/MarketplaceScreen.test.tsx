@@ -16,7 +16,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('react-native-qrcode-svg', () => 'QRCode')
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }))
 jest.mock('@/services/api/rewards.api', () => ({
-  rewardsApi: { list: jest.fn(), redeem: jest.fn(), cancel: jest.fn() },
+  rewardsApi: { list: jest.fn(), redeem: jest.fn(), cancel: jest.fn(), myVouchers: jest.fn() },
 }))
 
 // The `mock` prefix is load-bearing: `jest.mock` is hoisted above these declarations,
@@ -59,11 +59,19 @@ const voucher = (code: string): Voucher =>
     status: 'pending',
     isUsed: false,
     expiresAt: '2030-01-01T00:00:00Z',
+    // The contract makes this required, and the store card orders by it.
+    createdAt: '2026-01-01T00:00:00Z',
     pointsCost: reward.costPoints,
     reward,
   }) as Voucher
 
 const mocked = rewardsApi as jest.Mocked<typeof rewardsApi>
+
+// The first test in this file mounts the whole screen and pulls in the QR component,
+// the icon set and the modal on a cold module cache. That lands under a second on its
+// own and has repeatedly crossed jest's 5s default when the suite runs in parallel, so
+// the gate failed on machine load rather than on anything the test asserts.
+jest.setTimeout(20000)
 
 /**
  * Renders and settles the catalog load, so the cards are on screen.
@@ -162,12 +170,99 @@ describe('MarketplaceScreen cancellation', () => {
     mocked.cancel.mockReturnValue(new Promise(() => {}))
     await renderStore([voucher('HELD01')])
 
-    fireEvent.press(screen.getByText('HELD01'))
+    // The store card no longer prints the code, so the row is reached by its label.
+    fireEvent.press(screen.getByText(he.marketplace.voucher.owned))
     fireEvent.press(await screen.findByText(he.marketplace.voucher.cancel))
     const confirm = await screen.findByText(he.common.confirm)
     fireEvent.press(confirm)
     fireEvent.press(confirm)
 
     expect(mocked.cancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('MarketplaceScreen batching', () => {
+  // Distinct titles are what the assertions count — the card renders `titleHe` under
+  // HE, so a numbered title gives every card a label of its own to match on.
+  const catalog = (n: number): Reward[] =>
+    Array.from({ length: n }, (_, i) => ({ ...reward, id: `r${i}`, titleHe: `פרס ${i}` }))
+
+  async function renderCatalog(n: number) {
+    mocked.list.mockResolvedValue({ rewards: catalog(n), vouchers: [] })
+    render(<MarketplaceScreen />)
+    await act(async () => {})
+  }
+
+  const cardCount = () => screen.queryAllByText(/^פרס \d+$/).length
+  const moreButton = () => screen.queryByText(he.dashboard.showMore)
+
+  it('shows at most the first batch on entry', async () => {
+    await renderCatalog(15)
+    expect(cardCount()).toBe(6)
+  })
+
+  it('appends a batch on each press and stops at the end of the catalog', async () => {
+    await renderCatalog(15)
+
+    fireEvent.press(moreButton()!)
+    expect(cardCount()).toBe(12)
+
+    // The last press lands on a partial batch — the button goes once the catalog is
+    // exhausted, not once a press has been made.
+    fireEvent.press(moreButton()!)
+    expect(cardCount()).toBe(15)
+    expect(moreButton()).toBeNull()
+  })
+
+  it('offers nothing to expand for a catalog that already fits', async () => {
+    await renderCatalog(6)
+    expect(moreButton()).toBeNull()
+  })
+})
+
+describe('MarketplaceScreen owned vouchers', () => {
+  const owned = (code: string, status: Voucher['status'], createdAt: string): Voucher =>
+    ({ ...voucher(code), id: `v-${code}`, status, isUsed: status === 'used', createdAt }) as Voucher
+
+  async function openVouchers(vouchers: Voucher[]) {
+    mocked.list.mockResolvedValue({ rewards: [reward], vouchers: [] })
+    mocked.myVouchers.mockResolvedValue({ vouchers })
+    render(<MarketplaceScreen />)
+    await act(async () => {})
+    await act(async () => {
+      fireEvent.press(screen.getByText(he.marketplace.tabMyVouchers))
+    })
+  }
+
+  it('lists vouchers the catalog never returns, spent ones included', async () => {
+    await openVouchers([owned('SPENT1', 'used', '2026-01-01T00:00:00Z')])
+
+    expect(mocked.myVouchers).toHaveBeenCalled()
+    expect(screen.getByText(/SPENT1/)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.used)).toBeTruthy()
+  })
+
+  it('names expired and cancelled by their own state instead of calling them active', async () => {
+    await openVouchers([
+      owned('GONE1', 'expired', '2026-01-01T00:00:00Z'),
+      owned('DROP1', 'cancelled', '2026-01-02T00:00:00Z'),
+    ])
+
+    expect(screen.getByText(he.marketplace.voucher.expired)).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.cancelled)).toBeTruthy()
+    expect(screen.queryByText(he.marketplace.voucher.active)).toBeNull()
+  })
+
+  it('says so when the driver owns nothing yet', async () => {
+    await openVouchers([])
+    expect(screen.getByText(he.marketplace.noVouchers)).toBeTruthy()
+  })
+
+  it('opens the voucher it was tapped on', async () => {
+    await openVouchers([owned('LIVE01', 'pending', '2026-01-01T00:00:00Z')])
+
+    fireEvent.press(screen.getByText(/LIVE01/))
+
+    expect(screen.getByTestId('voucher-modal-code')).toHaveTextContent('LIVE01')
   })
 })

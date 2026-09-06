@@ -2,7 +2,8 @@
 // Raw sensor snapshot sent alongside every ValidTripPayload for server-side audit.
 // avgScore and points are intentionally absent — the FastAPI server is the sole
 // scoring oracle (RFC-001 v1.5). timestamp enables server-side replay detection.
-// phoneSeconds REMOVED in v1.7 — replaced by touchEpochs + screenInteractionSeconds.
+// phoneSeconds REMOVED in v1.7. touchEpochs REMOVED in v2.0 (CAR-54) — the two counters
+// below replace both, and the server accepts the trip without it.
 // riskMultiplier REMOVED in v1.10 (CAR-165) — the server derives it from startTime below.
 // All fields are plain scalars so the digest is deterministically JSON-serialisable.
 
@@ -12,8 +13,11 @@ export interface TelemetryDigest {
   hardBrakes:               number;
   aggressiveAccels:         number;
   sharpTurns:               number;
-  touchEpochs:              number;  // v1.7 — glass-tap proxy count + foreground interactions
-  screenInteractionSeconds: number;  // v1.7 — IMU-confirmed hand-held seconds at >=15 km/h
+  screenInteractionSeconds: number;  // v2.0 — seconds with a tap cadence, at >=15 km/h
+  // v2.0 — seconds the phone was moved without a cadence, at >=15 km/h. Optional for the
+  // same reason as the accelerometer fields below: the server has no typed column for it
+  // yet (CAR-188), and the digest is stored whole, so it survives the wire regardless.
+  phoneMotionSeconds?:      number;
   startTime:                string;  // ISO 8601 UTC — the server derives riskMultiplier from this
   endTime:                  string;  // ISO 8601 UTC
   timestamp:                number;  // ms Unix epoch — Date.now() at signing time (replay guard)
@@ -43,14 +47,20 @@ export interface ValidTripPayload {
   hardBrakes: number;
   aggressiveAccels: number;
   sharpTurns: number;
-  touchEpochs: number;              // v1.7 — replaces phoneSeconds
-  screenInteractionSeconds: number; // v1.7 — replaces phoneSeconds; counted at >=15 km/h
+  screenInteractionSeconds: number; // v2.0 — seconds with a tap cadence, at >=15 km/h
+  phoneMotionSeconds?: number;      // v2.0 — no typed column yet (CAR-188), see the digest
   penalties: number;
   // Per-trip accelerometer snapshot — lets the server tell a quiet drive from a dead/absent
   // sensor. Optional: the server schema doesn't accept these yet (CAR-189 follow-up).
   accelAvailable?:  boolean;
   accelInitFailed?: boolean;
   accelCoverage?:   number;
+  // L1 vehicle binding (CAR-310): HMAC of the connected vehicle's Bluetooth address,
+  // never the address itself. Null when no vehicle was connected — the field must
+  // distinguish "no vehicle" from "a vehicle whose key is empty", so it is nullable
+  // rather than omitted. The server column arrives with CAR-309; until then this rides
+  // the wire and is ignored, which is the order the two halves were planned in.
+  vehicleKeyHash?:  string | null;
   // ─── RFC-001: Hybrid Validation fields (optional — backward-compatible) ───
   telemetryDigest?:   TelemetryDigest;
   payloadSignature?:  string;

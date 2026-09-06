@@ -3,6 +3,7 @@ from app.models.business import Business
 from app.models.business_invitation import BusinessInvitation
 from app.models.business_join_request import BusinessJoinRequest
 from app.models.business_membership import BusinessMembership
+from app.models.city import City
 from app.models.enums import (
     BusinessCategory,
     BusinessJoinRequestStatus,
@@ -27,6 +28,7 @@ from app.models.notification import (
 )
 from app.models.occupancy import TripOccupancy
 from app.models.otp import OtpCode
+from app.models.raw_recording import RawRecording
 from app.models.redemption import Redemption
 from app.models.refresh_token import RefreshToken
 from app.models.reward import Reward
@@ -47,6 +49,7 @@ __all__ = [
     "BusinessJoinRequestStatus",
     "BusinessMembership",
     "BusinessMembershipRole",
+    "City",
     "Event",
     "EventType",
     "FriendStatus",
@@ -55,6 +58,7 @@ __all__ = [
     "LoginFailure",
     "Notification",
     "OtpCode",
+    "RawRecording",
     "Redemption",
     "RedemptionStatus",
     "RefreshToken",

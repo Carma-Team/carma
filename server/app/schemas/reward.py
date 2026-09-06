@@ -56,6 +56,33 @@ class RewardOut(CamelModel):
         )
 
 
+class RewardSummaryOut(CamelModel):
+    """Just enough of a reward to show on a settled redemption row (CAR-79).
+
+    Deliberately not `RewardOut`: `available`/`stock` describe live inventory,
+    which a history row — possibly for an archived reward — has no business
+    computing.
+    """
+
+    id: str
+    title_he: str
+    title_en: str | None
+    image_icon: str
+    category: str
+
+    @classmethod
+    def from_orm_reward(cls, reward: Any) -> RewardSummaryOut:
+        return cls.model_validate(
+            {
+                "id": reward.id,
+                "title_he": reward.title_he,
+                "title_en": reward.title_en,
+                "image_icon": reward.image_icon,
+                "category": reward.category.value.lower(),
+            }
+        )
+
+
 class VoucherOut(CamelModel):
     id: str
     user_id: str

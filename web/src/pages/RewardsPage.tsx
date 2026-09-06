@@ -2,37 +2,74 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasBusinessRole } from '@/lib/auth/businessRole';
-import { getLiveVoucherCount, listRewards, retireReward, type Reward } from '@/lib/api/rewards';
-import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
-import { categoryTranslationKey, getRewardState, isArchived, localizedRewardText, type RewardState } from '@/lib/rewardState';
+import {
+  getLiveVoucherCount,
+  listRewards,
+  retireReward,
+  setRewardActive,
+  type Reward,
+} from '@/lib/api/rewards';
+import { BUSINESS_CATEGORIES, isBusinessCategory, normalizeBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
+import {
+  categoryTranslationKey,
+  getRewardState,
+  isArchived,
+  localizedRewardText,
+  matchesTab,
+  type RewardState,
+  type RewardTab,
+} from '@/lib/rewardState';
 import { RewardForm } from '@/components/business/RewardForm';
-import { Card, Heading, Text, Button, Dialog, LoadingState, ErrorState, EmptyState } from '@/components/ui';
+import { Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton, CategoryIcon } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
 
-// The retire dialog must never let a business proceed on a guessed or stale
-// count (CAR-115) — 'loading' and 'error' both keep the confirm button
-// disabled, only 'ok' with a real server count unlocks it.
+// The retire (archive) dialog must never let a business proceed on a guessed
+// or stale count (CAR-115) — 'loading' and 'error' both keep the confirm
+// button disabled, only 'ok' with a real server count unlocks it.
 type LiveVoucherCheck = { status: 'loading' } | { status: 'error' } | { status: 'ok'; count: number };
+
+type FormState = { mode: 'create' } | { mode: 'edit'; reward: Reward };
 
 const STATE_KEY: Record<RewardState, keyof TranslationMap['rewards']> = {
   active: 'stateActive',
   soldOut: 'stateSoldOut',
   expired: 'stateExpired',
   inactive: 'stateInactive',
+  endingSoon: 'stateEndingSoon',
 };
+
+const TAB_KEY: Record<RewardTab, keyof TranslationMap['rewards']> = {
+  all: 'filterAll',
+  active: 'filterActive',
+  paused: 'filterPaused',
+  ended: 'filterEnded',
+  archived: 'filterArchived',
+};
+
+const TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
+
+function matchesSearch(reward: Reward, query: string): boolean {
+  if (query === '') return true;
+  const haystack = `${reward.titleHe} ${reward.titleEn ?? ''}`.toLowerCase();
+  return haystack.includes(query);
+}
 
 export function RewardsPage() {
   const { t, lang } = useTranslation();
   const { user } = useAuth();
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [rewards, setRewards] = useState<Reward[]>([]);
-  const [formState, setFormState] = useState<{ mode: 'create' } | { mode: 'edit'; reward: Reward } | null>(null);
+  const [formState, setFormState] = useState<FormState | null>(null);
+  const [activeTab, setActiveTab] = useState<RewardTab>('all');
+  const [search, setSearch] = useState('');
   const [retireTarget, setRetireTarget] = useState<Reward | null>(null);
   const [retiringId, setRetiringId] = useState<string | null>(null);
   const [retireErrors, setRetireErrors] = useState<Record<string, string>>({});
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
   const [liveVoucherCheck, setLiveVoucherCheck] = useState<LiveVoucherCheck>({ status: 'loading' });
   // Guards a second DELETE from firing before the confirm dialog's buttons
   // re-render disabled — same convention as RedemptionPage's redeemInFlight.
@@ -49,9 +86,9 @@ export function RewardsPage() {
 
   // CAR-116: a CASHIER reaches this page for the active-rewards view the
   // matrix grants it (the server already filters the list to active-only —
-  // see GET /api/business/rewards), but none of create/edit/retire. Hiding
-  // the controls, not disabling them, matches RequireBusinessRole's own
-  // "don't advertise what a role can't use" rule one level up.
+  // see GET /api/business/rewards), but none of create/edit/archive/pause.
+  // Hiding the controls, not disabling them, matches RequireBusinessRole's
+  // own "don't advertise what a role can't use" rule one level up.
   const canManage = hasBusinessRole(user?.businessMembershipRole, ['OWNER', 'MANAGER']);
 
   function applyListResult(result: Awaited<ReturnType<typeof listRewards>>) {
@@ -99,12 +136,6 @@ export function RewardsPage() {
     });
   }
 
-  // Archived rewards stay in the server's OWNER/MANAGER listing forever
-  // (nothing is deleted — see services/business.py::archive_reward), but
-  // this ticket builds no restore/archive-history view, so a retired reward
-  // must not resurface as a manageable card just because the page reloaded.
-  const visibleRewards = rewards.filter((reward) => !isArchived(reward));
-
   function handleSaved(reward: Reward) {
     setRewards((prev) => {
       const index = prev.findIndex((r) => r.id === reward.id);
@@ -116,8 +147,37 @@ export function RewardsPage() {
     setFormState(null);
   }
 
+  async function handleToggleActive(reward: Reward) {
+    // Also bails while an archive is in flight (for this reward or any
+    // other) — same cross-action guard the buttons below enforce, so a
+    // pause/resume PATCH can never race the reward's own archive DELETE.
+    if (togglingId !== null || retiringId !== null) return;
+    setTogglingId(reward.id);
+    const result = await setRewardActive(reward.id, !reward.isActive);
+    setTogglingId(null);
+
+    if (result.outcome === 'ok') {
+      setRewards((prev) => prev.map((r) => (r.id === reward.id ? result.reward : r)));
+      setToggleErrors((prev) => {
+        if (!(reward.id in prev)) return prev;
+        const rest = { ...prev };
+        delete rest[reward.id];
+        return rest;
+      });
+      return;
+    }
+    setToggleErrors((prev) => ({
+      ...prev,
+      [reward.id]: t(reward.isActive ? 'rewards.pauseErrorMessage' : 'rewards.resumeErrorMessage'),
+    }));
+  }
+
   async function handleConfirmRetire() {
-    if (!retireTarget || retireInFlight.current || liveVoucherCheck.status !== 'ok') return;
+    // togglingId here would mean a pause/resume for this reward started
+    // after the dialog opened but before this confirm ran — the button that
+    // opens this dialog is itself disabled while any toggle is in flight, so
+    // this is a defensive second gate on the same cross-action rule.
+    if (!retireTarget || retireInFlight.current || togglingId !== null || liveVoucherCheck.status !== 'ok') return;
     const target = retireTarget;
     retireInFlight.current = true;
     setRetiringId(target.id);
@@ -127,7 +187,16 @@ export function RewardsPage() {
     setRetireTarget(null);
 
     if (result.outcome === 'ok') {
-      setRewards((prev) => prev.filter((r) => r.id !== target.id));
+      // Updated in place, not removed — the reward still belongs in local
+      // state under the Archived tab (matchesTab), the same "map, don't
+      // filter" shape handleToggleActive uses for its own PATCH response.
+      // DELETE returns no body (see retireReward), so there's no server
+      // reward to merge; `archivedAt: now` mirrors what the server just set
+      // (`archived_at = datetime.now(UTC)` in services/business.py) closely
+      // enough — nothing in the UI renders the exact archive timestamp,
+      // only whether it's set.
+      const archivedAt = new Date().toISOString();
+      setRewards((prev) => prev.map((r) => (r.id === target.id ? { ...r, archivedAt } : r)));
       setRetireErrors((prev) => {
         if (!(target.id in prev)) return prev;
         const rest = { ...prev };
@@ -139,8 +208,34 @@ export function RewardsPage() {
     setRetireErrors((prev) => ({ ...prev, [target.id]: t('rewards.retireErrorMessage') }));
   }
 
+  const nonArchived = useMemo(() => rewards.filter((r) => !isArchived(r)), [rewards]);
+  const activeCount = useMemo(() => rewards.filter((r) => matchesTab(r, 'active')).length, [rewards]);
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<RewardTab, number> = { all: 0, active: 0, paused: 0, ended: 0, archived: 0 };
+    for (const tab of TABS) counts[tab] = rewards.filter((r) => matchesTab(r, tab)).length;
+    return counts;
+  }, [rewards]);
+
+  const searchQuery = search.trim().toLowerCase();
+  const visibleRewards = useMemo(
+    () => rewards.filter((r) => matchesTab(r, activeTab) && matchesSearch(r, searchQuery)),
+    [rewards, activeTab, searchQuery],
+  );
+
   if (status === 'loading') {
-    return <LoadingState label={t('rewards.loadingLabel')} />;
+    return (
+      <div role="status" aria-label={t('rewards.loadingLabel')} className={styles.grid}>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Card key={index} className={styles.card}>
+            <Skeleton height={88} className={styles.skeletonBlock} />
+            <Skeleton width="70%" height={14} />
+            <Skeleton width="45%" height={11} />
+            <Skeleton width="55%" height={11} />
+          </Card>
+        ))}
+      </div>
+    );
   }
 
   if (status === 'forbidden') {
@@ -158,12 +253,18 @@ export function RewardsPage() {
     );
   }
 
+  const noRewardsAtAll = rewards.length === 0;
+
   return (
     <div>
       <div className={styles.header}>
         <div>
           <Heading level={1}>{t('rewards.title')}</Heading>
-          <Text variant="body">{t(canManage ? 'rewards.subtitle' : 'rewards.subtitleReadOnly')}</Text>
+          <Text variant="body">
+            {canManage
+              ? t('rewards.countSummary').replace('{total}', String(nonArchived.length)).replace('{active}', String(activeCount))
+              : t('rewards.subtitleReadOnly')}
+          </Text>
         </div>
         {canManage && (
           <Button variant="primary" onClick={() => setFormState({ mode: 'create' })}>
@@ -172,25 +273,87 @@ export function RewardsPage() {
         )}
       </div>
 
-      {visibleRewards.length === 0 ? (
+      {!noRewardsAtAll && (
+        <div className={styles.toolbar}>
+          {canManage && (
+            // Plain buttons filtering one grid, not a tabpanel-switching
+            // widget, so this deliberately reaches for `aria-current`
+            // rather than the full ARIA tabs pattern (role="tablist"/"tab"
+            // + arrow-key navigation) — `aria-current="true"` is the
+            // correct, honest way to expose "the currently selected item in
+            // a set of related filters" without committing to keyboard
+            // behaviour this widget doesn't implement.
+            <div className={styles.tabs}>
+              {TABS.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={styles.tab}
+                  aria-current={activeTab === tab ? 'true' : undefined}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {t(`rewards.${TAB_KEY[tab]}`)} <CountBadge>{tabCounts[tab]}</CountBadge>
+                </button>
+              ))}
+            </div>
+          )}
+          <Input
+            variant="search"
+            aria-label={t('rewards.searchPlaceholder')}
+            placeholder={t('rewards.searchPlaceholder')}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className={styles.search}
+          />
+        </div>
+      )}
+
+      {noRewardsAtAll ? (
         <EmptyState
           title={t('rewards.emptyTitle')}
           message={t(canManage ? 'rewards.emptyMessage' : 'rewards.emptyMessageReadOnly')}
         />
+      ) : visibleRewards.length === 0 ? (
+        // The "all" tab excludes archived rewards by definition (matchesTab),
+        // so an empty "all" view — regardless of search text — means the
+        // catalog genuinely has nothing to manage, not "no matches": an
+        // archive-only catalog still gets the create-oriented empty state,
+        // and the reward stays one Archived-tab click away.
+        activeTab === 'all' && nonArchived.length === 0 ? (
+          <EmptyState
+            title={t('rewards.emptyTitle')}
+            message={t(canManage ? 'rewards.emptyMessage' : 'rewards.emptyMessageReadOnly')}
+          />
+        ) : (
+          <EmptyState
+            title={activeTab === 'archived' ? t('rewards.filterArchived') : t('rewards.noResultsTitle')}
+            message={activeTab === 'archived' ? t('rewards.archivedEmptyMessage') : t('rewards.noResultsMessage')}
+          />
+        )
       ) : (
         <div className={styles.grid}>
           {visibleRewards.map((reward) => {
+            const archived = isArchived(reward);
             const state = getRewardState(reward);
+            const category = normalizeBusinessCategory(reward.category);
             const title = lang === 'HE' ? localizedRewardText(reward.titleHe, reward.titleEn) : localizedRewardText(reward.titleEn, reward.titleHe);
             const description =
               lang === 'HE'
                 ? localizedRewardText(reward.descriptionHe, reward.descriptionEn)
                 : localizedRewardText(reward.descriptionEn, reward.descriptionHe);
+            const toggling = togglingId === reward.id;
             return (
               <Card key={reward.id} className={styles.card}>
-                <span className={styles.stateBadge} data-state={state}>
-                  {t(`rewards.${STATE_KEY[state]}`)}
-                </span>
+                <div className={styles.cardTop}>
+                  <CategoryIcon category={category} label={t(`rewards.${categoryTranslationKey(category)}`)} />
+                  {archived ? (
+                    <StatusBadge tone="neutral">{t('rewards.stateArchived')}</StatusBadge>
+                  ) : (
+                    <StatusBadge tone={state === 'active' ? 'success' : state === 'endingSoon' || state === 'soldOut' ? 'warning' : 'neutral'}>
+                      {t(`rewards.${STATE_KEY[state]}`)}
+                    </StatusBadge>
+                  )}
+                </div>
                 <Heading level={2}>{title}</Heading>
                 <Text variant="body">{description}</Text>
                 <Text variant="caption">{t(`rewards.${categoryTranslationKey(reward.category)}`)}</Text>
@@ -219,20 +382,45 @@ export function RewardsPage() {
                     {retireErrors[reward.id]}
                   </Text>
                 )}
+                {canManage && toggleErrors[reward.id] && (
+                  <Text variant="caption" role="alert">
+                    {toggleErrors[reward.id]}
+                  </Text>
+                )}
 
-                {canManage && (
+                {canManage && !archived && (
                   <div className={styles.actions}>
-                    <Button variant="secondary" onClick={() => setFormState({ mode: 'edit', reward })}>
-                      {t('rewards.editButton')}
+                    <Button
+                      variant={state === 'soldOut' ? 'primary' : 'secondary'}
+                      onClick={() => setFormState({ mode: 'edit', reward })}
+                    >
+                      {state === 'soldOut' ? t('rewards.addStockButton') : t('rewards.editButton')}
                     </Button>
-                    {/* Disabled whenever *any* retirement is in flight, not just
-                        this card's — CAR-202's pre-commit review (B3) found that
-                        allowing a second card's confirm dialog to open while
-                        another reward's DELETE was in flight let the first
-                        request's completion silently clear the second reward's
-                        still-unconfirmed dialog. One in-flight retirement at a
-                        time removes the interleaving entirely. */}
-                    <Button variant="danger" disabled={retiringId !== null} onClick={() => openRetireDialog(reward)}>
+                    {/* Disabled whenever *any* toggle or archive is in
+                        flight — not just this card's, and not just this
+                        action's. CAR-202's pre-commit review (B3) found that
+                        a second card's confirm dialog opening while another
+                        reward's DELETE was in flight let the first request's
+                        completion silently clear the second reward's
+                        still-unconfirmed dialog; the same interleaving is
+                        possible between a pause/resume PATCH and an archive
+                        DELETE on the very same reward, so both buttons below
+                        share one combined guard rather than two independent
+                        ones. */}
+                    <Button
+                      variant="secondary"
+                      disabled={togglingId !== null || retiringId !== null}
+                      onClick={() => handleToggleActive(reward)}
+                    >
+                      {toggling
+                        ? t(reward.isActive ? 'rewards.pausingLabel' : 'rewards.resumingLabel')
+                        : t(reward.isActive ? 'rewards.pauseButton' : 'rewards.resumeButton')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={retiringId !== null || togglingId !== null}
+                      onClick={() => openRetireDialog(reward)}
+                    >
                       {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
                     </Button>
                   </div>
@@ -261,7 +449,7 @@ export function RewardsPage() {
         title={t('rewards.retireConfirmTitle')}
         closeLabel={t('rewards.retireConfirmCloseLabel')}
       >
-        {liveVoucherCheck.status === 'loading' && <LoadingState label={t('rewards.retireCheckingVouchers')} />}
+        {liveVoucherCheck.status === 'loading' && <Text variant="caption">{t('rewards.retireCheckingVouchers')}</Text>}
         {liveVoucherCheck.status === 'error' && (
           <Text variant="caption" role="alert">
             {t('rewards.retireCheckErrorMessage')}
@@ -280,7 +468,7 @@ export function RewardsPage() {
           {/* Only a confirmed, real server count unlocks this — never a guess
               and never the still-loading or failed-fetch states (CAR-115). */}
           <Button
-            variant="danger"
+            variant="primary"
             disabled={retiringId !== null || liveVoucherCheck.status !== 'ok'}
             onClick={handleConfirmRetire}
           >

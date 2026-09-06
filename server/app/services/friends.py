@@ -26,6 +26,7 @@ from app.models import (
     User,
     UserFriend,
 )
+from app.schemas.city import CityOut
 from app.schemas.friend import (
     FriendRequestOut,
     FriendRequestsOut,
@@ -177,7 +178,9 @@ async def incoming_requests(db: AsyncSession, current: User) -> FriendRequestsOu
                 from_user_id=e.follower_id,
                 from_user_name=senders[e.follower_id].name,
                 from_user_level=senders[e.follower_id].level,
-                from_user_city=senders[e.follower_id].city,
+                from_user_city=(
+                    CityOut.from_orm_city(senders[e.follower_id].city) if senders[e.follower_id].city else None
+                ),
                 created_at=e.created_at,
             )
             for e in edges

@@ -24,3 +24,8 @@ tzdata==2026.3
 # job from this image, the same pattern migrations use. Pure Python, ~200 KB,
 # and the API itself never imports it.
 pyshp==2.3.1
+# Staged calibration recordings (CAR-213). The synchronous client only - the
+# async one's transport is aiohttp, a second HTTP stack in the image for an
+# internal route that moves a megabyte a few times a week. See
+# services/recording_store.py.
+azure-storage-blob==12.26.0

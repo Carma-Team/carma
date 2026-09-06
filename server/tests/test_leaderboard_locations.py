@@ -19,11 +19,20 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
-from app.models import User, UserRole
+from app.models import City, User, UserRole
 from app.services import leaderboard as svc
 
-CITY_A = f"עיר-א-{uuid.uuid4().hex[:6]}"
-CITY_B = f"עיר-ב-{uuid.uuid4().hex[:6]}"
+# Cities of this test's own. They are reference rows now (CAR-218), so the
+# isolation a random label used to give comes from codes nothing else uses.
+CITY_A = f"a{uuid.uuid4().hex[:8]}"
+CITY_B = f"b{uuid.uuid4().hex[:8]}"
+
+
+async def _ensure_cities(db: AsyncSession) -> None:
+    for code, he, en in ((CITY_A, "עיר-א", "City A"), (CITY_B, "עיר-ב", "City B")):
+        if await db.get(City, code) is None:
+            db.add(City(code=code, name_he=he, name_en=en))
+    await db.commit()
 
 
 @pytest.mark.asyncio
@@ -35,12 +44,13 @@ async def test_locations_requires_auth() -> None:
 
 
 async def _driver(db: AsyncSession, *, city: str | None, points: int = 100, private: bool = False) -> User:
+    await _ensure_cities(db)
     user = User(
         email=f"_lb_{uuid.uuid4().hex[:10]}@carmatest.co.il",
         password_hash="x",
         name="LB Driver",
         role=UserRole.DRIVER,
-        city=city,
+        city_code=city,
         total_points=points,
         is_private=private,
     )
@@ -57,35 +67,41 @@ async def _cleanup(db: AsyncSession, *users: User) -> None:
 
 
 @pytest.mark.asyncio
-async def test_locations_lists_one_country_and_the_cities_under_it(db_session: AsyncSession) -> None:
+async def test_locations_lists_the_country_and_the_cities_under_it(db_session: AsyncSession) -> None:
     a = await _driver(db_session, city=CITY_A)
     b = await _driver(db_session, city=CITY_B)
     try:
         out = await svc.locations(db_session)
 
-        assert out.countries == [svc.COUNTRY], "single-country deployment — exactly one option"
-        cities = out.cities_by_country[svc.COUNTRY]
-        assert CITY_A in cities and CITY_B in cities
-        assert len(cities) == len(set(cities)), "a city must not repeat once per driver in it"
+        # Both labels ship on every entry: a single-language string is what
+        # CAR-218 removed, and the country was the worst of them.
+        assert out.country.name_he == "ישראל" and out.country.name_en == "Israel"
+        codes = [c.code for c in out.cities]
+        assert CITY_A in codes and CITY_B in codes
+        assert len(codes) == len(set(codes)), "a city must not repeat once per driver in it"
+        mine = next(c for c in out.cities if c.code == CITY_A)
+        assert mine.name_he == "עיר-א" and mine.name_en == "City A"
     finally:
         await _cleanup(db_session, a, b)
 
 
 @pytest.mark.asyncio
 async def test_locations_omits_cities_with_nothing_on_the_board(db_session: AsyncSession) -> None:
-    hidden_city = f"עיר-נסתרת-{uuid.uuid4().hex[:6]}"
+    hidden_city = f"h{uuid.uuid4().hex[:8]}"
+    db_session.add(City(code=hidden_city, name_he="עיר-נסתרת", name_en="Hidden City"))
+    await db_session.commit()
     private_only = await _driver(db_session, city=hidden_city, private=True)
     no_city = await _driver(db_session, city=None)
-    blank_city = await _driver(db_session, city="")
     try:
-        cities = (await svc.locations(db_session)).cities_by_country[svc.COUNTRY]
+        codes = [c.code for c in (await svc.locations(db_session)).cities]
 
         # Offering this city would hand the user a filter that returns nothing:
         # the board excludes private drivers.
-        assert hidden_city not in cities
-        assert None not in cities and "" not in cities
+        assert hidden_city not in codes
+        # A driver with no city cannot put a null in the picker.
+        assert all(c for c in codes)
     finally:
-        await _cleanup(db_session, private_only, no_city, blank_city)
+        await _cleanup(db_session, private_only, no_city)
 
 
 @pytest.mark.asyncio

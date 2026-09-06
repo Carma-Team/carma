@@ -29,6 +29,9 @@ const voucher = (code: string): Voucher =>
     status: 'pending',
     isUsed: false,
     expiresAt: '2030-01-01T00:00:00Z',
+    // The contract makes this required, and the card orders the strip by it. One value
+    // for every fixture keeps the sort stable, so a row's number is its input position.
+    createdAt: '2026-01-01T00:00:00Z',
     pointsCost: 100,
     reward: reward(null),
   }) as Voucher
@@ -80,16 +83,25 @@ describe('RewardCard live vouchers', () => {
     expect(screen.getByText(he.marketplace.redeem)).toBeEnabled()
   })
 
-  it('lists a held voucher and still offers a second one', () => {
+  // The code is the driver's proof at a till, and it stays in My Vouchers and in the QR
+  // modal. On a card in the store it told a browsing driver nothing they could act on.
+  it('says a voucher is already held rather than printing its code', () => {
     renderCard({ vouchers: [voucher('AAA111')] })
-    expect(screen.getByText('AAA111')).toBeTruthy()
+    expect(screen.getByText(he.marketplace.voucher.owned)).toBeTruthy()
+    expect(screen.queryByText('AAA111')).toBeNull()
     expect(screen.getByText(he.marketplace.redeem)).toBeEnabled()
+  })
+
+  // Two rows carrying one label are indistinguishable, and the driver has to know which
+  // of the two the QR belongs to.
+  it('numbers the rows when the driver holds both vouchers', () => {
+    renderCard({ vouchers: [voucher('AAA111'), voucher('BBB222')] })
+    expect(screen.getByText(`${he.marketplace.voucher.owned} (1)`)).toBeTruthy()
+    expect(screen.getByText(`${he.marketplace.voucher.owned} (2)`)).toBeTruthy()
   })
 
   it('stops offering the reward at the two-voucher ceiling', () => {
     renderCard({ vouchers: [voucher('AAA111'), voucher('BBB222')] })
-    expect(screen.getByText('AAA111')).toBeTruthy()
-    expect(screen.getByText('BBB222')).toBeTruthy()
     expect(screen.getByText(he.marketplace.voucherCap)).toBeTruthy()
     expect(screen.getByText(he.marketplace.redeem)).toBeDisabled()
   })

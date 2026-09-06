@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
 from app.models import Language, User, UserRole
 
+_HAIFA = "4000"  # CBS settlement code; cities are reference rows now (CAR-218).
+
 
 async def _driver(db: AsyncSession) -> User:
     user = User(
@@ -30,7 +32,7 @@ async def _driver(db: AsyncSession) -> User:
         password_hash="x",
         name="Null Probe",
         role=UserRole.DRIVER,
-        city="חיפה",
+        city_code=_HAIFA,
         language=Language.HE,
         is_private=True,
         drive_mode_enabled=True,

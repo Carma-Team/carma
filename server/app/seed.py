@@ -210,18 +210,23 @@ REWARDS = [
 # Investor-demo leaderboard population (Tel Aviv, all public)
 # ---------------------------------------------------------------------------
 
+# CBS settlement codes (CAR-218). The seed used to store labels, and stored
+# them in two languages: "Tel Aviv" for the leaderboard rows, "תל אביב" for Daniel.
+_TEL_AVIV = "5000"
+_RAMAT_GAN = "8600"
+
 LEADERBOARD_USERS: list[dict[str, Any]] = [
     # Tel Aviv
-    {"email": "yoav@carma.app",   "name": "Yoav Levi",    "city": "Tel Aviv",  "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
-    {"email": "noa@carma.app",    "name": "Noa Shamir",   "city": "Tel Aviv",  "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
-    {"email": "tamar@carma.app",  "name": "Tamar Rozen",  "city": "Tel Aviv",  "age": 30, "license_year": 2012, "total_points": 5200,  "level": 4, "total_distance": 250.1},
-    {"email": "eli@carma.app",    "name": "Eli Golan",    "city": "Tel Aviv",  "age": 35, "license_year": 2008, "total_points": 2900,  "level": 3, "total_distance": 139.5},
-    {"email": "michal@carma.app", "name": "Michal David", "city": "Tel Aviv",  "age": 22, "license_year": 2022, "total_points": 1600,  "level": 3, "total_distance": 77.0},
-    {"email": "uri@carma.app",    "name": "Uri Cohen",    "city": "Tel Aviv",  "age": 24, "license_year": 2020, "total_points": 820,   "level": 2, "total_distance": 39.4},
+    {"email": "yoav@carma.app",   "name": "Yoav Levi",    "city_code": _TEL_AVIV,  "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
+    {"email": "noa@carma.app",    "name": "Noa Shamir",   "city_code": _TEL_AVIV,  "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
+    {"email": "tamar@carma.app",  "name": "Tamar Rozen",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "total_points": 5200,  "level": 4, "total_distance": 250.1},
+    {"email": "eli@carma.app",    "name": "Eli Golan",    "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "total_points": 2900,  "level": 3, "total_distance": 139.5},
+    {"email": "michal@carma.app", "name": "Michal David", "city_code": _TEL_AVIV,  "age": 22, "license_year": 2022, "total_points": 1600,  "level": 3, "total_distance": 77.0},
+    {"email": "uri@carma.app",    "name": "Uri Cohen",    "city_code": _TEL_AVIV,  "age": 24, "license_year": 2020, "total_points": 820,   "level": 2, "total_distance": 39.4},
     # Ramat Gan
-    {"email": "ron@carma.app",    "name": "Ron Biton",    "city": "Ramat Gan", "age": 31, "license_year": 2013, "total_points": 6100,  "level": 5, "total_distance": 293.5},
-    {"email": "shira@carma.app",  "name": "Shira Amir",   "city": "Ramat Gan", "age": 27, "license_year": 2017, "total_points": 3200,  "level": 3, "total_distance": 154.0},
-    {"email": "omer@carma.app",   "name": "Omer Peretz",  "city": "Ramat Gan", "age": 23, "license_year": 2021, "total_points": 1100,  "level": 2, "total_distance": 53.2},
+    {"email": "ron@carma.app",    "name": "Ron Biton",    "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "total_points": 6100,  "level": 5, "total_distance": 293.5},
+    {"email": "shira@carma.app",  "name": "Shira Amir",   "city_code": _RAMAT_GAN, "age": 27, "license_year": 2017, "total_points": 3200,  "level": 3, "total_distance": 154.0},
+    {"email": "omer@carma.app",   "name": "Omer Peretz",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "total_points": 1100,  "level": 2, "total_distance": 53.2},
 ]
 
 # Dan follows these three (shows in his Friends leaderboard)
@@ -305,6 +310,7 @@ _DAN_TRIPS: list[tuple[Any, ...]] = [
 _DAN_REDEEMED_POINTS = 500
 _DAN_TOTAL_POINTS = sum(t[9] for t in _DAN_TRIPS)   # 4 540
 _DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
+
 
 
 async def backfill_driver_scores(db: AsyncSession) -> None:
@@ -409,7 +415,7 @@ async def run() -> None:
                     password_hash=hash_password("password123"),
                     name="דניאל כהן",
                     role=UserRole.DRIVER,
-                    city="תל אביב",
+                    city_code=_TEL_AVIV,
                     age=22,
                     license_year=2021,
                     points=1250,
@@ -434,7 +440,7 @@ async def run() -> None:
                         password_hash=hash_password("password123"),
                         name=lu["name"],
                         role=UserRole.DRIVER,
-                        city=lu["city"],
+                        city_code=lu["city_code"],
                         age=lu["age"],
                         license_year=lu["license_year"],
                         points=lu["total_points"],
@@ -445,7 +451,7 @@ async def run() -> None:
                 )
             else:
                 existing_lu.name = lu["name"]
-                existing_lu.city = lu["city"]
+                existing_lu.city_code = lu["city_code"]
                 existing_lu.points = lu["total_points"]
                 existing_lu.total_points = lu["total_points"]
                 existing_lu.total_distance = lu["total_distance"]
@@ -460,7 +466,7 @@ async def run() -> None:
                 password_hash=hash_password("Dan1234"),
                 name="דן עופרי",
                 role=UserRole.DRIVER,
-                city="רמת גן",
+                city_code=_RAMAT_GAN,
                 age=32,
                 license_year=2012,
                 points=_DAN_TOTAL_POINTS - _DAN_REDEEMED_POINTS,
@@ -472,7 +478,7 @@ async def run() -> None:
         else:
             dan.name = "דן עופרי"
             dan.password_hash = hash_password("Dan1234")
-            dan.city = "רמת גן"
+            dan.city_code = _RAMAT_GAN
             dan.points = _DAN_TOTAL_POINTS - _DAN_REDEEMED_POINTS
             dan.total_points = _DAN_TOTAL_POINTS
             dan.total_distance = _DAN_TOTAL_DISTANCE
@@ -554,7 +560,7 @@ async def run() -> None:
                 password_hash=hash_password("Yoni1234"),
                 name="יוני כהן",
                 role=UserRole.DRIVER,
-                city="תל אביב",
+                city_code=_TEL_AVIV,
                 age=26,
                 license_year=2019,
                 points=_YONI_TOTAL_POINTS,
@@ -620,7 +626,7 @@ async def run() -> None:
                 password_hash=hash_password("Aroma1234"),
                 name="ארומה תל אביב",
                 role=UserRole.BUSINESS,
-                city="תל אביב",
+                city_code=_TEL_AVIV,
             )
             db.add(biz_owner)
             await db.flush()

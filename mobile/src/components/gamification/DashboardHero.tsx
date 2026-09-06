@@ -16,11 +16,18 @@ interface DashboardHeroProps {
     points?: number;
     totalPoints: number;
   };
-  avgScore: number | null;
+  driverScore: number;
+  /**
+   * The server always returns a score — a driver with no measured trips gets the
+   * fleet prior instead of null — so this is what separates an earned score from
+   * an assumed one. Also false while the stats request is still in flight, so a
+   * placeholder never resolves into a number the driver did not earn.
+   */
+  hasMeasuredHistory: boolean;
   lang: Language;
 }
 
-export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {
+export function DashboardHero({ user, driverScore, hasMeasuredHistory, lang }: DashboardHeroProps) {
   const { t } = useTranslation();
   const currentPoints = user.totalPoints;
   const levelData = getUserLevelData(currentPoints);
@@ -34,8 +41,8 @@ export function DashboardHero({ user, avgScore, lang }: DashboardHeroProps) {
 
         <View style={styles.heroRight}>
           <View style={styles.scoreRow}>
-            <Text style={[styles.score, { color: avgScore !== null ? scoreToColor(avgScore) : COLORS.success }]}>
-              {avgScore ?? '--'}
+            <Text style={[styles.score, { color: hasMeasuredHistory ? scoreToColor(driverScore) : COLORS.textMuted }]}>
+              {hasMeasuredHistory ? driverScore : '--'}
             </Text>
             <Text style={styles.scoreSub}>{t('dashboard.yourScore')}</Text>
           </View>

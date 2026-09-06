@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/ui/Card';
+import { RawRecordingPanel } from '@/components/settings/RawRecordingPanel';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -27,12 +28,9 @@ function formatJoinDate(dateStr: string): string {
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, patchUser, clearTripHistory, btDevice, addToast, startRawRecording, stopRawRecording, exportRawRecording } = useApp();
+  const { user, setUser, patchUser, btDevice, addToast } = useApp();
   const { t, lang, setLang } = useTranslation();
   const [savingDriveMode, setSavingDriveMode] = useState(false);
-  // 'stopped' keeps Export reachable after Stop — exportRawRecording() ships the
-  // last *completed* session, so the button can't disappear the moment recording ends.
-  const [rawRecordingStatus, setRawRecordingStatus] = useState<'idle' | 'recording' | 'stopped'>('idle');
 
   if (!user) return null;
 
@@ -52,35 +50,6 @@ export default function SettingsScreen() {
       console.error('[Settings] Failed to update drive mode', e);
     } finally {
       setSavingDriveMode(false);
-    }
-  };
-
-  // CAR-31: staged calibration recording (accel/gyro/GPS), independent of trip start/stop.
-  // Scenario is the phone's mount position — labels the session for hand-held-vs-loose
-  // calibration (CAR-46/CAR-183). Platform is the device OS, not user-chosen.
-  const handleStartRawRecording = async (scenario: string) => {
-    try {
-      await startRawRecording(scenario, Platform.OS);
-      setRawRecordingStatus('recording');
-    } catch (e) {
-      // e.g. sensorManager.start() rejects on missing permissions — status stays 'idle'
-      Alert.alert('Raw recording', 'Could not start — check sensor permissions.');
-      console.error('startRawRecording failed', e);
-    }
-  };
-
-  const handleStopRawRecording = async () => {
-    await stopRawRecording();
-    setRawRecordingStatus('stopped');
-  };
-
-  const handleExportRawRecording = async () => {
-    const result = await exportRawRecording();
-    if (typeof result === 'object') {
-      Alert.alert(
-        'Export',
-        result.error === 'none-recorded' ? 'Nothing recorded yet.' : 'Sharing is not available on this device.'
-      );
     }
   };
 
@@ -105,30 +74,6 @@ export default function SettingsScreen() {
       ]
     );
   }
-
-  /**
-   * Shows a confirmation dialog then hides trip history.
-   * The deletion is logical only — sets lastClearedHistory to now,
-   * and older trips are filtered out in AppContext (filteredTrips).
-   * [server] No server call — trips are not removed from the database.
-   */
-  const handleClearHistory = () => {
-    Alert.alert(
-      t('profile.dataManagement'),
-      t('profile.clearHistoryConfirm'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.confirm'),
-          style: 'destructive',
-          onPress: async () => {
-            await clearTripHistory();
-            router.back();
-          }
-        }
-      ]
-    );
-  };
 
   return (
     <View style={[COMMON_STYLES.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -224,20 +169,6 @@ export default function SettingsScreen() {
             </Card>
           </View>
 
-          {/* Data Management Section */}
-          <View>
-            <View style={COMMON_STYLES.sectionLabelRow}>
-              <Ionicons name={ICONS.settings} size={12} color={COLORS.textMuted} />
-              <Text style={COMMON_STYLES.sectionLabel}>{t('profile.dataManagement')}</Text>
-            </View>
-            <Card style={styles.settingCard}>
-              <TouchableOpacity style={styles.actionRow} onPress={handleClearHistory}>
-                <Text style={styles.actionTextDanger}>{t('profile.clearHistory')}</Text>
-                <Ionicons name="trash-outline" size={20} color={COLORS.danger} />
-              </TouchableOpacity>
-            </Card>
-          </View>
-
           {/* Debug Section — dev builds only, not gated on role (see ActiveTripScreen.tsx) */}
           {__DEV__ && (
             <View>
@@ -258,41 +189,7 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
 
                 {/* CAR-31: raw sensor recording for calibration drives, see driving-sdk README */}
-                <View style={styles.rawRecordingSection}>
-                  <Text style={styles.rawRecordingLabel}>Raw Sample Recording</Text>
-                  {rawRecordingStatus === 'idle' && (
-                    <View style={styles.debugRow}>
-                      {(['Handheld', 'Mounted', 'Pocket', 'Seat'] as const).map(scenario => (
-                        <Button
-                          key={scenario}
-                          variant="outline"
-                          size="sm"
-                          onPress={() => handleStartRawRecording(scenario)}
-                          style={styles.debugBtn}
-                        >
-                          {scenario}
-                        </Button>
-                      ))}
-                    </View>
-                  )}
-                  {rawRecordingStatus === 'recording' && (
-                    <View style={styles.debugRow}>
-                      <Button variant="outline" size="sm" onPress={handleStopRawRecording} style={styles.debugBtn}>
-                        Stop
-                      </Button>
-                    </View>
-                  )}
-                  {rawRecordingStatus === 'stopped' && (
-                    <View style={styles.debugRow}>
-                      <Button variant="outline" size="sm" onPress={handleExportRawRecording} style={styles.debugBtn}>
-                        Export
-                      </Button>
-                      <Button variant="outline" size="sm" onPress={() => setRawRecordingStatus('idle')} style={styles.debugBtn}>
-                        Record Again
-                      </Button>
-                    </View>
-                  )}
-                </View>
+                <RawRecordingPanel />
               </Card>
             </View>
           )}
@@ -329,17 +226,11 @@ const styles = StyleSheet.create({
   },
   linkContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   linkText: { color: COLORS.brandLight, fontSize: 14, fontWeight: '600' },
-  rawRecordingSection: { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
-  rawRecordingLabel: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 8 },
-  debugRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  debugBtn: { flexGrow: 1 },
   langRow: { flexDirection: 'row', gap: 8 },
   langBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.dark, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
   langBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
   langText: { ...TYPOGRAPHY.label, fontSize: 13 },
   langTextActive: { color: '#fff' },
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  actionTextDanger: { color: COLORS.danger, fontWeight: '600' },
   logoutBtn: { marginTop: 20 },
   versionText: { ...TYPOGRAPHY.caption, textAlign: 'center', marginTop: 30, color: COLORS.textMuted }
 });

@@ -3,10 +3,15 @@
 # from its own module, so FastAPI would try to resolve string annotations like
 # "BusinessVoucherResponse" against SlowAPI's namespace and fail at import.
 
-from fastapi import APIRouter, Request, Response, status
+from datetime import datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Request, Response, status
 
 from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
+from app.schemas.business_stats import BusinessStatsOut
+from app.schemas.redemption import BusinessRedemptionListOut
 from app.schemas.reward import (
     BusinessRewardIn,
     BusinessRewardListOut,
@@ -132,3 +137,49 @@ async def consume_voucher(
         db, membership.business, code, consumed_by_user_id=membership.user_id
     )
     return BusinessVoucherResponse(voucher=voucher)
+
+
+# ── Redemption history (CAR-79) ─────────────────────────────────────────────
+
+
+@router.get(
+    "/redemptions",
+    response_model=BusinessRedemptionListOut,
+    response_model_by_alias=True,
+    summary="Paged redemption history for the authenticated business — USED only by default",
+)
+async def list_redemptions(
+    membership: CurrentBusinessManager,
+    db: DbSession,
+    status_filter: str | None = Query(default=None, alias="status"),
+    reward_id: str | None = Query(default=None, alias="rewardId"),
+    settled_from: datetime | None = Query(default=None, alias="from"),
+    settled_to: datetime | None = Query(default=None, alias="to"),
+    cursor: str | None = Query(default=None),
+    limit: Annotated[int, Query(ge=1, le=business_service.REDEMPTION_HISTORY_MAX_LIMIT)] = (
+        business_service.REDEMPTION_HISTORY_DEFAULT_LIMIT
+    ),
+) -> dict[str, object]:
+    return await business_service.list_redemptions(
+        db,
+        membership.business,
+        statuses=business_service.parse_redemption_status_filter(status_filter),
+        reward_id=reward_id,
+        settled_from=settled_from,
+        settled_to=settled_to,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+# ── Redemption statistics (CAR-81) ──────────────────────────────────────────
+
+
+@router.get(
+    "/stats",
+    response_model=BusinessStatsOut,
+    response_model_by_alias=True,
+    summary="Redemption performance snapshot for the authenticated business",
+)
+async def stats(membership: CurrentBusinessManager, db: DbSession) -> BusinessStatsOut:
+    return await business_service.redemption_stats(db, membership.business)

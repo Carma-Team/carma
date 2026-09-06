@@ -2,16 +2,18 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { normalizeBusinessRole } from '@/lib/auth/businessRole';
+import { Logo } from '@/components/ui';
 import styles from './AppShell.module.css';
 
 // CAR-204 owns this chrome; CAR-116 owns which nav items it renders for the
 // caller's role. Rewards and Redemption stay unconditional for every
 // business role in the matrix — each page hides its own manage-only
 // controls. Team & Permissions (CAR-117) is a real route now, OWNER-only;
-// Analytics (redemption history/stats, CAR-119/CAR-80) is still coming-soon.
-// Both are capabilities a CASHIER (and, for Team, a MANAGER too) never gets —
-// hidden here rather than shown disabled, since a role that can't use a page
-// shouldn't see it advertised.
+// Redemption History (CAR-80) is a real route too, OWNER/MANAGER — Analytics
+// (redemption stats/charts, CAR-119) stays coming-soon, deliberately out of
+// CAR-80's scope. All three are capabilities a CASHIER (and, for Team, a
+// MANAGER too) never gets — hidden here rather than shown disabled, since a
+// role that can't use a page shouldn't see it advertised.
 export function AppShell() {
   const { user, logout } = useAuth();
   const { t, lang, setLang } = useTranslation();
@@ -39,7 +41,9 @@ export function AppShell() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <span className={styles.brandName}>{t('app.name')}</span>
+          <Logo height={20} />
+          <span className={styles.brandDivider} aria-hidden="true" />
+          <span className={styles.brandTag}>{t('shell.brandTag')}</span>
         </div>
 
         <div className={styles.businessCard}>
@@ -64,6 +68,11 @@ export function AppShell() {
           {canManagePermissions && (
             <NavLink to="/permissions" className={({ isActive }) => navClass(styles, isActive)}>
               {t('shell.navTeam')}
+            </NavLink>
+          )}
+          {canSeeAnalytics && (
+            <NavLink to="/redemption-history" className={({ isActive }) => navClass(styles, isActive)}>
+              {t('shell.navRedemptionHistory')}
             </NavLink>
           )}
           {isAdmin && (

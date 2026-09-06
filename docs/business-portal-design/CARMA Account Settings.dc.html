@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200..800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.417.0/dist/umd/lucide.js"></script>
+<style>
+  body { margin: 0; background: #EEF0F5; font-family: 'Assistant', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: #4F46E5; text-decoration: none; }
+  a:hover { color: #4338CA; text-decoration: underline; }
+</style>
+</helmet>
+
+<div style="width: 3036px; margin: 0 auto; padding: 40px 40px 60px; color: #0F172A; box-sizing: border-box">
+
+  <div style="display: flex; align-items: flex-start; gap: 40px; padding: 36px 40px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 24px; margin-bottom: 24px">
+    <div style="flex: 1">
+      <div style="display: inline-flex; align-items: center; gap: 11px; margin-bottom: 16px">
+        <span style="font-size: 20px; font-weight: 800; color: #4F46E5">CARMA</span>
+        <span style="width: 1px; height: 16px; background: #E3E7EF"></span>
+        <span style="font-size: 12.5px; font-weight: 800; color: #4F46E5">Business</span>
+      </div>
+      <h1 style="margin: 0 0 10px; font-size: 38px; line-height: 1.05; font-weight: 800; letter-spacing: -.02em">Basic Account Settings</h1>
+      <p style="margin: 0; max-width: 860px; font-size: 16px; line-height: 1.6; color: #374151; text-wrap: pretty">החשבון שלי — the signed-in user's own details, separate from פרטי העסק (business info) and איש קשר (contact person). Deliberately small: personal fields, a password entry point, and התנתקות. No security history, sessions, 2FA, or notification prefs yet.</p>
+    </div>
+    <div style="width: 330px; display: flex; flex-direction: column; gap: 10px">
+      <div style="padding: 13px 15px; background: #FEF6E7; border-radius: 14px; font-size: 12.5px; line-height: 1.55; color: #92400E"><b>Flagged, not built.</b> The password-change flow shown is a form + entry point only — its backend verification behavior (current-password check, re-auth, email confirmation) is undefined; see the box below.</div>
+      <div style="padding: 13px 15px; background: #F9FAFC; border-radius: 14px; font-size: 12.5px; line-height: 1.55; color: #8A94A6">Frames are 1440×900. Out of scope this round: employees, roles/permissions, security history, sessions, 2FA, notification prefs, org settings, analytics.</div>
+    </div>
+  </div>
+
+  <div style="padding: 30px 36px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 24px; margin-bottom: 24px">
+    <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 26px">
+      <div>
+        <h2 style="margin: 0 0 14px; font-size: 19px; font-weight: 800">Proposed structure</h2>
+        <div dir="rtl" style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: #EEEDFB; border-radius: 12px; font-size: 13.5px; font-weight: 700; color: #3730A3"><i data-lucide="settings" style="width: 16px; height: 16px"></i>החשבון שלי — פריט ניווט קיים («הגדרות»), בלי טאבים נוספים</div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: #F9FAFC; border-radius: 12px; font-size: 13px; font-weight: 600"><i data-lucide="arrow-down" style="width: 14px; height: 14px; color: #8A94A6"></i>כרטיס «פרטים אישיים» — שם, דוא״ל, טלפון של המשתמש המחובר בלבד</div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: #F9FAFC; border-radius: 12px; font-size: 13px; font-weight: 600"><i data-lucide="arrow-down" style="width: 14px; height: 14px; color: #8A94A6"></i>כרטיס «סיסמה» — כניסה לשינוי סיסמה, לא טופס מלא בעמוד</div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: #F9FAFC; border-radius: 12px; font-size: 13px; font-weight: 600"><i data-lucide="arrow-down" style="width: 14px; height: 14px; color: #8A94A6"></i>פעולת התנתקות — ניטרלית, לא באדום</div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: #F2FAE6; border-radius: 12px; font-size: 13.5px; font-weight: 700; color: #3F6212"><i data-lucide="save" style="width: 16px; height: 16px"></i>אותו פס שמירה דביק מ«פרטי העסק» — עקביות בין העמודים</div>
+        </div>
+      </div>
+      <div>
+        <h2 style="margin: 0 0 14px; font-size: 19px; font-weight: 800">Assumptions</h2>
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div style="display: flex; gap: 9px; padding: 9px 12px; background: #F9FAFC; border-radius: 10px"><i data-lucide="dot" style="width: 14px; height: 14px; color: #8A94A6; flex: none; margin-top: 2px"></i><span style="font-size: 12.5px; line-height: 1.5; color: #374151">Personal details (name, email, phone) belong to this one user only — editing them never touches Business Profile or Contact Person data, even if values happen to match today.</span></div>
+          <div style="display: flex; gap: 9px; padding: 9px 12px; background: #F9FAFC; border-radius: 10px"><i data-lucide="dot" style="width: 14px; height: 14px; color: #8A94A6; flex: none; margin-top: 2px"></i><span style="font-size: 12.5px; line-height: 1.5; color: #374151">Password change is a separate short modal, not inline fields — keeps the main form's save bar simple and avoids mixing identity-sensitive input with routine edits.</span></div>
+          <div style="display: flex; gap: 9px; padding: 9px 12px; background: #F9FAFC; border-radius: 10px"><i data-lucide="dot" style="width: 14px; height: 14px; color: #8A94A6; flex: none; margin-top: 2px"></i><span style="font-size: 12.5px; line-height: 1.5; color: #374151">Changing email here is assumed to require the same "unsaved change" save-bar pattern as other fields — no separate confirmation email flow is designed since none was specified.</span></div>
+          <div style="display: flex; gap: 9px; padding: 9px 12px; background: #F9FAFC; border-radius: 10px"><i data-lucide="dot" style="width: 14px; height: 14px; color: #8A94A6; flex: none; margin-top: 2px"></i><span style="font-size: 12.5px; line-height: 1.5; color: #374151">Logout needs no confirmation dialog — it's reversible (just sign in again) and not a consequential action.</span></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 20px; padding: 16px 18px; background: #FEF6E7; border-radius: 14px">
+      <div style="font-size: 12.5px; font-weight: 800; letter-spacing: .04em; color: #92400E; margin-bottom: 8px">Flagged separately — new requirements noticed, not assumed or built</div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px">
+        <div style="font-size: 12px; line-height: 1.5; color: #92400E">תהליך שינוי סיסמה בפועל (אימות סיסמה נוכחית, שליחת קישור/קוד, מדיניות חוזק) — לא הוגדר, מוצג כאן רק כנקודת כניסה</div>
+        <div style="font-size: 12px; line-height: 1.5; color: #92400E">שינוי דוא״ל התחברות — נדרשת החלטה אם דורש אימות דוא״ל חדש לפני שהוא נכנס לתוקף</div>
+      </div>
+    </div>
+    <div style="margin-top: 12px; padding: 16px 18px; background: #F9FAFC; border-radius: 14px">
+      <div style="font-size: 12.5px; font-weight: 800; letter-spacing: .04em; color: #4B5563; margin-bottom: 8px">Future opportunities — not for this MVP, listed for later</div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px">
+        <div style="font-size: 12px; line-height: 1.5; color: #6B7280">היסטוריית כניסות ופעילות אבטחה</div>
+        <div style="font-size: 12px; line-height: 1.5; color: #6B7280">ניהול הפעלות פעילות (sessions) מרובות מכשירים</div>
+        <div style="font-size: 12px; line-height: 1.5; color: #6B7280">אימות דו-שלבי (2FA)</div>
+        <div style="font-size: 12px; line-height: 1.5; color: #6B7280">העדפות התראות ודוא״ל</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px">
+    <span style="width: 32px; height: 32px; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #FFFFFF">1</span>
+    <h2 style="margin: 0; font-size: 24px; font-weight: 800">Account settings — view, edit &amp; password</h2>
+    <span style="flex: 1; height: 1px; background: #D9DFEA"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, 1440px); gap: 28px; margin-bottom: 28px">
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">01</span><span style="font-size: 16px; font-weight: 800">החשבון שלי · מצב צפייה, הכול שמור</span></div>
+      <div dir="rtl" style="width: 1440px; height: 900px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 244px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF; display: flex; flex-direction: column; padding: 20px 14px; box-sizing: border-box">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px 18px">
+            <span style="font-size: 16px; font-weight: 800; color: #4F46E5">CARMA</span>
+            <span style="width: 1px; height: 15px; background: #E3E7EF"></span>
+            <span style="font-size: 12px; font-weight: 800; color: #4F46E5">Business</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #EFF1F6; border-radius: 12px; margin-bottom: 20px; cursor: pointer">
+            <span style="width: 28px; height: 28px; flex: none; border-radius: 8px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #4F46E5">א</span>
+            <div style="flex: 1; min-width: 0">
+              <div style="font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">ארומה ישראל</div>
+              <div style="font-size: 11px; color: #8A94A6"><span style="font-variant-numeric: tabular-nums">3</span> סניפים</div>
+            </div>
+            <i data-lucide="chevron-down" style="width: 15px; height: 15px; color: #8A94A6"></i>
+          </div>
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #AEB6C4; padding: 0 10px 8px">ניהול</div>
+          <div style="display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #374151"><i data-lucide="gift" style="width: 18px; height: 18px; color: #8A94A6"></i>הטבות</div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #374151"><i data-lucide="ticket" style="width: 18px; height: 18px; color: #8A94A6"></i>מימושים</div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #374151"><i data-lucide="building-2" style="width: 18px; height: 18px; color: #8A94A6"></i>פרטי העסק</div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #374151"><i data-lucide="users" style="width: 18px; height: 18px; color: #8A94A6"></i>צוות והרשאות</div>
+          </div>
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #AEB6C4; padding: 20px 10px 8px">בקרוב</div>
+          <div style="display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #AEB6C4"><i data-lucide="layout-dashboard" style="width: 18px; height: 18px; color: #C9CFDA"></i>סקירה כללית</div>
+            <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #AEB6C4"><i data-lucide="bar-chart-3" style="width: 18px; height: 18px; color: #C9CFDA"></i>אנליטיקס</div>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; background: #EEEDFB; font-size: 14px; font-weight: 700; color: #3730A3"><i data-lucide="settings" style="width: 18px; height: 18px; color: #6366F1"></i>הגדרות</div>
+          <div style="display: flex; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #374151"><i data-lucide="help-circle" style="width: 18px; height: 18px; color: #8A94A6"></i>עזרה ותמיכה</div>
+        </div>
+
+        <div style="flex: 1; display: flex; flex-direction: column; min-width: 0">
+          <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; gap: 14px; padding: 0 26px">
+            <div style="font-size: 15px; font-weight: 800">החשבון שלי</div>
+            <div style="flex: 1"></div>
+            <button style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: #EFF1F6; border: none; border-radius: 999px; cursor: pointer"><i data-lucide="bell" style="width: 17px; height: 17px; color: #374151"></i></button>
+            <div style="display: flex; align-items: center; gap: 9px">
+              <span style="width: 32px; height: 32px; border-radius: 999px; background: #E0DFFA; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: #3730A3">ד</span>
+              <div style="line-height: 1.25"><div style="font-size: 13px; font-weight: 700">דנה לוי</div><div style="font-size: 11px; color: #8A94A6">בעלת החשבון</div></div>
+            </div>
+          </div>
+
+          <div style="flex: 1; overflow: hidden; padding: 26px 32px; box-sizing: border-box; display: flex; justify-content: center">
+            <div style="width: 720px; display: flex; flex-direction: column; gap: 16px">
+
+              <div style="padding: 4px 6px 8px">
+                <div style="font-size: 20px; font-weight: 800; margin-bottom: 3px">החשבון שלי</div>
+                <div style="font-size: 12.5px; color: #8A94A6">הפרטים האישיים שלך כמשתמש/ת מחובר/ת. נפרד מ«פרטי העסק» ומ«איש הקשר» של העסק.</div>
+              </div>
+
+              <div style="padding: 20px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; display: flex; align-items: center; gap: 18px">
+                <span style="width: 56px; height: 56px; flex: none; border-radius: 999px; background: #E0DFFA; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; color: #3730A3">ד</span>
+                <div style="flex: 1">
+                  <div style="font-size: 15px; font-weight: 700">דנה לוי</div>
+                  <div style="font-size: 12.5px; color: #8A94A6">בעלת החשבון</div>
+                </div>
+              </div>
+
+              <div style="padding: 20px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="font-size: 14px; font-weight: 800; margin-bottom: 16px">פרטים אישיים</div>
+                <div style="display: flex; flex-direction: column; gap: 14px">
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #F9FAFC; border-radius: 12px">
+                    <span style="font-size: 12.5px; color: #8A94A6">שם מלא</span>
+                    <span style="font-size: 13.5px; font-weight: 700">דנה לוי</span>
+                  </div>
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #F9FAFC; border-radius: 12px">
+                    <span style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #8A94A6"><i data-lucide="lock" style="width: 13px; height: 13px; color: #AEB6C4"></i>דוא״ל להתחברות</span>
+                    <span dir="ltr" style="font-size: 13.5px; font-weight: 700">dana@aroma-israel.co.il</span>
+                  </div>
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #F9FAFC; border-radius: 12px">
+                    <span style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #8A94A6"><i data-lucide="lock" style="width: 13px; height: 13px; color: #AEB6C4"></i>טלפון</span>
+                    <span dir="ltr" style="font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums">052-3341098</span>
+                  </div>
+                  <div style="display: flex; align-items: flex-start; gap: 6px"><i data-lucide="info" style="width: 13px; height: 13px; color: #8A94A6; margin-top: 2px; flex: none"></i><span style="font-size: 12px; line-height: 1.5; color: #8A94A6">דוא״ל וטלפון לקריאה בלבד כרגע — עדכון שלהם דורש תהליך אימות שטרם הוגדר.</span></div>
+                </div>
+              </div>
+
+              <div style="padding: 20px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; display: flex; align-items: center; gap: 18px">
+                <span style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #EEEDFB; display: flex; align-items: center; justify-content: center"><i data-lucide="key-round" style="width: 20px; height: 20px; color: #4F46E5"></i></span>
+                <div style="flex: 1">
+                  <div style="font-size: 14px; font-weight: 800; margin-bottom: 3px">סיסמה</div>
+                  <div style="font-size: 12.5px; color: #8A94A6">עודכנה לאחרונה לפני <span style="font-variant-numeric: tabular-nums">4</span> חודשים</div>
+                </div>
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #F1F3F7; border-radius: 10px; font-size: 12.5px; font-weight: 700; color: #8A94A6; flex: none">בקרוב</span>
+              </div>
+
+              <div style="padding: 16px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; display: flex; align-items: center; gap: 18px">
+                <span style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #F1F3F7; display: flex; align-items: center; justify-content: center"><i data-lucide="log-out" style="width: 19px; height: 19px; color: #374151"></i></span>
+                <div style="flex: 1">
+                  <div style="font-size: 14px; font-weight: 800">התנתקות</div>
+                  <div style="font-size: 12.5px; color: #8A94A6">מתנתק/ת מהחשבון במכשיר זה</div>
+                </div>
+                <button style="height: 38px; padding: 0 16px; background: #F1F3F7; border: none; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; color: #374151; cursor: pointer; flex: none; display: flex; align-items: center; gap: 7px"><i data-lucide="log-out" style="width: 14px; height: 14px"></i>התנתקות</button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">02</span><span style="font-size: 16px; font-weight: 800">החשבון שלי · עריכה, שינוי לא שמור</span></div>
+      <div dir="rtl" style="width: 1440px; height: 900px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box">
+        <div style="width: 244px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF"></div>
+        <div style="flex: 1; display: flex; flex-direction: column; min-width: 0">
+          <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF; display: flex; align-items: center; padding: 0 26px"><div style="font-size: 15px; font-weight: 800">החשבון שלי</div></div>
+          <div style="flex: 1; overflow: hidden; padding: 26px 32px 0; box-sizing: border-box; display: flex; justify-content: center; position: relative">
+            <div style="width: 720px; display: flex; flex-direction: column; gap: 16px; padding-bottom: 90px">
+
+              <div style="padding: 4px 6px 8px">
+                <div style="font-size: 20px; font-weight: 800; margin-bottom: 3px">החשבון שלי</div>
+                <div style="font-size: 12.5px; color: #8A94A6">הפרטים האישיים שלך כמשתמש/ת מחובר/ת. נפרד מ«פרטי העסק» ומ«איש הקשר» של העסק.</div>
+              </div>
+
+              <div style="padding: 20px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+                <div style="font-size: 14px; font-weight: 800; margin-bottom: 16px">פרטים אישיים</div>
+                <div style="display: flex; flex-direction: column; gap: 14px">
+                  <div>
+                    <label style="display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px">שם מלא</label>
+                    <input type="text" value="דנה לוי" style="width: 100%; height: 40px; padding: 0 14px; box-sizing: border-box; background: #FFFFFF; border: 1.5px solid #6366F1; border-radius: 12px; font-family: inherit; font-size: 14px; outline: none">
+                  </div>
+                  <div>
+                    <label style="display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; margin-bottom: 7px"><i data-lucide="lock" style="width: 13px; height: 13px; color: #AEB6C4"></i>דוא״ל להתחברות</label>
+                    <div style="display: flex; align-items: center; height: 40px; padding: 0 14px; background: #F1F3F7; border: 1px solid #E3E7EF; border-radius: 12px">
+                      <span dir="ltr" style="font-size: 14px; font-weight: 700; color: #8A94A6">dana@aroma-israel.co.il</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 6px; margin-top: 7px"><i data-lucide="info" style="width: 13px; height: 13px; color: #8A94A6; margin-top: 2px; flex: none"></i><span style="font-size: 12px; line-height: 1.5; color: #8A94A6">לקריאה בלבד — עדכון דוא״ל דורש תהליך אימות שטרם הוגדר.</span></div>
+                  </div>
+                  <div>
+                    <label style="display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; margin-bottom: 7px"><i data-lucide="lock" style="width: 13px; height: 13px; color: #AEB6C4"></i>טלפון</label>
+                    <div style="display: flex; align-items: center; height: 40px; padding: 0 14px; background: #F1F3F7; border: 1px solid #E3E7EF; border-radius: 12px">
+                      <span dir="ltr" style="font-size: 14px; font-weight: 700; color: #8A94A6; font-variant-numeric: tabular-nums">052-3341098</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 6px; margin-top: 7px"><i data-lucide="info" style="width: 13px; height: 13px; color: #8A94A6; margin-top: 2px; flex: none"></i><span style="font-size: 12px; line-height: 1.5; color: #8A94A6">לקריאה בלבד — עדכון טלפון דורש תהליך אימות שטרם הוגדר.</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding: 20px 24px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; display: flex; align-items: center; gap: 18px">
+                <span style="width: 44px; height: 44px; flex: none; border-radius: 12px; background: #EEEDFB; display: flex; align-items: center; justify-content: center"><i data-lucide="key-round" style="width: 20px; height: 20px; color: #4F46E5"></i></span>
+                <div style="flex: 1">
+                  <div style="font-size: 14px; font-weight: 800; margin-bottom: 3px">סיסמה</div>
+                  <div style="font-size: 12.5px; color: #8A94A6">עודכנה לאחרונה לפני <span style="font-variant-numeric: tabular-nums">4</span> חודשים</div>
+                </div>
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #F1F3F7; border-radius: 10px; font-size: 12.5px; font-weight: 700; color: #8A94A6; flex: none">בקרוב</span>
+              </div>
+
+            </div>
+            <div style="position: absolute; bottom: 18px; right: 32px; left: 32px; display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px; box-shadow: 0 -8px 24px rgba(15,23,42,.06)">
+              <span style="width: 8px; height: 8px; border-radius: 999px; background: #F59E0B; flex: none"></span>
+              <span style="font-size: 13.5px; font-weight: 700; color: #92400E">יש שינויים שלא נשמרו</span>
+              <div style="flex: 1"></div>
+              <button style="height: 40px; padding: 0 18px; background: #FFFFFF; border: 1px solid #D9DFEA; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: #374151; cursor: pointer">ביטול השינויים</button>
+              <button style="height: 40px; padding: 0 22px; background: #6366F1; border: none; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 800; color: #FFFFFF; cursor: pointer">שמירת שינויים</button>
+            </div>
+            <div style="position: absolute; bottom: 78px; right: 32px; font-size: 11px; color: #AEB6C4">כפתור השמירה פעיל רק כשיש שינוי אמיתי בשדה ניתן לעריכה</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px">
+    <span style="width: 32px; height: 32px; border-radius: 999px; background: #6366F1; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #FFFFFF">2</span>
+    <h2 style="margin: 0; font-size: 24px; font-weight: 800">Password, logout &amp; feedback states</h2>
+    <span style="flex: 1; height: 1px; background: #D9DFEA"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, 1440px); gap: 28px; margin-bottom: 28px">
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">03</span><span style="font-size: 16px; font-weight: 800">שינוי סיסמה · יכולת עתידית, לא זמינה עדיין</span></div>
+      <div dir="rtl" style="width: 1440px; height: 900px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; display: flex; box-sizing: border-box; position: relative">
+        <div style="width: 244px; flex: none; background: #FFFFFF; border-inline-start: 1px solid #E3E7EF"></div>
+        <div style="flex: 1; display: flex; flex-direction: column; min-width: 0; filter: blur(1.5px); opacity: .5">
+          <div style="height: 60px; flex: none; background: #FFFFFF; border-bottom: 1px solid #E3E7EF"></div>
+          <div style="flex: 1; padding: 30px"><div style="width: 100%; height: 100%; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 20px"></div></div>
+        </div>
+        <div style="position: absolute; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center">
+          <div style="width: 440px; background: #FFFFFF; border-radius: 24px; padding: 30px 32px; box-shadow: 0 16px 40px rgba(15,23,42,.12); text-align: center">
+            <span style="width: 52px; height: 52px; border-radius: 14px; background: #F1F3F7; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px"><i data-lucide="key-round" style="width: 24px; height: 24px; color: #8A94A6"></i></span>
+            <div style="font-size: 17px; font-weight: 800; margin-bottom: 8px">שינוי סיסמה — בקרוב</div>
+            <div style="font-size: 13px; line-height: 1.6; color: #6B7280; margin-bottom: 22px">היכולת לשנות סיסמה מתוך הפורטל עדיין לא זמינה. תהליך שינוי הסיסמה המאובטח (אימות סיסמה נוכחית, מדיניות חוזק, אישור) עדיין לא הוגדר במוצר — זו רק נקודת כניסה עתידית.</div>
+            <button style="width: 100%; height: 44px; background: #F1F3F7; color: #374151; border: none; border-radius: 12px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer">סגירה</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px"><span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #6366F1">04</span><span style="font-size: 16px; font-weight: 800">מצבי שמירה ומשוב + התנתקות</span></div>
+      <div dir="rtl" style="width: 1440px; height: 900px; background: #F9FAFC; border: 1px solid #D9DFEA; border-radius: 20px; overflow: hidden; padding: 30px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+        <div style="font-size: 13px; font-weight: 800; color: #8A94A6">פס שמירה — מצב «שומר»</div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+          <span style="width: 16px; height: 16px; border: 2px solid #E3E7EF; border-top-color: #6366F1; border-radius: 999px; flex: none"></span>
+          <span style="font-size: 13.5px; font-weight: 700; color: #374151">שומר שינויים…</span>
+        </div>
+
+        <div style="font-size: 13px; font-weight: 800; color: #8A94A6; margin-top: 6px">פס שמירה — מצב «נשמר בהצלחה» (נעלם אחרי כ-3 שניות)</div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #F2FAE6; border: 1px solid #DCEFC4; border-radius: 16px">
+          <i data-lucide="check-circle-2" style="width: 18px; height: 18px; color: #65A30D; flex: none"></i>
+          <span style="font-size: 13.5px; font-weight: 700; color: #3F6212">השינויים נשמרו בהצלחה</span>
+        </div>
+
+        <div style="font-size: 13px; font-weight: 800; color: #8A94A6; margin-top: 6px">פס שמירה — שגיאת שרת/מערכת, השינויים לא אבדו</div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #FEECEC; border: 1px solid #FAD3D3; border-radius: 16px">
+          <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: #DC2626; flex: none"></i>
+          <span style="font-size: 13.5px; font-weight: 700; color: #991B1B">השמירה נכשלה — בדקו את החיבור ונסו שוב. השינויים שלכם עדיין כאן.</span>
+          <div style="flex: 1"></div>
+          <button style="height: 34px; padding: 0 16px; background: #FFFFFF; border: 1px solid #FAD3D3; border-radius: 10px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: #991B1B; cursor: pointer">ניסיון חוזר</button>
+        </div>
+
+        <div style="font-size: 13px; font-weight: 800; color: #8A94A6; margin-top: 6px">התנתקות רגילה — אין שינויים לא שמורים, בלי דיאלוג אישור</div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 16px">
+          <i data-lucide="log-out" style="width: 18px; height: 18px; color: #374151; flex: none"></i>
+          <span style="font-size: 13.5px; font-weight: 700; color: #374151">התנתקת/ה בהצלחה. מועברים לעמוד ההתחברות…</span>
+        </div>
+
+        <div style="font-size: 13px; font-weight: 800; color: #8A94A6; margin-top: 6px">התנתקות עם שינוי לא שמור — אותו מודאל אישור, מוצג רק במקרה הזה</div>
+        <div style="flex: 1; position: relative; background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 18px; overflow: hidden">
+          <div style="position: absolute; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center">
+            <div style="width: 420px; background: #FFFFFF; border-radius: 20px; padding: 26px 28px; box-shadow: 0 16px 40px rgba(15,23,42,.14)">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px"><span style="width: 34px; height: 34px; border-radius: 10px; background: #FEF6E7; display: flex; align-items: center; justify-content: center; flex: none"><i data-lucide="alert-triangle" style="width: 17px; height: 17px; color: #B45309"></i></span><span style="font-size: 16px; font-weight: 800">לצאת בלי לשמור?</span></div>
+              <div style="font-size: 13px; line-height: 1.6; color: #374151; margin-bottom: 20px">יש לכם שינויים שלא נשמרו בפרטים האישיים. התנתקות כעת תאבד אותם.</div>
+              <div style="display: flex; gap: 10px">
+                <button style="flex: 1; height: 42px; background: #6366F1; color: #FFFFFF; border: none; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer">להישאר ולשמור</button>
+                <button style="flex: 1; height: 42px; background: #FFFFFF; color: #DC2626; border: 1.5px solid #FAD3D3; border-radius: 12px; font-family: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer">להתנתק בלי לשמור</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() {
+    if (window.lucide) window.lucide.createIcons();
+  }
+}
+</script>
+</body>
+</html>

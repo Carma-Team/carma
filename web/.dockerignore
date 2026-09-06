@@ -1,0 +1,5 @@
+# The image is dist plus the nginx config and nothing else; node_modules alone
+# is several hundred MB of build-time dependencies with no place in it.
+*
+!dist
+!nginx.conf

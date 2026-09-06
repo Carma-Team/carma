@@ -390,6 +390,7 @@ describe('Rule 3 — report-once and the decline gate', () => {
     isReady: true,
     mode: TransportMode.TRAIN,
     signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: true },
+    sensorAvailability: { gps: true, accelerometer: true, gyroscope: true },
     telemetry: { avgSpeedKmh: 82, maxLateralAccelG: 0.02, yawVariance: 0.001 },
   };
 
@@ -531,6 +532,40 @@ describe('Rule 4 — region check', () => {
     m.stop();
   });
 
+  // CAR-279: the rejection resets the validator, and the reset used to clear the mark the
+  // gate had just set — so any later sample carrying a fix ran the gate again and rejected
+  // the same trip twice. The abort stops the sensors, which bounded it in practice; the
+  // mark surviving the reset is what prevents it.
+  test('does not run the gate again after it has already rejected the trip', () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    const regionRejected = jest.fn();
+    m.onRegionRejected = regionRejected;
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(1);
+    expect(regionRejected).toHaveBeenCalledTimes(1);
+    m.stop();
+  });
+
+  test('a new trip is region-checked again after the previous one was rejected', () => {
+    mockRegionAllowed = false;
+    const m = new TripValidationManager();
+    m.start();
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 40, lng: -74 });
+    m.stop();
+
+    mockRegionAllowed = true;
+    m.start();
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), lat: 32, lng: 34 });
+
+    expect(isRegionAllowed).toHaveBeenCalledTimes(2);
+    m.stop();
+  });
+
   test('checks the region only once per trip, off the first fix', () => {
     const m = new TripValidationManager();
     m.start();
@@ -561,6 +596,62 @@ describe('Rule 4 — region check', () => {
     expect(regionRejected).not.toHaveBeenCalled();
     expect(confirmed).toHaveBeenCalledTimes(1);
     expect(m.getState()).toBe(ValidationState.SCORING);
+    m.stop();
+  });
+
+  // ── Sensor availability reaching the detector (CAR-272) ─────────────────────
+  // The flags arrive on every ValidationSample and used to be dropped here, so a
+  // sensor that never delivered a sample was indistinguishable from one reading zero
+  // — the exact failure docs/fraud-detection.md §3.1 is written to prevent.
+
+  test('passes the availability flags it receives through to the detector', () => {
+    const addSample = jest.spyOn(FraudDetector.prototype, 'addSample');
+    const m = new TripValidationManager();
+    m.start();
+
+    for (let i = 0; i < 5; i++) {
+      m.updateSample({
+        speedKmh: 50,
+        timestamp: Date.now(),
+        lateralAccelG: 0.1,
+        yawRate: 0,
+        accelAvailable: true,
+        gyroAvailable: false,
+      });
+      jest.advanceTimersByTime(1000);
+    }
+
+    expect(addSample).toHaveBeenCalledWith(50, 0.1, 0, true, false);
+    addSample.mockRestore();
+    m.stop();
+  });
+
+  // Null and false are different claims: false says the hardware reported itself
+  // absent, null says nothing has reported at all. A producer that omits the flags
+  // must not be turned into an assertion of absence.
+  test('reports availability as unknown while no sample has carried a flag', () => {
+    const addSample = jest.spyOn(FraudDetector.prototype, 'addSample');
+    const m = new TripValidationManager();
+    m.start();
+
+    advanceFraudTicks(m, 5, 50, 0.1);
+
+    expect(addSample).toHaveBeenCalledWith(50, 0.1, 0, null, null);
+    addSample.mockRestore();
+    m.stop();
+  });
+
+  test('keeps the last flag it was given when a later sample omits it', () => {
+    const addSample = jest.spyOn(FraudDetector.prototype, 'addSample');
+    const m = new TripValidationManager();
+    m.start();
+
+    m.updateSample({ speedKmh: 50, timestamp: Date.now(), accelAvailable: false, gyroAvailable: true });
+    jest.advanceTimersByTime(1000);
+    advanceFraudTicks(m, 3, 50, 0.1);
+
+    expect(addSample).toHaveBeenLastCalledWith(50, 0.1, 0, false, true);
+    addSample.mockRestore();
     m.stop();
   });
 });

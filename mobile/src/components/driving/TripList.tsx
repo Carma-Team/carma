@@ -14,9 +14,15 @@ interface TripListProps {
   loading?: boolean;
   emptyText?: string;
   maxItems?: number;
+  /** Selection mode: rows toggle instead of opening. Owned by whoever renders the list. */
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (tripId: string) => void;
 }
 
-export function TripList({ trips, loading, emptyText, maxItems }: TripListProps) {
+export function TripList({
+  trips, loading, emptyText, maxItems, selectable, selectedIds, onToggleSelect,
+}: TripListProps) {
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -41,7 +47,13 @@ export function TripList({ trips, loading, emptyText, maxItems }: TripListProps)
         <TripCard
           key={trip.id}
           trip={trip}
-          onPress={() => router.push({ pathname: '/(home)/trip-detail', params: { tripId: trip.id } })}
+          selectable={selectable}
+          selected={selectedIds?.has(trip.id)}
+          onPress={() =>
+            selectable
+              ? onToggleSelect?.(trip.id)
+              : router.push({ pathname: '/(home)/trip-detail', params: { tripId: trip.id } })
+          }
         />
       ))}
     </View>

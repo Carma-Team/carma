@@ -46,6 +46,7 @@ jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
   AutoDriveModeManager: class {
     constructor(_onDetected: any, _onLost: any) {}
     enable() {}
+    getConnectedVehicleId() { return null; }
   },
 }));
 
@@ -55,6 +56,7 @@ const TRAIN_VERDICT: FraudEvaluation = {
   isReady: true,
   mode: TransportMode.TRAIN,
   signals: { constantHighSpeed: true, noLateralForce: true, noHeadingChange: true },
+  sensorAvailability: { gps: true, accelerometer: true, gyroscope: true },
   telemetry: { avgSpeedKmh: 82, maxLateralAccelG: 0.02, yawVariance: 0.001 },
 };
 
@@ -74,6 +76,7 @@ function tickAt80(): void {
     gyroAvailable: true,
     accelInitFailed: false,
     backgroundLocationAvailable: true,
+    locationStartFailed: false,
   });
   jest.advanceTimersByTime(1000);
 }

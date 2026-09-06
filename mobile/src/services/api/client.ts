@@ -7,6 +7,8 @@
  * - Loading the token from AsyncStorage and attaching it as an Authorization header
  * - Sending the request to BASE_URL (STAGING_SERVER_URL, per USE_REAL_SERVER)
  * - Handling HTTP errors and 204 No Content responses
+ * - Capping every request at REQUEST_TIMEOUT_MS, so one that never answers rejects
+ *   as a retryable 408 instead of hanging the caller forever
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { USE_REAL_SERVER, LOCAL_SERVER_URL, STAGING_SERVER_URL } from '@/constants/serverConfig';
@@ -64,6 +66,12 @@ function parseRetryAfter(header: string | null, bodyValue: unknown): number | un
 
 const BASE_URL = USE_REAL_SERVER ? STAGING_SERVER_URL : LOCAL_SERVER_URL;
 
+// React Native hands OkHttp a timeout of 0 on Android, so a request that never answers
+// hangs for the life of the process — and one hung upload stalls the whole sync queue
+// until the app restarts. 30s: OkHttp's own default is 10s, AWS recommends staying
+// under 30s on mobile, and a slow cellular save should still be given room to finish.
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function getAuthToken(): Promise<string | null> {
   return AsyncStorage.getItem('carma_token');
 }
@@ -79,11 +87,34 @@ export async function request<T>(
     ...(options.headers as Record<string, string>),
   };
 
+  // A multipart body carries its own content type, and it has to include the boundary
+  // the runtime generated. Setting the header ourselves overwrites that boundary, and
+  // the server then reads an empty form with no error worth the name.
+  if (options.body instanceof FormData) {
+    delete headers['Content-Type'];
+  }
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  // 408 and not a bare network error: a timeout has to be retryable. SyncManager drops
+  // an item on a 4xx it knows (400/401/403/422) and retries everything else, so 408
+  // keeps the trip in the queue while still naming the reason it failed.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError(408, `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     // `?? {}` and not just the catch: a body of literal `null` parses fine, and

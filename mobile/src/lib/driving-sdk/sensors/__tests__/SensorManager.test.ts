@@ -15,6 +15,7 @@ import { DrivingEventType, DrivingEvent } from '@/lib/driving-sdk/types';
 // the current ts-jest transform and babel (jest-expo).
 
 let mockLocationHandler: ((loc: any) => void) | null = null;
+let mockLocationErrorHandler: ((err: any) => void) | null = null;
 let mockAccelHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
 let mockGyroHandler: ((d: { x: number; y: number; z: number }) => void) | null = null;
 let mockAccelAvailable = true;
@@ -25,6 +26,22 @@ let mockAccelAvailable = true;
 jest.mock('@/lib/driving-sdk/sensors/locationTask', () => ({
   DRIVING_SDK_LOCATION_TASK: 'driving-sdk-location-task',
   setLocationHandler: jest.fn((h: any) => { mockLocationHandler = h; }),
+  setLocationErrorHandler: jest.fn((h: any) => { mockLocationErrorHandler = h; }),
+}));
+
+// SensorManager is the only file in this graph that touches react-native, and it uses
+// one member of it. Replacing the module outright is what keeps the assertions below
+// about this class's listener rather than about every listener the RN test
+// environment happens to register at import time.
+const mockAppStateRemove = jest.fn();
+const mockAppStateAdd = jest.fn((_event: string, handler: any) => {
+  mockAppStateHandler = handler;
+  return { remove: mockAppStateRemove };
+});
+let mockAppStateHandler: ((state: string) => void) | null = null;
+
+jest.mock('react-native', () => ({
+  AppState: { addEventListener: (e: string, h: any) => mockAppStateAdd(e, h) },
 }));
 
 jest.mock('expo-location', () => ({
@@ -261,7 +278,84 @@ describe('SensorManager', () => {
     expect(lastUpdate).toMatchObject({ accelAvailable: true, accelInitFailed: false });
   });
 
-  it('fails closed — not open — when accelerometer registration itself throws', async () => {
+  // ── A location start the platform refused (CAR-326) ───────────────────────
+  // Android 12+ rejects a foreground-service start from an app already in the
+  // background, which is the state every automatically started trip begins in. The
+  // failure used to reach a console line and stop there, so the trip ran with no
+  // location and still reported itself healthy.
+
+  it('reports a location start the platform refused, distinctly from a denied permission', async () => {
+    manager.stop();
+    const locationModule = jest.requireMock('expo-location');
+    locationModule.startLocationUpdatesAsync.mockRejectedValueOnce(new Error('boom'));
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    sendFix({ t: 0, speed: 20 });
+
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    // Permission was granted and the start still failed - one flag cannot carry both.
+    expect(lastUpdate).toMatchObject({
+      backgroundLocationAvailable: true,
+      locationStartFailed: true,
+    });
+  });
+
+  it('retries once when the app reaches the foreground, and clears the flag', async () => {
+    manager.stop();
+    const locationModule = jest.requireMock('expo-location');
+    locationModule.startLocationUpdatesAsync.mockRejectedValueOnce(new Error('boom'));
+    mockAppStateAdd.mockClear();
+    mockAppStateRemove.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    expect(mockAppStateAdd).toHaveBeenCalledTimes(1);
+    const onAppStateChange = mockAppStateHandler!;
+    locationModule.startLocationUpdatesAsync.mockClear();
+
+    // Anything short of the foreground is not the condition being waited on.
+    onAppStateChange('background');
+    expect(locationModule.startLocationUpdatesAsync).not.toHaveBeenCalled();
+
+    onAppStateChange('active');
+    await Promise.resolve();
+
+    expect(locationModule.startLocationUpdatesAsync).toHaveBeenCalledTimes(1);
+    sendFix({ t: 0, speed: 20 });
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(lastUpdate.locationStartFailed).toBe(false);
+    // Removed as soon as it fired - one retry, not a listener for the rest of the trip.
+    expect(mockAppStateRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits on nothing when the location stream started cleanly', async () => {
+    manager.stop();
+    mockAppStateAdd.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    expect(mockAppStateAdd).not.toHaveBeenCalled();
+  });
+
+  // A foreground service the platform kills mid-trip reports itself through the task,
+  // not through the call that started it, and used to be swallowed the same way.
+  it('reports the location stream dying after it started', () => {
+    sendFix({ t: 0, speed: 20 });
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].locationStartFailed).toBe(false);
+
+    mockLocationErrorHandler?.({ message: 'foreground service died' });
+    sendFix({ t: 2000, speed: 20 });
+
+    expect(onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0].locationStartFailed).toBe(true);
+  });
+
+  // The two cases below are the ones CAR-320 was filed on: a gate that stays shut for
+  // the rest of a trip suppresses every motion event, and a trip with no events reads
+  // as flawless driving. Both must degrade to GPS-only detection and say so outward,
+  // which is a deliberate reversal of the fail-closed half of CAR-189.
+
+  it('degrades to GPS-only detection when accelerometer registration throws, and reports why', async () => {
     manager.stop();
     const sensorsModule = jest.requireMock('expo-sensors');
     sensorsModule.Accelerometer.isAvailableAsync.mockRejectedValueOnce(new Error('boom'));
@@ -269,15 +363,30 @@ describe('SensorManager', () => {
     manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
     await manager.start();
 
-    // Same GPS-only spike the hardware-absent test above lets through — a
-    // registration failure must not be treated as "no hardware".
     sendFix({ t: 0, speed: 20 });
     sendFix({ t: 2000, speed: 14 });
 
-    expect(onEvent).not.toHaveBeenCalled();
-    // Hardware present, registration threw — the outward flag must say so, not "no hardware" (CAR-189).
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    // Hardware present, registration threw — the outward flag must say so, not "no
+    // hardware" (CAR-189). It is what marks the trip degraded now that the event fires.
     const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
     expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: true });
+  });
+
+  it('degrades to GPS-only detection when a live subscription goes quiet mid-trip', () => {
+    feedAccelFor(10); // subscription established and delivering
+    jest.advanceTimersByTime(6000); // > SENSOR_STALE_MS with no sample: the sensor died
+
+    sendFix({ t: 0, speed: 20 });
+    sendFix({ t: 2000, speed: 14 });
+
+    expect(typesFired()).toEqual([DrivingEventType.HARD_BRAKE]);
+    const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    // Nothing threw and the hardware exists, so neither flag explains this one —
+    // the fraction is what shows the trip ran mostly blind.
+    expect(lastUpdate).toMatchObject({ accelAvailable: false, accelInitFailed: false });
+    expect(lastUpdate.accelCoverage).toBeGreaterThan(0);
+    expect(lastUpdate.accelCoverage).toBeLessThan(1);
   });
 
   // ── Accelerometer coverage over the window ─────────────────────────────────
@@ -400,6 +509,73 @@ describe('SensorManager', () => {
       const lastUpdate = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
       expect(lastUpdate.lateralAccelG).toBeNull();
     }
+  });
+
+  // The four cases above apply their force perpendicular to gravity by construction,
+  // so the vertical component is ~0 in every one of them and the projection could be
+  // deleted without a single failure. This is the case that needs it: a force entirely
+  // along gravity leaves no horizontal component, so the IMU must not cross-confirm
+  // the GPS brake. Without the projection the raw magnitude (~0.45 g = 4.4 m/s²)
+  // clears IMU_CONFIRM_MS2 and the event fires.
+  it('does not cross-confirm a force that is purely vertical', async () => {
+    manager.stop();
+    onEvent.mockClear();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS);
+    await manager.start();
+
+    const gravity = { x: 0, y: 0, z: 1 };
+    settleGravity(gravity);
+    sendFix({ t: 0, speed: 20 });
+    mockAccelHandler?.(add(gravity, { x: 0, y: 0, z: 0.5 })); // straight down the gravity axis
+    sendFix({ t: 2000, speed: 14 });                          // −3.0 m/s², a real GPS brake
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  // ── Raw sample taps and GPS metadata passthrough ───────────────────────────
+
+  // The tap exists so RawSampleRecorder doesn't open a second Accelerometer
+  // subscription. It must carry the sample *before* gravity removal — the recorder's
+  // whole purpose is the unprocessed stream.
+  it('offers every accelerometer sample to onAccelSample, ungravity-removed', async () => {
+    const onAccelSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, undefined, onAccelSample);
+    await manager.start();
+
+    mockAccelHandler?.({ x: 0.1, y: 0.2, z: 1.0 });
+    mockAccelHandler?.({ x: 0.3, y: 0.4, z: 0.9 });
+
+    expect(onAccelSample).toHaveBeenCalledTimes(2);
+    expect(onAccelSample).toHaveBeenNthCalledWith(1, { x: 0.1, y: 0.2, z: 1.0 });
+    expect(onAccelSample).toHaveBeenNthCalledWith(2, { x: 0.3, y: 0.4, z: 0.9 });
+  });
+
+  it('offers every gyroscope sample to onGyroSample', async () => {
+    const onGyroSample = jest.fn();
+    manager.stop();
+    manager = new SensorManager(onEvent, onUpdate, THRESHOLDS, onGyroSample);
+    await manager.start();
+
+    mockGyroHandler?.({ x: 0.01, y: 0.02, z: 0.03 });
+
+    expect(onGyroSample).toHaveBeenCalledWith({ x: 0.01, y: 0.02, z: 0.03 });
+  });
+
+  // Horizontal accuracy is what the host uses to weigh a fix. `undefined` and a real
+  // 0 are different claims, so the null coalesce has to survive: expo reports null
+  // when accuracy is unknown, and that must not arrive as a confident 0 metres.
+  it('passes GPS accuracy through, and reports unknown accuracy as undefined', () => {
+    sendFix({ t: 0, speed: 20 });
+    expect(onUpdate.mock.calls[0][0].accuracy).toBe(5);
+
+    const noAccuracy = fix({ t: 2000, speed: 20 });
+    noAccuracy.coords.accuracy = null as any;
+    mockLocationHandler?.(noAccuracy);
+
+    const last = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(last.accuracy).toBeUndefined();
+    expect('accuracy' in last).toBe(true);
   });
 
   // ── GPS hygiene ────────────────────────────────────────────────────────────

@@ -3,8 +3,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { createReward, updateReward, type Reward, type RewardPayload } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { categoryTranslationKey, expiryDateInputToIso, isoToExpiryDateInput } from '@/lib/rewardState';
-import { Dialog, Input, Button, Text } from '@/components/ui';
+import { Alert, Card, Dialog, Heading, Input, Button, Text } from '@/components/ui';
 import inputStyles from '@/components/ui/Input.module.css';
+import styles from './RewardForm.module.css';
 
 const TITLE_MAX = 120;
 const DESCRIPTION_MAX = 500;
@@ -238,124 +239,137 @@ function RewardFormBody({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
-      <Input
-        ref={titleHeRef}
-        label={t('rewards.titleHeLabel')}
-        dir="rtl"
-        maxLength={TITLE_MAX}
-        required
-        error={errors.titleHe}
-        value={form.titleHe}
-        onChange={(event) => updateField('titleHe', event.target.value)}
-      />
-      <Input
-        ref={titleEnRef}
-        label={t('rewards.titleEnLabel')}
-        dir="ltr"
-        maxLength={TITLE_MAX}
-        required
-        error={errors.titleEn}
-        value={form.titleEn}
-        onChange={(event) => updateField('titleEn', event.target.value)}
-      />
-      <div className={inputStyles.field}>
-        <label htmlFor="reward-description-he" className={inputStyles.label}>
-          {t('rewards.descriptionHeLabel')}
-        </label>
-        <textarea
-          ref={descriptionHeRef}
-          id="reward-description-he"
-          dir="rtl"
-          maxLength={DESCRIPTION_MAX}
-          required
-          className={[inputStyles.input, errors.descriptionHe && inputStyles.inputError].filter(Boolean).join(' ')}
-          aria-invalid={Boolean(errors.descriptionHe)}
-          aria-describedby={errors.descriptionHe ? 'reward-description-he-error' : undefined}
-          value={form.descriptionHe}
-          onChange={(event) => updateField('descriptionHe', event.target.value)}
-        />
-        {errors.descriptionHe && (
-          <span id="reward-description-he-error" className={inputStyles.error}>
-            {errors.descriptionHe}
-          </span>
-        )}
-      </div>
-      <div className={inputStyles.field}>
-        <label htmlFor="reward-description-en" className={inputStyles.label}>
-          {t('rewards.descriptionEnLabel')}
-        </label>
-        <textarea
-          ref={descriptionEnRef}
-          id="reward-description-en"
-          dir="ltr"
-          maxLength={DESCRIPTION_MAX}
-          required
-          className={[inputStyles.input, errors.descriptionEn && inputStyles.inputError].filter(Boolean).join(' ')}
-          aria-invalid={Boolean(errors.descriptionEn)}
-          aria-describedby={errors.descriptionEn ? 'reward-description-en-error' : undefined}
-          value={form.descriptionEn}
-          onChange={(event) => updateField('descriptionEn', event.target.value)}
-        />
-        {errors.descriptionEn && (
-          <span id="reward-description-en-error" className={inputStyles.error}>
-            {errors.descriptionEn}
-          </span>
-        )}
-      </div>
-      <div className={inputStyles.field}>
-        <label htmlFor="reward-category" className={inputStyles.label}>
-          {t('rewards.categoryLabel')}
-        </label>
-        <select
-          id="reward-category"
-          className={inputStyles.input}
-          required
-          value={form.category}
-          onChange={(event) => updateField('category', event.target.value as BusinessCategory)}
-        >
-          {BUSINESS_CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {t(`rewards.${categoryTranslationKey(category)}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-      <Input
-        ref={costPointsRef}
-        label={t('rewards.costPointsInputLabel')}
-        type="number"
-        inputMode="numeric"
-        min={1}
-        step={1}
-        required
-        error={errors.costPoints}
-        value={form.costPoints}
-        onChange={(event) => updateField('costPoints', event.target.value)}
-      />
-      <Input
-        ref={stockRef}
-        label={t('rewards.allocationInputLabel')}
-        type="number"
-        inputMode="numeric"
-        min={0}
-        step={1}
-        placeholder={t('rewards.allocationHint')}
-        error={errors.stock}
-        value={form.stock}
-        onChange={(event) => updateField('stock', event.target.value)}
-      />
-      <div className={inputStyles.field}>
+    <form onSubmit={handleSubmit} noValidate className={styles.form}>
+      <Card variant="sunken" className={styles.section}>
+        <Heading level={3}>{t('rewards.formSectionWhat')}</Heading>
         <Input
-          ref={expiresAtRef}
-          label={t('rewards.expiresInputLabel')}
-          type="date"
-          error={errors.expiresAt}
-          value={form.expiresAt}
-          onChange={(event) => updateField('expiresAt', event.target.value)}
+          ref={titleHeRef}
+          label={t('rewards.titleHeLabel')}
+          dir="rtl"
+          maxLength={TITLE_MAX}
+          required
+          error={errors.titleHe}
+          value={form.titleHe}
+          onChange={(event) => updateField('titleHe', event.target.value)}
         />
-        <Text variant="caption">{t('rewards.expiresHint')}</Text>
-      </div>
+        <Input
+          ref={titleEnRef}
+          label={t('rewards.titleEnLabel')}
+          dir="ltr"
+          maxLength={TITLE_MAX}
+          required
+          error={errors.titleEn}
+          value={form.titleEn}
+          onChange={(event) => updateField('titleEn', event.target.value)}
+        />
+        <div className={inputStyles.field}>
+          <label htmlFor="reward-description-he" className={inputStyles.label}>
+            {t('rewards.descriptionHeLabel')}
+          </label>
+          <textarea
+            ref={descriptionHeRef}
+            id="reward-description-he"
+            dir="rtl"
+            maxLength={DESCRIPTION_MAX}
+            required
+            className={[inputStyles.input, errors.descriptionHe && inputStyles.inputError].filter(Boolean).join(' ')}
+            aria-invalid={Boolean(errors.descriptionHe)}
+            aria-describedby={errors.descriptionHe ? 'reward-description-he-error' : undefined}
+            value={form.descriptionHe}
+            onChange={(event) => updateField('descriptionHe', event.target.value)}
+          />
+          {errors.descriptionHe && (
+            <span id="reward-description-he-error" className={inputStyles.error}>
+              {errors.descriptionHe}
+            </span>
+          )}
+        </div>
+        <div className={inputStyles.field}>
+          <label htmlFor="reward-description-en" className={inputStyles.label}>
+            {t('rewards.descriptionEnLabel')}
+          </label>
+          <textarea
+            ref={descriptionEnRef}
+            id="reward-description-en"
+            dir="ltr"
+            maxLength={DESCRIPTION_MAX}
+            required
+            className={[inputStyles.input, errors.descriptionEn && inputStyles.inputError].filter(Boolean).join(' ')}
+            aria-invalid={Boolean(errors.descriptionEn)}
+            aria-describedby={errors.descriptionEn ? 'reward-description-en-error' : undefined}
+            value={form.descriptionEn}
+            onChange={(event) => updateField('descriptionEn', event.target.value)}
+          />
+          {errors.descriptionEn && (
+            <span id="reward-description-en-error" className={inputStyles.error}>
+              {errors.descriptionEn}
+            </span>
+          )}
+        </div>
+        <div className={inputStyles.field}>
+          <label htmlFor="reward-category" className={inputStyles.label}>
+            {t('rewards.categoryLabel')}
+          </label>
+          <select
+            id="reward-category"
+            className={inputStyles.input}
+            required
+            value={form.category}
+            onChange={(event) => updateField('category', event.target.value as BusinessCategory)}
+          >
+            {BUSINESS_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {t(`rewards.${categoryTranslationKey(category)}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </Card>
+
+      <Card variant="sunken" className={styles.section}>
+        <Heading level={3}>{t('rewards.formSectionCostStock')}</Heading>
+        <Input
+          ref={costPointsRef}
+          label={t('rewards.costPointsInputLabel')}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          step={1}
+          required
+          error={errors.costPoints}
+          value={form.costPoints}
+          onChange={(event) => updateField('costPoints', event.target.value)}
+        />
+        {mode === 'edit' && <Text variant="caption">{t('rewards.formEditNote')}</Text>}
+        <Input
+          ref={stockRef}
+          label={t('rewards.allocationInputLabel')}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          placeholder={t('rewards.allocationHint')}
+          error={errors.stock}
+          value={form.stock}
+          onChange={(event) => updateField('stock', event.target.value)}
+        />
+      </Card>
+
+      <Card variant="sunken" className={styles.section}>
+        <Heading level={3}>{t('rewards.formSectionWhen')}</Heading>
+        <div className={inputStyles.field}>
+          <Input
+            ref={expiresAtRef}
+            label={t('rewards.expiresInputLabel')}
+            type="date"
+            error={errors.expiresAt}
+            value={form.expiresAt}
+            onChange={(event) => updateField('expiresAt', event.target.value)}
+          />
+          <Text variant="caption">{t('rewards.expiresHint')}</Text>
+        </div>
+        {mode === 'create' && <Alert tone="info" role="status" title={t('rewards.formImmediateNote')} />}
+      </Card>
 
       {submitError && (
         <Text variant="caption" role="alert">

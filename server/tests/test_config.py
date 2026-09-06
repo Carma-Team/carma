@@ -123,3 +123,19 @@ class TestTokenLifetimeGuard:
     def test_a_short_access_token_against_a_long_refresh_token_is_accepted(self) -> None:
         s = Settings(**_BASE, web_access_token_expires_minutes=15, refresh_token_expires_days=30)
         assert s.web_access_token_expires_minutes == 15
+
+
+class TestRecordingStoreGuard:
+    """CAR-213. The alternative to failing here is a store that only turns out to
+    be unusable at the first upload, after the tester has already driven."""
+
+    def test_azure_without_a_connection_string_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="RECORDING_BLOB_CONNECTION_STRING"):
+            Settings(**_BASE, recording_store="azure")
+
+    def test_azure_with_a_connection_string_is_accepted(self) -> None:
+        s = Settings(**_BASE, recording_store="azure", recording_blob_connection_string="UseDevelopmentStorage=true")
+        assert s.recording_store == "azure"
+
+    def test_local_is_the_default(self) -> None:
+        assert Settings(**_BASE).recording_store == "local"

@@ -44,4 +44,13 @@ export class AutoDriveModeManager {
     if (target) this.strategy.start();
     else this.strategy.stop();
   }
+
+  /**
+   * The vehicle connected right now, or null. Null also covers a strategy that cannot
+   * answer the question at all — the caller wants "which vehicle", and "this platform
+   * has no way to tell" and "none" lead to the same place.
+   */
+  public getConnectedVehicleId(): string | null {
+    return this.strategy.getConnectedVehicleId?.() ?? null;
+  }
 }

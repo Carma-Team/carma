@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.schemas._base import CamelModel
+from app.schemas.city import CityOut
 from app.schemas.friend import FriendshipStatus
 
 
@@ -14,7 +15,7 @@ class InviteLinkOut(CamelModel):
 class InviterOut(CamelModel):
     id: str
     name: str | None = None
-    city: str | None = None
+    city: CityOut | None = None
     level: int
 
 

@@ -18,3 +18,46 @@ body {
   color: var(--color-text);
   background-color: var(--color-bg);
 }
+
+::selection {
+  background-color: var(--color-indigo-100);
+}
+
+/* Numeric values (points, currency, table figures) read as columns of
+   digits, not prose — tabular figures keep them aligned regardless of UI
+   language or digit shape. */
+.tabularNums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes carma-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes carma-shimmer {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes carma-pulse {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.carma-brandmark-pulse {
+  animation: carma-pulse 1.5s ease-in-out infinite;
+}

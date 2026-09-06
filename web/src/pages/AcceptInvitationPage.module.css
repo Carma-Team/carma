@@ -1,9 +1,3 @@
-.page {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-lg);
-}
-
 .card {
   max-width: 24rem;
   width: 100%;

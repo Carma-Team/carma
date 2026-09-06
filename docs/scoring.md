@@ -227,15 +227,14 @@ The phone averages over a window of at least **1.5 seconds**. The two sides use 
 
 Events are **not** counted equally. An emergency stop costs more than a firm tap on the brakes, on a smooth curve, so there is no threshold to game.
 
-Every event carries its **peak acceleration** and **duration**. These produce a severity weight:
+Every event carries its **peak acceleration**. This produces a severity weight, force alone:
 
 ```
-g_norm          = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
-g_factor        = g_norm^1.5 + 1.0
-duration_factor = 1.0 + min(duration_ms / 2000, 0.5)
-
-severity = g_factor × duration_factor
+g_norm   = clamp((peak_g − g_min) / (g_max − g_min), 0, 1)
+severity = g_norm^1.5 × 2.0 + 1.0
 ```
+
+Duration is not a severity input. No comparable product weights harsh-event severity by duration: DriveQuant's event payload carries no duration field, Digital Matter uses duration only as a detection-level noise filter (a force spike must persist to count as an event, but does not scale the score), and CMT's published patents decompose severity into force components with no duration term. Event duration remains available in the SDK payload for that kind of noise-filtering at the detection layer — it is simply not a term in the severity curve.
 
 **Severity ranges by event type:**
 
@@ -245,7 +244,7 @@ severity = g_factor × duration_factor
 | Acceleration | Longitudinal | 0.27 g | 0.55 g |
 | Cornering | Lateral | 0.35 g | 0.65 g |
 
-Severity runs from **1.0** at the detection threshold to **3.0** for an extreme, sustained event. The engine sums severities instead of counting events.
+Severity runs from **1.0** at the detection threshold to **3.0** for an extreme event. The engine sums severities instead of counting events.
 
 **One axis, whoever detected the event.** The stored `events.severity` column is always on this 1.0-3.0 scale, and a phone-detected event is weighed by the curve above exactly as a server-detected one is. The floor matters: severity is a multiplicative weight, so an event landing exactly on the detection threshold must still be worth one event, never zero.
 
@@ -285,8 +284,14 @@ subscore = 100 × exp(−k × rate)
 | Braking | 0.018 ⚠️ |
 | Acceleration | 0.022 ⚠️ |
 | Cornering | 0.012 ⚠️ |
-| Speeding | 0.05 ⚠️ |
+| Speeding | 0.017 |
 | Distraction | 0.0035 |
+
+Speeding carries no warning either, since 2026-09. It is the only constant fitted against **our own drivers** rather than against a published average: `scripts/calibrate_speeding.py` replayed the live fleet and put the severity-weighted share of distance over the limit at **7.75% on the median trip and 40.69% at p90**. Anchoring p90 at 50 gives 0.017, which puts the median trip at 88 and the p99 trip at 35.
+
+That fleet is far faster than the literature the previous value came from, which reports 2.4% of distance above the limit for an average driver. The old anchor was charging our median driver as if they were our p90.
+
+**The sample is four team members driving their own cars**, 22 scored trips, two of whom account for 74% of them. Nobody in it is a newly licensed teenager, which is who the score is for and who is most likely to sit further out than any of us. The method is settled; the number describes the only real drivers available and should be re-fitted once the fleet contains the people it is meant to measure.
 
 Distraction carries no warning. It was never an event count — it has always been seconds per driving hour — and its constant is fitted against CMT's published US average rather than against our own detector. Two anchors nobody can re-derive from the curve: a driver at the US average of 82 seconds per driving hour scores 75, and the subscore reaches 50 at roughly 198.
 
@@ -346,8 +351,8 @@ This is decided **per trip**, and a trip has to pass two separate tests to keep 
 The trip score rates one drive. The **driver score** is the persistent number the leaderboard and the level ladder are built on.
 
 - **Recent trips matter more.** Trips are averaged with a **14-day half-life**, weighted by distance — an effective window of about 28 days, matching the rolling window CMT uses for portable driver scores. A bad trip fades in roughly two weeks instead of haunting a lifetime average.
-- **New drivers start at 75.** With too few trips there is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at **300 km**.
-- **No single trip can dominate.** A trip contributes at most **30 km** of exposure, however long it actually was, to both the average and the confidence blend. This is CMT's rule — their worked example takes a 200-mile trip and scores it on a 100-mile threshold, so that no one trip has a major impact. Without it a single motorway run outvoted a month of commuting and declared the driver fully proven on one stretch of road. 30 km is a tenth of the 300 km window, which puts ten capped trips between a new driver and a proven one.
+- **New drivers start at 75.** With too few trips there is too little evidence, so the number is blended toward a starting assumption of 75 — "good, unproven" — reaching full confidence at **200 km of decayed exposure** (the same half-life-weighted sum the average itself uses, not a raw lifetime total — otherwise old, already-faded distance could keep a driver at full confidence after it stopped affecting the score).
+- **No single trip can dominate.** A trip contributes at most **30 km** of exposure, however long it actually was, to both the average and the confidence blend. This is CMT's rule — their worked example takes a 200-mile trip and scores it on a 100-mile threshold, so that no one trip has a major impact. Without it a single motorway run outvoted a month of commuting and declared the driver fully proven on one stretch of road. 30 km puts several capped trips between a new driver and a proven one.
 
 ### 4.2 Levels
 

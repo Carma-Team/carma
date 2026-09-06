@@ -13,6 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, SPACING, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
 import { availableBalance, formatDistance } from '@/lib/utils';
+import { badgeCount } from '@/lib/notifications';
 import ActiveTripScreen from '@/screens/app/ActiveTripScreen';
 import { userApi } from '@/services/api/user.api';
 import { friendsApi } from '@/services/api/friends.api';
@@ -25,6 +26,11 @@ export default function DashboardScreen() {
   const { t, lang } = useTranslation();
   const [currentStreak, setCurrentStreak] = useState<number | null>(null);
   const [bestStreak, setBestStreak] = useState<number | null>(null);
+  // Tri-state, and each state matters. null = the first stats response has not landed,
+  // so the hero shows a placeholder rather than a score that for a new driver is the
+  // fleet prior. false = a measured zero. true also covers a failed stats call: losing
+  // the request must not hide the score of a driver who does have history.
+  const [hasMeasuredHistory, setHasMeasuredHistory] = useState<boolean | null>(null);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -40,34 +46,42 @@ export default function DashboardScreen() {
         .then(d => { if (alive) setPendingRequests(d.requests.length); })
         .catch(() => {});
       notificationsApi.list()
-        .then(rows => { if (alive) setUnreadNotifications(rows.filter(n => !n.readAt).length); })
+        .then(rows => { if (alive) setUnreadNotifications(badgeCount(rows)); })
         .catch(() => {});
       return () => { alive = false; };
     }, []),
   );
 
-  // [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
-  useEffect(() => {
+  /**
+   * [server] userApi.stats() → GET /api/user/stats, streak is a server rule (days-in-a-row).
+   *
+   * A failure leaves every piece of state exactly as it was, and that is the whole
+   * decision (CAR-302). A returning driver keeps the score the last successful call
+   * reported, so a flaky network does not hide a score they earned. A driver whose very
+   * first call fails has no last answer to keep, so `hasMeasuredHistory` stays `null` and
+   * the hero shows `--` — the placeholder, not the fleet prior the server sends to a
+   * driver with no measured trips, coloured as if they had earned it. Setting it to
+   * `true` on failure served the first driver at the second one's expense.
+   */
+  const loadStats = useCallback(() => {
     userApi.stats()
       .then(d => {
         setCurrentStreak(d.stats.currentStreak);
         setBestStreak(d.stats.bestStreak);
+        setHasMeasuredHistory(d.stats.totalTrips > 0);
       })
       .catch(err => console.error('Stats error:', err));
   }, []);
+
+  useEffect(loadStats, [loadStats]);
 
   // Re-fetch after a trip completes so a streak earned just now doesn't wait for app restart.
   // Guarded on lastTripSummary itself (not showSummary) — closing the modal resets it to null,
   // and without the guard that reset would fire this same request again.
   useEffect(() => {
     if (!lastTripSummary) return;
-    userApi.stats()
-      .then(d => {
-        setCurrentStreak(d.stats.currentStreak);
-        setBestStreak(d.stats.bestStreak);
-      })
-      .catch(err => console.error('Stats error:', err));
-  }, [lastTripSummary]);
+    loadStats();
+  }, [lastTripSummary, loadStats]);
 
   // Controls whether the post-trip summary modal is visible
   const [showSummary, setShowSummary] = useState(false);
@@ -119,9 +133,14 @@ export default function DashboardScreen() {
         />
 
         {/* Level & Points Card */}
+        {/* The deployed profile can omit the score altogether (CAR-296), and a missing
+            one rounds to NaN rather than to anything a null check would catch. A score
+            that cannot be rendered is not an earned one, so it takes the same
+            placeholder as a driver with no measured history. */}
         <DashboardHero
           user={user}
-          avgScore={Math.round(user.driverScore)}
+          driverScore={Math.round(user.driverScore)}
+          hasMeasuredHistory={Number.isFinite(user.driverScore) && (hasMeasuredHistory ?? false)}
           lang={lang}
         />
 

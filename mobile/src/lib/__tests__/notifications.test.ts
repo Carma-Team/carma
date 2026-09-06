@@ -8,6 +8,7 @@
  */
 import {
   KNOWN_TYPES,
+  badgeCount,
   bannerKey,
   describeNotification,
   hasUnread,
@@ -215,5 +216,25 @@ describe('bannerKey', () => {
   it('maps each banner to its own copy', () => {
     const keys = (['load-failed', 'mark-failed', 'mark-all-failed'] as const).map(bannerKey);
     expect(new Set(keys).size).toBe(3);
+  });
+});
+
+describe('badgeCount', () => {
+  it('counts an unread row that no other indicator covers', () => {
+    expect(badgeCount([levelUp(), levelDown(), accepted()])).toBe(3);
+  });
+
+  it('leaves out friend requests, which the incoming queue already badges', () => {
+    expect(badgeCount([levelUp(), requested('u1'), requested('u2')])).toBe(1);
+  });
+
+  it('leaves out rows already read', () => {
+    expect(badgeCount([levelUp({ readAt: AT }), levelDown()])).toBe(1);
+  });
+
+  it('disagrees with hasUnread on purpose — a friend request is still unread', () => {
+    const items = [requested('u1')];
+    expect(badgeCount(items)).toBe(0);
+    expect(hasUnread(items)).toBe(true);
   });
 });

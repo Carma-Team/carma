@@ -1,8 +1,9 @@
 /**
  * @file notifications.ts
  * @owner May (Mobile & Frontend UI Lead)
- * @brief Every decision the notifications screen makes, with no React and no API calls.
- * What a row says, where tapping it leads, and what the screen shows after a request fails.
+ * @brief Every decision made about a notification, with no React and no API calls.
+ * What a row says, where tapping it leads, which rows earn a badge, and what the
+ * screen shows after a request fails.
  *
  * @description
  * Pure TypeScript, no React and no API calls, per the layer rules in
@@ -94,6 +95,22 @@ export function tapActionFor(n: Notification, pendingRequesterIds: ReadonlySet<s
 
 export function hasUnread(items: readonly Notification[]): boolean {
   return items.some(n => n.readAt === null);
+}
+
+/**
+ * How many unread rows the dashboard badge counts.
+ *
+ * `friend_requested` is left out on purpose. The server emits it for the same event
+ * that puts a request in the incoming queue, which carries a badge of its own, so
+ * counting both lit two indicators in one header for one thing that happened and
+ * left the driver clearing it on two screens. The notification itself stays — the
+ * requests screen is the action queue, the notifications screen is the history.
+ *
+ * Deliberately not the same rule as `hasUnread`: that one drives "mark all as read"
+ * on the notifications screen, where a friend request is as unread as anything else.
+ */
+export function badgeCount(items: readonly Notification[]): number {
+  return items.filter(n => n.readAt === null && n.type !== 'friend_requested').length;
 }
 
 /** Rows this build can render, in the order the server returned them. */

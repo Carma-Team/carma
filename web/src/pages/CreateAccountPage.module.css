@@ -1,0 +1,12 @@
+.loadingPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.subtitle {
+  display: block;
+  margin: 0 0 var(--space-lg);
+  color: var(--color-text-faint);
+}

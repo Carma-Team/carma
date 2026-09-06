@@ -55,9 +55,14 @@ async def main() -> None:
     async with SessionLocal() as db:
         rows = await db.execute(
             text(
+                # CASE, not a second WHERE term: production holds trips whose
+                # route_waypoints is a JSON scalar rather than an array, and
+                # `WHERE jsonb_typeof(...) = 'array' AND jsonb_array_length(...)`
+                # does not guarantee the type test runs first. jsonb_array_length
+                # then aborts the whole query on the first scalar it meets.
                 "SELECT id, route_waypoints, duration_seconds FROM trips "
-                "WHERE route_waypoints IS NOT NULL "
-                "AND jsonb_array_length(route_waypoints) >= 20"
+                "WHERE CASE WHEN jsonb_typeof(route_waypoints) = 'array' "
+                "           THEN jsonb_array_length(route_waypoints) ELSE 0 END >= 20"
             )
         )
         trips = rows.all()

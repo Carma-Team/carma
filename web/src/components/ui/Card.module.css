@@ -1,6 +1,16 @@
 .card {
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.default {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
+}
+
+/* Read-only summaries nested inside a white card — never nest a white card
+   inside another white card. */
+.sunken {
+  background-color: var(--color-surface-muted);
+  border: none;
 }
