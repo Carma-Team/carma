@@ -31,6 +31,9 @@ same `carma-env` environment as `carma-business`. It exists only so develop
 can be checked in a browser before it is promoted - it is not a copy of
 production data or traffic, and nothing about it is customer-facing.
 
+It is live at
+<https://carma-business-staging.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io>.
+
 Isolation from production is structural, not just convention:
 
 - **Different trigger.** `deploy-web-staging.yml` fires on `develop` only;
@@ -113,16 +116,17 @@ Add the `VITE_API_URL_STAGING` repository variable (Settings -> Secrets and
 variables -> Actions -> Variables tab). Until a staging API exists, set it to
 the same value as `VITE_API_URL`.
 
-Read the assigned hostname once the first staging deploy has run:
+All of the above was run on 2026-09-06 (CAR-317); the hostname it assigned is
+the one at the top of this section. To read it again:
 
 ```bash
 az containerapp show --name carma-business-staging --resource-group carma-rg \
   --query properties.configuration.ingress.fqdn -o tsv
 ```
 
-That hostname also needs adding to `carma-api`'s `CORS_ORIGINS` (comma-separated,
-alongside the production origin - see "Browser-origin configuration" below) if
-staging is going to be used to check sign-in or any other authenticated flow.
+That hostname is also in `carma-api`'s `CORS_ORIGINS`, alongside the production
+origin - see "Browser-origin configuration" below. Without it staging can serve
+pages but cannot sign in.
 
 ## Why a Container App and not Static Web Apps
 
@@ -210,17 +214,16 @@ A browser session from the deployed site needs two settings on `carma-api`,
 both plain environment variables on the Container App:
 
 ```
-CORS_ORIGINS=https://carma-business.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io
+CORS_ORIGINS=https://carma-business.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io,https://carma-business-staging.whitedesert-5aabb28f.germanywestcentral.azurecontainerapps.io
 REFRESH_COOKIE_SAMESITE=none
 ```
 
-`CORS_ORIGINS` is comma-separated (`app/config.py`'s `cors_origin_list`), but
-today names only the production origin. It was `*` before, and a wildcard is
-not a permissive version of this - the CORS spec forbids pairing a wildcard
-with credentials, so the server refuses credentialed requests entirely while
-it is set (`config.cors_allows_credentials`). Adding the staging origin from
-"One-time setup for staging" above is what it takes to test sign-in there; no
-other origin gets a credentialed session, preview URLs included.
+`CORS_ORIGINS` is comma-separated (`app/config.py`'s `cors_origin_list`) and
+names the production origin and the staging one, nothing else. It was `*`
+before, and a wildcard is not a permissive version of this - the CORS spec
+forbids pairing a wildcard with credentials, so the server refuses credentialed
+requests entirely while it is set (`config.cors_allows_credentials`). No origin
+outside that list gets a credentialed session, preview URLs included.
 
 `REFRESH_COOKIE_SAMESITE=none` is what keeps the browser attaching the refresh
 cookie to `POST /api/auth/refresh` from the web app. `lax` would probably work
