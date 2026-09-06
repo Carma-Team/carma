@@ -203,6 +203,19 @@ describe('routes', () => {
     expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
+  // CAR-342: Account Settings is the signed-in user's own personal details,
+  // not a business capability — unlike every route above it sits outside
+  // `RequireBusinessRole`, so even a null/ambiguous membership must still
+  // reach it rather than hitting the access-restricted state.
+  it('renders the real account-settings page inside the shell at /account-settings regardless of business membership', async () => {
+    vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ambiguousUser });
+
+    renderAt('/account-settings');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'החשבון שלי' })).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('renders the coming-soon placeholder for a core route whose own ticket has not landed', async () => {
     vi.mocked(authApi.refresh).mockResolvedValue({ token: 'tok', user: ownerUser });
 

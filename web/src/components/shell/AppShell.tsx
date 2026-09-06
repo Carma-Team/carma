@@ -99,6 +99,16 @@ export function AppShell() {
             </span>
           )}
         </div>
+
+        {/* Unconditional, unlike every group above — CAR-342's Account
+            Settings is the signed-in user's own personal details, not a
+            business capability, so it stays reachable regardless of
+            business role or ADMIN status. */}
+        <div className={styles.sidebarFooter}>
+          <NavLink to="/account-settings" className={({ isActive }) => navClass(styles, isActive)}>
+            {t('shell.navSettings')}
+          </NavLink>
+        </div>
       </aside>
 
       <div className={styles.main}>

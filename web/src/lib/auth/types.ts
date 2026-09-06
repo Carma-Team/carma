@@ -6,6 +6,11 @@ export type AuthUser = {
   id: string;
   name: string | null;
   email: string | null;
+  // Optional — CAR-342 is the first screen to read it, and existing fixtures
+  // across the test suite construct `AuthUser` without it. Account Settings
+  // shows it as a read-only row, same as email; there is no update path for
+  // either yet, so both stay display-only.
+  phone?: string | null;
   role: 'DRIVER' | 'BUSINESS' | 'ADMIN';
   businessId: string | null;
   businessCategory: string | null;
