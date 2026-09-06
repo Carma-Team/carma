@@ -50,7 +50,7 @@ class User(Base, TimestampMixin):
     level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     # Persistent driver score (scoring.md "The driver's own score"). Caps the
-    # level a driver is shown; no API schema exposes it yet — CAR-85.
+    # level a driver is shown; exposed on UserOut and LeaderboardEntry.
     driver_score: Mapped[float | None] = mapped_column(Float)
 
     # Longest run of good driving days this driver has ever held (scoring.md
