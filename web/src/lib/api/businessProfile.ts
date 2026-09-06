@@ -18,24 +18,38 @@ export type BusinessProfile = {
   nameHe: string | null;
   category: string;
   address: string | null;
+  locationLat: number;
+  locationLng: number;
   // Israeli business identifier (ח.פ./עוסק מורשה). Read-only everywhere in
   // this app — there is no change-request workflow yet (see the approved
   // design's own "flagged, not built" note), so it never appears in
   // BusinessProfileUpdatePayload.
   registrationNumber: string | null;
+  // The business's real OWNER member (server-resolved from
+  // business_memberships, never the calling user) — a MANAGER or CASHIER
+  // editing this page must still see the actual owner as the contact
+  // person, not themselves. `null` only if the business somehow has no
+  // OWNER membership at all.
+  ownerName: string | null;
+  ownerEmail: string | null;
 };
 
 // What the edit form actually collects and the server actually accepts — a
-// subset of `BusinessProfileOut` (registrationNumber excluded, see above).
-// `nameHe: null` is sent explicitly to clear the Hebrew override back to the
-// `name` fallback, never omitted — same "omitting a PATCH field means leave
-// it alone" convention as RewardPayload's stock/expiresAt.
+// subset of `BusinessProfileOut` (registrationNumber/owner* excluded, see
+// their own comments). `nameHe: null` is sent explicitly to clear the Hebrew
+// override back to the `name` fallback, never omitted — same "omitting a
+// PATCH field means leave it alone" convention as RewardPayload's
+// stock/expiresAt. `address` only ever travels together with the coordinate
+// pair BusinessRegistrationPage's own geocode-and-confirm flow produced for
+// it — never alone — so the type itself makes "address without coordinates"
+// impossible to construct, not just something the server happens to reject.
+type LocationUpdate = { address: string; locationLat: number; locationLng: number };
+
 export type BusinessProfileUpdatePayload = {
   name: string;
   nameHe: string | null;
   category: string;
-  address: string;
-};
+} & (LocationUpdate | { address?: undefined; locationLat?: undefined; locationLng?: undefined });
 
 export type BusinessProfileResult =
   | { outcome: 'ok'; profile: BusinessProfile }

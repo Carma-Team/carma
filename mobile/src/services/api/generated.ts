@@ -1372,8 +1372,16 @@ export interface components {
             category: string;
             /** Address */
             address: string | null;
+            /** Locationlat */
+            locationLat: number;
+            /** Locationlng */
+            locationLng: number;
             /** Registrationnumber */
             registrationNumber: string | null;
+            /** Ownername */
+            ownerName: string | null;
+            /** Owneremail */
+            ownerEmail: string | null;
         };
         /** BusinessProfileResponse */
         BusinessProfileResponse: {
@@ -1382,9 +1390,21 @@ export interface components {
         /**
          * BusinessProfileUpdateIn
          * @description Partial update — only the fields actually sent are applied, same
-         *     `exclude_unset=True` convention as `BusinessRewardPatchIn`. `name_he` sent
-         *     explicitly as null clears the override (falls back to `name`); omitting it
-         *     leaves the existing value alone.
+         *     `exclude_unset=True` convention as `BusinessRewardPatchIn`.
+         *
+         *     `name_he` is the one field a caller may clear: sent explicitly as null it
+         *     falls back to `name`, and omitting it leaves the existing value alone.
+         *     Every other field here backs a column the product never allows to go
+         *     empty, so an explicit null on any of them is rejected at the API boundary
+         *     rather than reaching `setattr` and failing at commit against a NOT NULL
+         *     constraint (or, for `address`, silently leaving the business without one).
+         *
+         *     `address`, `location_lat` and `location_lng` must be sent together or not
+         *     at all. `BusinessRegistrationPage`'s own confirm-location step is what
+         *     actually produces that pair today (geocode the typed address, let the
+         *     applicant confirm or drag the pin) — a PATCH that changed the text alone
+         *     would leave the map pin pointing at the old place while the address on
+         *     screen said something else.
          */
         BusinessProfileUpdateIn: {
             /** Name */
@@ -1395,6 +1415,10 @@ export interface components {
             category?: string | null;
             /** Address */
             address?: string | null;
+            /** Locationlat */
+            locationLat?: number | null;
+            /** Locationlng */
+            locationLng?: number | null;
         };
         /** BusinessRedemptionListOut */
         BusinessRedemptionListOut: {

@@ -2,15 +2,28 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasBusinessRole } from '@/lib/auth/businessRole';
-import { getBusinessProfile, updateBusinessProfile, type BusinessProfile } from '@/lib/api/businessProfile';
+import {
+  getBusinessProfile,
+  updateBusinessProfile,
+  type BusinessProfile,
+  type BusinessProfileUpdatePayload,
+} from '@/lib/api/businessProfile';
+import { geocodeAddress } from '@/lib/api/geocoding';
 import { BUSINESS_CATEGORIES, normalizeBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
-import { Card, Heading, Text, Button, Input, Select, Dialog, PageHeader, ErrorState, Skeleton } from '@/components/ui';
+import { LocationConfirmMap } from '@/components/business/LocationConfirmMap';
+import { Card, Heading, Text, Button, Input, Select, Dialog, PageHeader, ErrorState, LoadingState, Skeleton } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './BusinessProfilePage.module.css';
 
 type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
 type Tab = 'details' | 'branches';
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+// The address field can't just PATCH straight through like the others — its
+// coordinates have to move with it (see BusinessProfileUpdatePayload's own
+// comment), so an address edit detours through the same geocode-then-confirm
+// steps BusinessRegistrationPage uses to produce that pair in the first
+// place, before the actual save happens.
+type SaveStep = 'form' | 'geocoding' | 'geocodeError' | 'confirmLocation';
 
 type FormState = {
   name: string;
@@ -71,6 +84,16 @@ export function BusinessProfilePage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const savedBannerTimeout = useRef<number | undefined>(undefined);
+
+  // The address-change detour (see SaveStep). `pendingLat`/`pendingLng` are
+  // `null` whenever the map currently shows no complete, confirmed position
+  // — LocationConfirmMap's own invariant — so "Continue" can gate on that
+  // directly instead of trusting a stale value from before the applicant's
+  // latest edit.
+  const [saveStep, setSaveStep] = useState<SaveStep>('form');
+  const [geocodeErrorReason, setGeocodeErrorReason] = useState<'rate_limited' | 'unavailable' | null>(null);
+  const [pendingLat, setPendingLat] = useState<number | null>(null);
+  const [pendingLng, setPendingLng] = useState<number | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
@@ -140,11 +163,19 @@ export function BusinessProfilePage() {
     setTab(next);
   }
 
+  function resetSaveStep() {
+    setSaveStep('form');
+    setGeocodeErrorReason(null);
+    setPendingLat(null);
+    setPendingLng(null);
+  }
+
   function discardAndSwitchTab() {
     if (!profile || !pendingTab) return;
     setForm(formFromProfile(profile));
     setErrors({});
     setSaveState('idle');
+    resetSaveStep();
     setTab(pendingTab);
     setPendingTab(null);
   }
@@ -154,28 +185,22 @@ export function BusinessProfilePage() {
     setForm(formFromProfile(profile));
     setErrors({});
     setSaveState('idle');
+    resetSaveStep();
   }
 
-  async function handleSave(event: FormEvent) {
-    event.preventDefault();
-    if (!form || saveState === 'saving') return;
-
-    const fieldErrors = validate(form, t);
-    if (Object.keys(fieldErrors).length > 0) {
-      setErrors(fieldErrors);
-      if (fieldErrors.name) nameRef.current?.focus();
-      else if (fieldErrors.address) addressRef.current?.focus();
-      return;
-    }
-
-    setErrors({});
+  async function doSave(coords: { lat: number; lng: number } | null) {
+    if (!form) return;
     setSaveState('saving');
-    const result = await updateBusinessProfile({
+    const base = {
       name: form.name.trim(),
       nameHe: form.nameHe.trim() === '' ? null : form.nameHe.trim(),
       category: form.category,
-      address: form.address.trim(),
-    });
+    };
+    const payload: BusinessProfileUpdatePayload = coords
+      ? { ...base, address: form.address.trim(), locationLat: coords.lat, locationLng: coords.lng }
+      : base;
+    const result = await updateBusinessProfile(payload);
+    resetSaveStep();
 
     if (result.outcome === 'ok') {
       setProfile(result.profile);
@@ -186,6 +211,61 @@ export function BusinessProfilePage() {
       return;
     }
     setSaveState('error');
+  }
+
+  // Separate from handleSave so the geocode-error step's "Try again" can
+  // re-run exactly this without a synthetic FormEvent — same split
+  // BusinessRegistrationPage itself uses between handleFormSubmit and
+  // runGeocode.
+  async function runGeocode(address: string) {
+    setSaveStep('geocoding');
+    const result = await geocodeAddress(address);
+    if (result.outcome === 'found') {
+      setPendingLat(result.lat);
+      setPendingLng(result.lng);
+      setSaveStep('confirmLocation');
+    } else if (result.outcome === 'not_found') {
+      // Left `null` deliberately — the map must open with no pin, not a
+      // fallback point that looks like a real answer (see LocationConfirmMap).
+      setPendingLat(null);
+      setPendingLng(null);
+      setSaveStep('confirmLocation');
+    } else {
+      setGeocodeErrorReason(result.outcome);
+      setSaveStep('geocodeError');
+    }
+  }
+
+  function useManualLocation() {
+    setPendingLat(null);
+    setPendingLng(null);
+    setSaveStep('confirmLocation');
+  }
+
+  function confirmLocationAndSave() {
+    if (pendingLat === null || pendingLng === null) return;
+    void doSave({ lat: pendingLat, lng: pendingLng });
+  }
+
+  async function handleSave(event: FormEvent) {
+    event.preventDefault();
+    if (!form || !profile || saveState === 'saving') return;
+
+    const fieldErrors = validate(form, t);
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
+      if (fieldErrors.name) nameRef.current?.focus();
+      else if (fieldErrors.address) addressRef.current?.focus();
+      return;
+    }
+    setErrors({});
+
+    const addressChanged = form.address.trim() !== (profile.address ?? '').trim();
+    if (addressChanged) {
+      await runGeocode(form.address);
+      return;
+    }
+    await doSave(null);
   }
 
   if (status === 'loading') {
@@ -265,6 +345,79 @@ export function BusinessProfilePage() {
 
       {tab === 'details' ? (
         <div id="business-profile-panel-details" role="tabpanel" aria-labelledby="business-profile-tab-details">
+          {saveStep === 'geocoding' && (
+            <Card className={styles.card}>
+              <LoadingState label={t('businessRegistration.geocodingLabel')} />
+            </Card>
+          )}
+
+          {saveStep === 'geocodeError' && (
+            <Card className={styles.card}>
+              <Heading level={3}>
+                {t(
+                  geocodeErrorReason === 'rate_limited'
+                    ? 'businessRegistration.geocodeRateLimitedTitle'
+                    : 'businessRegistration.geocodeUnavailableTitle',
+                )}
+              </Heading>
+              <Text variant="body">
+                {t(
+                  geocodeErrorReason === 'rate_limited'
+                    ? 'businessRegistration.geocodeRateLimitedMessage'
+                    : 'businessRegistration.geocodeUnavailableMessage',
+                )}
+              </Text>
+              <div className={styles.dialogActions}>
+                <Button type="button" onClick={() => runGeocode(form.address)}>
+                  {t('businessRegistration.geocodeRetryButton')}
+                </Button>
+                <Button type="button" variant="secondary" onClick={useManualLocation}>
+                  {t('businessRegistration.geocodeManualLocationButton')}
+                </Button>
+                <Button type="button" variant="text" onClick={resetSaveStep}>
+                  {t('businessProfile.cancelButton')}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {saveStep === 'confirmLocation' && (
+            <Card className={styles.card}>
+              <Heading level={3}>{t('businessRegistration.confirmLocationTitle')}</Heading>
+              <Text variant="body">
+                {t(
+                  pendingLat !== null
+                    ? 'businessRegistration.confirmLocationFoundSubtitle'
+                    : 'businessRegistration.confirmLocationNotFoundSubtitle',
+                )}
+              </Text>
+              <LocationConfirmMap
+                latitude={pendingLat}
+                longitude={pendingLng}
+                onChange={(lat, lng) => {
+                  setPendingLat(lat);
+                  setPendingLng(lng);
+                }}
+                latLabel={t('businessRegistration.latLabel')}
+                lngLabel={t('businessRegistration.lngLabel')}
+              />
+              <Text variant="caption">{t('businessRegistration.osmAttributionNote')}</Text>
+              <div className={styles.dialogActions}>
+                <Button
+                  type="button"
+                  disabled={pendingLat === null || pendingLng === null || saveState === 'saving'}
+                  onClick={confirmLocationAndSave}
+                >
+                  {saveState === 'saving' ? t('businessProfile.savingLabel') : t('businessRegistration.confirmLocationContinueButton')}
+                </Button>
+                <Button type="button" variant="secondary" disabled={saveState === 'saving'} onClick={resetSaveStep}>
+                  {t('businessRegistration.confirmLocationBackButton')}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {saveStep === 'form' && (
           <form onSubmit={handleSave} noValidate>
             <div className={styles.layout}>
               <div className={styles.main}>
@@ -332,7 +485,7 @@ export function BusinessProfilePage() {
               </div>
 
               <div className={styles.aside}>
-                <ContactCard user={user} t={t} />
+                <ContactCard profile={profile} t={t} />
                 {canManage && saveState === 'idle' && !dirty && (
                   <div className={styles.savedNote}>
                     <CheckCircleIcon /> <Text variant="caption">{t('businessProfile.allSavedNote')}</Text>
@@ -386,6 +539,7 @@ export function BusinessProfilePage() {
               </div>
             )}
           </form>
+          )}
         </div>
       ) : (
         <div id="business-profile-panel-branches" role="tabpanel" aria-labelledby="business-profile-tab-branches">
@@ -475,8 +629,12 @@ function LogoCard({ profile, lang, t }: { profile: BusinessProfile; lang: 'HE' |
   );
 }
 
-function ContactCard({ user, t }: { user: { name: string | null; email: string | null } | null; t: (key: string) => string }) {
-  const name = user?.name ?? '—';
+// The business's real OWNER member — server-resolved (BusinessProfileOut.
+// ownerName/ownerEmail, see its own comment), never the logged-in caller.
+// A MANAGER or CASHIER viewing this page must see the actual owner here,
+// not themselves.
+function ContactCard({ profile, t }: { profile: BusinessProfile; t: (key: string) => string }) {
+  const name = profile.ownerName ?? '—';
   const initial = name.trim().charAt(0).toUpperCase();
   return (
     <Card className={styles.contactCard}>
@@ -494,10 +652,10 @@ function ContactCard({ user, t }: { user: { name: string | null; email: string |
           </span>
         </div>
       </div>
-      {user?.email && (
+      {profile.ownerEmail && (
         <div className={styles.contactDetail}>
           <MailIcon />
-          <span dir="ltr">{user.email}</span>
+          <span dir="ltr">{profile.ownerEmail}</span>
         </div>
       )}
     </Card>

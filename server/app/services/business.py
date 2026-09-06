@@ -146,12 +146,43 @@ async def ensure_owner_membership(db: AsyncSession, business_id: str, user_id: s
 # ── Business profile (CAR-341) ──────────────────────────────────────────────
 
 
+async def _owner_contact(db: AsyncSession, business_id: str) -> User | None:
+    """The user who should appear as this business's contact person.
+
+    Reads `business_memberships` — CAR-74's authorization source of truth —
+    never `Business.owner_user_id`. That FK predates memberships, is null on
+    a business created before CAR-77, and per `services.users.profile_out`
+    is no longer how the app decides who owns what; using it here would show
+    an unrelated or stale account (or none) as "the account owner" on a
+    business that actually has a real OWNER member. A business can hold more
+    than one OWNER row (`services.business_memberships.change_role` only
+    guarantees at least one, never at most one) — the earliest-created one is
+    treated as canonical, since that is the membership CAR-77's approval flow
+    itself created first.
+    """
+    owner: User | None = await db.scalar(
+        select(User)
+        .join(BusinessMembership, BusinessMembership.user_id == User.id)
+        .where(BusinessMembership.business_id == business_id, BusinessMembership.role == BusinessMembershipRole.OWNER)
+        .order_by(BusinessMembership.created_at.asc())
+        .limit(1)
+    )
+    return owner
+
+
+async def get_profile(db: AsyncSession, business: Business) -> BusinessProfileOut:
+    owner = await _owner_contact(db, business.id)
+    return BusinessProfileOut.from_orm_business(business, owner)
+
+
 async def update_profile(db: AsyncSession, business: Business, dto: BusinessProfileUpdateIn) -> BusinessProfileOut:
     """Apply an owner/manager's edit to their own business record.
 
     `registration_number` is deliberately absent from `BusinessProfileUpdateIn`
     (see its own docstring) — there is no path, here or anywhere else, that
     writes it after `services.business_join_requests.approve` sets it once.
+    `BusinessProfileUpdateIn`'s own validators are what keep `address` from
+    ever landing here without `location_lat`/`location_lng` alongside it.
     """
     changes = dto.model_dump(exclude_unset=True)
     if "category" in changes and changes["category"] is not None:
@@ -161,7 +192,7 @@ async def update_profile(db: AsyncSession, business: Business, dto: BusinessProf
 
     await db.commit()
     audit("business.profile.updated", business_id=business.id, fields=sorted(changes))
-    return BusinessProfileOut.from_orm_business(business)
+    return await get_profile(db, business)
 
 
 async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:

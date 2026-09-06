@@ -220,7 +220,11 @@ describe('routes', () => {
         nameHe: null,
         category: 'food',
         address: 'Dizengoff 210, Tel Aviv',
+        locationLat: 32.07,
+        locationLng: 34.78,
         registrationNumber: '514032897',
+        ownerName: 'Dana Levi',
+        ownerEmail: 'dana@aroma-israel.co.il',
       },
     });
 

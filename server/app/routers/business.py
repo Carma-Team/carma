@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 
 from app.core.deps import CurrentBusinessManager, CurrentBusinessMembership, DbSession
 from app.core.limiter import business_key, limiter
-from app.schemas.business_profile import BusinessProfileOut, BusinessProfileResponse, BusinessProfileUpdateIn
+from app.schemas.business_profile import BusinessProfileResponse, BusinessProfileUpdateIn
 from app.schemas.business_stats import BusinessStatsOut
 from app.schemas.redemption import BusinessRedemptionListOut
 from app.schemas.reward import (
@@ -35,8 +35,9 @@ router = APIRouter(prefix="/api/business", tags=["business"])
     response_model_by_alias=True,
     summary="The authenticated business's own profile record",
 )
-async def get_profile(membership: CurrentBusinessMembership) -> BusinessProfileResponse:
-    return BusinessProfileResponse(profile=BusinessProfileOut.from_orm_business(membership.business))
+async def get_profile(membership: CurrentBusinessMembership, db: DbSession) -> BusinessProfileResponse:
+    profile = await business_service.get_profile(db, membership.business)
+    return BusinessProfileResponse(profile=profile)
 
 
 @router.patch(
