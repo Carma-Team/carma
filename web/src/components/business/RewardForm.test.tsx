@@ -26,6 +26,7 @@ const REWARD: Reward = {
   imageIcon: 'gift-outline',
   isActive: true,
   archivedAt: null,
+  trashedAt: null,
   stock: 5,
   available: 3,
   expiresAt: '2030-06-15T20:59:59.999Z',

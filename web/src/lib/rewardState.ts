@@ -49,6 +49,13 @@ export function isArchived(reward: Reward): boolean {
   return reward.archivedAt !== null;
 }
 
+// Independent of archivedAt: trashing sets archivedAt too when it
+// wasn't already set, but a reward can equally be trashed straight from
+// Active. This is the one flag that actually decides the Trash bucket.
+export function isTrashed(reward: Reward): boolean {
+  return reward.trashedAt !== null;
+}
+
 // Precedence, most definitive/urgent first: a manual deactivation says more
 // than a campaign that happens to have run out of time or stock; a
 // time-based expiry is decided independently of whatever stock is left, so
@@ -65,13 +72,17 @@ export function getRewardState(reward: Reward, now: Date = new Date()): RewardSt
   return 'active';
 }
 
-// The tab bar's five buckets (docs/business-portal-design/CARMA Rewards
+// The tab bar's buckets (docs/business-portal-design/CARMA Rewards
 // Management.dc.html, screen 01/02) — coarser than `RewardState`, which the
 // design keeps as a badge nuance *within* "Active" rather than a filter of
 // its own. 'ended' reads `expiresAt` directly instead of `getRewardState`
 // because a paused-and-expired reward must count as ended, not paused —
 // state precedence would otherwise hide the expiry behind 'inactive'.
-export type RewardTab = 'all' | 'active' | 'paused' | 'ended' | 'archived';
+//
+// 'trash' is its own bucket, not a filter within 'archived': once
+// trashed, a reward moves out of every other tab — including 'archived' —
+// even though `archivedAt` stays set underneath it.
+export type RewardTab = 'all' | 'active' | 'paused' | 'ended' | 'archived' | 'trash';
 
 export function isEnded(reward: Reward, now: Date = new Date()): boolean {
   return reward.expiresAt !== null && new Date(reward.expiresAt).getTime() <= now.getTime();
@@ -79,17 +90,20 @@ export function isEnded(reward: Reward, now: Date = new Date()): boolean {
 
 export function matchesTab(reward: Reward, tab: RewardTab, now: Date = new Date()): boolean {
   const archived = isArchived(reward);
+  const trashed = isTrashed(reward);
   switch (tab) {
     case 'all':
-      return !archived;
+      return !archived && !trashed;
     case 'active':
-      return !archived && reward.isActive && !isEnded(reward, now);
+      return !archived && !trashed && reward.isActive && !isEnded(reward, now);
     case 'paused':
-      return !archived && !reward.isActive && !isEnded(reward, now);
+      return !archived && !trashed && !reward.isActive && !isEnded(reward, now);
     case 'ended':
-      return !archived && isEnded(reward, now);
+      return !archived && !trashed && isEnded(reward, now);
     case 'archived':
-      return archived;
+      return archived && !trashed;
+    case 'trash':
+      return trashed;
   }
 }
 

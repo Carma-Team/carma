@@ -152,6 +152,50 @@ async def archive_reward(reward_id: str, membership: CurrentBusinessManager, db:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/rewards/{reward_id}/trash",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Move an owned reward to trash — 409 while it still has live vouchers outstanding",
+)
+async def trash_reward(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> Response:
+    await business_service.trash_reward(db, membership.business, reward_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/rewards/{reward_id}/restore",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Restore a trashed reward — always back to Archive, never straight to Active",
+)
+async def restore_reward(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> Response:
+    await business_service.restore_reward(db, membership.business, reward_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/rewards/{reward_id}/reactivate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Reactivate an archived reward back into the catalog and marketplace",
+)
+async def reactivate_reward(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> Response:
+    await business_service.reactivate_reward(db, membership.business, reward_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/rewards/{reward_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Permanently delete a trashed reward — tombstoned instead of dropped if it has history",
+)
+async def delete_reward_permanently(reward_id: str, membership: CurrentBusinessManager, db: DbSession) -> Response:
+    await business_service.delete_reward_permanently(db, membership.business, reward_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # ── Vouchers ─────────────────────────────────────────────────────────────────
 
 # The two routes that take a code from outside and answer questions about it, so

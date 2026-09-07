@@ -572,6 +572,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/business/rewards/{reward_id}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move an owned reward to trash — 409 while it still has live vouchers outstanding */
+        post: operations["trash_reward_api_business_rewards__reward_id__trash_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/rewards/{reward_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a trashed reward — always back to Archive, never straight to Active */
+        post: operations["restore_reward_api_business_rewards__reward_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/rewards/{reward_id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reactivate an archived reward back into the catalog and marketplace */
+        post: operations["reactivate_reward_api_business_rewards__reward_id__reactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/business/rewards/{reward_id}/permanent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Permanently delete a trashed reward — tombstoned instead of dropped if it has history */
+        delete: operations["delete_reward_permanently_api_business_rewards__reward_id__permanent_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/business/vouchers/{code}": {
         parameters: {
             query?: never;
@@ -2080,7 +2148,7 @@ export interface components {
         };
         /**
          * LiveVoucherCountOut
-         * @description How many outstanding vouchers a reward has right now — check before archiving it.
+         * @description How many outstanding vouchers a reward has right now — check before archiving or trashing it.
          */
         LiveVoucherCountOut: {
             /** Livevouchers */
@@ -2359,6 +2427,8 @@ export interface components {
             isActive: boolean;
             /** Archivedat */
             archivedAt: string | null;
+            /** Trashedat */
+            trashedAt: string | null;
             /** Stock */
             stock: number | null;
             /** Available */
@@ -3914,6 +3984,122 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LiveVoucherCountOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trash_reward_api_business_rewards__reward_id__trash_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_reward_api_business_rewards__reward_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reactivate_reward_api_business_rewards__reward_id__reactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_reward_permanently_api_business_rewards__reward_id__permanent_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reward_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
