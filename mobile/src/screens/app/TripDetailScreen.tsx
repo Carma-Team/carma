@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, COMMON_STYLES } from '@/constants/theme';
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
 import { TripSummaryView } from '@/components/driving/TripSummaryView';
+import { AiInsightCard } from '@/components/driving/AiInsightCard';
 import { tripsApi } from '@/services/api/trips.api';
 import { toDrivingEvents } from '@/lib/tripEvents';
 import { fromServerTrip } from '@/lib/tripSummary';
@@ -204,6 +205,8 @@ export default function TripDetailScreen() {
           />
 
           <TripSummaryView summary={summary} loadingRoute={loading} />
+
+          {trip.aiInsight && <AiInsightCard text={trip.aiInsight} />}
 
           {failed && (
             <Text style={styles.partial}>{t('trip.detailUnavailable')}</Text>
