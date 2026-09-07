@@ -201,21 +201,92 @@ describe('RewardForm', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('כותרת (עברית)'));
   });
 
-  it('describes an invalid textarea to assistive technology via aria-describedby', () => {
+  // ── descriptions are optional (CAR-339 follow-up) ──────────────────────
+
+  it('creates a reward with both descriptions left blank', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
     renderForm();
+
     fireEvent.change(screen.getByLabelText('כותרת (עברית)'), { target: { value: 'שובר' } });
     fireEvent.change(screen.getByLabelText('כותרת (אנגלית)'), { target: { value: 'Reward' } });
     fireEvent.change(screen.getByLabelText('עלות בנקודות'), { target: { value: '20' } });
-    // Both descriptions left blank.
-
+    // Both descriptions left blank on purpose.
     fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
 
-    const descriptionHe = screen.getByLabelText('תיאור (עברית)');
-    expect(document.activeElement).toBe(descriptionHe);
-    expect(descriptionHe).toHaveAttribute('aria-invalid', 'true');
-    const describedBy = descriptionHe.getAttribute('aria-describedby');
-    expect(describedBy).toBeTruthy();
-    expect(document.getElementById(describedBy as string)).toHaveTextContent('שדה חובה.');
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionHe).toBeNull();
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionEn).toBeNull();
+  });
+
+  it('creates a reward with only a Hebrew description', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText('כותרת (עברית)'), { target: { value: 'שובר' } });
+    fireEvent.change(screen.getByLabelText('כותרת (אנגלית)'), { target: { value: 'Reward' } });
+    fireEvent.change(screen.getByLabelText('תיאור (עברית)'), { target: { value: 'תיאור' } });
+    fireEvent.change(screen.getByLabelText('עלות בנקודות'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionHe).toBe('תיאור');
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionEn).toBeNull();
+  });
+
+  it('creates a reward with only an English description', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText('כותרת (עברית)'), { target: { value: 'שובר' } });
+    fireEvent.change(screen.getByLabelText('כותרת (אנגלית)'), { target: { value: 'Reward' } });
+    fireEvent.change(screen.getByLabelText('תיאור (אנגלית)'), { target: { value: 'Description' } });
+    fireEvent.change(screen.getByLabelText('עלות בנקודות'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionHe).toBeNull();
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionEn).toBe('Description');
+  });
+
+  it('creates a reward with both descriptions provided', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm();
+
+    fillValidCreateForm();
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionHe).toBe('תיאור');
+    expect(vi.mocked(createReward).mock.calls[0][0].descriptionEn).toBe('Description');
+  });
+
+  it('clears an existing Hebrew description during editing, sending an explicit null', async () => {
+    vi.mocked(updateReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm({ mode: 'edit', reward: REWARD });
+
+    fireEvent.change(screen.getByLabelText('תיאור (עברית)'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(updateReward).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(updateReward).mock.calls[0][1];
+    expect('descriptionHe' in payload).toBe(true);
+    expect(payload.descriptionHe).toBeNull();
+    // The untouched English description is preserved, not wiped alongside it.
+    expect(payload.descriptionEn).toBe('Existing description');
+  });
+
+  it('clears an existing English description during editing, sending an explicit null', async () => {
+    vi.mocked(updateReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm({ mode: 'edit', reward: REWARD });
+
+    fireEvent.change(screen.getByLabelText('תיאור (אנגלית)'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(updateReward).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(updateReward).mock.calls[0][1];
+    expect('descriptionEn' in payload).toBe(true);
+    expect(payload.descriptionEn).toBeNull();
+    expect(payload.descriptionHe).toBe('תיאור קיים');
   });
 
   // ── create / edit payloads ──────────────────────────────────────────────

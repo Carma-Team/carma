@@ -469,6 +469,21 @@ describe('RewardsPage', () => {
     expect(screen.getByText('תיאור עברי')).toBeInTheDocument();
   });
 
+  it('renders a reward with no description in either language without a blank paragraph or literal null/undefined', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ id: 'no-desc', titleHe: 'כותרת', descriptionHe: null, descriptionEn: null })],
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'כותרת' })).toBeInTheDocument());
+    expect(screen.queryByText('null')).not.toBeInTheDocument();
+    expect(screen.queryByText('undefined')).not.toBeInTheDocument();
+    // No empty paragraph left behind where the description would have gone —
+    // every other <p> on the card (category, cost, allocation) always has text.
+    expect(Array.from(document.querySelectorAll('p')).every((p) => p.textContent?.trim() !== '')).toBe(true);
+  });
+
   // ── CAR-339: pause/resume, tabs, search ──────────────────────────────────
 
   it('pauses an active reward and flips its card to the resume action', async () => {

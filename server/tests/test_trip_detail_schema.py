@@ -38,6 +38,7 @@ def _fake_trip(events: list) -> SimpleNamespace:
         ai_insight=None,
         accel_available=None,
         accel_init_failed=None,
+        weakest_factor="braking",
         status=SimpleNamespace(value=TripStatus.COMPLETED.value),
         idempotency_key=None,
         route_waypoints=None,

@@ -32,6 +32,14 @@ describe('tripSummary', () => {
     expect(fromServerTrip({ ...row, pendingSync: undefined } as Trip, [], []).state).toBe('scored');
   });
 
+  // A row the queue gave up on carries both flags, which is how it is written. They say
+  // opposite things, so the precedence has to be fixed: syncFailed wins, the same order
+  // TripCard uses in the list (CAR-312).
+  it('reports a trip the queue gave up on as failed, not as pending', () => {
+    const row = { ...saved, avgScore: 0, points: 0, pendingSync: true, syncFailed: true } as Trip;
+    expect(fromServerTrip(row, [], []).state).toBe('failed');
+  });
+
   it('has nothing to open for a trip that was never saved', () => {
     expect(TOO_SHORT_SUMMARY.id).toBeUndefined();
   });

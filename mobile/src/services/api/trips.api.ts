@@ -16,6 +16,7 @@
  * - POST /api/trips/:id/occupancy
  */
 import { request } from './client';
+import type { components } from './generated';
 import type { Trip, TripDetail } from '@/types';
 import type { ValidTripPayload } from '@/services/sync/types';
 
@@ -23,14 +24,10 @@ import type { ValidTripPayload } from '@/services/sync/types';
  * Who the server believes was driving. `UNKNOWN` is the ordinary state of a trip
  * nobody has said anything about, not missing data.
  */
-export type OccupancyVerdict = 'DRIVER' | 'PASSENGER' | 'UNKNOWN';
+export type OccupancyVerdict = components['schemas']['OccupancyVerdict'];
 
-export interface Occupancy {
-  tripId: string;
-  verdict: OccupancyVerdict;
-  /** The server's own answer, never derived here — only it knows what the score counts. */
-  excludedFromDriverScore: boolean;
-}
+/** `excludedFromDriverScore` is the server's own answer — only it knows what the score counts. */
+export type Occupancy = components['schemas']['OccupancyOut'];
 
 export const tripsApi = {
   list: () => request<{ trips: Trip[] }>('/api/trips'),

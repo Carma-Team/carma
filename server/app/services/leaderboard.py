@@ -16,6 +16,11 @@ from app.schemas.leaderboard import (
 )
 from app.services import friends
 from app.services.cities import COUNTRY
+from app.services.scoring import CONFIG
+
+# Coalesced to the same prior the payload substitutes (CAR-19 review), so the
+# rank a row gets is always computed from the number it's shown with.
+_RANK_SCORE = func.coalesce(User.driver_score, CONFIG.prior_score)
 
 
 async def locations(db: AsyncSession) -> LocationsOut:
@@ -46,7 +51,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
             await db.scalars(
                 select(User)
                 .where(User.role == UserRole.DRIVER, User.id.in_(ids | {current.id}))
-                .order_by(User.total_points.desc(), User.created_at.asc())
+                .order_by(_RANK_SCORE.desc(), User.created_at.asc())
                 .limit(100)
             )
         ).all()
@@ -60,7 +65,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
                 board_where.append(User.city_code == target_city)
         users = (
             await db.scalars(
-                select(User).where(*board_where).order_by(User.total_points.desc(), User.created_at.asc()).limit(100)
+                select(User).where(*board_where).order_by(_RANK_SCORE.desc(), User.created_at.asc()).limit(100)
             )
         ).all()
         statuses = await friends.status_map(db, current.id, [u.id for u in users])
@@ -71,6 +76,7 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
             user_id=u.id,
             rank=idx + 1,
             score=u.total_points,
+            driver_score=u.driver_score,
             # Settled to metres, as telemetry.py does: the accumulator is built by
             # repeated float addition, so it drifts to 596.2000000000003.
             distance_km=round(u.total_distance, 3),
@@ -92,9 +98,8 @@ async def get(db: AsyncSession, current: User, type_: LeaderboardType, city_code
     # board never answers with a national rank.
     my_rank: int | None = None
     if not any(u.id == current.id for u in users) and type_ != "friends":
-        above = await db.scalar(
-            select(func.count()).select_from(User).where(*board_where, User.total_points > current.total_points)
-        )
+        current_score = current.driver_score if current.driver_score is not None else CONFIG.prior_score
+        above = await db.scalar(select(func.count()).select_from(User).where(*board_where, _RANK_SCORE > current_score))
         my_rank = (above or 0) + 1
 
     return LeaderboardOut(entries=entries, current_user_id=current.id, my_rank=my_rank)

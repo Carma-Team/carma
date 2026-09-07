@@ -36,17 +36,22 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
     );
   }
 
-  const pending = summary.state === 'pending';
+  // A trip still waiting and a trip the queue gave up on both have no server score, so
+  // neither shows a gauge or a server-owned number. Only the sentence differs: one is
+  // still coming, the other never will.
+  const unscored = summary.state === 'pending' || summary.state === 'failed';
 
   return (
     <View style={styles.body}>
-      {pending ? (
+      {unscored ? (
         // No gauge at all rather than a gauge reading zero: the server is the only
         // scoring oracle, and a 0 here told the driver they drove badly when the app
         // had simply never reached it.
         <View style={styles.stateBlock}>
           <Ionicons name={ICONS.notSent} size={44} color={COLORS.textMuted} style={{ marginBottom: 12 }} />
-          <Text style={styles.stateText}>{t('trip.notSent')}</Text>
+          <Text style={styles.stateText}>
+            {t(summary.state === 'failed' ? 'trip.notSentFailed' : 'trip.notSent')}
+          </Text>
         </View>
       ) : (
         <>
@@ -61,8 +66,8 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
         // they say nothing rather than repeating the zero the gauge was removed for.
         { icon: ICONS.duration, label: t('trip.duration'),       value: formatTripDuration(summary.durationSeconds) },
         { icon: ICONS.distance, label: t('trip.distance'),       value: formatTripDistance(summary.distanceKm) },
-        { icon: ICONS.points,   label: t('trip.points'),         value: pending ? '--' : `+${summary.points}` },
-        { icon: ICONS.flash,    label: t('trip.riskMultiplier'), value: pending ? '--' : `x${summary.effectiveRiskMultiplier.toFixed(2)}` },
+        { icon: ICONS.points,   label: t('trip.points'),         value: unscored ? '--' : `+${summary.points}` },
+        { icon: ICONS.flash,    label: t('trip.riskMultiplier'), value: unscored ? '--' : `x${summary.effectiveRiskMultiplier.toFixed(2)}` },
       ]} />
 
       {summary.pointsCapped && (
@@ -76,7 +81,7 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           server has. A trip still in the queue is unreachable by id until the queue
           lands it — the driver reaches it from history afterwards, which is the whole
           reason this control is not only the post-trip prompt. */}
-      {summary.state === 'scored' && summary.id && <TripOccupancyControl tripId={summary.id} />}
+      {summary.state === 'scored' && summary.id && <TripOccupancyControl key={summary.id} tripId={summary.id} />}
 
       {/* Route + bad-event markers (route shown when GPS waypoints exist) */}
       <View style={styles.mapWrapper}>

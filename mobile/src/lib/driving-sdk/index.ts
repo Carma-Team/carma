@@ -403,25 +403,33 @@ export class DrivingSDK {
     const WARMUP_MS = 3000;
     if (Date.now() - this.tripStartTime < WARMUP_MS) return;
 
-    if (!this.events.passesCooldown(event)) return;
-
-    // Stamp GPS speed and location onto the event.
+    // Stamp GPS speed and location onto the event, before either cooldown: a listener
+    // reads the speed off the event it is handed, and it is handed events the trip does
+    // not store.
     event.speedKmh = this.currentSpeedKmh;
     if (this.lastKnownLocation) {
       event.location = { latitude: this.lastKnownLocation.lat, longitude: this.lastKnownLocation.lng };
     }
 
-    // Store all SDK-qualified events in the trip (used for route map markers and raw display).
-    // Whether an event counts toward a score is decided by each registered listener's conditions.
-    this.currentTripData.events.push(event);
-    // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
-    const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
-    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
+    // What the trip stores: one entry per type per window, whatever the speed, matching
+    // the merge the server performs over the same window. Listeners are not gated on
+    // this — an event dropped by a listener's own condition used to seal the type here
+    // and swallow the next one that would have qualified (CAR-300).
+    const reported = this.events.passesCooldown(event);
+    if (reported) {
+      // Whether an event counts toward a score is decided by each registered listener's conditions.
+      this.currentTripData.events.push(event);
+      // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
+      const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
+      console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
+    }
 
     // A copy, so a listener that mutates what it is handed cannot reach the event this
     // trip stored above.
     const snapshot = { ...event };
     this.events.dispatch(snapshot, this.currentSpeedKmh);
+
+    if (!reported) return;
 
     // Legacy single callback — fires for every SDK-qualified event regardless of conditions.
     if (this.onEventDetected) this.onEventDetected(snapshot);

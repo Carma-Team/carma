@@ -17,6 +17,9 @@ that queue does today.
   foreground. There is no retry while the app is open and in use.
 - Each flush walks the queue in order and stops at the first item it cannot send. Items
   behind it are left untouched, so trips are never uploaded out of order.
+- One exception: an item that has failed three times in a row is stepped over rather than
+  halted on, so a single trip the server will not take cannot block the ones behind it.
+  It keeps its place at the head and is retried on every pass. See §5.
 - Every trip carries a client-generated id sent as an idempotency key, so a retry after a
   timeout cannot create a duplicate on the server.
 
@@ -40,8 +43,9 @@ Each queued trip carries two independent counters:
 - **`backoffStep`** — how far into the backoff schedule this trip is. Grows on every
   transient failure and stops at the longest interval. It controls *when* the next attempt
   happens and nothing else.
-- **`failures`** — how many times this trip has genuinely failed to upload. It is the only
-  counter that can delete a trip.
+- **`failures`** — how many times this trip has genuinely failed to upload in a row. It
+  decides when the trip stops holding up the queue behind it (§5) and nothing else. No
+  counter deletes a trip.
 
 They are not derivable from one another, because **a 429 advances the backoff but does not
 count as a failure**. A rate limit is the server rationing capacity shared with every other
@@ -57,19 +61,44 @@ is launched or foregrounded, so finer granularity would add steps without changi
 
 ## 4. Retention bound
 
-A trip is dropped from the queue once it has failed to upload `MAX_FAILURES_BEFORE_DROP = 50`
-times (`mobile/src/services/sync/SyncManager.ts`). It is deleted and a warning is logged — the
-driver is not shown that it happened. The value is a placeholder, chosen to sit far beyond any
-plausible outage while still bounding local storage; it was never calibrated (see CAR-138,
-which stopped it from being five).
+A trip leaves the queue once it has been waiting 30 days, measured from when it was queued
+(`MAX_QUEUE_AGE_MS` in `mobile/src/services/sync/SyncManager.ts`). Age, not attempt count: a
+counter cannot tell a driver who has been offline for a fortnight from a payload the server
+will never accept, and counting attempts is what once deleted real trips (CAR-138).
 
-CAR-166 has since settled what replaces it: the bound becomes the trip's age in the queue
-(`queuedAt`), not its attempt count, at 30 days — and a trip that crosses it is abandoned, not
-deleted, so the record survives on the device even though it stops being retried. That decision
-is not implemented yet; §4 will change again when it lands.
+The trip is **abandoned, not deleted**. It leaves the queue and stops being retried, but the
+row stays on the device flagged as never sent, and both the trip list and the trip detail
+screen say so. Nothing the driver recorded is thrown away.
+
+30 days follows our reward cycle. No telematics vendor publishes a TTL for a local upload
+queue, so this is our number and not an industry one.
+
+## 5. A trip the server will not take
+
+The halt in §1 is what keeps uploads in order, and it also meant that one trip stuck at the
+head blocked every trip behind it for as long as it stayed queued — under the age bound, up
+to a month.
+
+A flat retry cap does not fix that safely. To a counter on the head item, a long outage and a
+payload the server refuses look identical, and capping on count is CAR-138 again.
+
+So the queue does not guess. After three consecutive failures the head item is stepped over
+and the rest of the queue is tried:
+
+- **The network or the server is down.** The next item fails too and the pass halts there, one
+  request later than it used to. Nothing is sent, and nothing has changed.
+- **That one trip is the problem.** The items behind it succeed. Their success is the evidence
+  that identifies the head as the broken one — which is what a counter on the head alone can
+  never provide.
+
+The stepped-over trip keeps its position, keeps being retried, and keeps ageing. The age bound
+in §4 remains the only thing that ever removes it. A 429 does not count towards the three,
+because a rate limit is shared with every other driver behind the same carrier NAT: the trips
+behind the head would meet it too, so stepping over would spend a request to learn nothing.
+
 
 ---
 
-*Related: CAR-138 (the fix described here), CAR-166 (the retention-bound decision, not yet
-implemented), CAR-126 (server-side rate limiting — the source of the 429 case), RFC-001 §6
-(idempotency and the 422 contract).*
+*Related: CAR-138 (the fix described in §3), CAR-166 (the retention-bound decision behind §4),
+CAR-311 (the stuck-head problem §5 answers), CAR-126 (server-side rate limiting — the source of
+the 429 case), RFC-001 §6 (idempotency and the 422 contract).*

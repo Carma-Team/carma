@@ -83,7 +83,7 @@ it, never the other way round.
 | File | Responsibility |
 |---|---|
 | `index.ts` | The SDK's public entry point and orchestrator, `DrivingSDK`. Owns the trip lifecycle, accumulates distance/speed/waypoints from the sensor stream, and emits driving events to whatever host app is consuming the library. |
-| `eventRouting.ts` | Decides which registered listeners hear about a detected event: the per-type cooldown that collapses one manoeuvre into one report, and the conditions each listener attached when it subscribed. Told that an event is real; answers only who is told about it. |
+| `eventRouting.ts` | Decides which registered listeners hear about a detected event: the two cooldowns that collapse one manoeuvre into one report, and the conditions each listener attached when it subscribed. Told that an event is real; answers only who is told about it. |
 | `types.ts` | Every type and interface the library exposes to its host app. Driving events, `TripData`, `SDKConfig`, and the pluggable `TripValidator` contract through which an app injects its own trip-start, trip-end and suspicion rules. |
 | `auto-trip-detection/types.ts` | The contract every automatic trip-detection method implements. One strategy is active at a time, picked per platform, and `DrivingSDK` never learns which. |
 | `auto-trip-detection/AutoDriveModeManager.ts` | Owns the one active trip-detection strategy and picks it per platform. Turns whatever that strategy noticed into the two calls `DrivingSDK` cares about. |
@@ -226,7 +226,7 @@ const token = sdk.on(DrivingEventType.HARD_BRAKE, { minSpeedKmh: 15 }, (e) => {
 sdk.onEventDetected = (event) => { /* fires for ALL SDK-qualified events */ };
 ```
 
-This fires for every event that passes the SDK's internal cooldown guard, **regardless** of any registered listener conditions. Useful for raw display (e.g. live event log), but does not carry condition semantics. Prefer `on()` for business logic.
+This fires for every event that passes the SDK's report cooldown, **regardless** of any registered listener conditions. Useful for raw display (e.g. live event log), but does not carry condition semantics. Prefer `on()` for business logic.
 
 ---
 
@@ -432,7 +432,7 @@ interface TripData {
 }
 ```
 
-> **Note:** `events` contains every event that passed the SDK's internal cooldown guard — it is **not** filtered by any `on()` listener conditions. If your app only wants to count events that met a scoring threshold, maintain your own counter in the relevant `on()` handler.
+> **Note:** `events` contains every event that passed the SDK's report cooldown — it is **not** filtered by any `on()` listener conditions, and a listener can therefore be called for an event this list collapsed into an earlier one. If your app only wants to count events that met a scoring threshold, maintain your own counter in the relevant `on()` handler.
 
 ---
 

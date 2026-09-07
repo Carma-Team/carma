@@ -34,7 +34,7 @@ import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
-import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
+import { fromLocalTrip, mergeUnsentTrips, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
 import { buildValidTripPayload } from '@/lib/tripPayload'
 import { vehicleKeyHash } from '@/lib/vehicleKey'
 import Constants from 'expo-constants'
@@ -185,13 +185,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    *
    * The cache is read unfiltered: `setUser` drops it on a driver change, so whatever
    * is left is this driver's own.
+   *
+   * The server's answer is merged into the cache rather than replacing it. A trip still
+   * in the sync queue is not on the server, and this runs before the queue is flushed on
+   * a cold start — replacing the list wholesale erased an offline trip on the first
+   * online launch after recording it, so neither sync outcome had a row left to update.
    */
   const refreshTrips = useCallback(async (gen: number) => {
     try {
-      const serverData = await tripsApi.list();
+      const [serverData, raw] = await Promise.all([
+        tripsApi.list(),
+        AsyncStorage.getItem('carma_trips'),
+      ]);
       if (gen !== sessionRef.current) return;
-      setRecentTrips(serverData.trips);
-      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
+      const merged = mergeUnsentTrips(raw ? (JSON.parse(raw) as Trip[]) : [], serverData.trips);
+      setRecentTrips(merged);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(merged));
     } catch {
       const cached = await AsyncStorage.getItem('carma_trips');
       if (gen !== sessionRef.current || !cached) return;
@@ -346,7 +355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setLastTripSummary(fromLocalTrip(newTrip.id, savedTrip, finalState, lastTripDataRef.current));
     return finalState;
-  }, [user, addToast, lang]);
+  }, [user, addToast, lang, patchUser]);
 
   // The SDK's onTripEnd is a synchronous callback, so the promise `processEndTrip`
   // returns had nowhere to go and was dropped. `stopTrip` then resolved while the save
@@ -370,17 +379,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useFraudBinding(sdk, user, setTripState, addToast, lang);
   useRegionBinding(sdk, setTripState, addToast, lang);
 
+  // Both sync outcomes rewrite one cached row. Going through the cache rather than
+  // through `prev` keeps the persist out of the setRecentTrips updater, which React
+  // double-invokes under StrictMode — and it is the pattern processEndTrip already uses.
+  // Serialised, because it is a read-then-write and both callers fire it without
+  // awaiting. Two trips crossing the age bound in one flush pass are abandoned in the
+  // same tick, so unchained they both read the pre-patch cache and the second write
+  // drops the first — leaving a trip that will never be sent still telling the driver
+  // it will be.
+  const cacheWrites = useRef<Promise<void>>(Promise.resolve());
+
+  const patchCachedTrip = useCallback((
+    gen: number,
+    localId: string,
+    patch: (t: Trip) => Trip,
+  ) => {
+    cacheWrites.current = cacheWrites.current.then(async () => {
+      try {
+        const raw = await AsyncStorage.getItem('carma_trips');
+        // The row belongs to whoever was signed in when the sync resolved.
+        if (gen !== sessionRef.current || !raw) return;
+        const updated = (JSON.parse(raw) as Trip[]).map(t => (t.id === localId ? patch(t) : t));
+        setRecentTrips(updated);
+        await AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
+      } catch (e) {
+        // Neither caller can do anything about it, and both are fire-and-forget. Worth
+        // logging rather than swallowing: an abandoned trip that fails to be marked keeps
+        // telling the driver it will be sent automatically, and nothing is retrying it.
+        console.error('[AppContext] Failed to update cached trip', e);
+      }
+    });
+    return cacheWrites.current;
+  }, []);
+
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
     SyncManager.onTripSynced = (localId: string, serverTrip: Trip) => {
       const gen = sessionRef.current;
-      setRecentTrips(prev => {
-        const updated = prev.map(t =>
-          t.id === localId ? serverTrip : t
-        );
-        AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
-        return updated;
-      });
+      patchCachedTrip(gen, localId, () => serverTrip);
       // Re-fetch authoritative user totals so points/level reflect the committed trip.
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
@@ -390,7 +426,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         patchUser(freshUser);
       }).catch(() => {});
     };
-  }, [patchUser]);
+  }, [patchUser, patchCachedTrip]);
+
+  // ─── SyncManager: the queue gave up on a trip — mark the row, never remove it ──
+  useEffect(() => {
+    SyncManager.onTripAbandoned = (localId: string) => {
+      // `pendingSync` deliberately stays on. It does not mean "an upload is in flight",
+      // it means the score in this row is the placeholder zero we wrote ourselves — which
+      // is true of an abandoned trip permanently. Clearing it would let that zero into
+      // weeklyScoreTrend. Readers tell the two apart by precedence: syncFailed wins.
+      patchCachedTrip(sessionRef.current, localId, t => ({ ...t, syncFailed: true }));
+    };
+  }, [patchCachedTrip]);
 
   // ─── AppState: flush queued trips when app returns to foreground ──────────────
   useEffect(() => {

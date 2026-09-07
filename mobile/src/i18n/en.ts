@@ -86,6 +86,7 @@ const en: TranslationMap = {
     occupancyDeclared: "You said you weren't driving, so this trip doesn't count toward your driver score.",
     occupancyUndo: 'I was driving after all',
     occupancyFailed: "Couldn't reach the server — try again.",
+    notSentFailed: 'This trip was never sent. It stayed on this device too long to keep trying, so it has no score — the drive itself is still recorded below.',
     syncPending: 'Sending', syncFailed: 'Not sent',
     syncPendingDetail: 'waiting to be sent',
     syncFailedDetail: 'stayed on this device',

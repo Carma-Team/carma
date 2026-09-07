@@ -90,6 +90,7 @@ const he = {
     occupancyDeclared: 'סימנת שלא נהגת, ולכן הנסיעה הזו לא נספרת בציון הנהיגה.',
     occupancyUndo: 'נהגתי בנסיעה הזו',
     occupancyFailed: 'לא הצלחנו להגיע לשרת — כדאי לנסות שוב.',
+    notSentFailed: 'הנסיעה הזו לא נשלחה. היא נשארה במכשיר זמן רב מדי מכדי להמשיך לנסות, ולכן אין לה ציון — הנסיעה עצמה עדיין מתועדת למטה.',
     syncPending: 'בשליחה', syncFailed: 'לא נשלחה',
     syncPendingDetail: 'ממתינה לשליחה',
     syncFailedDetail: 'נשארה במכשיר',

@@ -20,7 +20,7 @@ export type Reward = {
   businessHe: string | null;
   titleHe: string;
   titleEn: string | null;
-  descriptionHe: string;
+  descriptionHe: string | null;
   descriptionEn: string | null;
   category: string;
   costPoints: number;
@@ -42,8 +42,8 @@ export type Reward = {
 export type RewardPayload = {
   titleHe: string;
   titleEn: string;
-  descriptionHe: string;
-  descriptionEn: string;
+  descriptionHe: string | null;
+  descriptionEn: string | null;
   category: string;
   costPoints: number;
   stock: number | null;
