@@ -4,8 +4,9 @@ import hashlib
 import hmac as _hmac
 import json
 import math
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
@@ -27,7 +28,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring, speed_limits, telemetry
+from app.services import insights, levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -115,6 +116,19 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
+}
+
+
+# Which persisted column backs the occurrence count `insights.generate` cites
+# for each weakest_factor. `touch_epochs` (pickups), not
+# `screen_interaction_seconds` (a duration) — the prompt says "N מקרים",
+# which a pickup count answers and a second count does not. Speeding has no
+# entry: Trip stores no ratio/occurrences column for it.
+_WEAKEST_FACTOR_COUNT: dict[str, Callable[[Trip], int | None]] = {
+    "braking": lambda t: t.hard_brakes,
+    "acceleration": lambda t: t.aggressive_accels,
+    "cornering": lambda t: t.sharp_turns,
+    "distraction": lambda t: t.touch_epochs,
 }
 
 
@@ -646,6 +660,23 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     )
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
+
+    # Generated on first view, not at save time: the free Gemini tier is
+    # rate-limited (500 requests/day) and most saved trips are never opened, so
+    # paying for one on every save wastes most of that budget. It also kept the
+    # save response — which a driver waits on mid-trip — off a call with a 5s
+    # timeout. Cached on the row after that, so a second view is instant.
+    if trip.ai_insight is None and trip.score_v2 is not None:
+        counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
+        occurrences = counter(trip) if counter else None
+        insight = await insights.generate(
+            trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
+        )
+        if insight:
+            trip.ai_insight = insight
+            await db.commit()
+            await db.refresh(trip)
+
     return trip
 
 
@@ -786,7 +817,9 @@ async def save(
         screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
-        ai_insight=dto.ai_insight,
+        # Never the client's (dto.ai_insight) — generated lazily on first view
+        # in get_by_id, once weakest_factor exists to build a prompt from.
+        ai_insight=None,
         accel_available=accel_available,
         accel_init_failed=accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
