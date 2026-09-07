@@ -858,6 +858,33 @@ describe('RewardsPage', () => {
     expect(screen.getByRole('button', { name: 'הפעלה מחדש' })).toBeInTheDocument();
   });
 
+  // Regression: with a backend that predates the trash-lifecycle endpoints
+  // (server PR #337), POST .../restore 404s. This must surface as a visible
+  // error, not a silent no-op — the reward stays put in Trash.
+  it('keeps the reward in Trash with a visible error when restore fails', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(restoreRewardFromTrash).mockResolvedValue({ outcome: 'unexpected_error' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'שחזור לארכיון' }));
+    await waitFor(() => expect(restoreRewardFromTrash).toHaveBeenCalledWith('r1'));
+
+    const errorMessage = await screen.findByText('לא הצלחנו לשחזר את ההטבה. נסו שוב.');
+    expect(errorMessage).toBeInTheDocument();
+    expect(errorMessage).toHaveAttribute('role', 'alert');
+    // Still in Trash — a failed restore must not move the card or fake success.
+    expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument();
+    const [archivedTab] = screen.getAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+    expect(screen.queryByText('שובר')).not.toBeInTheDocument();
+  });
+
   it('permanently deletes a trashed reward after confirmation, and it disappears from every tab', async () => {
     vi.mocked(listRewards).mockResolvedValue({
       outcome: 'ok',

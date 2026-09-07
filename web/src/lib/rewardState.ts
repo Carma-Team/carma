@@ -45,15 +45,21 @@ export function localizedRewardText(primary: string | null | undefined, fallback
   return '';
 }
 
+// `!= null` (not `!== null`) on purpose: an older API build that predates
+// `trashedAt`/`archivedAt` (server PR #337) omits the field entirely rather
+// than sending `null`, and `undefined !== null` is `true` — which silently
+// dumped every ordinary reward into Trash the moment the deployed backend
+// fell behind the deployed frontend. Nullish comparison treats "absent" the
+// same as "explicitly null": both mean "not archived/trashed".
 export function isArchived(reward: Reward): boolean {
-  return reward.archivedAt !== null;
+  return reward.archivedAt != null;
 }
 
 // Independent of archivedAt: trashing sets archivedAt too when it
 // wasn't already set, but a reward can equally be trashed straight from
 // Active. This is the one flag that actually decides the Trash bucket.
 export function isTrashed(reward: Reward): boolean {
-  return reward.trashedAt !== null;
+  return reward.trashedAt != null;
 }
 
 // Precedence, most definitive/urgent first: a manual deactivation says more
