@@ -15,7 +15,7 @@ class RewardOut(CamelModel):
     business_he: str | None
     title_he: str
     title_en: str | None
-    description_he: str
+    description_he: str | None
     description_en: str | None
     category: str
     cost_points: int
@@ -173,7 +173,7 @@ class BusinessRewardIn(CamelModel):
 
     title_he: str = Field(min_length=1, max_length=120)
     title_en: str | None = Field(default=None, max_length=120)
-    description_he: str = Field(min_length=1, max_length=500)
+    description_he: str | None = Field(default=None, max_length=500)
     description_en: str | None = Field(default=None, max_length=500)
     category: str | None = None
     cost_points: int = Field(ge=1)
@@ -191,7 +191,7 @@ class BusinessRewardPatchIn(CamelModel):
 
     title_he: str | None = Field(default=None, min_length=1, max_length=120)
     title_en: str | None = Field(default=None, max_length=120)
-    description_he: str | None = Field(default=None, min_length=1, max_length=500)
+    description_he: str | None = Field(default=None, max_length=500)
     description_en: str | None = Field(default=None, max_length=500)
     category: str | None = None
     cost_points: int | None = Field(default=None, ge=1)

@@ -1582,7 +1582,7 @@ export interface components {
             /** Titleen */
             titleEn?: string | null;
             /** Descriptionhe */
-            descriptionHe: string;
+            descriptionHe?: string | null;
             /** Descriptionen */
             descriptionEn?: string | null;
             /** Category */
@@ -2346,7 +2346,7 @@ export interface components {
             /** Titleen */
             titleEn: string | null;
             /** Descriptionhe */
-            descriptionHe: string;
+            descriptionHe: string | null;
             /** Descriptionen */
             descriptionEn: string | null;
             /** Category */

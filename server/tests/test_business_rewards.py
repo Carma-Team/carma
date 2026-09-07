@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token
@@ -170,6 +171,109 @@ async def test_unknown_category_is_rejected(db_session: AsyncSession) -> None:
         assert exc.value.status_code == 400
     finally:
         await _cleanup(db_session, business)
+
+
+# ─── Descriptions are optional (CAR-339 follow-up) ───────────────────────────
+# title_he/title_en stay required — only the description fields changed here.
+
+
+@pytest.mark.asyncio
+async def test_create_with_both_descriptions_empty(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        payload = BusinessRewardIn.model_validate({"titleHe": "מתנה", "costPoints": 10})
+        out = await business_service.create_reward(db_session, business, payload)
+        assert out.description_he is None
+        assert out.description_en is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_create_with_hebrew_description_only(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        payload = BusinessRewardIn.model_validate({"titleHe": "מתנה", "descriptionHe": "תיאור", "costPoints": 10})
+        out = await business_service.create_reward(db_session, business, payload)
+        assert out.description_he == "תיאור"
+        assert out.description_en is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_create_with_english_description_only(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        payload = BusinessRewardIn.model_validate({"titleHe": "מתנה", "descriptionEn": "Description", "costPoints": 10})
+        out = await business_service.create_reward(db_session, business, payload)
+        assert out.description_he is None
+        assert out.description_en == "Description"
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_create_with_both_descriptions(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        out = await business_service.create_reward(
+            db_session,
+            business,
+            _reward_payload(descriptionEn="Description"),
+        )
+        assert out.description_he == "כוס קפה על חשבון הבית"
+        assert out.description_en == "Description"
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_patch_clears_an_existing_description(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        assert created.description_he is not None
+
+        patched = await business_service.update_reward(
+            db_session,
+            business,
+            created.id,
+            BusinessRewardPatchIn.model_validate({"descriptionHe": ""}),
+        )
+        assert patched.description_he == ""
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_patch_with_explicit_null_persists_null_to_the_db(db_session: AsyncSession) -> None:
+    """The web form clears a description by sending explicit `null`, not `""`
+    (see RewardForm.tsx's toPayload) — distinct from test_patch_clears_an_
+    existing_description above, which only covers the `""` case."""
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        assert created.description_he is not None
+
+        await business_service.update_reward(
+            db_session,
+            business,
+            created.id,
+            BusinessRewardPatchIn.model_validate({"descriptionHe": None}),
+        )
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None
+        await db_session.refresh(reward)  # force a real reload, not just the in-memory identity map
+        assert reward.description_he is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+def test_title_he_is_still_required() -> None:
+    with pytest.raises(ValidationError):
+        BusinessRewardIn.model_validate({"costPoints": 10})
 
 
 # ─── Ownership boundary ──────────────────────────────────────────────────────

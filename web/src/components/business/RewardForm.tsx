@@ -45,7 +45,7 @@ function formFromReward(reward: Reward, defaultCategory: BusinessCategory): Form
   return {
     titleHe: reward.titleHe,
     titleEn: reward.titleEn ?? '',
-    descriptionHe: reward.descriptionHe,
+    descriptionHe: reward.descriptionHe ?? '',
     descriptionEn: reward.descriptionEn ?? '',
     // A form field must hold a *selectable* option, so an unrecognized
     // legacy category falls back to the business's own category — unlike
@@ -75,11 +75,11 @@ function validate(form: FormState, t: (key: string) => string): FieldErrors {
   if (form.titleEn.trim() === '') errors.titleEn = t('rewards.validationRequired');
   else if (form.titleEn.trim().length > TITLE_MAX) errors.titleEn = t('rewards.validationTitleTooLong');
 
-  if (form.descriptionHe.trim() === '') errors.descriptionHe = t('rewards.validationRequired');
-  else if (form.descriptionHe.trim().length > DESCRIPTION_MAX) errors.descriptionHe = t('rewards.validationDescriptionTooLong');
+  // Both descriptions are optional (CAR-339 follow-up) — a business may leave
+  // either or both blank, unlike title which stays required.
+  if (form.descriptionHe.trim().length > DESCRIPTION_MAX) errors.descriptionHe = t('rewards.validationDescriptionTooLong');
 
-  if (form.descriptionEn.trim() === '') errors.descriptionEn = t('rewards.validationRequired');
-  else if (form.descriptionEn.trim().length > DESCRIPTION_MAX) errors.descriptionEn = t('rewards.validationDescriptionTooLong');
+  if (form.descriptionEn.trim().length > DESCRIPTION_MAX) errors.descriptionEn = t('rewards.validationDescriptionTooLong');
 
   const cost = form.costPoints.trim();
   if (!INTEGER_PATTERN.test(cost) || Number(cost) < 1) errors.costPoints = t('rewards.validationCostInvalid');
@@ -98,8 +98,8 @@ function toPayload(form: FormState): RewardPayload {
   return {
     titleHe: form.titleHe.trim(),
     titleEn: form.titleEn.trim(),
-    descriptionHe: form.descriptionHe.trim(),
-    descriptionEn: form.descriptionEn.trim(),
+    descriptionHe: form.descriptionHe.trim() === '' ? null : form.descriptionHe.trim(),
+    descriptionEn: form.descriptionEn.trim() === '' ? null : form.descriptionEn.trim(),
     category: form.category,
     costPoints: Number(form.costPoints.trim()),
     stock: stock === '' ? null : Number(stock),
@@ -271,7 +271,6 @@ function RewardFormBody({
             id="reward-description-he"
             dir="rtl"
             maxLength={DESCRIPTION_MAX}
-            required
             className={[inputStyles.input, errors.descriptionHe && inputStyles.inputError].filter(Boolean).join(' ')}
             aria-invalid={Boolean(errors.descriptionHe)}
             aria-describedby={errors.descriptionHe ? 'reward-description-he-error' : undefined}
@@ -293,7 +292,6 @@ function RewardFormBody({
             id="reward-description-en"
             dir="ltr"
             maxLength={DESCRIPTION_MAX}
-            required
             className={[inputStyles.input, errors.descriptionEn && inputStyles.inputError].filter(Boolean).join(' ')}
             aria-invalid={Boolean(errors.descriptionEn)}
             aria-describedby={errors.descriptionEn ? 'reward-description-en-error' : undefined}

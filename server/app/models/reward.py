@@ -24,7 +24,7 @@ class Reward(Base):
     )
     title_he: Mapped[str] = mapped_column(String(120), nullable=False)
     title_en: Mapped[str | None] = mapped_column(String(120))
-    description_he: Mapped[str] = mapped_column(String(500), nullable=False)
+    description_he: Mapped[str | None] = mapped_column(String(500))
     description_en: Mapped[str | None] = mapped_column(String(500))
     category: Mapped[BusinessCategory] = mapped_column(
         Enum(BusinessCategory, name="business_category", create_type=False),
