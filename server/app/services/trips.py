@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -660,23 +661,48 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     )
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
+    return trip
 
-    # Generated on first view, not at save time: the free Gemini tier is
-    # rate-limited (500 requests/day) and most saved trips are never opened, so
-    # paying for one on every save wastes most of that budget. It also kept the
-    # save response — which a driver waits on mid-trip — off a call with a 5s
-    # timeout. Cached on the row after that, so a second view is instant.
-    if trip.ai_insight is None and trip.score_v2 is not None:
-        counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
-        occurrences = counter(trip) if counter else None
-        insight = await insights.generate(
-            trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
-        )
-        if insight:
-            trip.ai_insight = insight
-            await db.commit()
-            await db.refresh(trip)
 
+async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
+    """Generate the coaching sentence on first view, and never retry it after.
+
+    Deliberately not folded into `get_by_id`: that function is also used as a
+    pure ownership check (`occupancy.py`'s declare/get, both 404-guards that
+    never look at the trip's fields), and those are reachable from the
+    post-trip summary modal — exactly the hot path a Gemini call must stay off
+    of. Call this only from the trip-detail route.
+
+    `ai_insight_attempted_at` is set whether or not the call produced text, so
+    a quota-exhausted or erroring attempt is not retried on the next view —
+    the free Gemini tier's daily budget would otherwise be spent re-trying
+    trips that already failed once.
+
+    The attempt is claimed with an atomic UPDATE before calling out, not by
+    checking the field on `trip` and setting it after: two requests racing the
+    same first view (a client retry, a double-tap) would otherwise both pass
+    the check before either commits, and both would call Gemini.
+    """
+    if trip.ai_insight is not None or trip.ai_insight_attempted_at is not None or trip.score_v2 is None:
+        return trip
+
+    claimed: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(Trip)
+        .where(Trip.id == trip.id, Trip.ai_insight_attempted_at.is_(None), Trip.ai_insight.is_(None))
+        .values(ai_insight_attempted_at=datetime.now(UTC))
+    )
+    await db.commit()
+    if claimed.rowcount == 0:
+        return trip
+
+    counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
+    occurrences = counter(trip) if counter else None
+    insight = await insights.generate(
+        trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
+    )
+    if insight:
+        trip.ai_insight = insight
+        await db.commit()
     return trip
 
 
@@ -817,8 +843,8 @@ async def save(
         screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
-        # Never the client's (dto.ai_insight) — generated lazily on first view
-        # in get_by_id, once weakest_factor exists to build a prompt from.
+        # Generated lazily on first view (ensure_ai_insight, called only from the
+        # trip-detail route), once weakest_factor exists to build a prompt from.
         ai_insight=None,
         accel_available=accel_available,
         accel_init_failed=accel_init_failed,

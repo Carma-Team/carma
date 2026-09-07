@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import lru_cache
+
+from google import genai
 
 from app.config import settings
 from app.services.scoring import WeakestFactor
@@ -9,10 +12,19 @@ from app.services.scoring import WeakestFactor
 logger = logging.getLogger(__name__)
 
 _MODEL = "gemini-2.5-flash"
-# A driver is already looking at the score; a slow save must not hold them up
-# waiting on a coaching sentence. Miss the window and the trip still saves —
-# just with ai_insight left null, same as a driver with no `weakest_factor`.
+# Generation happens on first view (trips.ensure_ai_insight), not on save, but
+# a driver is still on-screen waiting for the trip detail to render — a hung
+# provider call must not hang the page. Miss the window and the read still
+# succeeds, just with ai_insight left null.
 _TIMEOUT_SECONDS = 5.0
+
+
+@lru_cache(maxsize=1)
+def _client() -> genai.Client:
+    # Cached rather than built per call: the SDK opens its own HTTP client
+    # underneath, so one instance per process is the intended usage.
+    return genai.Client(api_key=settings.gemini_api_key)
+
 
 _FACTOR_LABELS: dict[WeakestFactor, str] = {
     "braking": "בלימות חדות",
@@ -48,21 +60,19 @@ def _build_prompt(score: float, weakest_factor: WeakestFactor | None, occurrence
 async def generate(score: float, weakest_factor: WeakestFactor | None, occurrences: int | None = None) -> str | None:
     """One personalized Hebrew sentence coaching the driver on this trip.
 
-    `occurrences` is the raw count behind `weakest_factor` (hard_brakes,
-    aggressive_accels, sharp_turns or touch_epochs — whichever matches), so the
-    tip can cite it. Best-effort only: a missing key, a timeout, or any
-    provider error returns None rather than failing the caller — a blank
-    insight is a cosmetic gap, not a reason to fail a trip save or a read.
+    Called once per trip, from `trips.ensure_ai_insight` on first view — never
+    from the save path. `occurrences` is the raw count behind `weakest_factor`
+    (hard_brakes, aggressive_accels, sharp_turns or touch_epochs — whichever
+    matches), so the tip can cite it. Best-effort only: a missing key, a
+    timeout, or any provider error returns None rather than raising — a blank
+    insight is a cosmetic gap, not a reason to fail a trip read.
     """
     if not settings.gemini_api_key:
         return None
 
     try:
-        from google import genai
-
-        client = genai.Client(api_key=settings.gemini_api_key)
         response = await asyncio.wait_for(
-            client.aio.models.generate_content(
+            _client().aio.models.generate_content(
                 model=_MODEL, contents=_build_prompt(score, weakest_factor, occurrences)
             ),
             timeout=_TIMEOUT_SECONDS,
