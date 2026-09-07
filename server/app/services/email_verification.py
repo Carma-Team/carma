@@ -75,6 +75,25 @@ async def request_verification(db: AsyncSession, user: User) -> OtpSent:
     code = random_digits(settings.otp_length)
     expires_at = _now() + timedelta(seconds=settings.otp_ttl_seconds)
 
+    minutes = round(settings.otp_ttl_seconds / 60)
+    # Sent before anything is written, so a send that fails costs the driver
+    # nothing: their previous code stays live and no row exists to count against
+    # the hourly cap. Writing first spends that code and charges the quota for a
+    # mail nobody received, and five of those in a row lock the account out of
+    # verifying at all.
+    #
+    # This order's own failure is the mirror: a mail quoting a code the write
+    # below then loses. That costs one dead mail and is one request away from
+    # fixed, where the other costs an hour of access.
+    try:
+        await email_sender.send(user.email, _SUBJECT, _BODY.format(code=code, minutes=minutes))
+    except Exception:
+        audit("auth.email_verification.send_failed", user_id=user.id, email_hashed=hash_email(user.email))
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not send the verification email. Try again.",
+        ) from None
+
     await db.execute(
         update(EmailVerificationCode)
         .where(EmailVerificationCode.user_id == user.id, EmailVerificationCode.consumed_at.is_(None))
@@ -89,9 +108,6 @@ async def request_verification(db: AsyncSession, user: User) -> OtpSent:
         )
     )
     await db.commit()
-
-    minutes = round(settings.otp_ttl_seconds / 60)
-    await email_sender.send(user.email, _SUBJECT, _BODY.format(code=code, minutes=minutes))
 
     if settings.env != "production":
         log.debug("[dev-email-verification] user=%s code=%s", user.id, code)

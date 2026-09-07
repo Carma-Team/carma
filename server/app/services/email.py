@@ -14,6 +14,14 @@ class EmailSender(Protocol):
 
 class ConsoleEmailSender:
     async def send(self, to: str, subject: str, body: str) -> None:
+        # `email_provider` defaults to console, so a production deploy that simply
+        # omits the SMTP variables would otherwise answer "Verification email sent",
+        # send nothing, and write the code to the log at info level. Refusing here
+        # rather than in `Settings` on purpose: nothing reads `is_email_verified` to
+        # allow or refuse anything yet, so an unconfigured mailer must fail the one
+        # endpoint that needs it, not the whole API's startup.
+        if settings.env == "production":
+            raise RuntimeError("EMAIL_PROVIDER is console in production — no mail was sent")
         log.info("==== DEV EMAIL ====\n  to:   %s\n  subj: %s\n  body: %s\n===================", to, subject, body)
 
 

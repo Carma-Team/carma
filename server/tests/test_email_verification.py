@@ -33,6 +33,8 @@ from app.config import settings
 from app.core.security import create_access_token, hash_code, hash_password
 from app.models import EmailVerificationCode, User
 from app.models.enums import UserRole
+from app.services import email_verification
+from app.services.email import ConsoleEmailSender
 from app.services.email_verification import _MAX_ATTEMPTS
 
 REQUEST_URL = "/api/auth/email/verify/request"
@@ -218,3 +220,54 @@ async def test_both_halves_need_a_session(db_api_client: AsyncClient) -> None:
     """The address verified is the one on the session, never one the caller names."""
     assert (await db_api_client.post(REQUEST_URL)).status_code == 401
     assert (await db_api_client.post(CONFIRM_URL, json={"code": CODE})).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_a_failed_send_costs_the_driver_nothing(
+    db_session: AsyncSession, db_api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mail provider that throws must not spend the live code or the hour's quota.
+
+    Committing before the send left the driver with their previous code dead, a
+    request counted against the cap, and a 500 — five of those in a row and the
+    account is locked out of verifying without a single mail having been sent.
+    """
+    user = await _driver(db_session)
+    live = await _live_code(db_session, user)
+
+    async def _explode(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("relay refused the message")
+
+    monkeypatch.setattr(email_verification.email_sender, "send", _explode)
+
+    r = await db_api_client.post(REQUEST_URL, headers=_auth(user))
+    assert r.status_code == 502
+
+    await db_session.refresh(live)
+    assert live.consumed_at is None, "the code the driver already holds still works"
+    rows = (
+        await db_session.scalars(select(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id))
+    ).all()
+    assert len(rows) == 1, "no half-issued row was left behind to count against the cap"
+
+    # And the code they hold really does still verify.
+    ok = await db_api_client.post(CONFIRM_URL, json={"code": CODE}, headers=_auth(user))
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_the_console_sender_refuses_to_stand_in_for_a_mailer_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`email_provider` defaults to console, so an unconfigured production deploy
+    would answer "Verification email sent", send nothing, and log the code.
+
+    It raises instead, which `request_verification` turns into a 502 with the
+    driver's live code untouched. In development it logs, which is the point of it.
+    """
+    monkeypatch.setattr(settings, "env", "production")
+    with pytest.raises(RuntimeError, match="no mail was sent"):
+        await ConsoleEmailSender().send("driver@carmatest.com", "subj", "code 123456")
+
+    monkeypatch.setattr(settings, "env", "development")
+    await ConsoleEmailSender().send("driver@carmatest.com", "subj", "code 123456")

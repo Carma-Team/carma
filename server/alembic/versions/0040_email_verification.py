@@ -14,16 +14,15 @@ keyed on a phone number because nobody is signed in when one is minted, and
 relaxing its phone column to nullable would have touched the one table the
 login, registration and reset doors all read.
 
-Renumbered from 0037 while it waited for review. `0037_reward_desc_he_optional`
-took that number on develop, `0038_trip_weakest_factor` landed beside it, and
-`9b091ac0fd71` rejoined the two - so this chains onto the merge point. The
-revision id moved with the filename instead of staying `0037_email_verification`
-the way `0027_trip_imu_health` kept its name: this migration has never been
-merged, so the only database stamped with the old id is a local one, and that
-needs an `alembic downgrade` against the previous commit before pulling this.
+Renumbered twice while it waited for review, 0037 to 0039 to 0040: develop keeps
+gaining migrations and each one takes the number this was cut against. The
+revision id moves with the filename each time instead of being pinned the way
+`0027_trip_imu_health` pinned its name, which is safe only because this has
+never been merged - the only database stamped with an old id is a local one, and
+it needs `alembic downgrade` against the previous commit before pulling this.
 
-Revision ID: 0039_email_verification
-Revises: 9b091ac0fd71
+Revision ID: 0040_email_verification
+Revises: 0039_reward_trash_and_tombstone
 Create Date: 2026-09-06 00:00:00.000000
 """
 
@@ -33,8 +32,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0039_email_verification"
-down_revision: str | None = "9b091ac0fd71"
+revision: str = "0040_email_verification"
+down_revision: str | None = "0039_reward_trash_and_tombstone"
 branch_labels: str | None = None
 depends_on: str | None = None
 
