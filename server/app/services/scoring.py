@@ -55,7 +55,7 @@ class ScoringConfig:
     anchored so a single event on a median trip costs ~5–10 composite points and
     the weighted p90-worst trip lands near 50, per "Rate to subscore"."""
 
-    version: str = "2026-09-speeding-calibrated"
+    version: str = "2026-09-imu-confidence"
 
     # Exponential-decay rate constants k_c (subscore = 100 * exp(-k * rate)).
     k_brake: float = 0.018
@@ -126,6 +126,11 @@ class ScoringConfig:
     # the guess).
     credibility_full_weighted_km: float = 200.0
     prior_score: float = 75.0
+    # Absolute ceiling for a trip with no live accelerometer (CAR-190), so the
+    # cap can't be farmed by a driver who has already built a high rolling
+    # standing. Same value as prior_score and the same rationale — zero events
+    # from a dead sensor is evidence-free, not "good, unproven" driving.
+    imu_dead_score_ceiling: float = 75.0
     # Most exposure one trip can contribute, so that "no single trip may have a
     # major impact on the overall score" (CMT, US12071140B2 — their worked example
     # caps a 200-mile trip's behaviours at a 100-mile threshold): it puts several
@@ -379,6 +384,22 @@ def apply_confidence(raw_score: float, rolling_score: float, confidence: float) 
         return raw_score
     c = _clamp(confidence, 0.0, 1.0)
     return round((rolling_score + c * (raw_score - rolling_score)) * 10) / 10
+
+
+def apply_imu_confidence(
+    raw_score: float, rolling_score: float, imu_dead: bool, config: ScoringConfig = CONFIG
+) -> float:
+    """Cap a trip score's *upside* when the accelerometer was not live (CAR-190).
+
+    Same asymmetry as `apply_confidence`, but keyed on IMU health instead of GPS
+    coverage: `gps_confidence` stays a GPS-only measure. Unlike GPS confidence
+    this signal is boolean, not continuous, so the cap is binary rather than
+    blended — dead caps at `min(rolling_score, imu_dead_score_ceiling)`, live or
+    unknown passes through untouched.
+    """
+    if raw_score <= rolling_score or not imu_dead:
+        return raw_score
+    return round(min(rolling_score, config.imu_dead_score_ceiling) * 10) / 10
 
 
 # ─── Stage 6 — driver score (EWMA over exposure + credibility) ──────────────────
