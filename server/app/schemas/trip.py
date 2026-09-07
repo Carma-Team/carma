@@ -65,6 +65,7 @@ class SaveTripIn(CamelModel):
     )
     start_location: str | None = None
     end_location: str | None = None
+    ai_insight: str | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -29,6 +29,3 @@ pyshp==2.3.1
 # internal route that moves a megabyte a few times a week. See
 # services/recording_store.py.
 azure-storage-blob==12.26.0
-# Per-trip AI insight (app/services/insights.py). Free tier, no billing account
-# required — see GEMINI_API_KEY in .env.example.
-google-genai==1.67.0

@@ -4,14 +4,12 @@ import hashlib
 import hmac as _hmac
 import json
 import math
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, func, select, update
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,7 +27,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import insights, levels, notifications, scoring, speed_limits, telemetry
+from app.services import levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -117,19 +115,6 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
-}
-
-
-# Which persisted column backs the occurrence count `insights.generate` cites
-# for each weakest_factor. `touch_epochs` (pickups), not
-# `screen_interaction_seconds` (a duration) — the prompt says "N מקרים",
-# which a pickup count answers and a second count does not. Speeding has no
-# entry: Trip stores no ratio/occurrences column for it.
-_WEAKEST_FACTOR_COUNT: dict[str, Callable[[Trip], int | None]] = {
-    "braking": lambda t: t.hard_brakes,
-    "acceleration": lambda t: t.aggressive_accels,
-    "cornering": lambda t: t.sharp_turns,
-    "distraction": lambda t: t.touch_epochs,
 }
 
 
@@ -664,48 +649,6 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     return trip
 
 
-async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
-    """Generate the coaching sentence on first view, and never retry it after.
-
-    Deliberately not folded into `get_by_id`: that function is also used as a
-    pure ownership check (`occupancy.py`'s declare/get, both 404-guards that
-    never look at the trip's fields), and those are reachable from the
-    post-trip summary modal — exactly the hot path a Gemini call must stay off
-    of. Call this only from the trip-detail route.
-
-    `ai_insight_attempted_at` is set whether or not the call produced text, so
-    a quota-exhausted or erroring attempt is not retried on the next view —
-    the free Gemini tier's daily budget would otherwise be spent re-trying
-    trips that already failed once.
-
-    The attempt is claimed with an atomic UPDATE before calling out, not by
-    checking the field on `trip` and setting it after: two requests racing the
-    same first view (a client retry, a double-tap) would otherwise both pass
-    the check before either commits, and both would call Gemini.
-    """
-    if trip.ai_insight is not None or trip.ai_insight_attempted_at is not None or trip.score_v2 is None:
-        return trip
-
-    claimed: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
-        update(Trip)
-        .where(Trip.id == trip.id, Trip.ai_insight_attempted_at.is_(None), Trip.ai_insight.is_(None))
-        .values(ai_insight_attempted_at=datetime.now(UTC))
-    )
-    await db.commit()
-    if claimed.rowcount == 0:
-        return trip
-
-    counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
-    occurrences = counter(trip) if counter else None
-    insight = await insights.generate(
-        trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
-    )
-    if insight:
-        trip.ai_insight = insight
-        await db.commit()
-    return trip
-
-
 async def save(
     db: AsyncSession,
     user: User,
@@ -843,9 +786,7 @@ async def save(
         screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
-        # Generated lazily on first view (ensure_ai_insight, called only from the
-        # trip-detail route), once weakest_factor exists to build a prompt from.
-        ai_insight=None,
+        ai_insight=dto.ai_insight,
         accel_available=accel_available,
         accel_init_failed=accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
