@@ -1,4 +1,7 @@
-import { SyncManager, BACKOFF_MS, MAX_FAILURES_BEFORE_DROP } from '@/services/sync/SyncManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  SyncManager, BACKOFF_MS, MAX_QUEUE_AGE_MS, STUCK_AFTER, QUEUE_KEY,
+} from '@/services/sync/SyncManager';
 import { ApiError } from '@/services/api/client';
 import { tripsApi } from '@/services/api/trips.api';
 import type { ValidTripPayload } from '@/services/sync/types';
@@ -72,6 +75,7 @@ beforeEach(async () => {
   await SyncManager.clearQueue();
   mockSave.mockReset();
   SyncManager.onTripSynced = undefined;
+  SyncManager.onTripAbandoned = undefined;
 });
 
 // ─── Enqueue ──────────────────────────────────────────────────────────────────
@@ -336,11 +340,11 @@ describe('retry budget and backoff', () => {
     expect(mockSave).toHaveBeenCalledTimes(2);
   });
 
-  test('429s never spend the delete budget, however many arrive', async () => {
+  test('429s never bring a trip closer to being given up on, however many arrive', async () => {
     mockSave.mockRejectedValue(rateLimited());
     await SyncManager.enqueue(makePayload('trip_throttled'));
 
-    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP + 5; i++) {
+    for (let i = 0; i < 55; i++) {
       await SyncManager.flushQueue();
       clock += RATE_LIMIT_WAIT_SECONDS * 1000;
     }
@@ -348,22 +352,67 @@ describe('retry budget and backoff', () => {
     expect(await SyncManager.getQueueLength()).toBe(1);
   });
 
-  test('a trip is dropped once the failure budget is exhausted', async () => {
+  // The counter that used to delete a trip is gone. Age is the only bound, so no number of
+  // failures inside it may lose a drive the driver actually took — this is CAR-138's line.
+  test('a trip under the age bound survives far more failures than the old budget allowed', async () => {
+    const onAbandoned = jest.fn();
+    SyncManager.onTripAbandoned = onAbandoned;
     mockSave.mockRejectedValue(new Error('Network request failed'));
-    await SyncManager.enqueue(makePayload('trip_exhausted'));
+    await SyncManager.enqueue(makePayload('trip_stubborn'));
 
-    for (let i = 0; i < MAX_FAILURES_BEFORE_DROP; i++) {
+    for (let i = 0; i < 55; i++) {
       await SyncManager.flushQueue();
-      clock += LONGEST_BACKOFF_MS;
+      clock += LONGEST_BACKOFF_MS;   // 55 hours total, far inside the 30-day bound
     }
-    // Budget exactly spent — the trip is still queued and was retried every time
-    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
-    expect(await SyncManager.getQueueLength()).toBe(1);
 
-    // The next pass is the one that drops it, without another attempt
+    expect(mockSave).toHaveBeenCalledTimes(55);
+    expect(onAbandoned).not.toHaveBeenCalled();
+    expect(await SyncManager.getQueueLength()).toBe(1);
+  });
+});
+
+// ─── Age bound (CAR-166) ──────────────────────────────────────────────────────
+// A trip that outlives the bound leaves the queue, but is abandoned rather than deleted:
+// the row stays on the device flagged as never sent, which is what AppContext wires
+// `onTripAbandoned` to do.
+
+describe('age bound', () => {
+  let clock = 0;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-09-07T09:00:00.000Z');
+    jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('a trip past the age bound is abandoned, and is not attempted again first', async () => {
+    const onAbandoned = jest.fn();
+    SyncManager.onTripAbandoned = onAbandoned;
+    await SyncManager.enqueue(makePayload('trip_old'));
+
+    clock += MAX_QUEUE_AGE_MS;
     await SyncManager.flushQueue();
-    expect(mockSave).toHaveBeenCalledTimes(MAX_FAILURES_BEFORE_DROP);
+
+    expect(onAbandoned).toHaveBeenCalledWith('trip_old');
+    expect(mockSave).not.toHaveBeenCalled();
     expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+
+  test('a trip one millisecond short of the bound is still retried', async () => {
+    const onAbandoned = jest.fn();
+    SyncManager.onTripAbandoned = onAbandoned;
+    mockSave.mockRejectedValue(new Error('Network request failed'));
+    await SyncManager.enqueue(makePayload('trip_almost'));
+
+    clock += MAX_QUEUE_AGE_MS - 1;
+    await SyncManager.flushQueue();
+
+    expect(onAbandoned).not.toHaveBeenCalled();
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(await SyncManager.getQueueLength()).toBe(1);
   });
 });
 
@@ -397,5 +446,115 @@ describe('request timeout (408)', () => {
 
     expect(mockSave).toHaveBeenCalledTimes(2);
     expect(await SyncManager.getQueueLength()).toBe(0);
+  });
+});
+
+// ─── Stuck head item (CAR-311) ────────────────────────────────────────────────
+// The queue halts on the first item it cannot send, which is what keeps uploads in order.
+// The cost was that one trip the server will not take blocked every trip behind it for as
+// long as it stayed queued. A stuck item is now stepped over instead, and whether the items
+// behind it then succeed is the evidence separating a broken trip from a broken network —
+// something no attempt counter on the head item alone can tell apart.
+
+describe('stuck head item', () => {
+  const LONGEST_BACKOFF_MS = BACKOFF_MS[BACKOFF_MS.length - 1];
+  const RATE_LIMIT_WAIT_SECONDS = 60;
+
+  let clock = 0;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-09-07T09:00:00.000Z');
+    jest.spyOn(Date, 'now').mockImplementation(() => clock);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // Outcome per trip id, so a pass that walks several items resolves each one the same way
+  // however many times it is reached.
+  function saveBy(outcomes: Record<string, 'ok' | 'fail'>) {
+    mockSave.mockImplementation((payload: ValidTripPayload) =>
+      outcomes[payload.localTripId] === 'ok'
+        ? Promise.resolve(makeServerTrip(payload.localTripId))
+        : Promise.reject(new Error('Network request failed')),
+    );
+  }
+
+  // Walks the head up to STUCK_AFTER consecutive failures. Every pass halts on it, so the
+  // items behind are untouched and the call count is exactly one per pass.
+  async function makeHeadStuck() {
+    for (let i = 0; i < STUCK_AFTER; i++) {
+      await SyncManager.flushQueue();
+      clock += LONGEST_BACKOFF_MS;
+    }
+    expect(mockSave).toHaveBeenCalledTimes(STUCK_AFTER);
+  }
+
+  test('the queue drains past a stuck head instead of waiting on it', async () => {
+    saveBy({ trip_stuck: 'fail', trip_b: 'ok', trip_c: 'ok' });
+    await SyncManager.enqueue(makePayload('trip_stuck'));
+    await SyncManager.enqueue(makePayload('trip_b'));
+    await SyncManager.enqueue(makePayload('trip_c'));
+
+    await makeHeadStuck();
+    expect(await SyncManager.getQueueLength()).toBe(3);
+
+    await SyncManager.flushQueue();
+
+    // The head is attempted first and fails, then both trips behind it go through
+    expect(mockSave).toHaveBeenCalledTimes(STUCK_AFTER + 3);
+    expect(await SyncManager.getQueueLength()).toBe(1);
+  });
+
+  test('a real outage still halts — the skip costs one extra request, not a whole walk', async () => {
+    saveBy({ trip_stuck: 'fail', trip_b: 'fail', trip_c: 'fail' });
+    await SyncManager.enqueue(makePayload('trip_stuck'));
+    await SyncManager.enqueue(makePayload('trip_b'));
+    await SyncManager.enqueue(makePayload('trip_c'));
+
+    await makeHeadStuck();
+    await SyncManager.flushQueue();
+
+    // Head plus exactly one item behind it — trip_c is never reached
+    expect(mockSave).toHaveBeenCalledTimes(STUCK_AFTER + 2);
+    expect(await SyncManager.getQueueLength()).toBe(3);
+  });
+
+  test('a stepped-over item keeps its place at the head of the queue', async () => {
+    saveBy({ trip_stuck: 'fail', trip_b: 'ok', trip_c: 'fail' });
+    await SyncManager.enqueue(makePayload('trip_stuck'));
+    await SyncManager.enqueue(makePayload('trip_b'));
+    await SyncManager.enqueue(makePayload('trip_c'));
+
+    await makeHeadStuck();
+    await SyncManager.flushQueue();
+
+    const raw = await AsyncStorage.getItem(QUEUE_KEY);
+    expect(JSON.parse(raw as string).map((i: { id: string }) => i.id)).toEqual([
+      'trip_stuck',
+      'trip_c',
+    ]);
+  });
+
+  // A rate limit is shared with every other driver behind the same carrier NAT, so the
+  // trips behind the head would meet it too. Stepping over the head would spend a request
+  // to learn nothing, which is why a 429 never advances `failures`.
+  test('a head that only ever gets rate-limited is never stepped over', async () => {
+    mockSave.mockRejectedValue(new ApiError(429, 'Too many attempts', RATE_LIMIT_WAIT_SECONDS));
+    await SyncManager.enqueue(makePayload('trip_throttled_head'));
+    await SyncManager.enqueue(makePayload('trip_behind'));
+
+    for (let i = 0; i < STUCK_AFTER + 3; i++) {
+      await SyncManager.flushQueue();
+      clock += RATE_LIMIT_WAIT_SECONDS * 1000;
+    }
+
+    // One attempt per pass, every one of them the head
+    expect(mockSave).toHaveBeenCalledTimes(STUCK_AFTER + 3);
+    for (const [payload] of mockSave.mock.calls) {
+      expect(payload.localTripId).toBe('trip_throttled_head');
+    }
+    expect(await SyncManager.getQueueLength()).toBe(2);
   });
 });

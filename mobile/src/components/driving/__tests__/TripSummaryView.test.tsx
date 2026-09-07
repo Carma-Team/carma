@@ -41,6 +41,15 @@ describe('TripSummaryView', () => {
     expect(screen.getAllByText('--')).toHaveLength(2)
   })
 
+  // Same withheld numbers, opposite promise: this one is not on its way (CAR-312).
+  it('tells a driver a given-up trip will not be sent, not that it will', () => {
+    render(<TripSummaryView summary={summary({ state: 'failed' })} />)
+    expect(screen.queryByText(he.trip.finalScore)).toBeNull()
+    expect(screen.getByText(he.trip.notSentFailed)).toBeOnTheScreen()
+    expect(screen.queryByText(he.trip.notSent)).toBeNull()
+    expect(screen.getAllByText('--')).toHaveLength(2)
+  })
+
   it('explains a trip too short to have been recorded', () => {
     render(<TripSummaryView summary={TOO_SHORT_SUMMARY} />)
     expect(screen.getByText(he.trip.noTripDetected)).toBeOnTheScreen()

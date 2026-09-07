@@ -70,6 +70,19 @@ describe('weeklyScoreTrend', () => {
     expect(trend.dayScores[4]).toBeNull()
   })
 
+  // A trip the sync queue gave up on keeps its placeholder zero forever — nothing is
+  // coming to replace it. It carries `syncFailed` on top of `pendingSync` rather than
+  // instead of it, precisely so this filter still catches it (CAR-166).
+  it('leaves a trip the queue gave up on out of the average too', () => {
+    const trend = weeklyScoreTrend(
+      [trip(sep(1), 90), trip(aug(31), 0, { pendingSync: true, syncFailed: true })],
+      NOW,
+    )
+
+    expect(trend).toMatchObject({ thisWeek: 90 })
+    expect(trend.dayScores[4]).toBeNull()
+  })
+
   it('ignores a trip dated later today rather than scoring driving that has not happened', () => {
     const trend = weeklyScoreTrend([trip(sep(2, 23), 10), trip(sep(1), 90)], NOW)
 

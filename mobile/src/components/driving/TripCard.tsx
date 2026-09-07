@@ -7,6 +7,7 @@ import { formatDate, formatDistance, scoreToGrade, scoreToColor } from '@/lib/ut
 import { useTranslation } from '@/hooks/useTranslation'
 import { COLORS } from '@/constants/theme'
 import { ICONS } from '@/constants/icons'
+import { syncStateOf } from '@/lib/tripSummary'
 import type { Trip } from '@/types'
 
 interface TripCardProps {
@@ -21,11 +22,10 @@ export function TripCard({ trip, onPress, selectable, selected }: TripCardProps)
   const { t, lang } = useTranslation()
   const displayScore = trip.avgScore
   // A row we created ourselves carries zeros until the server scores it, so a grade
-  // badge on one reads as a real zero — the same distinction `tripSummary.ts` makes.
-  // Until there is a score to show, the card shows where the trip got to instead.
-  // `syncFailed` wins over `pendingSync`: a row that was given up on may still carry
-  // the flag it was queued with, and "given up" is the state that matters.
-  const syncState = trip.syncFailed ? 'failed' : trip.pendingSync ? 'pending' : null
+  // badge on one reads as a real zero. Until there is a score to show, the card shows
+  // where the trip got to instead — the same distinction the detail screen makes, from
+  // the same function, so the two cannot drift apart.
+  const syncState = syncStateOf(trip)
   const grade = scoreToGrade(displayScore)
   const badgeVariant = { excellent: 'success', good: 'success', fair: 'warning', poor: 'danger' }[grade] as any
   const eventCount = trip.hardBrakes + trip.aggressiveAccels + trip.sharpTurns
