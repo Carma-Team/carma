@@ -246,6 +246,31 @@ async def test_patch_clears_an_existing_description(db_session: AsyncSession) ->
         await _cleanup(db_session, business)
 
 
+@pytest.mark.asyncio
+async def test_patch_with_explicit_null_persists_null_to_the_db(db_session: AsyncSession) -> None:
+    """The web form clears a description by sending explicit `null`, not `""`
+    (see RewardForm.tsx's toPayload) — distinct from test_patch_clears_an_
+    existing_description above, which only covers the `""` case."""
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        assert created.description_he is not None
+
+        await business_service.update_reward(
+            db_session,
+            business,
+            created.id,
+            BusinessRewardPatchIn.model_validate({"descriptionHe": None}),
+        )
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None
+        await db_session.refresh(reward)  # force a real reload, not just the in-memory identity map
+        assert reward.description_he is None
+    finally:
+        await _cleanup(db_session, business)
+
+
 def test_title_he_is_still_required() -> None:
     with pytest.raises(ValidationError):
         BusinessRewardIn.model_validate({"costPoints": 10})
