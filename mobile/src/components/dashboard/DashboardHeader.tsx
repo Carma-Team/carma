@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
+import { InfoNote } from '@/components/ui/InfoNote';
 import { ICONS } from '@/constants/icons';
 
 interface DashboardHeaderProps {
@@ -21,51 +21,62 @@ export function DashboardHeader({
   userName, currentStreak, bestStreak, pendingRequests, unreadNotifications,
 }: DashboardHeaderProps) {
   const { t } = useTranslation();
-  const { addToast } = useApp();
   const router = useRouter();
   const firstName = userName.split(' ')[0];
+  const [streakOpen, setStreakOpen] = useState(false);
 
   return (
-    <View style={COMMON_STYLES.rowBetween}>
-      <View>
-        <Text style={styles.welcome}>{t('dashboard.welcome')},</Text>
-        <Text style={styles.name}>{firstName}</Text>
+    <View>
+      <View style={COMMON_STYLES.rowBetween}>
+        <View>
+          <Text style={styles.welcome}>{t('dashboard.welcome')},</Text>
+          <Text style={styles.name}>{firstName}</Text>
+        </View>
+        <View style={styles.actions}>
+          {/* The flame and its number said nothing about what they counted. It opens
+              under the badge rather than on a route: one sentence is the whole answer,
+              and a screen for it is one nobody visits twice. */}
+          <TouchableOpacity
+            style={styles.streakBadge}
+            onPress={() => setStreakOpen(open => !open)}
+            accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak ?? '--'}. ${t('stats.bestStreak')}: ${bestStreak ?? '--'}`}
+          >
+            <Ionicons name={ICONS.streak} size={16} color={COLORS.text} />
+            <Text style={styles.streakValue}>{currentStreak ?? '--'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={() => router.push('/(home)/friend-requests')}
+            accessibilityLabel={withCount(t('profile.friendsTitle'), pendingRequests)}
+          >
+            <Ionicons name={ICONS.friendRequests} size={18} color={COLORS.text} />
+            <CountBadge count={pendingRequests} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={() => router.push('/(home)/notifications')}
+            accessibilityLabel={withCount(t('profile.updatesTitle'), unreadNotifications)}
+          >
+            <Ionicons name={ICONS.notifications} size={18} color={COLORS.text} />
+            <CountBadge count={unreadNotifications} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={() => router.push('/(home)/settings')}
+          >
+            <Ionicons name={ICONS.settings} size={18} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
       </View>
-      <View style={styles.actions}>
-        {/* The flame and its number said nothing about what they counted. A toast
-            rather than a screen: one sentence is the whole answer, and a route for it
-            would be a screen nobody visits twice. */}
-        <TouchableOpacity
-          style={styles.streakBadge}
-          onPress={() => addToast({ type: 'info', title: t('stats.currentStreak'), message: t('stats.streakInfo') })}
-          accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak ?? '--'}. ${t('stats.bestStreak')}: ${bestStreak ?? '--'}`}
-        >
-          <Ionicons name={ICONS.streak} size={16} color={COLORS.text} />
-          <Text style={styles.streakValue}>{currentStreak ?? '--'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => router.push('/(home)/friend-requests')}
-          accessibilityLabel={withCount(t('profile.friendsTitle'), pendingRequests)}
-        >
-          <Ionicons name={ICONS.friendRequests} size={18} color={COLORS.text} />
-          <CountBadge count={pendingRequests} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => router.push('/(home)/notifications')}
-          accessibilityLabel={withCount(t('profile.updatesTitle'), unreadNotifications)}
-        >
-          <Ionicons name={ICONS.notifications} size={18} color={COLORS.text} />
-          <CountBadge count={unreadNotifications} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => router.push('/(home)/settings')}
-        >
-          <Ionicons name={ICONS.settings} size={18} color={COLORS.text} />
-        </TouchableOpacity>
-      </View>
+
+      {streakOpen && (
+        <InfoNote
+          title={t('stats.streakTitle')}
+          message={t('stats.streakInfo')}
+          note={t('stats.streakNote')}
+          onClose={() => setStreakOpen(false)}
+        />
+      )}
     </View>
   );
 }

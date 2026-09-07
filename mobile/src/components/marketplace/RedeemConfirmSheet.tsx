@@ -71,7 +71,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5, shadowRadius: 20, elevation: 10,
   },
   closeBtn: {
-    position: 'absolute', top: 14, left: 16,
+    // `end`, like the toast: the close control sits where the text finishes, which
+    // is the left in Hebrew and the right in English.
+    position: 'absolute', top: 14, end: 16,
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center', justifyContent: 'center',

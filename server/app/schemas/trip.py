@@ -160,6 +160,11 @@ class TripOut(CamelModel):
     # (CAR-186), so it says the same thing on every read of the trip and not
     # only in the save response.
     weakest_factor: WeakestFactor | None = None
+    # True when the trip's raw score was capped for a dead accelerometer
+    # (CAR-190) — lets the client tell a degraded-measurement trip apart from
+    # one that was actually measured and went well. Save-response only, like
+    # points_capped and weakest_factor; False on list/detail reads.
+    imu_degraded: bool = False
 
     @classmethod
     def from_orm_trip(
@@ -167,6 +172,7 @@ class TripOut(CamelModel):
         trip: Any,
         points_capped: bool = False,
         user_level: int | None = None,
+        imu_degraded: bool = False,
     ) -> TripOut:
         return cls.model_validate(
             {
@@ -197,6 +203,7 @@ class TripOut(CamelModel):
                 "points_capped": points_capped,
                 "user_level": user_level,
                 "weakest_factor": trip.weakest_factor,
+                "imu_degraded": imu_degraded,
             }
         )
 

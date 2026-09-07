@@ -159,6 +159,7 @@ function mockTrip(
     accelInitFailed: false,
     status: 'scored',
     pointsCapped: false,
+    imuDegraded: false,
     userLevel: user.level,
     // Required by the contract with a server-side default, so a trip detail always
     // has the array. Callers that want markers pass their own through `extra`.

@@ -2608,6 +2608,11 @@ export interface components {
             userLevel?: number | null;
             /** Weakestfactor */
             weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
+            /**
+             * Imudegraded
+             * @default false
+             */
+            imuDegraded: boolean;
             /** Routewaypoints */
             routeWaypoints?: {
                 [key: string]: unknown;
@@ -2684,6 +2689,11 @@ export interface components {
             userLevel?: number | null;
             /** Weakestfactor */
             weakestFactor?: ("braking" | "acceleration" | "cornering" | "speeding" | "distraction") | null;
+            /**
+             * Imudegraded
+             * @default false
+             */
+            imuDegraded: boolean;
         };
         /** TripSingle */
         TripSingle: {

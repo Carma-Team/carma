@@ -9,6 +9,13 @@ import he from '@/i18n/he'
 // only linked in a device build. Neither is what this screen is being tested for.
 jest.mock('@/context/AppContext', () => ({ useApp: () => ({ lang: 'HE' }) }))
 jest.mock('react-native-maps', () => ({ __esModule: true, default: 'MapView', Polyline: 'Polyline', Marker: 'Marker' }))
+// The occupancy control talks to the server on mount; it has its own test file.
+jest.mock('@/services/api/trips.api', () => ({
+  tripsApi: {
+    occupancy: jest.fn().mockResolvedValue({ tripId: 't1', verdict: 'UNKNOWN', excludedFromDriverScore: false }),
+    declareOccupancy: jest.fn(),
+  },
+}))
 
 const summary = (over: Partial<TripSummary> = {}): TripSummary => ({
   id: 't1',

@@ -1,10 +1,6 @@
 /**
- * Two things the card decides on its own: which sync state a row is in, and the event
- * row, which never appeared.
- *
- * The row counted `eventsArray`, a hand-written `any[]` with no schema counterpart that
- * nothing ever wrote — so it was dead while the counts sat on the trip in three
- * separate fields the whole time (CAR-271).
+ * What the card decides on its own: which sync state a row is in, and what it shows
+ * for one. The counters a trip carries are the detail screen's job now.
  */
 import React from 'react'
 import { render, screen } from '@testing-library/react-native'
@@ -34,8 +30,6 @@ const trip = (overrides: Partial<Trip> = {}): Trip =>
     sharpTurns: 0,
     ...overrides,
   }) as Trip
-
-const eventRow = () => screen.queryByText(new RegExp(`\\d+ ${he.trip.events}`))
 
 describe('TripCard — sync state', () => {
   test('a synced trip shows its score and the points it earned', () => {
@@ -71,14 +65,3 @@ describe('TripCard — sync state', () => {
   })
 })
 
-describe('TripCard event row', () => {
-  it('sums the three counters the trip carries', () => {
-    render(<TripCard trip={trip({ hardBrakes: 2, aggressiveAccels: 1, sharpTurns: 3 })} />)
-    expect(screen.getByText(`6 ${he.trip.events}`)).toBeTruthy()
-  })
-
-  it('stays away when nothing was detected', () => {
-    render(<TripCard trip={trip()} />)
-    expect(eventRow()).toBeNull()
-  })
-})

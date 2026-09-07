@@ -7,6 +7,11 @@ import type { AppUser, DrivingStats } from '@/types'
 // Replaced rather than provided: the real context boots the driving SDK and the API
 // layer would reach the network. What is left under test is what the hero is told.
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }))
+// Reached through the trip summary the dashboard mounts, not by this screen itself —
+// the API client holds the token in storage, and the native module is absent here.
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+)
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
   useFocusEffect: jest.fn(),
