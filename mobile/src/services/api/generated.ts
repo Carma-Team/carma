@@ -1616,7 +1616,7 @@ export interface components {
             /** Titleen */
             titleEn?: string | null;
             /** Descriptionhe */
-            descriptionHe: string;
+            descriptionHe?: string | null;
             /** Descriptionen */
             descriptionEn?: string | null;
             /** Category */
@@ -2053,6 +2053,8 @@ export interface components {
             rank: number;
             /** Score */
             score: number;
+            /** Driverscore */
+            driverScore: number;
             /** Distancekm */
             distanceKm: number;
             user: components["schemas"]["LeaderboardUserSummary"];
@@ -2383,7 +2385,7 @@ export interface components {
             /** Titleen */
             titleEn: string | null;
             /** Descriptionhe */
-            descriptionHe: string;
+            descriptionHe: string | null;
             /** Descriptionen */
             descriptionEn: string | null;
             /** Category */
