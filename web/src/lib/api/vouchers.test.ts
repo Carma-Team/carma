@@ -34,6 +34,7 @@ const REWARD = {
   imageIcon: 'gift-outline',
   isActive: true,
   archivedAt: null,
+  trashedAt: null,
   stock: null,
   available: null,
   expiresAt: null,

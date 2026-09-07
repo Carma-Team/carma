@@ -66,6 +66,7 @@ function makeServerTrip(localTripId: string): Trip {
     accelAvailable: null,
     accelInitFailed: null,
     pointsCapped: false,
+    imuDegraded: false,
   };
 }
 

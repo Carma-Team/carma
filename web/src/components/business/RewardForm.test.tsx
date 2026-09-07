@@ -26,6 +26,7 @@ const REWARD: Reward = {
   imageIcon: 'gift-outline',
   isActive: true,
   archivedAt: null,
+  trashedAt: null,
   stock: 5,
   available: 3,
   expiresAt: '2030-06-15T20:59:59.999Z',
@@ -305,6 +306,7 @@ describe('RewardForm', () => {
       descriptionHe: 'תיאור',
       descriptionEn: 'Description',
       category: 'food',
+      imageIcon: 'gift-outline',
       costPoints: 20,
       stock: null,
       expiresAt: expect.any(String),
@@ -321,6 +323,61 @@ describe('RewardForm', () => {
 
     await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createReward).mock.calls[0][0].stock).toBe(25);
+  });
+
+  // ── icon picker ──────────────────────────────────────────────────────────
+
+  it('defaults a new reward to the generic gift icon and submits it untouched', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm();
+
+    expect(screen.getByRole('button', { name: /אייקון ההטבה/ })).toHaveTextContent('הטבה כללית');
+
+    fillValidCreateForm();
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].imageIcon).toBe('gift-outline');
+  });
+
+  it('prefills the icon picker from the existing reward in edit mode', () => {
+    renderForm({ mode: 'edit', reward: { ...REWARD, imageIcon: 'cafe-outline' } });
+
+    expect(screen.getByRole('button', { name: /אייקון ההטבה/ })).toHaveTextContent('קפה');
+  });
+
+  it('falls back to the generic gift icon for a legacy reward with an unrecognized icon value', () => {
+    renderForm({ mode: 'edit', reward: { ...REWARD, imageIcon: 'some-retired-emoji-key' } });
+
+    expect(screen.getByRole('button', { name: /אייקון ההטבה/ })).toHaveTextContent('הטבה כללית');
+  });
+
+  it('lets a business search for and pick a different icon, and submits the new value', async () => {
+    vi.mocked(createReward).mockResolvedValue({ outcome: 'ok', reward: REWARD });
+    renderForm();
+
+    fireEvent.click(screen.getByRole('button', { name: /אייקון ההטבה/ }));
+    fireEvent.change(screen.getByPlaceholderText('חיפוש אייקונים'), { target: { value: 'קפה' } });
+    fireEvent.click(screen.getByRole('button', { name: 'קפה' }));
+
+    expect(screen.getByRole('button', { name: /אייקון ההטבה/ })).toHaveTextContent('קפה');
+    // Selecting an icon closes the panel — the search field it held is gone.
+    expect(screen.queryByPlaceholderText('חיפוש אייקונים')).not.toBeInTheDocument();
+
+    fillValidCreateForm();
+    fireEvent.click(screen.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(createReward).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createReward).mock.calls[0][0].imageIcon).toBe('cafe-outline');
+  });
+
+  it('shows a no-results message for an icon search that matches nothing', () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole('button', { name: /אייקון ההטבה/ }));
+    fireEvent.change(screen.getByPlaceholderText('חיפוש אייקונים'), { target: { value: 'zzzzz' } });
+
+    expect(screen.getByText('לא נמצאו אייקונים תואמים.')).toBeInTheDocument();
   });
 
   it('rejects submission when the English title is left blank — neither language may be silently missing', async () => {

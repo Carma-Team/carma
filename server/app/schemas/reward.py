@@ -24,6 +24,10 @@ class RewardOut(CamelModel):
     # None while the reward is still in the catalog; set once a business archives
     # it (CAR-111). Independent of is_active — see the model for why.
     archived_at: datetime | None
+    # None unless the business has moved this reward to trash — a
+    # step past archived, independent of it. deleted_at never appears here: a
+    # tombstoned reward is filtered out of every business response entirely.
+    trashed_at: datetime | None
     # stock is the total the business allocated; available is what is left of it
     # right now. Both use None for "unlimited". `available` is passed in rather
     # than read off the model because it is derived from the redemptions ledger,
@@ -49,6 +53,7 @@ class RewardOut(CamelModel):
                 "image_icon": reward.image_icon,
                 "is_active": reward.is_active,
                 "archived_at": reward.archived_at,
+                "trashed_at": reward.trashed_at,
                 "stock": reward.stock,
                 "available": available,
                 "expires_at": reward.expires_at,
@@ -206,7 +211,7 @@ class BusinessRewardListOut(CamelModel):
 
 
 class LiveVoucherCountOut(CamelModel):
-    """How many outstanding vouchers a reward has right now — check before archiving it."""
+    """How many outstanding vouchers a reward has right now — check before archiving or trashing it."""
 
     live_vouchers: int
 

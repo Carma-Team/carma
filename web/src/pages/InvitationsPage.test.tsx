@@ -22,9 +22,16 @@ const CREATED: CreatedInvitation = {
   id: 'inv-2',
   role: 'cashier',
   token: 'TXQ947ZKPS',
-  url: 'https://business.carma.app/business-invite#TXQ947ZKPS',
   expiresAt: '2026-09-02T00:00:00Z',
 };
+
+// jsdom's default origin, hardcoded here rather than read from
+// `window.location.origin` — reading it back would let this expectation and
+// `businessInviteUrl` (lib/api/businessInvitations.ts) drift together if its
+// origin/path/fragment format ever changed. Asserted below so this constant
+// fails loudly if jsdom's default ever changes out from under it.
+const TEST_ORIGIN = 'http://localhost:3000';
+const CREATED_URL = `${TEST_ORIGIN}/business-invite#${CREATED.token}`;
 
 function renderPage() {
   return render(
@@ -37,6 +44,10 @@ function renderPage() {
 }
 
 describe('InvitationsPage', () => {
+  it('assumes the jsdom test-environment origin this file\'s fixtures are built on', () => {
+    expect(window.location.origin).toBe(TEST_ORIGIN);
+  });
+
   beforeEach(() => {
     window.localStorage.clear();
     HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
@@ -93,7 +104,7 @@ describe('InvitationsPage', () => {
 
     await waitFor(() => expect(createInvitation).toHaveBeenCalledExactlyOnceWith('cashier'));
     expect(screen.getByText('בתוקף ל-72 שעות, וניתנת לשימוש חד-פעמי בלבד.')).toBeInTheDocument();
-    expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument();
     expect(screen.getByDisplayValue(CREATED.token)).toBeInTheDocument();
   });
 
@@ -104,10 +115,10 @@ describe('InvitationsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
-    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'העתקת הקישור' }));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(CREATED.url));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(CREATED_URL));
     await waitFor(() => expect(screen.getAllByText('הועתק').length).toBeGreaterThan(0));
 
     fireEvent.click(screen.getByRole('button', { name: 'העתקת הקוד' }));
@@ -132,7 +143,7 @@ describe('InvitationsPage', () => {
     fireEvent.click(createButton);
 
     resolveCreate({ outcome: 'ok', invitation: CREATED });
-    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument());
     expect(createInvitation).toHaveBeenCalledOnce();
   });
 
@@ -232,7 +243,7 @@ describe('InvitationsPage', () => {
     await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
-    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument());
 
     expect(screen.getByRole('button', { name: 'יצירת הזמנה' })).toBeDisabled();
     expect(screen.getByLabelText('רמת גישה')).toBeDisabled();
@@ -261,14 +272,14 @@ describe('InvitationsPage', () => {
 
     const createButton = screen.getByRole('button', { name: 'יצירת הזמנה' });
     fireEvent.click(createButton);
-    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument());
     expect(createInvitation).toHaveBeenCalledOnce();
 
     createButton.removeAttribute('disabled');
     fireEvent.click(createButton);
 
     expect(createInvitation).toHaveBeenCalledOnce();
-    expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument();
   });
 
   it('renders in Hebrew with RTL by default, and switches to English/LTR copy when the stored language is EN', async () => {
@@ -313,7 +324,7 @@ describe('InvitationsPage', () => {
     await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
 
-    await waitFor(() => expect(screen.getByLabelText('קישור להזמנה')).toHaveValue(CREATED.url));
+    await waitFor(() => expect(screen.getByLabelText('קישור להזמנה')).toHaveValue(CREATED_URL));
     expect(screen.getByLabelText('קוד ההזמנה')).toHaveValue(CREATED.token);
   });
 
@@ -324,7 +335,7 @@ describe('InvitationsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('אין הזמנות ממתינות')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'יצירת הזמנה' }));
-    await waitFor(() => expect(screen.getByDisplayValue(CREATED.url)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue(CREATED_URL)).toBeInTheDocument());
 
     const copyLinkButton = screen.getByRole('button', { name: 'העתקת הקישור' });
     expect(copyLinkButton).toHaveAttribute('aria-live', 'polite');

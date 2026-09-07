@@ -36,13 +36,13 @@ const rewards: Reward[] = [
     id: 'mock-catalog-1', businessId: 'mock-business-id', business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'שובר דלק 50 ש"ח', titleEn: '50₪ Fuel Voucher', descriptionHe: 'שובר לתדלוק', descriptionEn: 'A fuel voucher',
     category: 'fuel', costPoints: 500, imageIcon: 'car-outline', isActive: true, archivedAt: null,
-    stock: null, available: null, expiresAt: null,
+    trashedAt: null, stock: null, available: null, expiresAt: null,
   },
   {
     id: 'mock-catalog-2', businessId: 'mock-business-id', business: 'Mock Business', businessHe: 'עסק לדוגמה',
     titleHe: 'כרטיס קולנוע', titleEn: 'Movie Ticket', descriptionHe: 'כרטיס לסרט', descriptionEn: 'One movie ticket',
     category: 'entertainment', costPoints: 800, imageIcon: 'film-outline', isActive: true, archivedAt: null,
-    stock: 20, available: 20, expiresAt: null,
+    trashedAt: null, stock: 20, available: 20, expiresAt: null,
   },
 ];
 
@@ -159,6 +159,7 @@ function mockTrip(
     accelInitFailed: false,
     status: 'scored',
     pointsCapped: false,
+    imuDegraded: false,
     userLevel: user.level,
     // Required by the contract with a server-side default, so a trip detail always
     // has the array. Callers that want markers pass their own through `extra`.
