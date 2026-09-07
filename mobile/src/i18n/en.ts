@@ -174,6 +174,7 @@ const en: TranslationMap = {
   leaderboard: {
     title: 'Leaderboard', friends: 'Friends', city: 'City', national: 'National',
     score: 'Driving score', you: 'You',
+    legend: 'The board lists drivers in Israel next to their driving score.',
     noFriends: 'No friends yet',
     showing_city: 'Showing drivers in',
     search: 'Search',
@@ -238,7 +239,7 @@ const en: TranslationMap = {
     totalPoints: 'Points Earned', totalDuration: 'Drive Time', noData: 'No data yet',
     currentStreak: 'Current Streak', bestStreak: 'Best Streak',
     streakTitle: 'Driving streak',
-    streakInfo: 'A daily score of 80 or above extends your streak, and a lower score resets it.',
+    streakInfo: 'A streak of daily scores of 80 or above. A daily score below 80 resets the streak.',
     streakNote: 'Good to know: days without driving are not counted and do not break the streak.',
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
