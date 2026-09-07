@@ -14,8 +14,16 @@ keyed on a phone number because nobody is signed in when one is minted, and
 relaxing its phone column to nullable would have touched the one table the
 login, registration and reset doors all read.
 
-Revision ID: 0037_email_verification
-Revises: 24b7ca343591
+Renumbered from 0037 while it waited for review. `0037_reward_desc_he_optional`
+took that number on develop, `0038_trip_weakest_factor` landed beside it, and
+`9b091ac0fd71` rejoined the two - so this chains onto the merge point. The
+revision id moved with the filename instead of staying `0037_email_verification`
+the way `0027_trip_imu_health` kept its name: this migration has never been
+merged, so the only database stamped with the old id is a local one, and that
+needs an `alembic downgrade` against the previous commit before pulling this.
+
+Revision ID: 0039_email_verification
+Revises: 9b091ac0fd71
 Create Date: 2026-09-06 00:00:00.000000
 """
 
@@ -25,8 +33,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0037_email_verification"
-down_revision: str | None = "24b7ca343591"
+revision: str = "0039_email_verification"
+down_revision: str | None = "9b091ac0fd71"
 branch_labels: str | None = None
 depends_on: str | None = None
 
