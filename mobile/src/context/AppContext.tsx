@@ -304,6 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           endLocation: null,
           aiInsight: null,
           pointsCapped: false,
+          imuDegraded: false,
           pendingSync: true,
           // Not server-only: the SDK measured these during the trip we just
           // ended, and they are already in the payload queued for sync. Writing
