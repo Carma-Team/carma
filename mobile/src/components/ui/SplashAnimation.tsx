@@ -244,7 +244,7 @@ export default function SplashAnimation({ ready, onDone }: Props) {
               key={letter.id}
               style={{
                 position: 'absolute',
-                left: letter.x * k,
+                left: 0,
                 width: letter.width * k,
                 height: lockHeight,
                 opacity: letters[i].interpolate({
@@ -253,6 +253,12 @@ export default function SplashAnimation({ ready, onDone }: Props) {
                   extrapolate: 'clamp',
                 }),
                 transform: [
+                  // The wordmark is English in both languages, so it has to lay
+                  // out left to right even with the app in Hebrew. `left` cannot
+                  // do that: RTL makes React Native read it as `start`, which
+                  // mirrors the lock-up. Transforms are physical and are never
+                  // flipped, so the x offset is carried as one.
+                  { translateX: letter.x * k },
                   {
                     translateX: letters[i].interpolate({
                       inputRange: [0, 1],
@@ -283,10 +289,12 @@ export default function SplashAnimation({ ready, onDone }: Props) {
           <Animated.View
             style={{
               position: 'absolute',
-              left: C_BOX.x * k,
+              left: 0,
               width: C_BOX.width * k,
               height: lockHeight,
               transform: [
+                // Same reason as the letters above: physical offset, not `left`.
+                { translateX: C_BOX.x * k },
                 { scale: assemble.interpolate({ inputRange: [0, 1], outputRange: [C_START_SCALE, 1] }) },
                 {
                   rotate: assemble.interpolate({
