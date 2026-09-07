@@ -526,9 +526,13 @@ async def _compute_score(
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
-    trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
-    trip_score = scoring.apply_imu_confidence(trip_score, rolling, imu_dead)
+    # IMU cap first: a sparse GPS trace can independently floor the score at
+    # `rolling`, and if that ran first a dead-sensor trip would read raw <=
+    # rolling to `apply_imu_confidence` and skip the absolute ceiling below it
+    # — exactly the farm-proofing gap CAR-190 exists to close.
+    trip_score = scoring.apply_imu_confidence(trip_v2.score, rolling, imu_dead)
     imu_degraded = imu_dead and trip_score < trip_v2.score
+    trip_score = scoring.apply_confidence(trip_score, rolling, gps.confidence)
 
     # Serialise per driver before reading the day's history: the anti-grind caps
     # below are measured against committed trips, so concurrent saves would each

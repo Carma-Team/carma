@@ -262,3 +262,26 @@ async def test_a_live_accelerometer_is_not_capped(db_session: AsyncSession) -> N
 
     assert uncapped.avg_score > scoring.CONFIG.imu_dead_score_ceiling
     assert uncapped.imu_degraded is False
+
+
+@pytest.mark.asyncio
+async def test_a_sparse_trace_does_not_let_a_dead_accelerometer_dodge_the_ceiling(
+    db_session: AsyncSession,
+) -> None:
+    """The two caps have to compose, or a bad GPS trace hides the accelerometer
+    being off.
+
+    No waypoints floors `gps_confidence` at 0, which alone caps the trip at the
+    rolling standing (95). If the IMU cap ran second it would see `raw <=
+    rolling` and no-op, so the absolute ceiling below the rolling standing
+    would never engage — the exact farm case this ticket names.
+    """
+    driver = await _driver(db_session)
+    driver.driver_score = 95.0
+    await db_session.commit()
+
+    trip = _trip(accelAvailable=False, accelInitFailed=True)
+    capped = await trips_service.save(db_session, driver, trip)
+
+    assert capped.avg_score == scoring.CONFIG.imu_dead_score_ceiling
+    assert capped.imu_degraded is True
