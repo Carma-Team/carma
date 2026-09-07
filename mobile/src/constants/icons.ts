@@ -71,6 +71,8 @@ export const ICONS = {
   trendFlat:      'remove'                    as IoniconName,
   // Trip waiting to reach the server — not an error, so no warning triangle.
   notSent:        'cloud-offline'             as IoniconName,
+  // The night-hours points incentive on a trip summary.
+  night:          'moon-outline'              as IoniconName,
   // A trip the user rode rather than drove. Deliberately not a steering wheel or a
   // person-off glyph: neither says "someone else was driving" without a caption.
   passenger:      'people-outline'            as IoniconName,

@@ -66,6 +66,14 @@ export interface TripSummary {
   points: number;
   distanceKm: number;
   durationSeconds: number;
+  /**
+   * The time-of-day multiplier before the score taper — 1 by day, 1.5 or 2 at night.
+   * Carried alongside the effective one because it is the base, not the effective
+   * value, that says whether this was a night trip at all: on a night trip scored at
+   * or below the taper floor the effective is exactly 1, which is also what a daytime
+   * trip reads, and the incentive is worth stating on exactly that trip.
+   */
+  riskMultiplier: number;
   effectiveRiskMultiplier: number;
   pointsCapped: boolean;
   routeWaypoints: RouteWaypoint[];
@@ -79,6 +87,7 @@ export const TOO_SHORT_SUMMARY: TripSummary = {
   points: 0,
   distanceKm: 0,
   durationSeconds: 0,
+  riskMultiplier: 1,
   effectiveRiskMultiplier: 1,
   pointsCapped: false,
   routeWaypoints: [],
@@ -104,6 +113,7 @@ export function fromLocalTrip(
     points: Math.round(savedTrip?.points ?? 0),
     distanceKm:      local.distanceKm,
     durationSeconds: local.durationSeconds,
+    riskMultiplier:          savedTrip?.riskMultiplier ?? 1,
     effectiveRiskMultiplier: savedTrip?.effectiveRiskMultiplier ?? savedTrip?.riskMultiplier ?? 1,
     pointsCapped:            savedTrip?.pointsCapped ?? false,
     routeWaypoints: tripData?.waypoints ?? [],
@@ -131,6 +141,7 @@ export function fromServerTrip(
     points: Math.round(trip.points || 0),
     distanceKm:      trip.distanceKm ?? 0,
     durationSeconds: trip.durationSeconds ?? 0,
+    riskMultiplier:          trip.riskMultiplier ?? 1,
     effectiveRiskMultiplier: trip.effectiveRiskMultiplier ?? trip.riskMultiplier ?? 1,
     pointsCapped:            trip.pointsCapped ?? false,
     routeWaypoints,
