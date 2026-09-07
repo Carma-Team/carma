@@ -57,6 +57,7 @@ const PAYLOAD: RewardPayload = {
   descriptionHe: 'תיאור',
   descriptionEn: 'Description',
   category: 'food',
+  imageIcon: 'gift-outline',
   costPoints: 10,
   stock: null,
   expiresAt: '2030-01-01T21:59:59.999Z',

@@ -1,0 +1,142 @@
+/*
+ * Matches docs/business-portal-design/CARMA Rewards Management.dc.html,
+ * screen 01 (rewards grid) — pastel category header with a centered icon,
+ * status badge inside it, title/description/metadata below.
+ */
+/* Not built on the shared <Card> — its `.default` variant always carries
+   `padding: var(--space-lg)` (Card.module.css), and the approved design's
+   header image bleeds edge-to-edge with padding only on the body below it. */
+.card {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.header {
+  height: 6rem;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background-color: var(--color-neutral-surface);
+  color: var(--color-neutral-text);
+}
+
+.header[data-category='fuel'] {
+  background-color: var(--color-warning-surface);
+  color: var(--color-warning-text-strong);
+}
+
+.header[data-category='food'] {
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-strong);
+}
+
+.header[data-category='eco'] {
+  background-color: var(--color-success-surface);
+  color: var(--color-success-text-strong);
+}
+
+.header[data-category='entertainment'] {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-strong);
+}
+
+/* Archived/trashed/paused rewards read as inactive at a glance — the same
+   desaturated treatment the approved design gives a paused card's header
+   (screen 01, card 4), regardless of which category color it would
+   otherwise carry. */
+.header[data-muted='true'] {
+  background-color: var(--color-neutral-surface);
+  color: var(--color-text-disabled);
+}
+
+.badge {
+  position: absolute;
+  top: var(--space-sm);
+  inset-inline-end: var(--space-sm);
+  background-color: var(--color-surface);
+}
+
+/* flex: 1, not just flex-direction: column — the grid on RewardsPage
+   stretches every card to the tallest one in its row (CSS Grid's default
+   align-items: stretch), so a short card's .card is already the full row
+   height; .body must claim that height too, or the divider/actions below
+   just sit high up in a tall block of blank space underneath a short card
+   next to a long-titled one. */
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+}
+
+.categoryRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-faint);
+}
+
+.metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-block: var(--space-sm);
+}
+
+.metadataRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.metadataIcon {
+  flex: none;
+  color: var(--color-text-faint);
+}
+
+.metadataRow[data-emphasis='true'] {
+  font-weight: var(--font-weight-label);
+}
+
+.metadataRow[data-emphasis='true'] .metadataIcon {
+  color: var(--color-primary);
+}
+
+.metadataRow[data-warn='true'] {
+  color: var(--color-warning-text);
+}
+
+.metadataRow[data-warn='true'] .metadataIcon {
+  color: var(--color-warning-text-strong);
+}
+
+.divider {
+  height: 1px;
+  background-color: var(--color-divider);
+  /* Pushes itself (and the actions row after it) to the bottom of .body's
+     now-stretched height — see .body's own comment. */
+  margin-top: auto;
+  margin-bottom: var(--space-xs);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* The primary action (Edit / Add stock / Reactivate / Restore) fills the
+   row; the "..." trigger beside it stays its own fixed square size — matches
+   the approved design's [flex: 1][34px] pair (screen 01). */
+.actions > :first-child {
+  flex: 1;
+}

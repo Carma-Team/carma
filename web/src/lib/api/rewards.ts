@@ -34,11 +34,11 @@ export type Reward = {
 };
 
 // What the form actually collects and the server actually accepts (a subset
-// of BusinessRewardIn/BusinessRewardPatchIn — image_icon and is_active stay
-// server defaults, out of this ticket's scope). `stock: null` is sent
-// explicitly for "unlimited", never omitted — omitting a field from a PATCH
-// body means "leave it as it was" server-side (`model_dump(exclude_unset=True)`
-// in `services/business.py::update_reward`), so a blank allocation field must
+// of BusinessRewardIn/BusinessRewardPatchIn — is_active stays a server
+// default, out of this ticket's scope). `stock: null` is sent explicitly for
+// "unlimited", never omitted — omitting a field from a PATCH body means
+// "leave it as it was" server-side (`model_dump(exclude_unset=True)` in
+// `services/business.py::update_reward`), so a blank allocation field must
 // serialize to an explicit null to actually clear a previously-set stock.
 export type RewardPayload = {
   titleHe: string;
@@ -47,6 +47,7 @@ export type RewardPayload = {
   descriptionEn: string | null;
   category: string;
   costPoints: number;
+  imageIcon: string;
   stock: number | null;
   // null is a real, first-class value here (matches the server's
   // `expires_at: datetime | None` — no expiry at all), sent explicitly for

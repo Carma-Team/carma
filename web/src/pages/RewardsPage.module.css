@@ -64,24 +64,8 @@
   gap: var(--space-xs);
 }
 
-.cardTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-}
-
 .skeletonBlock {
   border-radius: var(--radius-md, 12px);
-}
-
-.detailRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding-block: var(--space-xs);
-  border-top: 1px solid var(--color-border);
 }
 
 .actions {
