@@ -31,6 +31,7 @@ function reward(overrides: Partial<Reward> = {}): Reward {
     imageIcon: 'gift-outline',
     isActive: true,
     archivedAt: null,
+    trashedAt: null,
     stock: null,
     available: null,
     expiresAt: null,

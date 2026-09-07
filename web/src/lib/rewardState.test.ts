@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getRewardState,
   isArchived,
+  isTrashed,
   isEnded,
   matchesTab,
   expiryDateInputToIso,
@@ -29,6 +30,7 @@ function reward(overrides: Partial<Reward> = {}): Reward {
     imageIcon: 'gift-outline',
     isActive: true,
     archivedAt: null,
+    trashedAt: null,
     stock: null,
     available: null,
     expiresAt: null,
@@ -112,8 +114,18 @@ describe('isArchived', () => {
   });
 });
 
+describe('isTrashed', () => {
+  it('is false when trashedAt is null', () => {
+    expect(isTrashed(reward({ trashedAt: null }))).toBe(false);
+  });
+
+  it('is true once trashedAt is set, independently of archivedAt', () => {
+    expect(isTrashed(reward({ trashedAt: '2026-01-01T00:00:00.000Z', archivedAt: null }))).toBe(true);
+  });
+});
+
 describe('matchesTab', () => {
-  const ALL_TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
+  const ALL_TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived', 'trash'];
 
   function tabsMatching(r: Reward): RewardTab[] {
     return ALL_TABS.filter((tab) => matchesTab(r, tab, NOW));
@@ -138,6 +150,16 @@ describe('matchesTab', () => {
 
   it('sorts an archived reward into archived only, excluded from all', () => {
     expect(tabsMatching(reward({ archivedAt: '2026-01-01T00:00:00.000Z' }))).toEqual(['archived']);
+  });
+
+  it('sorts a trashed reward into trash only, even though archivedAt is also set', () => {
+    expect(
+      tabsMatching(reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })),
+    ).toEqual(['trash']);
+  });
+
+  it('sorts a reward trashed directly from active into trash only', () => {
+    expect(tabsMatching(reward({ trashedAt: '2026-01-02T00:00:00.000Z' }))).toEqual(['trash']);
   });
 
   it('excludes a sold-out-but-not-expired reward from ended', () => {

@@ -12,15 +12,19 @@ when no Postgres is reachable — same contract as the other *_db-style tests.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.config import settings
 from app.core.security import create_access_token
 from app.main import app
 from app.models import (
@@ -39,6 +43,24 @@ from app.services import business as business_service
 from app.services import rewards as rewards_service
 from app.services import users as users_service
 
+
+@asynccontextmanager
+async def _rival_session() -> AsyncIterator[AsyncSession]:
+    """A second session on its own engine — the other half of a race.
+
+    Same shape as `test_points_atomicity._rival_session`: a real second
+    connection is what actually exercises Postgres's row lock, not a second
+    call on the same session.
+    """
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 # ─── Auth guards (no DB) ─────────────────────────────────────────────────────
 
 
@@ -51,6 +73,10 @@ from app.services import users as users_service
         ("PATCH", "/api/business/rewards/any-id"),
         ("DELETE", "/api/business/rewards/any-id"),
         ("GET", "/api/business/rewards/any-id/live-vouchers"),
+        ("POST", "/api/business/rewards/any-id/trash"),
+        ("POST", "/api/business/rewards/any-id/restore"),
+        ("POST", "/api/business/rewards/any-id/reactivate"),
+        ("DELETE", "/api/business/rewards/any-id/permanent"),
     ],
 )
 async def test_business_rewards_require_auth(method: str, path: str) -> None:
@@ -507,6 +533,306 @@ async def test_is_active_and_archived_at_are_independent(db_session: AsyncSessio
         assert reward is not None
         assert reward.is_active is False and reward.archived_at is not None
     finally:
+        await _cleanup(db_session, business)
+
+
+# ─── Trash & permanent delete ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_trash_from_active_also_archives_it(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None
+        assert reward.trashed_at is not None
+        assert reward.archived_at is not None, "trashing must leave the reward archived too"
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trash_from_archive_keeps_the_row(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.archive_reward(db_session, business, created.id)
+        await business_service.trash_reward(db_session, business, created.id)
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None and reward.trashed_at is not None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trash_refuses_while_a_voucher_is_live(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        db_session.add(_voucher(created.id, driver.id, business.id))
+        await db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            await business_service.trash_reward(db_session, business, created.id)
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == business_service.REWARD_HAS_LIVE_VOUCHERS
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None and reward.trashed_at is None
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trash_succeeds_once_live_vouchers_have_settled(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        db_session.add(_voucher(created.id, driver.id, business.id, status=RedemptionStatus.USED))
+        await db_session.commit()
+
+        # No live vouchers left (USED doesn't count) — trashing goes through.
+        await business_service.trash_reward(db_session, business, created.id)
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None and reward.trashed_at is not None
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trash_cannot_race_a_concurrent_voucher_issuance(db_session: AsyncSession) -> None:
+    """A real two-connection race, not a sequential proof: `trash_reward` and
+    `redeem()` both lock the reward row `FOR UPDATE` as their first read, so
+    Postgres itself serialises them — whichever gets there first decides the
+    outcome, and only two outcomes are possible. Either is correct; what must
+    never happen is both succeeding, which would leave a live voucher on a
+    trashed reward.
+    """
+    business = await _make_business(db_session)
+    driver = User(
+        email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il",
+        password_hash="x",
+        name="Driver",
+        points=1000,
+        total_points=1000,
+    )
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload(costPoints=10))
+
+        async with _rival_session() as rival_db:
+            rival_driver = await rival_db.get(User, driver.id)
+            assert rival_driver is not None
+
+            trash_result, redeem_result = await asyncio.gather(
+                business_service.trash_reward(db_session, business, created.id),
+                rewards_service.redeem(rival_db, rival_driver, created.id),
+                return_exceptions=True,
+            )
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None
+        live_after = await rewards_service.count_live_vouchers(db_session, created.id)
+
+        if reward.trashed_at is not None:
+            # Trash won the race. The concurrent redeem must have lost too —
+            # never both — and no live voucher exists on the now-trashed reward.
+            assert isinstance(
+                redeem_result, HTTPException
+            ), "trash winning the race must mean redeem lost it, not that both succeeded"
+            assert live_after == 0
+        else:
+            # Redeem won. Trash must have been refused for exactly this reason,
+            # not left to silently succeed against a reward with a fresh voucher.
+            assert not isinstance(redeem_result, BaseException), "redeem must not have failed if trash did not win"
+            assert isinstance(trash_result, HTTPException)
+            assert trash_result.status_code == 409
+            assert trash_result.detail["code"] == business_service.REWARD_HAS_LIVE_VOUCHERS
+            assert live_after == 1
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trashed_reward_is_excluded_from_marketplace_and_cashier_view(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+
+        marketplace = await rewards_service.list_rewards(db_session, driver.id, None)
+        assert created.id not in {r.id for r in marketplace["rewards"]}
+
+        cashier_view = await business_service.list_rewards(db_session, business, BusinessMembershipRole.CASHIER)
+        assert created.id not in {r.id for r in cashier_view["rewards"]}
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_trashed_reward_still_shows_for_owner_and_manager(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
+        assert created.id in {r.id for r in listed["rewards"]}
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_restore_from_trash_lands_in_archive_not_active(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+        await business_service.restore_reward(db_session, business, created.id)
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None
+        assert reward.trashed_at is None
+        assert reward.archived_at is not None, "restoring from trash must land in Archive, not Active"
+
+        # Never republished to the marketplace by the restore itself.
+        marketplace = await rewards_service.list_rewards(db_session, "no-such-user", None)
+        assert created.id not in {r.id for r in marketplace["rewards"]}
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_restore_refuses_a_reward_that_is_not_trashed(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        with pytest.raises(HTTPException) as exc:
+            await business_service.restore_reward(db_session, business, created.id)
+        assert exc.value.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_reactivate_clears_archived_at(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.archive_reward(db_session, business, created.id)
+        await business_service.reactivate_reward(db_session, business, created.id)
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None and reward.archived_at is None and reward.trashed_at is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_reactivate_refuses_a_trashed_reward(db_session: AsyncSession) -> None:
+    """A trashed reward must go through restore_reward first — reactivate can never skip it."""
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+
+        with pytest.raises(HTTPException) as exc:
+            await business_service.reactivate_reward(db_session, business, created.id)
+        assert exc.value.status_code == 400
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None and reward.trashed_at is not None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_reactivate_refuses_a_reward_that_is_not_archived(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        with pytest.raises(HTTPException) as exc:
+            await business_service.reactivate_reward(db_session, business, created.id)
+        assert exc.value.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_permanent_delete_refuses_a_reward_that_is_not_trashed(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        with pytest.raises(HTTPException) as exc:
+            await business_service.delete_reward_permanently(db_session, business, created.id)
+        assert exc.value.status_code == 400
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_permanent_delete_hard_deletes_a_reward_with_no_history(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        await business_service.trash_reward(db_session, business, created.id)
+        await business_service.delete_reward_permanently(db_session, business, created.id)
+
+        assert await db_session.get(Reward, created.id) is None
+    finally:
+        await _cleanup(db_session, business)
+
+
+@pytest.mark.asyncio
+async def test_permanent_delete_tombstones_a_reward_with_redemption_history(db_session: AsyncSession) -> None:
+    business = await _make_business(db_session)
+    driver = User(email=f"_drv_{uuid.uuid4().hex[:10]}@carmatest.co.il", password_hash="x", name="Driver")
+    db_session.add(driver)
+    await db_session.commit()
+    try:
+        created = await business_service.create_reward(db_session, business, _reward_payload())
+        db_session.add(_voucher(created.id, driver.id, business.id, status=RedemptionStatus.USED))
+        await db_session.commit()
+
+        await business_service.trash_reward(db_session, business, created.id)
+        await business_service.delete_reward_permanently(db_session, business, created.id)
+
+        reward = await db_session.get(Reward, created.id)
+        assert reward is not None, "a reward with redemption history must be tombstoned, not dropped"
+        assert reward.deleted_at is not None
+
+        # Never visible to the business again, in any view.
+        listed = await business_service.list_rewards(db_session, business, BusinessMembershipRole.OWNER)
+        assert created.id not in {r.id for r in listed["rewards"]}
+
+        # History still resolves the reward it was redeemed against.
+        history = await rewards_service.list_my_vouchers(db_session, driver.id)
+        assert history["vouchers"][0].reward.id == created.id
+    finally:
+        await db_session.delete(driver)
+        await db_session.commit()
         await _cleanup(db_session, business)
 
 

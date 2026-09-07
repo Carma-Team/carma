@@ -7,6 +7,7 @@ export { Card } from './Card';
 export { MetricCard } from './MetricCard';
 export { CategoryIcon } from './CategoryIcon';
 export { StatusBadge, CountBadge } from './Badge';
+export { Menu, MenuItem } from './Menu';
 export { Alert } from './Alert';
 export type { AlertTone } from './Alert';
 export { Dialog } from './Dialog';

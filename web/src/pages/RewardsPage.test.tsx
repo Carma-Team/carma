@@ -2,7 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { RewardsPage } from './RewardsPage';
-import { listRewards, createReward, updateReward, retireReward, setRewardActive, getLiveVoucherCount } from '@/lib/api/rewards';
+import {
+  listRewards,
+  createReward,
+  updateReward,
+  retireReward,
+  setRewardActive,
+  getLiveVoucherCount,
+  trashReward,
+  restoreRewardFromTrash,
+  reactivateReward,
+  deleteRewardPermanently,
+} from '@/lib/api/rewards';
 import type { Reward } from '@/lib/api/rewards';
 import { useAuth } from '@/hooks/useAuth';
 import type { AuthContextValue, AuthUser } from '@/lib/auth/types';
@@ -17,6 +28,10 @@ vi.mock('@/lib/api/rewards', async (importOriginal) => {
     retireReward: vi.fn(),
     setRewardActive: vi.fn(),
     getLiveVoucherCount: vi.fn(),
+    trashReward: vi.fn(),
+    restoreRewardFromTrash: vi.fn(),
+    reactivateReward: vi.fn(),
+    deleteRewardPermanently: vi.fn(),
   };
 });
 vi.mock('@/hooks/useAuth');
@@ -49,6 +64,7 @@ function reward(overrides: Partial<Reward> = {}): Reward {
     imageIcon: 'gift-outline',
     isActive: true,
     archivedAt: null,
+    trashedAt: null,
     stock: null,
     available: null,
     expiresAt: null,
@@ -62,6 +78,18 @@ function renderPage() {
       <RewardsPage />
     </LanguageProvider>,
   );
+}
+
+// Pause/resume, archive and trash (and, for an archived/trashed card,
+// trash/delete-permanently) live inside a card's "..." overflow menu
+// (docs/business-portal-design/CARMA Rewards Management.dc.html) — the menu
+// item's own accessible name only appears once its trigger has been opened.
+// `index` picks which card's trigger to open when more than one is on
+// screen, in DOM order (same convention `getAllByRole(...)[n]` uses
+// elsewhere in this file).
+function openCardMenu(index = 0) {
+  const triggers = screen.getAllByRole('button', { name: 'פעולות נוספות' });
+  fireEvent.click(triggers[index]);
 }
 
 describe('RewardsPage', () => {
@@ -89,6 +117,10 @@ describe('RewardsPage', () => {
     vi.mocked(setRewardActive).mockReset();
     vi.mocked(getLiveVoucherCount).mockReset();
     vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 0 });
+    vi.mocked(trashReward).mockReset();
+    vi.mocked(restoreRewardFromTrash).mockReset();
+    vi.mocked(reactivateReward).mockReset();
+    vi.mocked(deleteRewardPermanently).mockReset();
   });
 
   afterEach(() => {
@@ -192,6 +224,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -207,6 +240,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -224,6 +258,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -247,16 +282,18 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
 
-    const [retireA] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireA);
+    // A is the first card in DOM order.
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
     fireEvent.click(confirmButton);
 
-    // A's DELETE is now in flight. B's own retire button — the only one
-    // still carrying the plain "remove" label, A's now reads "removing…" —
-    // must already be disabled, so clicking it cannot reassign the
-    // still-open confirm dialog away from A.
+    // A's DELETE is now in flight. B's own menu item — the only one still
+    // carrying the plain "remove" label, A's now reads "removing…" — must
+    // already be disabled, so clicking it cannot reassign the still-open
+    // confirm dialog away from A. B is still the second card in DOM order.
+    openCardMenu(1);
     const retireB = screen.getByRole('button', { name: 'ארכיון' });
     expect(retireB).toBeDisabled();
     fireEvent.click(retireB);
@@ -283,6 +320,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await waitFor(() => expect(getLiveVoucherCount).toHaveBeenCalledWith('r1'));
 
@@ -302,6 +340,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     expect(
@@ -316,6 +355,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     expect(await screen.findByText('ההטבה תפסיק להופיע לנהגים. שום דבר לא נמחק — שוברים שכבר הונפקו עבורה לא ייפגעו, וההיסטוריה שלה נשמרת.')).toBeInTheDocument();
@@ -330,6 +370,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     const alert = await screen.findByText('לא הצלחנו לבדוק אם יש שוברים חיים. נסו שוב.');
@@ -347,6 +388,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await screen.findByText(/שוברים חיים/);
     fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
@@ -369,12 +411,14 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
 
-    const [retireA] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireA);
+    // A is the first card in DOM order.
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
 
-    const [, retireB] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireB);
+    // B is still the second card in DOM order.
+    openCardMenu(1);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await screen.findByText('ההטבה תפסיק להופיע לנהגים. שום דבר לא נמחק — שוברים שכבר הונפקו עבורה לא ייפגעו, וההיסטוריה שלה נשמרת.');
 
     // A's request resolves only now, well after B's dialog is already showing
@@ -397,6 +441,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Voucher')).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
     expect(
@@ -492,9 +537,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
     await waitFor(() => expect(setRewardActive).toHaveBeenCalledWith('r1', false));
+    openCardMenu();
     expect(await screen.findByRole('button', { name: 'החזרה לפעילות' })).toBeInTheDocument();
   });
 
@@ -504,9 +551,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'החזרה לפעילות' }));
 
     await waitFor(() => expect(setRewardActive).toHaveBeenCalledWith('r1', true));
+    openCardMenu();
     expect(await screen.findByRole('button', { name: 'השהיה' })).toBeInTheDocument();
   });
 
@@ -516,9 +565,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
     await waitFor(() => expect(screen.getByText('לא הצלחנו להשהות את ההטבה. נסו שוב.')).toBeInTheDocument());
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'השהיה' })).toBeInTheDocument();
   });
 
@@ -578,6 +629,7 @@ describe('RewardsPage', () => {
 
     // The per-card action's accessible name is the bare label — the tab's
     // own "ארכיון 0" carries a count, so this exact match can't collide.
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -661,8 +713,10 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'ארכיון' })).toBeDisabled();
 
     await act(async () => {
@@ -679,11 +733,13 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
     fireEvent.click(confirmButton);
 
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'השהיה' })).toBeDisabled();
 
     await act(async () => {
@@ -719,5 +775,130 @@ describe('RewardsPage', () => {
     const addStockButton = screen.getByRole('button', { name: 'הוספת מלאי' });
     expect(editButton.className).not.toMatch(/primary/);
     expect(addStockButton.className).toMatch(/primary/);
+  });
+
+  // ── Trash / restore / reactivate / permanent delete ─────────────────────
+
+  it('trashes an active reward and moves it under the Trash tab, not Archived', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(trashReward).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    openCardMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
+    expect(await screen.findByText('ההטבה תיעלם מכל התצוגות מלבד האשפה. תוכלו לשחזר אותה לארכיון מאוחר יותר, או למחוק אותה משם לצמיתות — שוברים שכבר הונפקו לא ייפגעו.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'כן, העבר לאשפה' }));
+    await waitFor(() => expect(trashReward).toHaveBeenCalledWith('r1'));
+
+    // Tab bar renders before the cards, so the first "אשפה…"/"ארכיון…" match
+    // is always the tab itself.
+    const [trashTab] = screen.getAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    expect(await screen.findByText('שובר')).toBeInTheDocument();
+
+    const [archivedTab] = screen.getAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+    expect(screen.queryByText('שובר')).not.toBeInTheDocument();
+  });
+
+  it('keeps the trash confirm button disabled and shows a blocked message while a voucher is live', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 1 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    openCardMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
+    expect(await screen.findByText(/שובר חי אחד/)).toBeInTheDocument();
+
+    const confirmButton = screen.getByRole('button', { name: 'כן, העבר לאשפה' });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(confirmButton);
+    expect(trashReward).not.toHaveBeenCalled();
+  });
+
+  it('reactivates an archived reward back to Active, without going through Trash', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z' })],
+    });
+    vi.mocked(reactivateReward).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [archivedTab] = await screen.findAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הפעלה מחדש' }));
+    await waitFor(() => expect(reactivateReward).toHaveBeenCalledWith('r1'));
+
+    const [activeTab] = screen.getAllByRole('button', { name: /^פעילות/ });
+    fireEvent.click(activeTab);
+    expect(await screen.findByText('שובר')).toBeInTheDocument();
+  });
+
+  it('restores a trashed reward to Archive, not Active, and shows a success banner', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(restoreRewardFromTrash).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByText('שחזור לארכיון')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'שחזור לארכיון' }));
+    await waitFor(() => expect(restoreRewardFromTrash).toHaveBeenCalledWith('r1'));
+
+    expect(await screen.findByText('ההטבה שוחזרה לארכיון.')).toBeInTheDocument();
+    // Landed in Archive, not Active — the reward still needs an explicit
+    // reactivate before it can reappear in the marketplace.
+    expect(screen.getByRole('button', { name: 'הפעלה מחדש' })).toBeInTheDocument();
+  });
+
+  it('permanently deletes a trashed reward after confirmation, and it disappears from every tab', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(deleteRewardPermanently).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument());
+
+    openCardMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
+    expect(await screen.findByText('למחוק את ההטבה לצמיתות?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'כן, מחק לצמיתות' }));
+    await waitFor(() => expect(deleteRewardPermanently).toHaveBeenCalledWith('r1'));
+
+    // It was the only reward, so deleting it permanently empties the catalog
+    // outright — the tab bar disappears along with it, confirming the
+    // reward is gone from every tab rather than merely the one open now.
+    expect(await screen.findByText('עדיין אין הטבות')).toBeInTheDocument();
+    expect(screen.queryByText('שובר')).not.toBeInTheDocument();
+  });
+
+  it('keeps the reward visible with an error when permanent delete fails', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(deleteRewardPermanently).mockResolvedValue({ outcome: 'unexpected_error' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument());
+
+    openCardMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'כן, מחק לצמיתות' }));
+
+    expect(await screen.findByText('לא הצלחנו למחוק את ההטבה. נסו שוב.')).toBeInTheDocument();
+    expect(screen.getByText('שובר')).toBeInTheDocument();
   });
 });
