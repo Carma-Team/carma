@@ -20,12 +20,10 @@ const typeColors: Record<ToastMessage['type'], string> = {
 export function Toast({ toast, onDismiss }: ToastProps) {
   const { t } = useTranslation()
   const opacity = useRef(new Animated.Value(0)).current
-  const fadeIn = Animated.timing(opacity, { toValue: 1, duration: 250, useNativeDriver: true })
 
   useEffect(() => {
-    if (toast.sticky) { fadeIn.start(); return }
     Animated.sequence([
-      fadeIn,
+      Animated.timing(opacity, { toValue: 1, duration: 250, useNativeDriver: true }),
       Animated.delay((toast.duration ?? 3500) - 500),
       Animated.timing(opacity, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start(() => onDismiss(toast.id))
@@ -47,7 +45,6 @@ export function Toast({ toast, onDismiss }: ToastProps) {
       </TouchableOpacity>
       {!!toast.title && <Text style={styles.title}>{toast.title}</Text>}
       <Text style={styles.text}>{toast.message}</Text>
-      {!!toast.note && <Text style={styles.note}>{toast.note}</Text>}
     </Animated.View>
   )
 }
@@ -67,5 +64,4 @@ const styles = StyleSheet.create({
   close:     { position: 'absolute', end: 8, top: 8, padding: 2, zIndex: 1 },
   title:     { color: COLORS.text, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   text:      { color: COLORS.text, fontSize: 14, fontWeight: '500' },
-  note:      { color: COLORS.textMuted, fontSize: 12, marginTop: 6 },
 })

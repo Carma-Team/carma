@@ -10,6 +10,7 @@ import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { LocationPicker } from '@/components/ui/LocationPicker'
 import { Button } from '@/components/ui/Button'
+import { InfoNote } from '@/components/ui/InfoNote'
 import { useTranslation } from '@/hooks/useTranslation'
 import { cityLabel } from '@/lib/cityLabel'
 import { leaderboardApi, type LocationsOut } from '@/services/api/leaderboard.api'
@@ -56,6 +57,9 @@ export default function LeaderboardScreen() {
 
   // Remove friend confirmation
   const [removeConfirm, setRemoveConfirm] = useState<LeaderboardEntry | null>(null)
+
+  // What the board is showing and what the number on each row means.
+  const [legendOpen, setLegendOpen] = useState(false)
 
   // Fetch available locations once on mount
   useEffect(() => {
@@ -302,17 +306,29 @@ export default function LeaderboardScreen() {
 
   const header = (
     <>
-      <Text style={styles.heading}>{t('leaderboard.title')}</Text>
+      <View style={styles.headingRow}>
+        <Text style={styles.heading}>{t('leaderboard.title')}</Text>
+        <TouchableOpacity
+          onPress={() => setLegendOpen(open => !open)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.legend')}
+        >
+          <Ionicons name="information-circle-outline" size={18} color={COLORS.textMuted} />
+        </TouchableOpacity>
+      </View>
+      {legendOpen && (
+        <InfoNote
+          title={t('leaderboard.title')}
+          message={t('leaderboard.legend')}
+          onClose={() => setLegendOpen(false)}
+        />
+      )}
       <LeaderboardTabs activeTab={type} onTabChange={setType} tabs={tabs} />
       <View style={{ height: 16 }} />
       {filterRow}
       {friendSearch}
       <View style={{ height: 8 }} />
-      {/* Names the number every row ends with. Without it a bare 0–100 reads as points,
-          which is what the board used to be ranked by. */}
-      <View style={styles.scoreCaptionRow}>
-        <Text style={styles.scoreCaption}>{t('leaderboard.score')}</Text>
-      </View>
     </>
   )
 
@@ -414,21 +430,12 @@ export default function LeaderboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  heading:      { ...TYPOGRAPHY.h2, marginBottom: SPACING.lg },
+  headingRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.lg },
+  heading:      { ...TYPOGRAPHY.h2 },
   divider:      { height: 1, backgroundColor: COLORS.border },
   empty:        { ...TYPOGRAPHY.body, textAlign: 'center', color: COLORS.textMuted, marginTop: 40 },
   myRankBanner: { padding: SPACING.md, alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border },
   myRankText:   { ...TYPOGRAPHY.label, color: COLORS.brandLight },
-  // Sits over the score column: the row's own horizontal padding, plus the width of
-  // the follow / remove button (28) and its gap (8), which every row carries.
-  scoreCaptionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: SPACING.md,
-    paddingEnd: SPACING.md + 36,
-    marginBottom: 4,
-  },
-  scoreCaption: { ...TYPOGRAPHY.caption, color: COLORS.textMuted },
 
   // Location filter row (city / national tabs)
   filterRow: {
