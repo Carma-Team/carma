@@ -292,7 +292,7 @@ export default function LeaderboardScreen() {
         <View style={styles.notFoundBox}>
           <Text style={styles.notFoundText}>{t('leaderboard.userNotFound')}</Text>
           <TouchableOpacity onPress={handleSendInvite} style={styles.inviteBtn}>
-            <Ionicons name="share-outline" size={14} color={COLORS.brand} style={{ marginRight: 4 }} />
+            <Ionicons name="share-outline" size={14} color={COLORS.brand} style={{ marginEnd: 4 }} />
             <Text style={styles.inviteBtnText}>{t('leaderboard.sendInvite')}</Text>
           </TouchableOpacity>
         </View>
@@ -502,7 +502,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   notFoundText:  { ...TYPOGRAPHY.caption, color: COLORS.textMuted, flex: 1 },
-  inviteBtn:     { flexDirection: 'row', alignItems: 'center', paddingLeft: 8 },
+  inviteBtn:     { flexDirection: 'row', alignItems: 'center', paddingStart: 8 },
   inviteBtnText: { ...TYPOGRAPHY.label, color: COLORS.brand, fontSize: 12 },
 
   // Remove friend confirmation modal

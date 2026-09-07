@@ -7,9 +7,9 @@ import type { Trip } from '@/types'
 
 // The real context pulls in the driving SDK; the section reads the language and the
 // one action it can take.
-const mockDeleteTrips = jest.fn()
+const mockClearTripHistory = jest.fn()
 jest.mock('@/context/AppContext', () => ({
-  useApp: () => ({ lang: 'HE', deleteTrips: mockDeleteTrips }),
+  useApp: () => ({ lang: 'HE', clearTripHistory: mockClearTripHistory }),
 }))
 
 // Stubbed rather than rendered: TripList's own slicing is already covered where it
@@ -18,16 +18,11 @@ jest.mock('@/context/AppContext', () => ({
 jest.mock('@/components/driving/TripList', () => {
   const { Text, TouchableOpacity } = jest.requireActual('react-native')
   return {
-    TripList: ({ trips, maxItems, selectable, selectedIds, onToggleSelect }: {
-      trips: { id: string }[]; maxItems?: number
-      selectable?: boolean; selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
-    }) => (
+    TripList: ({ trips, maxItems }: { trips: { id: string }[]; maxItems?: number }) => (
       <>
         <Text testID="trip-list">{`${Math.min(maxItems ?? trips.length, trips.length)}/${trips.length}`}</Text>
-        <Text testID="trip-list-mode">{selectable ? 'select' : 'browse'}</Text>
-        <Text testID="trip-list-selected">{[...(selectedIds ?? [])].join(',')}</Text>
         {trips.slice(0, maxItems ?? trips.length).map(trip => (
-          <TouchableOpacity key={trip.id} testID={`row-${trip.id}`} onPress={() => onToggleSelect?.(trip.id)}>
+          <TouchableOpacity key={trip.id} testID={`row-${trip.id}`}>
             <Text>{trip.id}</Text>
           </TouchableOpacity>
         ))}
@@ -72,80 +67,50 @@ describe('RecentTripsSection batching', () => {
 })
 
 describe('RecentTripsSection deletion', () => {
-  const enterSelection = () => fireEvent.press(screen.getByLabelText(he.dashboard.deleteTrips))
-  const selected = () => screen.getByTestId('trip-list-selected').props.children
-  const mode = () => screen.getByTestId('trip-list-mode').props.children
+  const trashButton = () => screen.queryByLabelText(he.dashboard.deleteAllTrips)
 
   // Spied rather than module-mocked: replacing the Alert module leaves the `Alert`
   // re-exported by react-native undefined, so the component's own call blows up.
   const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
 
-  /** Presses Confirm on the alert the component raised. */
-  const confirmAlert = async () => {
+  /** Presses one of the buttons on the alert the component raised. */
+  const pressAlert = async (style: 'cancel' | 'destructive') => {
     const buttons = alertSpy.mock.calls.at(-1)![2]!
     await act(async () => {
-      await buttons.find(b => b.style === 'destructive')!.onPress!()
+      await buttons.find(b => b.style === style)!.onPress?.()
     })
   }
 
   beforeEach(() => jest.clearAllMocks())
 
-  it('browses until the driver asks to delete', () => {
+  it('asks before it clears anything', () => {
     render(<RecentTripsSection trips={trips(3)} />)
-    expect(mode()).toBe('browse')
 
-    enterSelection()
-    expect(mode()).toBe('select')
+    fireEvent.press(trashButton()!)
+    expect(alertSpy).toHaveBeenCalled()
+    expect(mockClearTripHistory).not.toHaveBeenCalled()
   })
 
-  it('deletes exactly the trips that were ticked', async () => {
+  it('clears the whole history once the driver confirms', async () => {
     render(<RecentTripsSection trips={trips(4)} />)
-    enterSelection()
 
-    fireEvent.press(screen.getByTestId('row-t0'))
-    fireEvent.press(screen.getByTestId('row-t2'))
-    expect(selected()).toBe('t0,t2')
+    fireEvent.press(trashButton()!)
+    await pressAlert('destructive')
 
-    fireEvent.press(screen.getAllByText(he.dashboard.deleteTrips)[0])
-    await confirmAlert()
-
-    expect(mockDeleteTrips).toHaveBeenCalledWith(['t0', 't2'])
+    expect(mockClearTripHistory).toHaveBeenCalledTimes(1)
   })
 
-  it('un-ticks a trip pressed twice', () => {
-    render(<RecentTripsSection trips={trips(3)} />)
-    enterSelection()
+  it('leaves the history alone on cancel', async () => {
+    render(<RecentTripsSection trips={trips(4)} />)
 
-    fireEvent.press(screen.getByTestId('row-t1'))
-    fireEvent.press(screen.getByTestId('row-t1'))
+    fireEvent.press(trashButton()!)
+    await pressAlert('cancel')
 
-    expect(selected()).toBe('')
-  })
-
-  it('selects only what is on screen, never the trips still folded away', () => {
-    // 12 trips, a batch of 5: select-all must not promise to delete the other 7.
-    render(<RecentTripsSection trips={trips(12)} />)
-    enterSelection()
-
-    fireEvent.press(screen.getByText(he.dashboard.selectAll))
-
-    expect(selected()).toBe('t0,t1,t2,t3,t4')
-  })
-
-  it('drops the selection on leaving the mode', () => {
-    render(<RecentTripsSection trips={trips(3)} />)
-    enterSelection()
-    fireEvent.press(screen.getByTestId('row-t0'))
-
-    enterSelection() // the same control closes it
-    expect(mode()).toBe('browse')
-
-    enterSelection()
-    expect(selected()).toBe('')
+    expect(mockClearTripHistory).not.toHaveBeenCalled()
   })
 
   it('offers no delete control for an empty history', () => {
     render(<RecentTripsSection trips={[]} />)
-    expect(screen.queryByLabelText(he.dashboard.deleteTrips)).toBeNull()
+    expect(trashButton()).toBeNull()
   })
 })

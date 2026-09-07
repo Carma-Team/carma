@@ -20,12 +20,13 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { AppState, I18nManager } from 'react-native'
+import { AppState } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
 import { DrivingSDK, TripData, RawExportFailure, checkDeviceCapabilities } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
+import { applyRtlAndPromptIfNeeded } from '@/lib/RtlRestartPrompt'
 import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
 import { authApi } from '@/services/api/auth.api'
@@ -83,7 +84,7 @@ interface AppContextValue {
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
   exportRawRecording: (filePath?: string) => Promise<string | RawExportFailure>
-  deleteTrips: (tripIds: string[]) => Promise<void>
+  clearTripHistory: () => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
   setBtDevice: (device: BluetoothTarget) => Promise<void>
@@ -147,8 +148,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Two hides, not deletes: the server has no way to remove a trip (CAR-307). The
-  // cutoff is what the old settings-wide reset left behind on devices that used it,
-  // and is kept so those trips do not reappear; new deletions are per trip.
+  // cutoff is what clearing the history writes. The id list is only read now — it
+  // holds what per-trip deletion left on devices that had it, so those trips stay
+  // hidden.
   const filteredTrips = useMemo(() => {
     const cutoff = user?.lastClearedHistory ? new Date(user.lastClearedHistory).getTime() : null;
     const deleted = new Set(user?.deletedTripIds ?? []);
@@ -211,7 +213,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addToast = useCallback((t: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { ...t, id }])
-    setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), t.duration ?? 3500)
+    // A sticky toast is dismissed by its own close button and by nothing else.
+    if (!t.sticky) setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), t.duration ?? 3500)
   }, [])
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
@@ -478,6 +481,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ])
         if (levelsRes?.levels?.length) setLevels(levelsRes.levels);
         if (l === 'HE' || l === 'EN') setLangState(l)
+        // The flag survives a restart while the stored language decides what is
+        // rendered, so the two can disagree on launch and only this fixes it.
+        const startLang: Language = l === 'EN' ? 'EN' : 'HE'
+        applyRtlAndPromptIfNeeded(startLang, startLang === 'EN' ? en : he)
         // Only restores state. Arming the SDK listener is useDriveMode's job, and
         // only its — two callers racing over one subscription is what broke this.
         // name may be absent for a device picked before it was stored — the target
@@ -636,7 +643,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
-    I18nManager.forceRTL(l === 'HE');
+    applyRtlAndPromptIfNeeded(l, l === 'EN' ? en : he);
     await AsyncStorage.setItem('carma_lang', l);
   }, [])
 
@@ -654,29 +661,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
   const exportRawRecording = useCallback((filePath?: string) => sdk.exportRawRecording(filePath), [sdk]);
 
-  const deleteTrips = useCallback(async (tripIds: string[]) => {
-    if (tripIds.length === 0) return;
-    try {
-      if (user) {
-        // Through patchUser, and not `{ ...user, ... }` off the closed-over user:
-        // that snapshot is as old as the screen that called this, and a trip landing
-        // mid-delete was rolled back by it.
-        // Union rather than append: the same trip can be selected again after a
-        // failed write, and a duplicate id would silently grow the stored list.
-        patchUser(prev => ({
-          deletedTripIds: Array.from(new Set([...(prev.deletedTripIds ?? []), ...tripIds])),
-        }));
-      }
+  const clearTripHistory = useCallback(async () => {
+    if (!user) return;
+    // A timestamp, not a list of ids: it also covers trips that arrive in a later
+    // sync but were driven before the driver cleared, which a list cannot.
+    patchUser({ lastClearedHistory: new Date().toISOString() });
 
-      const tr = lang === 'HE' ? he : en;
-      addToast({
-        title: tr.common.tripsDeleted,
-        message: tr.common.tripsDeletedDesc,
-        type: 'success'
-      });
-    } catch (e) {
-      console.error('Failed to delete trips', e);
-    }
+    const tr = lang === 'HE' ? he : en;
+    addToast({
+      title: tr.common.tripsDeleted,
+      message: tr.common.tripsDeletedDesc,
+      type: 'success'
+    });
   }, [lang, addToast, user, patchUser]);
 
   return (
@@ -689,7 +685,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
       startRawRecording, stopRawRecording, exportRawRecording,
-      deleteTrips,
+      clearTripHistory,
       sdk,
       btDevice, setBtDevice,
       userLevelState,
