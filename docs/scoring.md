@@ -58,8 +58,9 @@ These are the same five behaviours Cambridge Mobile Telematics (CMT) measures in
 │ phone handling│        │ 4. Rate → subscore           │
 └───────────────┘        │ 5. Blend the five            │
                          │ 6. Cap by trace confidence   │
-                         │ 7. Update driver score       │
-                         │ 8. Award points              │
+                         │ 7. Cap by IMU health         │
+                         │ 8. Update driver score       │
+                         │ 9. Award points              │
                          └──────────────────────────────┘
 ```
 
@@ -340,6 +341,7 @@ This is decided **per trip**, and a trip has to pass two separate tests to keep 
 |---|---|
 | **Short trips are judged gently** | Under 2 km or 5 minutes, the trip score is blended half-and-half with the driver's standing score. Too little happened to draw a conclusion. |
 | **Weak GPS caps the upside only** | A sparse or gappy trace stops a trip scoring far above the driver's rolling average. Reported events still count in full. A weak signal must not let a bad trip look good, and must not invent a good one. |
+| **A dead accelerometer caps the upside too, harder** | When the accelerometer never confirmed live for the trip, the score cannot exceed the lesser of the driver's rolling standing and an absolute ceiling — zero events from a dead sensor is not evidence of clean driving, and the absolute ceiling stops a high-standing driver from farming the cap by leaving the sensor off. GPS confidence and IMU health are independent caps: a trip can be capped by either, both, or neither. Reported events are never diluted, the same as the GPS cap. The trip carries an explicit degraded-measurement flag, so a capped trip is never indistinguishable from one that was actually measured and went well. |
 | **Claimed distance is verified** | The server integrates the GPS trace and rejects a distance claim more than **35%** above what the trace witnesses. Distance multiplies points directly, so it needs an independent check. |
 
 ---

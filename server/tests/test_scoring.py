@@ -15,6 +15,7 @@ from app.services.scoring import (
     CONFIG,
     MAX_SPEEDING_RATIO,
     TripHistoryPoint,
+    apply_imu_confidence,
     compute_driver_score,
     compute_points,
     compute_streak,
@@ -218,6 +219,25 @@ class TestWeakestFactor:
         )
         assert r.sub_distraction > 90.0
         assert r.weakest_factor is None
+
+
+# ─── IMU confidence cap ──────────────────────────────────────────────────────────
+
+
+class TestApplyImuConfidence:
+    def test_dead_caps_at_rolling_below_ceiling(self) -> None:
+        assert apply_imu_confidence(100.0, 60.0, imu_dead=True) == 60.0
+
+    def test_dead_caps_at_ceiling_when_rolling_is_higher(self) -> None:
+        # Farm-proofing: a driver with a high standing can't just switch the
+        # accelerometer off and coast at 95.
+        assert apply_imu_confidence(100.0, 95.0, imu_dead=True) == CONFIG.imu_dead_score_ceiling
+
+    def test_dead_but_raw_below_rolling_passes_through(self) -> None:
+        assert apply_imu_confidence(40.0, 80.0, imu_dead=True) == 40.0
+
+    def test_not_dead_passes_through(self) -> None:
+        assert apply_imu_confidence(100.0, 60.0, imu_dead=False) == 100.0
 
 
 # ─── driver score ───────────────────────────────────────────────────────────────

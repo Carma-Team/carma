@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -26,6 +27,7 @@ from app.models.enums import UserRole
 from app.models.trip import Trip
 from app.models.user import User
 from app.schemas.trip import SaveTripIn, TripOut
+from app.services import scoring
 from app.services import trips as trips_service
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -194,3 +196,69 @@ async def test_the_wire_shape_is_camel_case(db_session: AsyncSession) -> None:
     dumped: dict = TripOut.model_validate(out).model_dump(by_alias=True)
     assert dumped["accelAvailable"] is True
     assert dumped["accelInitFailed"] is False
+
+
+# ─── a dead accelerometer caps the score (CAR-190) ────────────────────────────
+
+_CONF_TRIP_START = "2026-06-14T08:00:00Z"
+_CONF_TRIP_START_MS = 1781510400000  # matches _CONF_TRIP_START
+
+
+def _confident_waypoints() -> list[dict[str, Any]]:
+    """Dense, steady 4 s-cadence trace: 6.2 km in 900 s at 24.8 km/h, straight
+    line. Gives the server a clean GPS trace (confidence 1.0, no server-detected
+    events of its own) so `apply_confidence` cannot be what caps the score below
+    — the IMU cap has to be doing the work the assertions check for.
+    """
+    return [
+        {"ts": _CONF_TRIP_START_MS + i * 4000, "speedKmh": 24.8, "lat": 32.07 + i * 0.0002, "lng": 34.78}
+        for i in range(226)
+    ]
+
+
+def _imu_cap_trip(**imu: bool) -> SaveTripIn:
+    return SaveTripIn(
+        startTime=_CONF_TRIP_START,
+        distanceKm=6.2,
+        durationSeconds=900,
+        hardBrakes=0,
+        aggressiveAccels=0,
+        sharpTurns=0,
+        touchEpochs=0,
+        screenInteractionSeconds=0,
+        idempotencyKey=uuid.uuid4().hex,
+        routeWaypoints=_confident_waypoints(),
+        **imu,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_dead_accelerometer_caps_a_zero_event_trip_at_the_ceiling(db_session: AsyncSession) -> None:
+    """Zero events from a dead sensor is not evidence of clean driving.
+
+    The driver's rolling standing is set above the ceiling, so the cap that
+    engages here has to be the absolute one — the farm-proofing case the
+    ticket calls out by name: a high-standing driver switching the
+    accelerometer off must not coast at their existing standing.
+    """
+    driver = await _driver(db_session)
+    driver.driver_score = 95.0
+    await db_session.commit()
+
+    capped = await trips_service.save(db_session, driver, _imu_cap_trip(accelAvailable=False, accelInitFailed=True))
+
+    assert capped.avg_score == scoring.CONFIG.imu_dead_score_ceiling
+    assert capped.imu_degraded is True
+
+
+@pytest.mark.asyncio
+async def test_a_live_accelerometer_is_not_capped(db_session: AsyncSession) -> None:
+    """Companion to the cap test above — same trip, healthy sensor, no cap."""
+    driver = await _driver(db_session)
+    driver.driver_score = 95.0
+    await db_session.commit()
+
+    uncapped = await trips_service.save(db_session, driver, _imu_cap_trip(accelAvailable=True, accelInitFailed=False))
+
+    assert uncapped.avg_score > scoring.CONFIG.imu_dead_score_ceiling
+    assert uncapped.imu_degraded is False
