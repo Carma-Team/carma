@@ -257,6 +257,8 @@ export default function LeaderboardScreen() {
           onPress={handleSearch}
           style={styles.searchBtn}
           disabled={searchState === 'loading'}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.search')}
         >
           {searchState === 'loading'
             ? <ActivityIndicator size="small" color={COLORS.text} />
@@ -267,6 +269,8 @@ export default function LeaderboardScreen() {
           onPress={handleAddFriend}
           disabled={searchState !== 'found'}
           style={[styles.addBtn, searchState !== 'found' && styles.addBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.addFriend')}
         >
           <Ionicons
             name="add"
@@ -304,6 +308,11 @@ export default function LeaderboardScreen() {
       {filterRow}
       {friendSearch}
       <View style={{ height: 8 }} />
+      {/* Names the number every row ends with. Without it a bare 0–100 reads as points,
+          which is what the board used to be ranked by. */}
+      <View style={styles.scoreCaptionRow}>
+        <Text style={styles.scoreCaption}>{t('leaderboard.score')}</Text>
+      </View>
     </>
   )
 
@@ -410,6 +419,16 @@ const styles = StyleSheet.create({
   empty:        { ...TYPOGRAPHY.body, textAlign: 'center', color: COLORS.textMuted, marginTop: 40 },
   myRankBanner: { padding: SPACING.md, alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border },
   myRankText:   { ...TYPOGRAPHY.label, color: COLORS.brandLight },
+  // Sits over the score column: the row's own horizontal padding, plus the width of
+  // the follow / remove button (28) and its gap (8), which every row carries.
+  scoreCaptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: SPACING.md,
+    paddingEnd: SPACING.md + 36,
+    marginBottom: 4,
+  },
+  scoreCaption: { ...TYPOGRAPHY.caption, color: COLORS.textMuted },
 
   // Location filter row (city / national tabs)
   filterRow: {
