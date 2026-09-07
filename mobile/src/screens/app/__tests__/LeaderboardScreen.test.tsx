@@ -36,6 +36,7 @@ const board = (n: number, myRank: number | null = null): LeaderboardOut =>
       userId: `u-${i}`,
       rank: i + 1,
       score: 100 - i,
+      driverScore: 95 - i,
       distanceKm: 10,
       followStatus: 'none',
       user: {

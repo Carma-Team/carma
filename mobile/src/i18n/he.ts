@@ -180,12 +180,10 @@ const he = {
   },
   leaderboard: {
     title: 'טבלת המובילים', friends: 'חברים', city: 'עיר', national: 'ארצי',
-    rank: 'מיקום', player: 'שחקן', score: 'ציון', you: 'אתה',
+    score: 'ציון נהיגה', you: 'אתה',
     noFriends: 'אין חברים עדיין',
     showing_city: 'מציג נהגים ב',
     searchPhone: 'חפש לפי מספר טלפון',
-    search: 'חפש',
-    addFriend: 'הוסף חבר',
     userNotFound: 'המשתמש לא קיים במערכת',
     sendInvite: 'שלח/י הזמנה להצטרף',
     inviteMessage: 'שלום. {name} מעוניין/ת להזמין אותך להצטרף לאפליקציית CARMA. להתקנת האפליקציה לנייד לחצו על הקישור הבא: {link}',
