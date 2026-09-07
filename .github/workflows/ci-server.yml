@@ -119,7 +119,7 @@ jobs:
           cache-dependency-path: server/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - name: Mypy
-        run: mypy app
+        run: mypy app scripts
       - name: Pytest (no database)
         run: pytest
 
@@ -161,7 +161,7 @@ jobs:
           cache-dependency-path: server/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - name: Mypy
-        run: mypy app
+        run: mypy app scripts
       - name: Apply DB migrations
         run: alembic upgrade head
       - name: Verify schema is at latest revision
