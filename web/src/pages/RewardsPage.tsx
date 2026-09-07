@@ -13,19 +13,11 @@ import {
   trashReward,
   type Reward,
 } from '@/lib/api/rewards';
-import { BUSINESS_CATEGORIES, isBusinessCategory, normalizeBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
-import {
-  categoryTranslationKey,
-  getRewardState,
-  isArchived,
-  isTrashed,
-  localizedRewardText,
-  matchesTab,
-  type RewardState,
-  type RewardTab,
-} from '@/lib/rewardState';
+import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
+import { isArchived, isTrashed, matchesTab, type RewardTab } from '@/lib/rewardState';
 import { RewardForm } from '@/components/business/RewardForm';
-import { Alert, Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton, CategoryIcon } from '@/components/ui';
+import { RewardCard } from '@/components/business/RewardCard';
+import { Alert, Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, CountBadge, Skeleton } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
 
@@ -37,14 +29,6 @@ type LoadStatus = 'loading' | 'ready' | 'error' | 'forbidden';
 type LiveVoucherCheck = { status: 'loading' } | { status: 'error' } | { status: 'ok'; count: number };
 
 type FormState = { mode: 'create' } | { mode: 'edit'; reward: Reward };
-
-const STATE_KEY: Record<RewardState, keyof TranslationMap['rewards']> = {
-  active: 'stateActive',
-  soldOut: 'stateSoldOut',
-  expired: 'stateExpired',
-  inactive: 'stateInactive',
-  endingSoon: 'stateEndingSoon',
-};
 
 const TAB_KEY: Record<RewardTab, keyof TranslationMap['rewards']> = {
   all: 'filterAll',
@@ -64,7 +48,7 @@ function matchesSearch(reward: Reward, query: string): boolean {
 }
 
 export function RewardsPage() {
-  const { t, lang } = useTranslation();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [rewards, setRewards] = useState<Reward[]>([]);
@@ -533,141 +517,33 @@ export function RewardsPage() {
         )
       ) : (
         <div className={styles.grid}>
-          {visibleRewards.map((reward) => {
-            const archived = isArchived(reward);
-            const trashed = isTrashed(reward);
-            const state = getRewardState(reward);
-            const category = normalizeBusinessCategory(reward.category);
-            const title = lang === 'HE' ? localizedRewardText(reward.titleHe, reward.titleEn) : localizedRewardText(reward.titleEn, reward.titleHe);
-            const description =
-              lang === 'HE'
-                ? localizedRewardText(reward.descriptionHe, reward.descriptionEn)
-                : localizedRewardText(reward.descriptionEn, reward.descriptionHe);
-            const toggling = togglingId === reward.id;
-            return (
-              <Card key={reward.id} className={styles.card}>
-                <div className={styles.cardTop}>
-                  <CategoryIcon category={category} label={t(`rewards.${categoryTranslationKey(category)}`)} />
-                  {trashed ? (
-                    <StatusBadge tone="danger">{t('rewards.stateTrashed')}</StatusBadge>
-                  ) : archived ? (
-                    <StatusBadge tone="neutral">{t('rewards.stateArchived')}</StatusBadge>
-                  ) : (
-                    <StatusBadge tone={state === 'active' ? 'success' : state === 'endingSoon' || state === 'soldOut' ? 'warning' : 'neutral'}>
-                      {t(`rewards.${STATE_KEY[state]}`)}
-                    </StatusBadge>
-                  )}
-                </div>
-                <Heading level={2}>{title}</Heading>
-                {description !== '' && <Text variant="body">{description}</Text>}
-                <Text variant="caption">{t(`rewards.${categoryTranslationKey(reward.category)}`)}</Text>
-
-                <div className={styles.detailRow}>
-                  <Text variant="caption">{t('rewards.costPointsLabel')}</Text>
-                  <Text variant="label">{reward.costPoints}</Text>
-                </div>
-                <div className={styles.detailRow}>
-                  <Text variant="caption">{t('rewards.allocationLabel')}</Text>
-                  <Text variant="label" dir="ltr">
-                    {reward.stock === null ? t('rewards.allocationUnlimited') : `${reward.available ?? 0}/${reward.stock}`}
-                  </Text>
-                </div>
-                {reward.expiresAt && (
-                  <div className={styles.detailRow}>
-                    <Text variant="caption">{t('rewards.expiresLabel')}</Text>
-                    <Text variant="label" dir="ltr">
-                      {new Date(reward.expiresAt).toLocaleDateString(lang === 'HE' ? 'he-IL' : 'en-US')}
-                    </Text>
-                  </div>
-                )}
-
-                {canManage && retireErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {retireErrors[reward.id]}
-                  </Text>
-                )}
-                {canManage && toggleErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {toggleErrors[reward.id]}
-                  </Text>
-                )}
-                {canManage && trashErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {trashErrors[reward.id]}
-                  </Text>
-                )}
-                {canManage && restoreErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {restoreErrors[reward.id]}
-                  </Text>
-                )}
-                {canManage && reactivateErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {reactivateErrors[reward.id]}
-                  </Text>
-                )}
-                {canManage && deleteErrors[reward.id] && (
-                  <Text variant="caption" role="alert">
-                    {deleteErrors[reward.id]}
-                  </Text>
-                )}
-
-                {/* Disabled whenever *any* lifecycle action is in flight —
-                    not just this card's, and not just this action's.
-                    CAR-202's pre-commit review (B3) found that a second
-                    card's confirm dialog opening while another reward's
-                    mutation was in flight let the first request's completion
-                    silently clear the second reward's still-unconfirmed
-                    dialog; this feature adds four more actions to the same rows,
-                    so every button below shares the one combined guard
-                    (`lifecycleActionInFlight`) rather than reinventing a
-                    pairwise one per new action. */}
-                {canManage && !archived && !trashed && (
-                  <div className={styles.actions}>
-                    <Button
-                      variant={state === 'soldOut' ? 'primary' : 'secondary'}
-                      onClick={() => setFormState({ mode: 'edit', reward })}
-                    >
-                      {state === 'soldOut' ? t('rewards.addStockButton') : t('rewards.editButton')}
-                    </Button>
-                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => handleToggleActive(reward)}>
-                      {toggling
-                        ? t(reward.isActive ? 'rewards.pausingLabel' : 'rewards.resumingLabel')
-                        : t(reward.isActive ? 'rewards.pauseButton' : 'rewards.resumeButton')}
-                    </Button>
-                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openRetireDialog(reward)}>
-                      {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
-                    </Button>
-                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openTrashDialog(reward)}>
-                      {trashingId === reward.id ? t('rewards.trashingLabel') : t('rewards.trashButton')}
-                    </Button>
-                  </div>
-                )}
-
-                {canManage && archived && !trashed && (
-                  <div className={styles.actions}>
-                    <Button variant="primary" disabled={lifecycleActionInFlight} onClick={() => handleReactivate(reward)}>
-                      {reactivatingId === reward.id ? t('rewards.reactivatingLabel') : t('rewards.reactivateButton')}
-                    </Button>
-                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openTrashDialog(reward)}>
-                      {trashingId === reward.id ? t('rewards.trashingLabel') : t('rewards.trashButton')}
-                    </Button>
-                  </div>
-                )}
-
-                {canManage && trashed && (
-                  <div className={styles.actions}>
-                    <Button variant="primary" disabled={lifecycleActionInFlight} onClick={() => handleRestore(reward)}>
-                      {restoringId === reward.id ? t('rewards.restoringLabel') : t('rewards.restoreButton')}
-                    </Button>
-                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => setDeleteTarget(reward)}>
-                      {deletingId === reward.id ? t('rewards.deletingPermanentlyLabel') : t('rewards.deletePermanentlyButton')}
-                    </Button>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+          {visibleRewards.map((reward) => (
+            <RewardCard
+              key={reward.id}
+              reward={reward}
+              canManage={canManage}
+              lifecycleActionInFlight={lifecycleActionInFlight}
+              toggling={togglingId === reward.id}
+              retiring={retiringId === reward.id}
+              trashing={trashingId === reward.id}
+              restoring={restoringId === reward.id}
+              reactivating={reactivatingId === reward.id}
+              deleting={deletingId === reward.id}
+              retireError={retireErrors[reward.id]}
+              toggleError={toggleErrors[reward.id]}
+              trashError={trashErrors[reward.id]}
+              restoreError={restoreErrors[reward.id]}
+              reactivateError={reactivateErrors[reward.id]}
+              deleteError={deleteErrors[reward.id]}
+              onEdit={(r) => setFormState({ mode: 'edit', reward: r })}
+              onToggleActive={handleToggleActive}
+              onOpenRetireDialog={openRetireDialog}
+              onOpenTrashDialog={openTrashDialog}
+              onReactivate={handleReactivate}
+              onRestore={handleRestore}
+              onRequestDelete={setDeleteTarget}
+            />
+          ))}
         </div>
       )}
 

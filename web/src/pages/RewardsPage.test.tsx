@@ -80,6 +80,18 @@ function renderPage() {
   );
 }
 
+// Pause/resume, archive and trash (and, for an archived/trashed card,
+// trash/delete-permanently) live inside a card's "..." overflow menu
+// (docs/business-portal-design/CARMA Rewards Management.dc.html) — the menu
+// item's own accessible name only appears once its trigger has been opened.
+// `index` picks which card's trigger to open when more than one is on
+// screen, in DOM order (same convention `getAllByRole(...)[n]` uses
+// elsewhere in this file).
+function openCardMenu(index = 0) {
+  const triggers = screen.getAllByRole('button', { name: 'פעולות נוספות' });
+  fireEvent.click(triggers[index]);
+}
+
 describe('RewardsPage', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -212,6 +224,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -227,6 +240,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -244,6 +258,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -267,16 +282,18 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
 
-    const [retireA] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireA);
+    // A is the first card in DOM order.
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
     fireEvent.click(confirmButton);
 
-    // A's DELETE is now in flight. B's own retire button — the only one
-    // still carrying the plain "remove" label, A's now reads "removing…" —
-    // must already be disabled, so clicking it cannot reassign the
-    // still-open confirm dialog away from A.
+    // A's DELETE is now in flight. B's own menu item — the only one still
+    // carrying the plain "remove" label, A's now reads "removing…" — must
+    // already be disabled, so clicking it cannot reassign the still-open
+    // confirm dialog away from A. B is still the second card in DOM order.
+    openCardMenu(1);
     const retireB = screen.getByRole('button', { name: 'ארכיון' });
     expect(retireB).toBeDisabled();
     fireEvent.click(retireB);
@@ -303,6 +320,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await waitFor(() => expect(getLiveVoucherCount).toHaveBeenCalledWith('r1'));
 
@@ -322,6 +340,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     expect(
@@ -336,6 +355,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     expect(await screen.findByText('ההטבה תפסיק להופיע לנהגים. שום דבר לא נמחק — שוברים שכבר הונפקו עבורה לא ייפגעו, וההיסטוריה שלה נשמרת.')).toBeInTheDocument();
@@ -350,6 +370,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
 
     const alert = await screen.findByText('לא הצלחנו לבדוק אם יש שוברים חיים. נסו שוב.');
@@ -367,6 +388,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await screen.findByText(/שוברים חיים/);
     fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
@@ -389,12 +411,14 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('הטבה א')).toBeInTheDocument());
 
-    const [retireA] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireA);
+    // A is the first card in DOM order.
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     fireEvent.click(screen.getByRole('button', { name: 'ביטול' }));
 
-    const [, retireB] = screen.getAllByRole('button', { name: 'ארכיון' });
-    fireEvent.click(retireB);
+    // B is still the second card in DOM order.
+    openCardMenu(1);
+    fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     await screen.findByText('ההטבה תפסיק להופיע לנהגים. שום דבר לא נמחק — שוברים שכבר הונפקו עבורה לא ייפגעו, וההיסטוריה שלה נשמרת.');
 
     // A's request resolves only now, well after B's dialog is already showing
@@ -417,6 +441,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Voucher')).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
     expect(
@@ -512,9 +537,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
     await waitFor(() => expect(setRewardActive).toHaveBeenCalledWith('r1', false));
+    openCardMenu();
     expect(await screen.findByRole('button', { name: 'החזרה לפעילות' })).toBeInTheDocument();
   });
 
@@ -524,9 +551,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'החזרה לפעילות' }));
 
     await waitFor(() => expect(setRewardActive).toHaveBeenCalledWith('r1', true));
+    openCardMenu();
     expect(await screen.findByRole('button', { name: 'השהיה' })).toBeInTheDocument();
   });
 
@@ -536,9 +565,11 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
     await waitFor(() => expect(screen.getByText('לא הצלחנו להשהות את ההטבה. נסו שוב.')).toBeInTheDocument());
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'השהיה' })).toBeInTheDocument();
   });
 
@@ -598,6 +629,7 @@ describe('RewardsPage', () => {
 
     // The per-card action's accessible name is the bare label — the tab's
     // own "ארכיון 0" carries a count, so this exact match can't collide.
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
@@ -681,8 +713,10 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'השהיה' }));
 
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'ארכיון' })).toBeDisabled();
 
     await act(async () => {
@@ -699,11 +733,13 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'ארכיון' }));
     const confirmButton = await screen.findByRole('button', { name: 'כן, העבר לארכיון' });
     await waitFor(() => expect(confirmButton).not.toBeDisabled());
     fireEvent.click(confirmButton);
 
+    openCardMenu();
     expect(screen.getByRole('button', { name: 'השהיה' })).toBeDisabled();
 
     await act(async () => {
@@ -749,6 +785,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
     expect(await screen.findByText('ההטבה תיעלם מכל התצוגות מלבד האשפה. תוכלו לשחזר אותה לארכיון מאוחר יותר, או למחוק אותה משם לצמיתות — שוברים שכבר הונפקו לא ייפגעו.')).toBeInTheDocument();
 
@@ -772,6 +809,7 @@ describe('RewardsPage', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
     expect(await screen.findByText(/שובר חי אחד/)).toBeInTheDocument();
 
@@ -829,8 +867,9 @@ describe('RewardsPage', () => {
     renderPage();
     const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
     fireEvent.click(trashTab);
-    await waitFor(() => expect(screen.getByText('מחיקה לצמיתות')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
     expect(await screen.findByText('למחוק את ההטבה לצמיתות?')).toBeInTheDocument();
 
@@ -853,8 +892,9 @@ describe('RewardsPage', () => {
     renderPage();
     const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
     fireEvent.click(trashTab);
-    await waitFor(() => expect(screen.getByText('מחיקה לצמיתות')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'שחזור לארכיון' })).toBeInTheDocument());
 
+    openCardMenu();
     fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
     fireEvent.click(await screen.findByRole('button', { name: 'כן, מחק לצמיתות' }));
 

@@ -3,8 +3,10 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { createReward, updateReward, type Reward, type RewardPayload } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { categoryTranslationKey, expiryDateInputToIso, isoToExpiryDateInput } from '@/lib/rewardState';
+import { DEFAULT_REWARD_ICON } from '@/lib/rewardIcons';
 import { Alert, Card, Dialog, Heading, Input, Button, Text } from '@/components/ui';
 import inputStyles from '@/components/ui/Input.module.css';
+import { RewardIconPicker } from './RewardIconPicker';
 import styles from './RewardForm.module.css';
 
 const TITLE_MAX = 120;
@@ -16,6 +18,7 @@ type FormState = {
   descriptionHe: string;
   descriptionEn: string;
   category: BusinessCategory;
+  imageIcon: string;
   costPoints: string;
   stock: string;
   expiresAt: string;
@@ -35,6 +38,7 @@ function emptyForm(defaultCategory: BusinessCategory): FormState {
     descriptionHe: '',
     descriptionEn: '',
     category: defaultCategory,
+    imageIcon: DEFAULT_REWARD_ICON,
     costPoints: '',
     stock: '',
     expiresAt: '',
@@ -54,6 +58,7 @@ function formFromReward(reward: Reward, defaultCategory: BusinessCategory): Form
     // targets for genuinely different jobs, both built on the same
     // `isBusinessCategory` check.
     category: isBusinessCategory(reward.category) ? reward.category : defaultCategory,
+    imageIcon: reward.imageIcon,
     costPoints: String(reward.costPoints),
     stock: reward.stock === null ? '' : String(reward.stock),
     expiresAt: reward.expiresAt ? isoToExpiryDateInput(reward.expiresAt) : '',
@@ -101,6 +106,7 @@ function toPayload(form: FormState): RewardPayload {
     descriptionHe: form.descriptionHe.trim() === '' ? null : form.descriptionHe.trim(),
     descriptionEn: form.descriptionEn.trim() === '' ? null : form.descriptionEn.trim(),
     category: form.category,
+    imageIcon: form.imageIcon,
     costPoints: Number(form.costPoints.trim()),
     stock: stock === '' ? null : Number(stock),
     expiresAt: form.expiresAt === '' ? null : expiryDateInputToIso(form.expiresAt),
@@ -322,6 +328,11 @@ function RewardFormBody({
             ))}
           </select>
         </div>
+        <RewardIconPicker
+          id="reward-icon"
+          value={form.imageIcon}
+          onChange={(imageIcon) => updateField('imageIcon', imageIcon)}
+        />
       </Card>
 
       <Card variant="sunken" className={styles.section}>

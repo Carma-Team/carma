@@ -244,6 +244,7 @@ export type TranslationMap = {
     expiresLabel: string;
     editButton: string;
     addStockButton: string;
+    moreActionsLabel: string;
     pauseButton: string;
     pausingLabel: string;
     pauseErrorMessage: string;
@@ -308,6 +309,17 @@ export type TranslationMap = {
     categoryEntertainment: string;
     categoryShopping: string;
     categoryOther: string;
+    iconLabel: string;
+    iconChangeButton: string;
+    iconSearchPlaceholder: string;
+    iconNoResults: string;
+    iconGroupFoodDrink: string;
+    iconGroupRetail: string;
+    iconGroupAutomotive: string;
+    iconGroupHome: string;
+    iconGroupEntertainment: string;
+    iconGroupLifestyle: string;
+    iconGroupGeneric: string;
     costPointsInputLabel: string;
     allocationInputLabel: string;
     allocationHint: string;
