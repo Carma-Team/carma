@@ -2,25 +2,32 @@
 .h2,
 .h3 {
   margin: 0;
-  font-weight: var(--font-weight-heading);
   color: var(--color-text);
 }
 
 .h1 {
   font-size: var(--font-size-h1);
+  line-height: var(--line-height-h1);
+  font-weight: var(--font-weight-heading);
+  letter-spacing: -0.01em;
 }
 
 .h2 {
   font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  font-weight: var(--font-weight-heading);
 }
 
 .h3 {
   font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-title);
 }
 
 .body {
   margin: 0;
   font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
   font-weight: var(--font-weight-body);
   color: var(--color-text);
 }
@@ -28,12 +35,31 @@
 .caption {
   margin: 0;
   font-size: var(--font-size-caption);
-  color: var(--color-text-muted);
+  line-height: var(--line-height-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--color-text-faint);
 }
 
 .label {
   margin: 0;
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
-  color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: var(--font-size-eyebrow);
+  font-weight: var(--font-weight-label);
+  letter-spacing: var(--letter-spacing-eyebrow);
+  color: var(--color-text-faint);
+}
+
+.metric {
+  margin: 0;
+  font-size: var(--font-size-metric);
+  line-height: 1;
+  font-weight: var(--font-weight-heading);
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
 }

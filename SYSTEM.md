@@ -714,6 +714,14 @@ A dev client is the exception: it loads its JS from Metro, so the EAS value neve
 reaches it at build time. `eas env:pull development` writes the key into
 `mobile/.env.local` — gitignored, and what Metro inlines instead.
 
+`EXPO_PUBLIC_VEHICLE_KEY_SALT` is provisioned the same way, and is read only by
+`mobile/src/lib/vehicleKey.ts` (CAR-310). It is not a signing key and proves
+nothing: it exists so the same car yields the same opaque key on every trip and
+so a stored key cannot be reversed into a MAC address. **It must not be rotated.**
+Vehicle binding is by equality of that key, so a new salt re-keys every car at
+once and every driver reads as having changed vehicle. An unset value makes the
+client send `null` rather than a key every installation would agree on.
+
 ### Container App environment variables
 
 These are what the **server** needs to boot, and they are a different list from

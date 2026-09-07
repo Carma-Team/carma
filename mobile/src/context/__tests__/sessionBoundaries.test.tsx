@@ -6,6 +6,7 @@ import { AppProvider, useApp } from '@/context/AppContext'
 import { authApi } from '@/services/api/auth.api'
 import { tripsApi } from '@/services/api/trips.api'
 import { SyncManager } from '@/services/sync/SyncManager'
+import { ApiError } from '@/services/api/client'
 import type { AppUser, Trip } from '@/types'
 
 // Same seams as patchUser.test.tsx: the provider reaches storage, network, hardware
@@ -19,6 +20,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }))
 jest.mock('@/lib/driving-sdk', () => ({
   ...jest.requireActual('@/lib/driving-sdk/types'),
+  // The device probe now comes from the entry point, so the mocked package has to
+  // supply it — mocking the deep DeviceCapabilities path would defeat CAR-334.
+  checkDeviceCapabilities: jest.fn().mockResolvedValue({ hasAccelerometer: true, hasGyroscope: true, osSupported: true }),
   DrivingSDK: class { on() {} off() {} },
 }))
 jest.mock('@/lib/TripValidationManager', () => ({ TripValidationManager: class {} }))
@@ -64,6 +68,10 @@ describe('AppContext session boundaries on a shared handset', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(AsyncStorage.getItem as jest.Mock).mockResolvedValue(null)
+    // clearAllMocks drops calls, not implementations, and `storageOf` below replaces
+    // these two — without this they stay replaced for every test after it.
+    ;(AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined)
+    ;(AsyncStorage.multiRemove as jest.Mock).mockResolvedValue(undefined)
     ;(tripsApi.list as jest.Mock).mockResolvedValue({ trips: [] })
     ;(authApi.me as jest.Mock).mockResolvedValue(DRIVER_A)
   })
@@ -111,18 +119,81 @@ describe('AppContext session boundaries on a shared handset', () => {
     )
   })
 
-  it('shows only the signed-in driver rows when it falls back to the cache', async () => {
+  // The cache is only worth reading when it is provably the signing-in driver's own,
+  // so these two are a pair: drop the second and the first passes on a stub that never
+  // deletes anything. A plain jest.fn() is that stub, hence the small store.
+  function storageOf(entries: Record<string, string>) {
+    const store: Record<string, string> = { ...entries }
+    ;(AsyncStorage.getItem as jest.Mock).mockImplementation(async (k: string) => store[k] ?? null)
+    ;(AsyncStorage.removeItem as jest.Mock).mockImplementation(async (k: string) => { delete store[k] })
+    ;(AsyncStorage.multiRemove as jest.Mock).mockImplementation(async (keys: string[]) => {
+      keys.forEach(k => { delete store[k] })
+    })
+  }
+
+  it('drops the cached trips when a different driver signs in', async () => {
     ;(tripsApi.list as jest.Mock).mockRejectedValue(new Error('offline'))
-    ;(AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
-      key === 'carma_trips'
-        ? JSON.stringify([tripOf('t1', 'u1'), tripOf('t2', 'u2')])
-        : null
-    )
+    storageOf({
+      carma_user: JSON.stringify(DRIVER_A),
+      carma_trips: JSON.stringify([tripOf('t1', 'u1')]),
+    })
+
+    const { latest } = renderProvider()
+    await act(async () => { await latest().loginUser({ token: 'tok', user: DRIVER_B }) })
+
+    expect(latest().recentTrips).toEqual([])
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith('carma_trips')
+  })
+
+  it('keeps the cached trips when the same driver signs in again', async () => {
+    ;(tripsApi.list as jest.Mock).mockRejectedValue(new Error('offline'))
+    storageOf({
+      carma_user: JSON.stringify(DRIVER_B),
+      carma_trips: JSON.stringify([tripOf('t2', 'u2')]),
+    })
 
     const { latest } = renderProvider()
     await act(async () => { await latest().loginUser({ token: 'tok', user: DRIVER_B }) })
 
     expect(latest().recentTrips.map(t => t.id)).toEqual(['t2'])
+  })
+
+  // Bug 5 — a server that never answered is not a server that rejected the token.
+  it('keeps the stored session when the startup refresh fails on the network', async () => {
+    ;(AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
+      key === 'carma_user' ? JSON.stringify(DRIVER_A)
+      : key === 'carma_token' ? 'tok'
+      : key === 'carma_trips' ? JSON.stringify([tripOf('t1', 'u1')])
+      : null
+    )
+    // Offline is both calls failing, not one — the trip fetch has to reach its own
+    // fallback for this test to say anything about it.
+    ;(authApi.me as jest.Mock).mockRejectedValue(new ApiError(408, 'Request timed out'))
+    ;(tripsApi.list as jest.Mock).mockRejectedValue(new ApiError(408, 'Request timed out'))
+
+    const { latest } = renderProvider()
+    await act(async () => {})
+
+    expect(latest().user).toMatchObject({ id: 'u1' })
+    expect(latest().recentTrips.map(t => t.id)).toEqual(['t1'])
+    expect(AsyncStorage.multiRemove).not.toHaveBeenCalled()
+  })
+
+  it('ends the session when the server rejects the stored token', async () => {
+    ;(AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) =>
+      key === 'carma_user' ? JSON.stringify(DRIVER_A)
+      : key === 'carma_token' ? 'tok'
+      : null
+    )
+    ;(authApi.me as jest.Mock).mockRejectedValue(new ApiError(401, 'Unauthorized'))
+
+    const { latest } = renderProvider()
+    await act(async () => {})
+
+    expect(latest().user).toBeNull()
+    expect(AsyncStorage.multiRemove).toHaveBeenCalledWith(
+      expect.arrayContaining(['carma_user', 'carma_token', 'carma_trips'])
+    )
   })
 
   // Bug 4 — the post-sync refresh must not drop what only the device knows.

@@ -195,15 +195,18 @@ export function LevelWheel({ levels, currentLevel, currentPoints, lang }: LevelW
                     <Text style={styles.minPoints}>{lvl.minPoints.toLocaleString()}</Text>
                   </View>
 
-                  {/* Perks and progress are the centered box only — side boxes stay minimal */}
-                  {isCentered && !isRealCurrent && lvl.perks.length > 0 && (
+                  {/* The perk line is built here from the multiplier rather than shown
+                      from `perks`, which the server sends as Hebrew prose with no
+                      language parameter and so leaked Hebrew into the English app
+                      (CAR-249). The number is the only part the server needs to own. */}
+                  {isCentered && !isRealCurrent && lvl.bonusMultiplier > 1 && (
                     <View style={styles.perks}>
-                      {lvl.perks.slice(0, 1).map(perk => (
-                        <View key={perk} style={styles.perkRow}>
-                          <Text style={styles.perkDot}>•</Text>
-                          <Text style={[styles.perkText, isRealLocked && { color: COLORS.textMuted }]} numberOfLines={1}>{perk}</Text>
-                        </View>
-                      ))}
+                      <View style={styles.perkRow}>
+                        <Text style={styles.perkDot}>•</Text>
+                        <Text style={[styles.perkText, isRealLocked && { color: COLORS.textMuted }]} numberOfLines={1}>
+                          {t('roadmap.pointsMultiplier')} x{lvl.bonusMultiplier.toFixed(2)}
+                        </Text>
+                      </View>
                     </View>
                   )}
 

@@ -46,6 +46,7 @@ jest.mock('@/lib/driving-sdk/auto-trip-detection/AutoDriveModeManager', () => ({
   AutoDriveModeManager: class {
     constructor(_onDetected: any, _onLost: any) {}
     enable() {}
+    getConnectedVehicleId() { return null; }
   },
 }));
 
@@ -75,6 +76,7 @@ function tickAt80(): void {
     gyroAvailable: true,
     accelInitFailed: false,
     backgroundLocationAvailable: true,
+    locationStartFailed: false,
   });
   jest.advanceTimersByTime(1000);
 }

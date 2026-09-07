@@ -10,9 +10,9 @@
  * - `matchContacts` — which of the user's contacts already drive with CARMA
  *
  * @server
- * - GET /api/user/stats — USE_REAL_SERVER=false → mock (MOCK_STATS/MOCK_DRIVER_STATS); true → real server
- * - PATCH /api/users/me — USE_REAL_SERVER=false → mock; true → real server
- * - DELETE /api/users/me — USE_REAL_SERVER=false → mock (204); true → real server
+ * - GET /api/user/stats
+ * - PATCH /api/users/me
+ * - DELETE /api/users/me — the server answers 204
  * - GET /api/users/search?phone= — real server
  * - POST /api/users/match-contacts — real server
  */

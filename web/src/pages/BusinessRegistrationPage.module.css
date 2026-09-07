@@ -1,9 +1,3 @@
-.page {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-lg);
-}
-
 .formCard {
   max-width: 32rem;
   width: 100%;
@@ -43,4 +37,23 @@
   margin-top: var(--space-md);
   color: var(--color-primary);
   font-weight: var(--font-weight-label);
+}
+
+.otpInput {
+  text-align: center;
+  font-size: var(--font-size-h2);
+  letter-spacing: 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusCard-warning {
+  border-top: 3px solid var(--color-warning);
+}
+
+.statusCard-success {
+  border-top: 3px solid var(--color-success);
+}
+
+.statusCard-danger {
+  border-top: 3px solid var(--color-danger);
 }

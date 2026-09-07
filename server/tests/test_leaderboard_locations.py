@@ -43,7 +43,14 @@ async def test_locations_requires_auth() -> None:
     assert r.status_code == 401
 
 
-async def _driver(db: AsyncSession, *, city: str | None, points: int = 100, private: bool = False) -> User:
+async def _driver(
+    db: AsyncSession,
+    *,
+    city: str | None,
+    points: int = 100,
+    private: bool = False,
+    driver_score: float | None = None,
+) -> User:
     await _ensure_cities(db)
     user = User(
         email=f"_lb_{uuid.uuid4().hex[:10]}@carmatest.co.il",
@@ -53,6 +60,7 @@ async def _driver(db: AsyncSession, *, city: str | None, points: int = 100, priv
         city_code=city,
         total_points=points,
         is_private=private,
+        driver_score=driver_score,
     )
     db.add(user)
     await db.commit()
@@ -139,9 +147,10 @@ async def test_city_board_falls_back_to_the_callers_city(db_session: AsyncSessio
 @pytest.mark.asyncio
 async def test_my_rank_is_counted_within_the_requested_board(db_session: AsyncSession) -> None:
     # Viewer is off the visible window in a foreign city, so my_rank is computed.
-    viewer = await _driver(db_session, city=CITY_A, points=50, private=True)
-    richer_in_b = await _driver(db_session, city=CITY_B, points=900)
-    richer_elsewhere = await _driver(db_session, city=CITY_A, points=900)
+    # CAR-19: ranked by driver_score now, not points — points stays incidental here.
+    viewer = await _driver(db_session, city=CITY_A, driver_score=50.0, private=True)
+    richer_in_b = await _driver(db_session, city=CITY_B, driver_score=90.0)
+    richer_elsewhere = await _driver(db_session, city=CITY_A, driver_score=90.0)
     try:
         board = await svc.get(db_session, viewer, "city", CITY_B)
 

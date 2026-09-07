@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Card, Heading, Text, Input, Button } from '@/components/ui';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
+import styles from './AcceptInvitationEntryPage.module.css';
 
 // The manual-code fallback (CAR-118) to the link `AcceptInvitationPage`
 // serves — a recipient who was read the code aloud, rather than sent the
@@ -35,11 +37,11 @@ export function AcceptInvitationEntryPage() {
   }
 
   return (
-    <main style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-lg)' }}>
-      <Card style={{ maxWidth: '24rem', width: '100%' }}>
+    <AuthCardShell>
+      <Card className={styles.card}>
         <Heading level={1}>{t('invitations.manualEntryTitle')}</Heading>
         <Text variant="body">{t('invitations.manualEntrySubtitle')}</Text>
-        <form onSubmit={handleSubmit} noValidate>
+        <form onSubmit={handleSubmit} noValidate className={styles.form}>
           <Input
             label={t('invitations.codeInputLabel')}
             name="code"
@@ -52,11 +54,9 @@ export function AcceptInvitationEntryPage() {
               setCode(event.target.value);
             }}
           />
-          <Button type="submit" style={{ marginTop: 'var(--space-md)' }}>
-            {t('invitations.continueButton')}
-          </Button>
+          <Button type="submit">{t('invitations.continueButton')}</Button>
         </form>
       </Card>
-    </main>
+    </AuthCardShell>
   );
 }

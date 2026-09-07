@@ -5,7 +5,8 @@
  * @description
  * Central context managing all global state:
  * - **User**: loaded from AsyncStorage, refreshed from server on auth, logout
- * - **Trip**: `processEndTrip` — score calculation, server persistence, points/level update
+ * - **Trip**: `processEndTrip` — server persistence, points/level update. The payload
+ *   itself is shaped in `lib/tripPayload.ts`; nothing here computes a score.
  * - **Trip list**: synced with server on login, persisted to AsyncStorage
  * - **UI**: toasts, language, loading state
  * - **SDK**: registers conditional event listeners on DrivingSDK
@@ -14,17 +15,16 @@
  * - `authApi.me()` — GET /api/auth/me — refresh user details on startup
  * - `tripsApi.list()` — GET /api/trips — sync trips on login
  * - `tripsApi.save()` — POST /api/trips — persist a completed trip
- * - USE_REAL_SERVER=false: all calls intercepted in client.ts (mock)
- * - USE_REAL_SERVER=true: calls go to the real server
+ * Every call goes to the real server either way — USE_REAL_SERVER only chooses
+ * between the local one and the deployed one (constants/serverConfig.ts).
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, I18nManager } from 'react-native'
 import type { AppUser, Language, ToastMessage, Trip } from '@/types'
 import type { AuthResponse } from '@/services/api/auth.api'
-import { DrivingSDK, TripData, RawExportFailure } from '@/lib/driving-sdk'
+import { DrivingSDK, TripData, RawExportFailure, checkDeviceCapabilities } from '@/lib/driving-sdk'
 import { TripValidationManager } from '@/lib/TripValidationManager'
-import { checkDeviceCapabilities } from '@/lib/driving-sdk/DeviceCapabilities'
 import { maybePromptBatteryOptimizationExemption } from '@/lib/BatteryOptimizationPrompt'
 import * as Location from 'expo-location'
 import { tripsApi } from '@/services/api/trips.api'
@@ -34,12 +34,13 @@ import { levelsApi } from '@/services/api/levels.api'
 import { pingServer } from '@/services/api/health.api'
 import { getLevelByPoints, setLevels } from '@/lib/constants'
 import { availableBalance } from '@/lib/utils'
-import { fromLocalTrip, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
-import { signTelemetryDigest } from '@/lib/telemetrySigning'
+import { fromLocalTrip, mergeUnsentTrips, TOO_SHORT_SUMMARY, type TripSummary } from '@/lib/tripSummary'
+import { buildValidTripPayload } from '@/lib/tripPayload'
+import { vehicleKeyHash } from '@/lib/vehicleKey'
+import Constants from 'expo-constants'
 import he from '@/i18n/he'
 import en from '@/i18n/en'
 import { SyncManager } from '@/services/sync/SyncManager'
-import type { ValidTripPayload, TelemetryDigest } from '@/services/sync/types'
 import { levelDisplay, detectLevelChange } from '@/lib/gamification'
 import type { GamificationLevel } from '@/lib/gamification'
 import { INITIAL_TRIP_STATE, type TripState } from './tripState'
@@ -49,44 +50,6 @@ import { useFraudBinding } from './fraudBinding'
 import { useRegionBinding } from './regionBinding'
 
 export type { TripState } from './tripState'
-
-// ─── TelemetryDigest builder ──────────────────────────────────────────────────
-// Produces the raw-sensor canonical snapshot defined in RFC-001 v1.7 §3.1.
-// avgScore, points, and phoneSeconds are absent — server is the sole scoring oracle.
-// timestamp is injected at call time to enable server-side replay detection.
-
-function buildTelemetryDigest(
-  state: TripState,
-  startTime: string,
-  endTime: string,
-  // Read from TripData (via lastTripDataRef at the call site), not TripState — accel
-  // health is SDK trip data, not part of the reducer-shaped trip state (CAR-189).
-  //
-  // Optional on purpose: a trip that ended with no SDK data at all knows nothing about
-  // the accelerometer, and `undefined` is that. Defaulting to `false` here turned that
-  // silence into the claim "the sensor was not live", which is the one thing the field
-  // must never say on its own — and it disagreed with the top-level payload, which
-  // sends the same values with no default at all.
-  accelAvailable: boolean | undefined,
-  accelInitFailed: boolean | undefined,
-  accelCoverage: number | undefined,
-): TelemetryDigest {
-  return {
-    distanceKm:               Math.round(state.distanceKm * 1000) / 1000,
-    durationSeconds:          state.durationSeconds,
-    hardBrakes:               state.eventCounts.HARD_BRAKE,
-    aggressiveAccels:         state.eventCounts.AGGRESSIVE_ACCEL,
-    sharpTurns:               state.eventCounts.SHARP_TURN,
-    touchEpochs:              state.touchEpochs,
-    screenInteractionSeconds: state.screenInteractionSeconds,
-    startTime,
-    endTime,
-    timestamp:                Date.now(),
-    accelAvailable,
-    accelInitFailed,
-    accelCoverage,
-  };
-}
 
 /**
  * The Bluetooth device the driver picked as "their car", held locally only.
@@ -119,8 +82,8 @@ interface AppContextValue {
   debugAddDistance: (km: number) => void
   startRawRecording: (scenario: string, platform: string) => Promise<void>
   stopRawRecording: () => Promise<void>
-  exportRawRecording: () => Promise<string | RawExportFailure>
-  clearTripHistory: () => Promise<void>
+  exportRawRecording: (filePath?: string) => Promise<string | RawExportFailure>
+  deleteTrips: (tripIds: string[]) => Promise<void>
   sdk: DrivingSDK
   btDevice: BluetoothTarget
   setBtDevice: (device: BluetoothTarget) => Promise<void>
@@ -129,6 +92,16 @@ interface AppContextValue {
 }
 
 type UserPatch = Partial<AppUser>
+
+// Stamped on a staged recording's header so an offline reader can tell which handset
+// produced a drive (CAR-212). The device *name* rather than a model string: the app has
+// no device-info dependency to add one, and this label only has to tell the handful of
+// phones that record calibration drives apart from each other.
+const DEVICE_MODEL = Constants.deviceName ?? 'unknown'
+
+// Everything that belongs to whoever is signed in, cleared together whenever a
+// session ends. A key added here is a key the next logout will not forget.
+const SESSION_KEYS = ['carma_user', 'carma_token', 'carma_trips']
 
 const AppContext = createContext<AppContextValue | null>(null)
 
@@ -173,18 +146,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Filtered trips based on lastClearedHistory
+  // Two hides, not deletes: the server has no way to remove a trip (CAR-307). The
+  // cutoff is what the old settings-wide reset left behind on devices that used it,
+  // and is kept so those trips do not reappear; new deletions are per trip.
   const filteredTrips = useMemo(() => {
-    if (!user?.lastClearedHistory) return recentTrips;
-    const cutoff = new Date(user.lastClearedHistory).getTime();
-    return recentTrips.filter(trip => new Date(trip.startTime).getTime() > cutoff);
-  }, [recentTrips, user?.lastClearedHistory]);
+    const cutoff = user?.lastClearedHistory ? new Date(user.lastClearedHistory).getTime() : null;
+    const deleted = new Set(user?.deletedTripIds ?? []);
+    if (cutoff === null && deleted.size === 0) return recentTrips;
+    return recentTrips.filter(trip =>
+      !deleted.has(trip.id) &&
+      (cutoff === null || new Date(trip.startTime).getTime() > cutoff)
+    );
+  }, [recentTrips, user?.lastClearedHistory, user?.deletedTripIds]);
 
   // TripValidationManager (30s-start/3min-end/fraud rules) is CARMA-specific business
   // logic — the SDK itself only ships a trivial default. This is the app "wrapping"
   // the generic library with its own trip-validation rules, per the driving-sdk
   // boundary: nothing CARMA-specific lives inside src/lib/driving-sdk/ itself.
-  const sdk = useMemo(() => new DrivingSDK({ tripValidator: new TripValidationManager() }), []);
+  const sdk = useMemo(() => new DrivingSDK({
+    tripValidator: new TripValidationManager(),
+    // The salt is CARMA's, so the hashing is CARMA's — the SDK is handed the function and
+    // never the secret, the same shape the validator is injected in (CAR-310).
+    vehicleKeyHasher: vehicleKeyHash,
+  }), []);
   // Bumped on every identity change — login, driver switch, logout. An async path
   // copies it on entry and drops its write if the number moved while it awaited;
   // without that, a request the previous driver started lands on the current one.
@@ -193,6 +177,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { tripRef.current = tripState; }, [tripState])
   // Raw TripData from the SDK's onTripEnd callback — holds waypoints and events with locations
   const lastTripDataRef = useRef<TripData | null>(null);
+
+  /**
+   * Refreshes the trip list from the server, keeping what the device already has if
+   * the call fails. `gen` is the session the caller started in — a list that arrives
+   * after the driver changed belongs to nobody on screen and is dropped.
+   *
+   * The cache is read unfiltered: `setUser` drops it on a driver change, so whatever
+   * is left is this driver's own.
+   *
+   * The server's answer is merged into the cache rather than replacing it. A trip still
+   * in the sync queue is not on the server, and this runs before the queue is flushed on
+   * a cold start — replacing the list wholesale erased an offline trip on the first
+   * online launch after recording it, so neither sync outcome had a row left to update.
+   */
+  const refreshTrips = useCallback(async (gen: number) => {
+    try {
+      const [serverData, raw] = await Promise.all([
+        tripsApi.list(),
+        AsyncStorage.getItem('carma_trips'),
+      ]);
+      if (gen !== sessionRef.current) return;
+      const merged = mergeUnsentTrips(raw ? (JSON.parse(raw) as Trip[]) : [], serverData.trips);
+      setRecentTrips(merged);
+      await AsyncStorage.setItem('carma_trips', JSON.stringify(merged));
+    } catch {
+      const cached = await AsyncStorage.getItem('carma_trips');
+      if (gen !== sessionRef.current || !cached) return;
+      setRecentTrips(JSON.parse(cached) as Trip[]);
+    }
+  }, []);
 
   const addToast = useCallback((t: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
@@ -213,7 +227,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (finalState.distanceKm < 0.1) {
       setLastTripSummary(TOO_SHORT_SUMMARY);
-      setTripState(INITIAL_TRIP_STATE);
       return finalState;
     }
 
@@ -221,53 +234,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ?? new Date(Date.now() - finalState.durationSeconds * 1000).toISOString();
     const endTime = new Date().toISOString();
 
-    // RFC-001 v1.5: build and sign raw-sensor digest — no score params, server scores authoritatively.
-    // Signing failure must never block the trip from being saved (payload sent unsigned as fallback).
-    let telemetryDigest:  TelemetryDigest | undefined;
-    let payloadSignature: string | undefined;
-    try {
-      telemetryDigest  = buildTelemetryDigest(
-        finalState, tripStartTime, endTime,
-        lastTripDataRef.current?.accelAvailable,
-        lastTripDataRef.current?.accelInitFailed,
-        lastTripDataRef.current?.accelCoverage,
-      );
-      payloadSignature = signTelemetryDigest(telemetryDigest);
-    } catch (sigErr) {
-      console.error('[AppContext] Digest signing failed — payload sent unsigned', sigErr);
-    }
-
-    const validTripPayload: ValidTripPayload = {
-      localTripId: finalState.sessionId,
-      startTime: tripStartTime,
-      endTime,
-      distanceKm: finalState.distanceKm,
-      durationSeconds: finalState.durationSeconds,
-      avgScore: 0,        // server computes — placeholder only
-      points: 0,          // server computes — placeholder only
-      hardBrakes: finalState.eventCounts.HARD_BRAKE,
-      aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
-      sharpTurns: finalState.eventCounts.SHARP_TURN,
-      touchEpochs: finalState.touchEpochs,
-      screenInteractionSeconds: finalState.screenInteractionSeconds,
-      penalties: 0,         // server computes — placeholder only
-      accelAvailable: lastTripDataRef.current?.accelAvailable,
-      accelInitFailed: lastTripDataRef.current?.accelInitFailed,
-      accelCoverage: lastTripDataRef.current?.accelCoverage,
-      telemetryDigest,
-      payloadSignature,
-      routeWaypoints: lastTripDataRef.current?.waypoints,
-      events: lastTripDataRef.current?.events?.map(e => ({
-        type: e.type,
-        timestamp: e.timestamp.toISOString(),
-        severity: e.severity,
-        speedKmh: e.speedKmh,
-        location: e.location,
-        peakLongitudinalG: e.peakLongitudinalG,
-        peakLateralG: e.peakLateralG,
-        durationMs: e.durationMs,
-      })),
-    };
+    const validTripPayload = buildValidTripPayload(
+      finalState, lastTripDataRef.current, tripStartTime, endTime,
+    );
 
     let savedTrip: Trip | null = null;
     let isPermanentFailure = false;
@@ -292,7 +261,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (isPermanentFailure) {
-      setTripState(INITIAL_TRIP_STATE);
       return finalState;
     }
 
@@ -310,7 +278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const earnedPoints         = Math.round(serverPointsRaw);
 
     const newTrip: Trip = savedTrip
-      ? { ...savedTrip, score: savedTrip.avgScore }
+      ? savedTrip
       : {
           id: finalState.sessionId,
           userId: user?.id || 'guest',
@@ -319,12 +287,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           distanceKm: finalState.distanceKm,
           durationSeconds: finalState.durationSeconds,
           avgScore: serverScore,
-          score: serverScore,
           points: earnedPoints,
           hardBrakes: finalState.eventCounts.HARD_BRAKE,
           aggressiveAccels: finalState.eventCounts.AGGRESSIVE_ACCEL,
           sharpTurns: finalState.eventCounts.SHARP_TURN,
-          touchEpochs: finalState.touchEpochs,
+          // Still required by the trip schema, and nothing measures it any more —
+          // the column goes with CAR-188.
+          touchEpochs: 0,
           screenInteractionSeconds: finalState.screenInteractionSeconds,
           riskMultiplier: serverRiskMultiplier,
           effectiveRiskMultiplier: serverEffectiveRisk,
@@ -385,27 +354,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setLastTripSummary(fromLocalTrip(newTrip.id, savedTrip, finalState, lastTripDataRef.current));
-    lastTripDataRef.current = null;
-    setTripState(INITIAL_TRIP_STATE);
     return finalState;
-  }, [user, addToast, lang]);
+  }, [user, addToast, lang, patchUser]);
 
-  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: processEndTrip });
+  // The SDK's onTripEnd is a synchronous callback, so the promise `processEndTrip`
+  // returns had nowhere to go and was dropped. `stopTrip` then resolved while the save
+  // and the score it waits for were still in flight, and every caller that awaited
+  // `endTrip` — the end-of-trip spinner among them — carried on without a score
+  // (CAR-301). Holding it here is what gives `endTrip` something to wait on.
+  const endInFlightRef = useRef<Promise<TripState | null> | null>(null);
+  const handleTripEnded = useCallback(() => {
+    // The reset lives here and not on each exit inside `processEndTrip`: the three
+    // paths that had their own copy all reached it, but a throw between the save and
+    // the last line reached none of them, and the UI then held a finished trip open
+    // as active until the app restarted. One `finally` covers every exit there is.
+    endInFlightRef.current = processEndTrip().finally(() => {
+      lastTripDataRef.current = null;
+      setTripState(INITIAL_TRIP_STATE);
+    });
+  }, [processEndTrip]);
+
+  useSdkBindings({ sdk, setTripState, tripRef, lastTripDataRef, onTripEnded: handleTripEnded });
   useScoringEvents(sdk, setTripState);
-  useFraudBinding(sdk, user, setTripState);
+  useFraudBinding(sdk, user, setTripState, addToast, lang);
   useRegionBinding(sdk, setTripState, addToast, lang);
+
+  // Both sync outcomes rewrite one cached row. Going through the cache rather than
+  // through `prev` keeps the persist out of the setRecentTrips updater, which React
+  // double-invokes under StrictMode — and it is the pattern processEndTrip already uses.
+  // Serialised, because it is a read-then-write and both callers fire it without
+  // awaiting. Two trips crossing the age bound in one flush pass are abandoned in the
+  // same tick, so unchained they both read the pre-patch cache and the second write
+  // drops the first — leaving a trip that will never be sent still telling the driver
+  // it will be.
+  const cacheWrites = useRef<Promise<void>>(Promise.resolve());
+
+  const patchCachedTrip = useCallback((
+    gen: number,
+    localId: string,
+    patch: (t: Trip) => Trip,
+  ) => {
+    cacheWrites.current = cacheWrites.current.then(async () => {
+      try {
+        const raw = await AsyncStorage.getItem('carma_trips');
+        // The row belongs to whoever was signed in when the sync resolved.
+        if (gen !== sessionRef.current || !raw) return;
+        const updated = (JSON.parse(raw) as Trip[]).map(t => (t.id === localId ? patch(t) : t));
+        setRecentTrips(updated);
+        await AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
+      } catch (e) {
+        // Neither caller can do anything about it, and both are fire-and-forget. Worth
+        // logging rather than swallowing: an abandoned trip that fails to be marked keeps
+        // telling the driver it will be sent automatically, and nothing is retrying it.
+        console.error('[AppContext] Failed to update cached trip', e);
+      }
+    });
+    return cacheWrites.current;
+  }, []);
 
   // ─── SyncManager: replace local-only trip with server trip after offline sync ──
   useEffect(() => {
     SyncManager.onTripSynced = (localId: string, serverTrip: Trip) => {
       const gen = sessionRef.current;
-      setRecentTrips(prev => {
-        const updated = prev.map(t =>
-          t.id === localId ? { ...serverTrip, score: serverTrip.avgScore } : t
-        );
-        AsyncStorage.setItem('carma_trips', JSON.stringify(updated));
-        return updated;
-      });
+      patchCachedTrip(gen, localId, () => serverTrip);
       // Re-fetch authoritative user totals so points/level reflect the committed trip.
       // Handles the app-restart-then-sync case where loadInitialData ran before the
       // queue was flushed and therefore fetched stale server totals.
@@ -415,7 +426,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         patchUser(freshUser);
       }).catch(() => {});
     };
-  }, [patchUser]);
+  }, [patchUser, patchCachedTrip]);
+
+  // ─── SyncManager: the queue gave up on a trip — mark the row, never remove it ──
+  useEffect(() => {
+    SyncManager.onTripAbandoned = (localId: string) => {
+      // `pendingSync` deliberately stays on. It does not mean "an upload is in flight",
+      // it means the score in this row is the placeholder zero we wrote ourselves — which
+      // is true of an abandoned trip permanently. Clearing it would let that zero into
+      // weeklyScoreTrend. Readers tell the two apart by precedence: syncFailed wins.
+      patchCachedTrip(sessionRef.current, localId, t => ({ ...t, syncFailed: true }));
+    };
+  }, [patchCachedTrip]);
 
   // ─── AppState: flush queued trips when app returns to foreground ──────────────
   useEffect(() => {
@@ -466,29 +488,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           addToast({ type: 'warning', message: tr.common.serverUnreachable, duration: 6000 });
         }
 
-        if (u && token) {
-          // Saved token found — validate against server and refresh data
+        // Parsed above the branch so that both the refresh and its fallback can read
+        // it: a `const` inside the `try` is not visible from the `catch`.
+        let stored: AppUser | null = null;
+        if (u) {
+          try { stored = JSON.parse(u) as AppUser } catch { stored = null }
+        }
+
+        if (stored && token) {
+          // Saved token found — validate against server and refresh data.
+          // Two try blocks and not one: the trip list is a refresh, and a failed one
+          // must not cost the driver the session `me()` just confirmed.
+          if (!stored.level) stored.level = getLevelByPoints(stored.totalPoints || 0);
+          let signedIn = true;
           try {
             const freshUser = await authApi.me();
             // Restoring the stored session is only right while it is still the one
             // signed in. A logout during startup ends it, and nothing below may put
             // the account back into state or storage.
             if (gen !== sessionRef.current) return;
-            const merged = { ...JSON.parse(u), ...freshUser };
+            const merged = { ...stored, ...freshUser };
             if (!merged.level) merged.level = getLevelByPoints(merged.totalPoints || 0);
             setUserState(merged);
             await AsyncStorage.setItem('carma_user', JSON.stringify(merged));
-
-            const serverData = await tripsApi.list();
+          } catch (e) {
             if (gen !== sessionRef.current) return;
-            setRecentTrips(serverData.trips);
-            await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
-          } catch {
-            // Invalid token — clear storage and redirect to login
-            await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
-            setUserState(null);
-            setRecentTrips([]);
+            // Only the server saying "not you" ends the session. A network failure or
+            // a timeout means it never answered, and clearing the token on that signed
+            // a driver out of a working account for starting the app offline — taking
+            // the cached trips with it. Offline start keeps the stored user instead.
+            if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+              await AsyncStorage.multiRemove(SESSION_KEYS);
+              setUserState(null);
+              setRecentTrips([]);
+              signedIn = false;
+            } else {
+              setUserState(stored);
+            }
           }
+
+          if (signedIn) await refreshTrips(gen);
+        } else if (u && token) {
+          // A stored session that will not parse can restore nothing, and leaving it
+          // in place repeats this on every start.
+          await AsyncStorage.multiRemove(SESSION_KEYS);
         }
         SyncManager.flushQueue().catch(() => {});
       } catch (e) {
@@ -498,7 +541,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadInitialData()
-  }, [sdk, addToast])
+  }, [sdk, addToast, refreshTrips])
 
   const startTrip = useCallback(async () => {
     // TODO: GPS Logic - After first GPS sample, perform reverse geocoding to identify
@@ -510,8 +553,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const endTrip = useCallback(async () => {
+    // `stopTrip` fires onTripEnd before it resolves, so the ref is populated by the
+    // time this reads it. Swallowed on purpose: processEndTrip already reports every
+    // failure it knows about, and an unexpected throw must still let the caller take
+    // its spinner down rather than leaving it up forever.
     await sdk.stopTrip();
-    return tripRef.current;
+    let finished: TripState | null = null;
+    try {
+      finished = (await endInFlightRef.current) ?? null;
+    } catch (e) {
+      console.error('[AppContext] End-of-trip processing failed', e);
+    } finally {
+      endInFlightRef.current = null;
+    }
+    // The state `processEndTrip` ended the trip on, not `tripRef`: the ref is written
+    // by an effect a render later, so reading it here returned the finished trip or
+    // the reset one depending on when React flushed.
+    return finished ?? tripRef.current;
   }, [sdk]);
 
   const setBtDevice = useCallback(async (device: BluetoothTarget) => {
@@ -535,8 +593,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRecentTrips([]);
       // carma_trips goes with the session. Left behind, the offline fallback hands
       // the next driver on the handset the previous driver's trips.
-      await AsyncStorage.multiRemove(['carma_user', 'carma_token', 'carma_trips']);
+      await AsyncStorage.multiRemove(SESSION_KEYS);
     } else {
+      // The trip cache belongs to whoever was signed in, so it survives only into a
+      // sign-in by that same driver — the partial writes that also come through here
+      // (points after a redeem, the drive mode toggle) are exactly that. Anyone else
+      // starts empty, including a driver who signed in over one who never logged out.
+      // Compared against storage and not against the `user` in state: this callback is
+      // created once and closes over nothing. An unreadable record proves nothing about
+      // whose rows those are, so it counts as someone else.
+      const previous = await AsyncStorage.getItem('carma_user');
+      let sameDriver = false;
+      try { sameDriver = !!previous && (JSON.parse(previous) as AppUser).id === u.id } catch { sameDriver = false }
+      if (!sameDriver) {
+        setRecentTrips([]);
+        await AsyncStorage.removeItem('carma_trips');
+      }
       setUserState(u);
       await AsyncStorage.setItem('carma_user', JSON.stringify(u));
     }
@@ -558,20 +630,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // used to drag a full trip list refetch along with it.
 
     // Read after setUser, which is the call that bumped the session for this login.
-    const gen = sessionRef.current;
-    try {
-      const serverData = await tripsApi.list();
-      if (gen !== sessionRef.current) return;
-      setRecentTrips(serverData.trips);
-      await AsyncStorage.setItem('carma_trips', JSON.stringify(serverData.trips));
-    } catch {
-      const cached = await AsyncStorage.getItem('carma_trips');
-      if (gen !== sessionRef.current || !cached) return;
-      // Filtered even after the logout wipe: a driver who never logged out leaves
-      // the cache in place, and the next one must not be shown its rows.
-      setRecentTrips((JSON.parse(cached) as Trip[]).filter(t => t.userId === data.user.id));
-    }
-  }, [setUser]);
+    await refreshTrips(sessionRef.current);
+  }, [setUser, refreshTrips]);
 
   const setLang = useCallback(async (l: Language) => {
     setLangState(l);
@@ -587,31 +647,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sdk]);
 
   const startRawRecording = useCallback(
-    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform),
+    (scenario: string, platform: string) => sdk.startRawRecording(scenario, platform, DEVICE_MODEL),
     [sdk]
   );
   const stopRawRecording = useCallback(() => sdk.stopRawRecording(), [sdk]);
-  const exportRawRecording = useCallback(() => sdk.exportRawRecording(), [sdk]);
+  const exportRawRecording = useCallback((filePath?: string) => sdk.exportRawRecording(filePath), [sdk]);
 
-  const clearTripHistory = useCallback(async () => {
+  const deleteTrips = useCallback(async (tripIds: string[]) => {
+    if (tripIds.length === 0) return;
     try {
-      const now = new Date().toISOString();
       if (user) {
-        const updatedUser = { ...user, lastClearedHistory: now };
-        setUserState(updatedUser);
-        await AsyncStorage.setItem('carma_user', JSON.stringify(updatedUser));
+        // Through patchUser, and not `{ ...user, ... }` off the closed-over user:
+        // that snapshot is as old as the screen that called this, and a trip landing
+        // mid-delete was rolled back by it.
+        // Union rather than append: the same trip can be selected again after a
+        // failed write, and a duplicate id would silently grow the stored list.
+        patchUser(prev => ({
+          deletedTripIds: Array.from(new Set([...(prev.deletedTripIds ?? []), ...tripIds])),
+        }));
       }
 
       const tr = lang === 'HE' ? he : en;
       addToast({
-        title: tr.common.historyCleared,
-        message: tr.common.historyClearedDesc,
+        title: tr.common.tripsDeleted,
+        message: tr.common.tripsDeletedDesc,
         type: 'success'
       });
     } catch (e) {
-      console.error('Failed to clear history', e);
+      console.error('Failed to delete trips', e);
     }
-  }, [lang, addToast, user]);
+  }, [lang, addToast, user, patchUser]);
 
   return (
     <AppContext.Provider value={{
@@ -623,7 +688,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       lastTripSummary, setLastTripSummary,
       debugAddDistance,
       startRawRecording, stopRawRecording, exportRawRecording,
-      clearTripHistory,
+      deleteTrips,
       sdk,
       btDevice, setBtDevice,
       userLevelState,

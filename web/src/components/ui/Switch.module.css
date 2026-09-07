@@ -1,0 +1,60 @@
+.wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.trackWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.track {
+  width: 44px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-border-strong);
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  box-sizing: border-box;
+  justify-content: flex-start;
+  transition: background-color 0.15s ease;
+}
+
+.trackOn {
+  background-color: var(--color-success);
+  justify-content: flex-end;
+}
+
+.input:focus-visible + .track {
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.knob {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface);
+}
+
+.label {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-faint);
+}
+
+.labelOn {
+  color: var(--color-success-text);
+}

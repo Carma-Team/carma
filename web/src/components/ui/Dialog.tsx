@@ -1,6 +1,21 @@
 import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Heading } from './Typography';
+import { AlertCircleIcon, AlertTriangleIcon } from './icons';
 import styles from './Dialog.module.css';
+
+type DialogSize = 'sm' | 'lg';
+
+// Confirm-dialog icon, per the style guide's "Modal / dialog" pattern — a
+// tone-tinted circle beside the title. Only the two tones that pattern uses
+// for a confirmation (warning for a reversible-but-notable action, danger
+// for a destructive one) are supported; a plain informational/form dialog
+// passes no tone at all.
+type DialogTone = 'warning' | 'danger';
+
+const toneIcons: Record<DialogTone, ReactNode> = {
+  warning: <AlertTriangleIcon />,
+  danger: <AlertCircleIcon />,
+};
 
 type DialogProps = Omit<HTMLAttributes<HTMLDialogElement>, 'title'> & {
   open: boolean;
@@ -10,6 +25,11 @@ type DialogProps = Omit<HTMLAttributes<HTMLDialogElement>, 'title'> & {
   // supply a translated label rather than silently leaking English into a
   // Hebrew page.
   closeLabel: string;
+  // sm (480px) for confirmations, lg (640px) for a form. Reward create/edit
+  // is a full page rather than a dialog — too many fields plus an image
+  // upload for either size.
+  size?: DialogSize;
+  tone?: DialogTone;
   children: ReactNode;
 };
 
@@ -21,6 +41,8 @@ export function Dialog({
   onClose,
   title,
   closeLabel,
+  size = 'sm',
+  tone,
   children,
   className,
   ...rest
@@ -37,21 +59,37 @@ export function Dialog({
     if (!open && node.open) node.close();
   }, [open]);
 
+  const heading = title && (
+    <Heading level={2} id={titleId} className={styles.title}>
+      {title}
+    </Heading>
+  );
+
   return (
     <dialog
       ref={ref}
-      className={[styles.dialog, className].filter(Boolean).join(' ')}
+      className={[styles.dialog, styles[size], className].filter(Boolean).join(' ')}
       onClose={onClose}
       onCancel={onClose}
       aria-labelledby={title ? titleId : undefined}
       {...rest}
     >
-      {title && (
-        <Heading level={2} id={titleId}>
-          {title}
-        </Heading>
+      {tone ? (
+        <div className={styles.headerRow}>
+          <span className={[styles.iconCircle, `tone-${tone}`].join(' ')} aria-hidden="true">
+            {toneIcons[tone]}
+          </span>
+          <div className={styles.headerText}>
+            {heading}
+            <div className={styles.body}>{children}</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {heading}
+          <div className={styles.body}>{children}</div>
+        </>
       )}
-      <div className={styles.body}>{children}</div>
       <button type="button" className={styles.closeButton} onClick={onClose} aria-label={closeLabel}>
         ×
       </button>

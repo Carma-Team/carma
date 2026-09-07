@@ -3,14 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useCountdown, formatCountdown } from '@/hooks/useCountdown';
 import { peekVoucher, consumeVoucher, isWellFormedVoucherCode, type Voucher, type VoucherResult } from '@/lib/api/vouchers';
-import { Card, Heading, Text, Button, Input, Dialog, LoadingState } from '@/components/ui';
+import { categoryTranslationKey, localizedRewardText } from '@/lib/rewardState';
+import { normalizeBusinessCategory } from '@/lib/businessCategory';
+import { Card, Heading, Text, Button, Input, Dialog, LoadingState, Alert, StatusBadge, CategoryIcon, type AlertTone } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RedemptionPage.module.css';
 
 // enter -> peek -> review -> explicit confirm -> consume -> success, per CAR-68.
-// `failure` carries the outcome that put the cashier there, so CAR-69's copy
-// and recovery can be per-outcome without ever risking a failed lookup or
-// redeem reading as success.
+// `review` is only ever entered for a PENDING voucher — a peek that resolves
+// to any other status goes straight to `failure` (see `reviewOutcome`), per
+// the approved design (CARMA Voucher Redemption, frame 04's note): a repeat
+// lookup after real redemption surfaces the same card as a conflict caught at
+// confirm time. `failure` carries the outcome that put the cashier there, so
+// CAR-69's copy and recovery can be per-outcome without ever risking a failed
+// lookup or redeem reading as success.
 type Step =
   | { kind: 'entry' }
   | { kind: 'peeking' }
@@ -20,63 +26,119 @@ type Step =
   | { kind: 'success'; voucher: Voucher }
   | { kind: 'failure'; failure: Failure };
 
-// Mirrors VoucherResult's non-'ok' outcomes, plus the extra context a couple
-// of them need to render honestly: how many seconds until a rate limit
-// clears, when an already-used voucher was actually redeemed, and — for
-// network_error — which side of the flow it interrupted. A dropped
-// connection during the initial lookup means the voucher was never checked;
-// the same failure during confirm means it *was* checked but the redemption
-// itself is now unconfirmed, which is a different thing to tell a cashier.
+// Mirrors VoucherResult's non-'ok' outcomes, plus the extra context a few of
+// them need to render honestly: how many seconds until a rate limit clears,
+// when an already-used voucher was actually redeemed, when a voucher expired
+// (only known once a voucher object is in hand), and — for network_error,
+// expired and unexpected_error — which side of the flow the failure
+// interrupted. The same server outcome reads very differently depending on
+// when it was discovered: a dropped connection during the initial lookup
+// means the voucher was never checked; the same failure during confirm means
+// it *was* checked but the redemption itself is now unconfirmed. Likewise a
+// voucher that has simply been expired for days (found on lookup) is not the
+// same situation as one that expired in the seconds between lookup and
+// confirm (found only as a 409) — see failureCopyKeys.
+// `unexpected_error`'s `notConsumed` is deliberately unlike `network_error`:
+// vouchers.ts reserves `network_error` for *no response at all* (offline,
+// DNS, CORS, a dropped connection), so a confirm-time network_error can
+// honestly say "we don't know" without checking anything further. But
+// `unexpected_error` is vouchers.ts's catch-all for a response that *did*
+// arrive — any other status, a 409 with an unrecognized code, or a body that
+// failed to parse — and its own comment says the request "may well have
+// reached the server." At confirm time that means the redemption may have
+// actually gone through despite the client-side failure, so whether it's
+// safe to say "not consumed" is only known once a re-peek confirms it (see
+// handleConfirm) — `undefined`/`false` must render as unresolved, never as
+// a safe-to-retry claim.
 type Failure =
   | { outcome: 'not_valid_here' }
   | { outcome: 'already_used'; redeemedAt: string | null }
-  | { outcome: 'expired' }
+  | { outcome: 'expired'; phase: 'lookup' | 'confirm'; expiresAt: string | null }
   | { outcome: 'rate_limited'; retryAfterSeconds: number | null }
   | { outcome: 'network_error'; phase: 'lookup' | 'confirm' }
-  | { outcome: 'unexpected_error' };
+  | { outcome: 'unexpected_error'; phase: 'lookup' | 'confirm'; notConsumed?: boolean };
 
+// The outcomes whose copy never depends on which phase discovered them.
 const FAILURE_KEYS: Record<
-  Exclude<Failure['outcome'], 'network_error'>,
+  'not_valid_here' | 'already_used' | 'rate_limited',
   { title: keyof TranslationMap['redemption']; message: keyof TranslationMap['redemption'] }
 > = {
   not_valid_here: { title: 'failureNotValidTitle', message: 'failureNotValidMessage' },
   already_used: { title: 'failureAlreadyUsedTitle', message: 'failureAlreadyUsedMessage' },
-  expired: { title: 'failureExpiredTitle', message: 'failureExpiredMessage' },
   rate_limited: { title: 'failureRateLimitedTitle', message: 'failureRateLimitedMessage' },
-  unexpected_error: { title: 'failureUnexpectedTitle', message: 'failureUnexpectedMessage' },
+};
+
+const FAILURE_TONE: Record<Failure['outcome'], AlertTone> = {
+  not_valid_here: 'danger',
+  already_used: 'warning',
+  expired: 'warning',
+  rate_limited: 'warning',
+  network_error: 'neutral',
+  unexpected_error: 'danger',
 };
 
 function failureCopyKeys(failure: Failure): { title: keyof TranslationMap['redemption']; message: keyof TranslationMap['redemption'] } {
-  if (failure.outcome === 'network_error') {
-    return failure.phase === 'confirm'
-      ? { title: 'failureConfirmNetworkTitle', message: 'failureConfirmNetworkMessage' }
-      : { title: 'failureNetworkTitle', message: 'failureNetworkMessage' };
+  switch (failure.outcome) {
+    case 'network_error':
+      return failure.phase === 'confirm'
+        ? { title: 'failureConfirmNetworkTitle', message: 'failureConfirmNetworkMessage' }
+        : { title: 'failureNetworkTitle', message: 'failureNetworkMessage' };
+    case 'expired':
+      // A voucher discovered expired on lookup has simply been sitting past
+      // its TTL — statusExpired's plain "voucher expired" reads correctly.
+      // One that expired in the gap between lookup and confirm needs the
+      // timing-specific explanation instead (the driver just missed it).
+      return failure.phase === 'confirm'
+        ? { title: 'failureExpiredTitle', message: 'failureExpiredMessage' }
+        : { title: 'statusExpired', message: 'failureAlreadyExpiredMessage' };
+    case 'unexpected_error':
+      // Only a re-peek that actually confirmed the voucher is still not USED
+      // (handleConfirm's reconciliation) earns the reassuring "not consumed"
+      // copy — an unresolved confirm-phase failure gets the same
+      // don't-hand-over-the-goods framing as a confirm-phase network error,
+      // never a guess dressed up as a fact.
+      if (failure.phase !== 'confirm') return { title: 'failureUnexpectedTitle', message: 'failureUnexpectedMessage' };
+      return failure.notConsumed
+        ? { title: 'failureConfirmUnexpectedTitle', message: 'failureConfirmUnexpectedMessage' }
+        : { title: 'failureConfirmUnexpectedUnknownTitle', message: 'failureConfirmUnexpectedUnknownMessage' };
+    default:
+      return FAILURE_KEYS[failure.outcome];
   }
-  return FAILURE_KEYS[failure.outcome];
 }
 
 function toFailure(result: Exclude<VoucherResult, { outcome: 'ok' }>, phase: 'lookup' | 'confirm'): Failure {
   // Peek's own 409 never carries this code — peek_voucher in
   // server/app/services/business.py always answers 200 with the voucher's
   // current status, only consume_voucher's conditional UPDATE can 409
-  // VOUCHER_ALREADY_USED. This branch stays because VoucherResult's
-  // 'already_used' outcome is shared by both peek and consume (CAR-67), so
-  // toFailure has to stay exhaustive over it; handleConfirm's own
-  // already_used branch is the one this app actually reaches, and it never
-  // calls toFailure — it builds its Failure directly, with the re-peeked
-  // redeemedAt this generic fallback has no way to fetch.
+  // VOUCHER_ALREADY_USED/VOUCHER_EXPIRED. These two branches stay because
+  // VoucherResult is shared by both peek and consume (CAR-67), so this has to
+  // stay exhaustive over it; a peeked already-used/expired voucher is caught
+  // earlier by reviewOutcome and never reaches toFailure with phase='lookup'.
   if (result.outcome === 'already_used') return { outcome: 'already_used', redeemedAt: null };
+  if (result.outcome === 'expired') return { outcome: 'expired', phase, expiresAt: null };
   if (result.outcome === 'rate_limited') return { outcome: 'rate_limited', retryAfterSeconds: result.retryAfterSeconds };
   if (result.outcome === 'network_error') return { outcome: 'network_error', phase };
+  if (result.outcome === 'unexpected_error') return { outcome: 'unexpected_error', phase };
   return { outcome: result.outcome };
 }
 
-const STATUS_KEY: Record<string, keyof TranslationMap['redemption']> = {
-  pending: 'statusPending',
-  used: 'statusUsed',
-  expired: 'statusExpired',
-  cancelled: 'statusCancelled',
-};
+// peek_voucher always answers 200 with the voucher's current status rather
+// than a 404/409 for a used or expired code — so a code that resolves to a
+// non-pending voucher lands here, not in toFailure. The approved design
+// (frame 04's note) treats this the same as the matching consume-time
+// conflict: same card, same copy, no "valid-looking" card with a disabled
+// button in between.
+function reviewOutcome(voucher: Voucher): { kind: 'valid' } | { kind: 'failure'; failure: Failure } {
+  if (voucher.status === 'pending') return { kind: 'valid' };
+  if (voucher.status === 'used') return { kind: 'failure', failure: { outcome: 'already_used', redeemedAt: voucher.redeemedAt } };
+  if (voucher.status === 'expired') {
+    return { kind: 'failure', failure: { outcome: 'expired', phase: 'lookup', expiresAt: voucher.expiresAt } };
+  }
+  // 'cancelled' is in the server's RedemptionStatus enum but no code ever
+  // writes it (server/app/services/rewards.py's VOUCHER_TTL_DAYS comment) —
+  // an unreachable defensive fallback, not a designed state.
+  return { kind: 'failure', failure: { outcome: 'not_valid_here' } };
+}
 
 export function RedemptionPage() {
   const { t, lang } = useTranslation();
@@ -114,7 +176,8 @@ export function RedemptionPage() {
     setStep({ kind: 'peeking' });
     const result = await peekVoucher(code);
     if (result.outcome === 'ok') {
-      setStep({ kind: 'review', voucher: result.voucher });
+      const outcome = reviewOutcome(result.voucher);
+      setStep(outcome.kind === 'valid' ? { kind: 'review', voucher: result.voucher } : { kind: 'failure', failure: outcome.failure });
     } else {
       setStep({ kind: 'failure', failure: toFailure(result, 'lookup') });
     }
@@ -168,39 +231,75 @@ export function RedemptionPage() {
       });
       return;
     }
+    if (result.outcome === 'unexpected_error') {
+      // Unlike network_error — vouchers.ts reserves that for no response at
+      // all — an unexpected_error response can arrive *after* the request
+      // reached the server (a bad status, an unrecognized 409 code, a body
+      // that failed to parse; see toResult's own comment), so the redemption
+      // may have actually gone through. Telling the cashier it definitely
+      // didn't would be a guess dressed up as a fact, so this re-peeks
+      // before saying anything — same guard-held-through-the-lookup shape as
+      // the already_used recovery above, for the same reason.
+      const peeked = await peekVoucher(voucher.code);
+      redeemInFlight.current = false;
+      if (peeked.outcome === 'ok' && peeked.voucher.status === 'used') {
+        // The redemption did go through — this is the exact same state a
+        // fresh peek or a 409 would have reported, so it gets that card,
+        // not a special-cased "well, actually" variant of this one.
+        setStep({ kind: 'failure', failure: { outcome: 'already_used', redeemedAt: peeked.voucher.redeemedAt } });
+        return;
+      }
+      // Any other resolved status (pending, expired, ...) rules out 'used'
+      // and so proves the voucher was not consumed — only that case may
+      // render the reassuring copy. A re-peek that itself fails to resolve
+      // proves nothing either way and must stay in the unresolved state.
+      setStep({
+        kind: 'failure',
+        failure: { outcome: 'unexpected_error', phase: 'confirm', notConsumed: peeked.outcome === 'ok' && peeked.voucher.status !== 'used' },
+      });
+      return;
+    }
     redeemInFlight.current = false;
     setStep({ kind: 'failure', failure: toFailure(result, 'confirm') });
   }
 
   if (step.kind === 'entry') {
     return (
-      <Card className={styles.centered}>
-        <Heading level={1}>{t('redemption.title')}</Heading>
-        <Text variant="body">{t('redemption.subtitle')}</Text>
-        <form onSubmit={handleCheckCode} noValidate>
-          <Input
-            label={t('redemption.codeLabel')}
-            placeholder={t('redemption.codePlaceholder')}
-            dir="ltr"
-            className={styles.codeInput}
-            required
-            error={codeError ?? undefined}
-            value={code}
-            onChange={(event) => {
-              setCode(event.target.value);
-              setCodeError(null);
-            }}
-          />
-          <Button type="submit" style={{ marginTop: 'var(--space-md)' }}>
-            {t('redemption.checkButton')}
-          </Button>
-        </form>
-      </Card>
+      <div className={styles.entryWrap}>
+        <div className={styles.hero}>
+          <Heading level={1}>{t('redemption.title')}</Heading>
+          <Text variant="body">{t('redemption.subtitle')}</Text>
+        </div>
+        <Card className={styles.entryCard}>
+          <form onSubmit={handleCheckCode} noValidate>
+            <Input
+              label={t('redemption.codeLabel')}
+              placeholder={t('redemption.codePlaceholder')}
+              dir="ltr"
+              className={styles.codeInput}
+              required
+              error={codeError ?? undefined}
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value);
+                setCodeError(null);
+              }}
+            />
+            <Button type="submit" className={styles.fullWidth}>
+              {t('redemption.checkButton')}
+            </Button>
+          </form>
+        </Card>
+      </div>
     );
   }
 
   if (step.kind === 'peeking') {
-    return <LoadingState label={t('redemption.checkingLabel')} />;
+    return (
+      <Card className={styles.centered}>
+        <LoadingState label={t('redemption.checkingLabel')} />
+      </Card>
+    );
   }
 
   if (step.kind === 'failure') {
@@ -209,7 +308,9 @@ export function RedemptionPage() {
 
   if (step.kind === 'success') {
     const { voucher } = step;
-    const title = lang === 'HE' ? voucher.reward.titleHe : (voucher.reward.titleEn ?? voucher.reward.titleHe);
+    const title = lang === 'HE'
+      ? localizedRewardText(voucher.reward.titleHe, voucher.reward.titleEn)
+      : localizedRewardText(voucher.reward.titleEn, voucher.reward.titleHe);
     return (
       <Card className={styles.centered}>
         <span className={styles.successBadge} aria-hidden="true">
@@ -221,10 +322,10 @@ export function RedemptionPage() {
         </Text>
         <Text variant="caption">{t('redemption.successSubtitle')}</Text>
         <div className={styles.actions}>
-          <Button variant="primary" onClick={resetToEntry}>
+          <Button variant="primary" className={styles.fullWidth} onClick={resetToEntry}>
             {t('redemption.redeemAnotherButton')}
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/')}>
+          <Button variant="text" className={styles.mutedAction} onClick={() => navigate('/')}>
             {t('redemption.backToHomeButton')}
           </Button>
         </div>
@@ -261,26 +362,33 @@ function ReviewCard({
   const { t, lang } = useTranslation();
   const { voucher } = step;
   const { remainingMs, expired } = useCountdown(voucher.expiresAt);
+  // voucher.status is always 'pending' here — reviewOutcome routes anything
+  // else straight to the failure card — so the only way this can go false is
+  // the live countdown ticking to zero while this card is already on screen.
   const canRedeem = voucher.status === 'pending' && !expired;
   const dialogOpen = step.kind === 'confirming' || step.kind === 'redeeming';
   const submitting = step.kind === 'redeeming';
 
-  const title = lang === 'HE' ? voucher.reward.titleHe : (voucher.reward.titleEn ?? voucher.reward.titleHe);
-  const statusKey = STATUS_KEY[voucher.status] ?? 'statusPending';
-  const statusLabel =
-    expired && voucher.status === 'pending' ? t('redemption.expiredLabel') : t(`redemption.${statusKey}`);
+  const title = lang === 'HE'
+    ? localizedRewardText(voucher.reward.titleHe, voucher.reward.titleEn)
+    : localizedRewardText(voucher.reward.titleEn, voucher.reward.titleHe);
+  const category = normalizeBusinessCategory(voucher.reward.category);
+  const categoryLabel = t(`rewards.${categoryTranslationKey(category)}`);
 
   return (
     <Card className={styles.reviewCard}>
-      <span className={styles.statusBadge} data-status={voucher.status}>
-        {statusLabel}
-      </span>
-      <Heading level={2}>{title}</Heading>
+      <StatusBadge tone={canRedeem ? 'success' : 'neutral'}>
+        {canRedeem ? t('redemption.statusPending') : t('redemption.expiredLabel')}
+      </StatusBadge>
 
-      <div className={styles.detailRow}>
-        <Text variant="caption">{t('redemption.costPointsLabel')}</Text>
-        <Text variant="label">{voucher.pointsCost}</Text>
+      <div className={styles.rewardSummary}>
+        <CategoryIcon category={category} label={categoryLabel} size="lg" />
+        <Heading level={2}>{title}</Heading>
+        <Text variant="caption">
+          {t('redemption.costPointsLabel')} <span className={styles.costValue}>{voucher.pointsCost}</span>
+        </Text>
       </div>
+
       <div className={styles.detailRow}>
         <Text variant="caption">{t('redemption.codeLabel')}</Text>
         <Text variant="label" dir="ltr">
@@ -293,30 +401,20 @@ function ReviewCard({
           {new Date(voucher.expiresAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
         </Text>
       </div>
-      {voucher.status === 'pending' && (
-        <div className={styles.detailRow}>
-          <Text variant="caption">{t('redemption.timeRemainingLabel')}</Text>
-          <Text variant="label" dir="ltr" className={styles.countdown}>
-            {expired ? t('redemption.expiredLabel') : formatCountdown(remainingMs)}
-          </Text>
-        </div>
-      )}
-      {voucher.status === 'used' && voucher.redeemedAt && (
-        <div className={styles.detailRow}>
-          <Text variant="caption">{t('redemption.redeemedAtLabel')}</Text>
-          <Text variant="label" dir="ltr">
-            {new Date(voucher.redeemedAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
-          </Text>
-        </div>
-      )}
+      <div className={styles.detailRow}>
+        <Text variant="caption">{t('redemption.timeRemainingLabel')}</Text>
+        <Text variant="label" dir="ltr" className={styles.countdown}>
+          {expired ? t('redemption.expiredLabel') : formatCountdown(remainingMs)}
+        </Text>
+      </div>
 
       {!canRedeem && <Text variant="caption">{t('redemption.notRedeemableMessage')}</Text>}
 
       <div className={styles.actions}>
-        <Button variant="primary" disabled={!canRedeem} onClick={() => onOpenConfirm(voucher)}>
+        <Button variant="primary" className={styles.fullWidth} disabled={!canRedeem} onClick={() => onOpenConfirm(voucher)}>
           {t('redemption.redeemButton')}
         </Button>
-        <Button variant="secondary" disabled={submitting} onClick={onBackToEntry}>
+        <Button variant="text" className={styles.mutedAction} disabled={submitting} onClick={onBackToEntry}>
           {t('redemption.backToEntry')}
         </Button>
       </div>
@@ -326,11 +424,15 @@ function ReviewCard({
         onClose={() => onCloseDialog(voucher)}
         title={t('redemption.confirmTitle')}
         closeLabel={t('redemption.confirmCloseLabel')}
+        tone="warning"
       >
         <Text variant="body">{t('redemption.confirmBody')}</Text>
-        <Text variant="label">
-          {title} · {voucher.pointsCost}
-        </Text>
+        <div className={styles.confirmSummary}>
+          <CategoryIcon category={category} label={categoryLabel} />
+          <Text variant="label">{title}</Text>
+          <span className={styles.confirmDivider} aria-hidden="true" />
+          <Text variant="caption">{voucher.pointsCost}</Text>
+        </div>
         <div className={styles.actions}>
           <Button
             variant="primary"
@@ -355,32 +457,43 @@ function FailureCard({ failure, onBackToEntry }: { failure: Failure; onBackToEnt
   const keys = failureCopyKeys(failure);
 
   return (
-    <Card className={styles.centered} role="alert">
-      <Heading level={2}>{t(`redemption.${keys.title}`)}</Heading>
-      <Text variant="body">{t(`redemption.${keys.message}`)}</Text>
+    <div className={styles.failureWrap}>
+      <Alert
+        tone={FAILURE_TONE[failure.outcome]}
+        title={t(`redemption.${keys.title}`)}
+        action={
+          <Button variant="primary" onClick={onBackToEntry}>
+            {t('redemption.tryAnotherCodeButton')}
+          </Button>
+        }
+      >
+        <Text variant="body">{t(`redemption.${keys.message}`)}</Text>
 
-      {failure.outcome === 'already_used' && failure.redeemedAt && (
-        <div className={styles.detailRow}>
-          <Text variant="caption">{t('redemption.redeemedAtLabel')}</Text>
-          <Text variant="label" dir="ltr">
-            {new Date(failure.redeemedAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
-          </Text>
-        </div>
-      )}
-      {failure.outcome === 'rate_limited' && failure.retryAfterSeconds != null && (
-        <div className={styles.detailRow}>
-          <Text variant="caption">{t('redemption.retryAfterLabel')}</Text>
-          <Text variant="label" dir="ltr">
-            {failure.retryAfterSeconds}
-          </Text>
-        </div>
-      )}
-
-      <div className={styles.actions}>
-        <Button variant="secondary" onClick={onBackToEntry}>
-          {t('redemption.tryAnotherCodeButton')}
-        </Button>
-      </div>
-    </Card>
+        {failure.outcome === 'already_used' && failure.redeemedAt && (
+          <div className={styles.detailRow}>
+            <Text variant="caption">{t('redemption.redeemedAtLabel')}</Text>
+            <Text variant="label" dir="ltr">
+              {new Date(failure.redeemedAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
+            </Text>
+          </div>
+        )}
+        {failure.outcome === 'expired' && failure.expiresAt && (
+          <div className={styles.detailRow}>
+            <Text variant="caption">{t('redemption.expiresLabel')}</Text>
+            <Text variant="label" dir="ltr">
+              {new Date(failure.expiresAt).toLocaleString(lang === 'HE' ? 'he-IL' : 'en-US')}
+            </Text>
+          </div>
+        )}
+        {failure.outcome === 'rate_limited' && failure.retryAfterSeconds != null && (
+          <div className={styles.detailRow}>
+            <Text variant="caption">{t('redemption.retryAfterLabel')}</Text>
+            <Text variant="label" dir="ltr">
+              {failure.retryAfterSeconds}
+            </Text>
+          </div>
+        )}
+      </Alert>
+    </div>
   );
 }

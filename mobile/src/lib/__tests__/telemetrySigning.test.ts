@@ -68,7 +68,7 @@ describe('signTelemetryDigest', () => {
     hardBrakes: 2,
     aggressiveAccels: 1,
     sharpTurns: 3,
-    touchEpochs: 4,
+    phoneMotionSeconds: 4,
     screenInteractionSeconds: 17,
     startTime: '2026-08-30T08:00:00.000Z',
     endTime: '2026-08-30T08:15:00.000Z',

@@ -14,13 +14,19 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white">
 </p>
 
+<p align="center">
+  <a href="https://github.com/Carma-Team/carma/actions/workflows/ci-server.yml"><img alt="CI · server" src="https://github.com/Carma-Team/carma/actions/workflows/ci-server.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/Carma-Team/carma/actions/workflows/ci-mobile.yml"><img alt="CI · mobile" src="https://github.com/Carma-Team/carma/actions/workflows/ci-mobile.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/Carma-Team/carma/actions/workflows/ci-web.yml"><img alt="CI · web" src="https://github.com/Carma-Team/carma/actions/workflows/ci-web.yml/badge.svg?branch=main"></a>
+</p>
+
 CARMA is a mobile platform for young drivers in Israel that rates driving behavior in real time. Drivers earn a CARMA Score from GPS and IMU sensor data, and turn safe driving into points they can redeem with partner businesses.
 
 <p align="center">
-  <img src="screenshots/1.JPG" width="170">
-  <img src="screenshots/2.JPG" width="170">
-  <img src="screenshots/3.JPG" width="170">
-  <img src="screenshots/4.JPG" width="170">
+  <img src="screenshots/leaderboard.jpg" width="170">
+  <img src="screenshots/rewards-store.jpg" width="170">
+  <img src="screenshots/trip-summary.jpg" width="170">
+  <img src="screenshots/home-dashboard.jpg" width="170">
 </p>
 <p align="center"><sub>The app in action</sub></p>
 

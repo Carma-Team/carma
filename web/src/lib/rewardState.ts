@@ -13,7 +13,13 @@ import type { Reward } from './api/rewards';
 import { normalizeBusinessCategory } from './businessCategory';
 import type { TranslationMap } from '@/i18n/types';
 
-export type RewardState = 'inactive' | 'expired' | 'soldOut' | 'active';
+export type RewardState = 'inactive' | 'expired' | 'soldOut' | 'endingSoon' | 'active';
+
+// Matches the approved design's "מסתיימת בקרוב" badge — a reward inside this
+// window is still fully active, just flagged so a business notices before it
+// lapses. Not a persisted status (see the design doc's lifecycle note): it is
+// re-derived from `expiresAt` every render, the same way 'expired' is.
+const ENDING_SOON_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // The one place a reward's category becomes a `rewards.category*` i18n key.
 // Shared by the list page (rendering data that may hold a legacy/unrecognized
@@ -43,16 +49,48 @@ export function isArchived(reward: Reward): boolean {
   return reward.archivedAt !== null;
 }
 
-// Precedence, most definitive first: a manual deactivation says more than a
-// campaign that happens to have run out of time or stock; a time-based
-// expiry is decided independently of whatever stock is left, so it is
-// checked before stock. Only a reward that fails every disqualifying check
-// is "active".
+// Precedence, most definitive/urgent first: a manual deactivation says more
+// than a campaign that happens to have run out of time or stock; a
+// time-based expiry is decided independently of whatever stock is left, so
+// it is checked before stock. soldOut outranks endingSoon — a reward a
+// driver cannot redeem *right now* is a more urgent read than one that is
+// merely due to end soon. Only a reward that fails every disqualifying
+// check is "active".
 export function getRewardState(reward: Reward, now: Date = new Date()): RewardState {
   if (!reward.isActive) return 'inactive';
-  if (reward.expiresAt !== null && new Date(reward.expiresAt).getTime() <= now.getTime()) return 'expired';
+  const expiresAtMs = reward.expiresAt !== null ? new Date(reward.expiresAt).getTime() : null;
+  if (expiresAtMs !== null && expiresAtMs <= now.getTime()) return 'expired';
   if (reward.stock !== null && (reward.available ?? 0) <= 0) return 'soldOut';
+  if (expiresAtMs !== null && expiresAtMs - now.getTime() <= ENDING_SOON_WINDOW_MS) return 'endingSoon';
   return 'active';
+}
+
+// The tab bar's five buckets (docs/business-portal-design/CARMA Rewards
+// Management.dc.html, screen 01/02) — coarser than `RewardState`, which the
+// design keeps as a badge nuance *within* "Active" rather than a filter of
+// its own. 'ended' reads `expiresAt` directly instead of `getRewardState`
+// because a paused-and-expired reward must count as ended, not paused —
+// state precedence would otherwise hide the expiry behind 'inactive'.
+export type RewardTab = 'all' | 'active' | 'paused' | 'ended' | 'archived';
+
+export function isEnded(reward: Reward, now: Date = new Date()): boolean {
+  return reward.expiresAt !== null && new Date(reward.expiresAt).getTime() <= now.getTime();
+}
+
+export function matchesTab(reward: Reward, tab: RewardTab, now: Date = new Date()): boolean {
+  const archived = isArchived(reward);
+  switch (tab) {
+    case 'all':
+      return !archived;
+    case 'active':
+      return !archived && reward.isActive && !isEnded(reward, now);
+    case 'paused':
+      return !archived && !reward.isActive && !isEnded(reward, now);
+    case 'ended':
+      return !archived && isEnded(reward, now);
+    case 'archived':
+      return archived;
+  }
 }
 
 // A date-only `<input type="date">` value ("YYYY-MM-DD") has no timezone of

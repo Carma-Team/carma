@@ -6,3 +6,16 @@
   padding: var(--space-xl);
   text-align: center;
 }
+
+/* Inline tinted box for a list that failed to load within an otherwise
+   working page — left-aligned per RTL, matching the style guide's error
+   banner rather than the centered full-page block above. */
+.banner {
+  align-items: flex-start;
+  text-align: start;
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  /* Background comes from the shared global tone-danger class
+     (styles/tones.css), applied alongside this one. */
+}
+

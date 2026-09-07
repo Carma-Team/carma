@@ -49,20 +49,15 @@
   gap: var(--space-md);
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
 .copyRow {
   display: flex;
   gap: var(--space-sm);
-  align-items: center;
+  align-items: flex-end;
 }
 
-.copyRow input {
+.copyField {
   flex: 1;
+  min-width: 0;
 }
 
 .actions {
@@ -74,4 +69,6 @@
 .backLink {
   display: inline-block;
   margin-top: var(--space-lg);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-label);
 }

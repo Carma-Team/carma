@@ -100,6 +100,18 @@ what was asked for; neither the accuracy tier nor the interval settings
 override this. The only reliable lever is the user exempting the app from
 battery optimisation. See `PowerManagement.ts`.
 
+**Starting the location stream can be refused outright on Android 12 and above.**
+A foreground service may not be started by an app that is already in the background.
+This is not a corner case for a driving library: a trip started automatically, from a
+Bluetooth connection, begins in exactly that state, and the refusal arrives as a
+rejected promise rather than as a denied permission. Location permission can be fully
+granted and the stream still never start, so the two are reported as separate facts
+(`backgroundLocationAvailable` and `locationStartFailed` on every sensor update).
+The SDK makes one further attempt when the app next reaches the foreground, where the
+rule no longer applies; a host that needs the driver told about it reads the flag.
+The same flag covers a foreground service the platform kills later in the trip, which
+is reported through the background task rather than through the call that started it.
+
 **Bluetooth connection state is observable only as ACL connect/disconnect.**
 `react-native-bluetooth-classic` reports that *a* device attached or detached, never
 which profile it bound. Per-profile state (A2DP, hands-free) needs the Android profile
@@ -109,7 +121,7 @@ discrimination needs a native module first.
 
 ---
 
-## Minimum OS version (#141)
+## Minimum OS version
 
 No app-level policy sets this — it is the floor the pinned `expo` version itself
 imposes. Bump alongside an Expo SDK upgrade, not independently.
@@ -146,10 +158,10 @@ are attempted:
    itself — rotational behaviour, correlation with vehicle movement, or the
    fine continuous tremor a hand produces and a seat does not. This is a
    signal-processing problem, and the platform offers no shortcut around it.
-   The SDK's hand-held detector now acts on the first of these: a high
-   acceleration-variance reading is vetoed when rotation variance is also
-   high, since a loose phone tumbles while a held one keeps its orientation
-   stable — see `README.md`'s hand-held detection section.
+   The SDK's distraction detector acts on the first of these, from the
+   gyroscope alone: a repeated paired rotational kick is a finger on glass,
+   while rotation independent of the vehicle's own is the phone being moved
+   — see `docs/event-detection.md`, "Distraction detection".
 
 ---
 

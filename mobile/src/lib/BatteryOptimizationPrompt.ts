@@ -14,7 +14,7 @@
  */
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isBackgroundThrottlingRiskPlatform, openAppSystemSettings } from '@/lib/driving-sdk/PowerManagement';
+import { isBackgroundThrottlingRiskPlatform, openAppSystemSettings } from '@/lib/driving-sdk';
 import type { TranslationMap } from '@/i18n/he';
 
 const SHOWN_KEY = 'carma_battery_optimization_prompt_shown';

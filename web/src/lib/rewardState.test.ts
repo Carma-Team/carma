@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   getRewardState,
   isArchived,
+  isEnded,
+  matchesTab,
   expiryDateInputToIso,
   isoToExpiryDateInput,
   categoryTranslationKey,
   localizedRewardText,
+  type RewardTab,
 } from './rewardState';
 import type { Reward } from './api/rewards';
 
@@ -54,8 +57,31 @@ describe('getRewardState', () => {
     expect(getRewardState(reward({ expiresAt: '2026-06-15T11:59:59.999Z' }), NOW)).toBe('expired');
   });
 
-  it('is not expired while the expiry timestamp is still in the future', () => {
-    expect(getRewardState(reward({ expiresAt: '2026-06-15T12:00:00.001Z' }), NOW)).toBe('active');
+  it('is not expired while the expiry timestamp is still in the future, and far enough out to not be ending soon', () => {
+    expect(getRewardState(reward({ expiresAt: '2026-06-24T12:00:00.001Z' }), NOW)).toBe('active');
+  });
+
+  // ── endingSoon (CAR-339): a badge nuance within "still active", not a
+  // persisted status — see the approved design's lifecycle note. ─────────
+
+  it('is endingSoon inside the 7-day window before expiry', () => {
+    expect(getRewardState(reward({ expiresAt: '2026-06-22T12:00:00.000Z' }), NOW)).toBe('endingSoon');
+  });
+
+  it('is active, not endingSoon, just outside the 7-day window', () => {
+    expect(getRewardState(reward({ expiresAt: '2026-06-22T12:00:00.001Z' }), NOW)).toBe('active');
+  });
+
+  it('is expired, not endingSoon, once the boundary is crossed the other way', () => {
+    expect(getRewardState(reward({ expiresAt: '2026-06-15T12:00:00.000Z' }), NOW)).toBe('expired');
+  });
+
+  it('prefers soldOut over endingSoon once stock also runs out', () => {
+    expect(getRewardState(reward({ expiresAt: '2026-06-22T12:00:00.000Z', stock: 5, available: 0 }), NOW)).toBe('soldOut');
+  });
+
+  it('prefers inactive over endingSoon when a business paused a reward that is also about to expire', () => {
+    expect(getRewardState(reward({ isActive: false, expiresAt: '2026-06-22T12:00:00.000Z' }), NOW)).toBe('inactive');
   });
 
   it('is inactive when isActive is false, regardless of stock or expiry', () => {
@@ -83,6 +109,39 @@ describe('isArchived', () => {
 
   it('is true once archivedAt is set, regardless of isActive', () => {
     expect(isArchived(reward({ archivedAt: '2026-01-01T00:00:00.000Z', isActive: true }))).toBe(true);
+  });
+});
+
+describe('matchesTab', () => {
+  const ALL_TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
+
+  function tabsMatching(r: Reward): RewardTab[] {
+    return ALL_TABS.filter((tab) => matchesTab(r, tab, NOW));
+  }
+
+  it('sorts a plain active reward into all and active only', () => {
+    expect(tabsMatching(reward())).toEqual(['all', 'active']);
+  });
+
+  it('sorts a paused reward into all and paused only', () => {
+    expect(tabsMatching(reward({ isActive: false }))).toEqual(['all', 'paused']);
+  });
+
+  it('sorts an expired reward into all and ended only, even while still isActive', () => {
+    expect(tabsMatching(reward({ expiresAt: '2020-01-01T00:00:00.000Z' }))).toEqual(['all', 'ended']);
+  });
+
+  it('sorts a paused-and-expired reward into ended, not paused — expiry outranks pause for this bucket', () => {
+    expect(isEnded(reward({ isActive: false, expiresAt: '2020-01-01T00:00:00.000Z' }), NOW)).toBe(true);
+    expect(tabsMatching(reward({ isActive: false, expiresAt: '2020-01-01T00:00:00.000Z' }))).toEqual(['all', 'ended']);
+  });
+
+  it('sorts an archived reward into archived only, excluded from all', () => {
+    expect(tabsMatching(reward({ archivedAt: '2026-01-01T00:00:00.000Z' }))).toEqual(['archived']);
+  });
+
+  it('excludes a sold-out-but-not-expired reward from ended', () => {
+    expect(tabsMatching(reward({ stock: 5, available: 0 }))).toEqual(['all', 'active']);
   });
 });
 

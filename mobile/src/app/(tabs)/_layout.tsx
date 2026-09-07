@@ -7,11 +7,15 @@ import { COLORS } from '@/constants/theme';
 import { ICONS, outlineIcon } from '@/constants/icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// Reading order, not screen order: the app forces RTL in Hebrew, so the tab row is laid
+// out right to left and the first entry here is the rightmost tab. Home stays under the
+// thumb it has always been under, and the roadmap moves to the far end - it is the one
+// tab a driver opens deliberately rather than in passing.
 const TAB_ITEMS = [
     { name: '(home)',      icon: ICONS.home,        labelKey: 'nav.dashboard'   },
-    { name: 'roadmap',     icon: ICONS.roadmap,     labelKey: 'nav.roadmap'     },
     { name: 'marketplace', icon: ICONS.marketplace, labelKey: 'nav.marketplace' },
     { name: 'leaderboard', icon: ICONS.leaderboard, labelKey: 'nav.leaderboard' },
+    { name: 'roadmap',     icon: ICONS.roadmap,     labelKey: 'nav.roadmap'     },
 ] as const;
 
 export default function TabsLayout() {

@@ -37,6 +37,7 @@ let locationHandler: ((loc: any) => void) | null = null;
 jest.mock('@/lib/driving-sdk/sensors/locationTask', () => ({
   DRIVING_SDK_LOCATION_TASK: 'driving-sdk-location-updates',
   setLocationHandler: jest.fn((fn: ((loc: any) => void) | null) => { locationHandler = fn; }),
+  setLocationErrorHandler: jest.fn(),
 }));
 
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';

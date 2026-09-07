@@ -14,6 +14,9 @@ const FALLBACK: StatusKeys = {
   // Both auth routes are capped per address; the server names the wait it wants.
   429: 'auth.errors.tooManyAttempts',
   422: 'auth.errors.invalidDetails',
+  // The client's own timeout (CAR-230). Without a key of its own it reads as
+  // "something went wrong", which is what a wrong password looks like too.
+  408: 'auth.errors.timeout',
 }
 
 export function authErrorMessage(

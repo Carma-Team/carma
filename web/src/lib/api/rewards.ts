@@ -20,7 +20,7 @@ export type Reward = {
   businessHe: string | null;
   titleHe: string;
   titleEn: string | null;
-  descriptionHe: string;
+  descriptionHe: string | null;
   descriptionEn: string | null;
   category: string;
   costPoints: number;
@@ -42,8 +42,8 @@ export type Reward = {
 export type RewardPayload = {
   titleHe: string;
   titleEn: string;
-  descriptionHe: string;
-  descriptionEn: string;
+  descriptionHe: string | null;
+  descriptionEn: string | null;
   category: string;
   costPoints: number;
   stock: number | null;
@@ -112,6 +112,23 @@ export async function updateReward(rewardId: string, payload: RewardPayload): Pr
     const { reward } = await request<{ reward: Reward }>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    });
+    return { outcome: 'ok', reward };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Pause/resume (CAR-339) — a partial PATCH of just `isActive`, the one field
+// `RewardPayload` deliberately omits (see its own comment). The server's
+// `BusinessRewardPatchIn` applies only the keys actually sent
+// (`model_dump(exclude_unset=True)`), so this never touches the reward's
+// other fields.
+export async function setRewardActive(rewardId: string, isActive: boolean): Promise<RewardMutationResult> {
+  try {
+    const { reward } = await request<{ reward: Reward }>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
     });
     return { outcome: 'ok', reward };
   } catch (err) {

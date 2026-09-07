@@ -66,15 +66,20 @@ export function toDrivingEvents(events: TripEvent[] | undefined): DrivingEvent[]
 }
 
 /**
- * Text of the callout a map marker opens on tap.
+ * The three lines of the callout a map marker opens on tap.
+ *
+ * Returned as separate fields rather than one newline-joined string: the platform
+ * callout renders its detail as a single native text field and ellipsises whatever
+ * follows the first line, so the third line never reached the screen — it arrived as
+ * a trailing "...". The map renders these as three views of its own.
  *
  * Speed is optional on purpose: `DrivingSDK` stamps `speedKmh` on a live event, while
  * the server timeline has no equivalent field, so the same event shows the time alone
  * in TripDetailScreen and time + speed in the post-trip modal.
  *
- * The second line is the affordance for the callout press, which opens the coordinate
- * in the device's maps app — the native callout cannot make one word tappable on its
- * own, so the whole bubble is the target and the line says what pressing it does.
+ * `action` is the affordance for the callout press, which opens the coordinate in the
+ * device's maps app — a native callout cannot make one word tappable on its own, so the
+ * whole bubble is the target and the line says what pressing it does.
  */
 export function eventMarkerText(event: DrivingEvent, t: (key: string) => string) {
   const speed = event.speedKmh !== undefined
@@ -83,6 +88,7 @@ export function eventMarkerText(event: DrivingEvent, t: (key: string) => string)
 
   return {
     title: t(EVENT_LABEL_KEY[event.type]),
-    description: `${formatTime(event.timestamp.toISOString())}${speed}\n${t('trip.openLocationInMaps')}`,
+    detail: `${formatTime(event.timestamp.toISOString())}${speed}`,
+    action: t('trip.openLocationInMaps'),
   };
 }

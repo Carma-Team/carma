@@ -21,6 +21,8 @@ import { getBondedDevices, getBTSupportStatus } from '@/lib/driving-sdk/auto-tri
 import { SensorManager } from '@/lib/driving-sdk/sensors/SensorManager';
 import { PhoneUsageManager, InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
 import { RawSampleRecorder } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
+import { EventRouter } from '@/lib/driving-sdk/eventRouting';
+import type { RawRecordingSession } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
 import { DefaultTripValidator } from '@/lib/driving-sdk/DefaultTripValidator';
 import {
   DrivingEventType, DrivingEvent, SDKConfig, TripData, FraudDetectedEvent,
@@ -58,16 +60,10 @@ export class DrivingSDK {
   // Wall-clock timestamp of the most recent startTrip() call — used to enforce a 3-second warm-up
   // grace period that drops spurious sensor events caused by the physical act of pressing Start.
   private tripStartTime = 0;
-  // Per-type cooldown map — prevents a brake event from suppressing a concurrent turn event
-  private lastEventTime: Partial<Record<DrivingEventType, number>> = {};
-
-  // Registered conditional sensor event listeners.
-  // Each entry: { type, condition, handler } — dispatched inside handleEvent().
-  private sensorListeners = new Map<ListenerToken, {
-    type: DrivingEventType;
-    condition: SensorEventCondition;
-    handler: SensorEventHandler;
-  }>();
+  // Who hears about a detected event: the per-type cooldown and the conditions each
+  // listener subscribed with. Both move on their own schedule, which is why they are
+  // no longer in this file.
+  private events = new EventRouter();
   // Latest GPS speed tick — stamped onto every DrivingEvent for kinetic penalty scaling
   private currentSpeedKmh = 0;
   // Last known GPS coordinates — stamped onto DrivingEvents so event markers can be placed on the map
@@ -114,14 +110,12 @@ export class DrivingSDK {
     condition: SensorEventCondition,
     handler: SensorEventHandler,
   ): ListenerToken {
-    const token: ListenerToken = Symbol('sensor-listener');
-    this.sensorListeners.set(token, { type, condition, handler });
-    return token;
+    return this.events.add(type, condition, handler);
   }
 
   /** Remove a previously registered listener. No-op if the token is unknown. */
   public off(token: ListenerToken): void {
-    this.sensorListeners.delete(token);
+    this.events.remove(token);
   }
 
   constructor(config: SDKConfig = {}) {
@@ -139,12 +133,16 @@ export class DrivingSDK {
       (event) => this.handleEvent(event),
       (update) => this.handleSensorUpdate(update),
       config.motionThresholds,
-      // Share SensorManager's gyroscope rather than letting PhoneUsageManager (and,
-      // during a staged session, rawRecorder) open a second subscription to the same sensor.
+      // Share SensorManager's subscriptions rather than letting PhoneUsageManager (and,
+      // during a staged session, rawRecorder) open a second listener on the same physical
+      // sensor. Both IMU streams are fanned out from here.
       ({ x, y, z }) => {
         this.phoneManager.pushGyroSample(x, y, z);
         this.rawRecorder.pushGyroSample(x, y, z);
       },
+      // Acceleration goes to the recorder only — phone usage reads the gyroscope alone
+      // since CAR-187, because a single-sample force threshold cannot tell a finger from
+      // a pothole.
       ({ x, y, z }) => this.rawRecorder.pushAccelSample(x, y, z),
     );
 
@@ -230,7 +228,7 @@ export class DrivingSDK {
       this.validationManager.start();
     }
 
-    this.lastEventTime = {};
+    this.events.resetCooldowns();
     this.tripStartMs = Date.now();
     this.tripStartTime = Date.now();
     this.lastKnownLocation = null;
@@ -245,8 +243,8 @@ export class DrivingSDK {
       waypoints: [],
       averageSpeed: 0,
       maxSpeed: 0,
-      touchEpochs: 0,
       screenInteractionSeconds: 0,
+      phoneMotionSeconds: 0,
       // Latched over the trip: `accelAvailable` on each tick is "live right now"
       // (available at start() and a sample within SENSOR_STALE_MS), so it can drop to
       // false mid-trip. These default false and latch true once the accelerometer is
@@ -254,6 +252,11 @@ export class DrivingSDK {
       accelAvailable: false,
       accelCoverage: 0,
       accelInitFailed: false,
+      // Resolved once, at start: L1 binding asks which vehicle the drive happened in, and
+      // a device that disconnects mid-trip did not change that answer. The raw identifier
+      // is passed straight into the host's hasher and never stored on the trip — a MAC
+      // address must not leave the device (CAR-310).
+      vehicleKeyHash: this.resolveVehicleKeyHash(),
     };
 
     // SensorManager may already be running (started during validation phase)
@@ -277,13 +280,47 @@ export class DrivingSDK {
     return tripId;
   }
 
+  /**
+   * The connected vehicle as an opaque key, or null when there is nothing to name: no
+   * vehicle connected, or a host that injected no hasher. A hasher that throws must not
+   * take the trip down with it — the trip is the product, the binding is an extra.
+   */
+  private resolveVehicleKeyHash(): string | null {
+    const vehicleId = this.autoDetection.getConnectedVehicleId();
+    if (!vehicleId || !this.config.vehicleKeyHasher) return null;
+    try {
+      return this.config.vehicleKeyHasher(vehicleId) || null;
+    } catch (e) {
+      console.warn('[SDK] vehicleKeyHasher threw — trip saved without a vehicle key', e);
+      return null;
+    }
+  }
+
   public async stopTrip(): Promise<TripData | null> {
     if (!this.isTripActive || !this.currentTripData) return null;
 
     this.isTripActive = false;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
 
-    this.currentTripData.endTime = new Date();
+    // The trip ended when the vehicle last moved, not when Rule 2 finished proving it
+    // had stopped. The validator only reports an end after 3 continuous minutes below its
+    // stop threshold, and nothing is recorded during those minutes — the waypoint gate
+    // below needs 3 km/h. Stamping `now` therefore hands the server a duration with a
+    // 180 s hole at the end of it, and `coverage = covered_s / duration` (telemetry.py)
+    // falls under its 0.5 gate for every trip shorter than about six minutes, which drops
+    // the speeding component out of the score entirely (CAR-298).
+    //
+    // The last waypoint is the honest end: it is the last instant the trace can account
+    // for, and it is what the coverage ratio is measured against. Clamped both ways — the
+    // waypoint carries GPS fix time while `tripStartMs` is wall clock, so a clock step
+    // must not produce an end before the start or in the future.
+    const endedAtMs = Math.min(Date.now(), Math.max(this.lastWaypointTs ?? 0, this.tripStartMs));
+    this.currentTripData.endTime = new Date(endedAtMs);
+    this.currentTripData.durationSeconds = Math.floor((endedAtMs - this.tripStartMs) / 1000);
+    // Recomputed off the trimmed duration rather than left at the ticker's last value,
+    // which divided the same distance by the stop-detection tail as well.
+    const hours = this.currentTripData.durationSeconds / 3600;
+    this.currentTripData.averageSpeed = hours > 0 ? this.currentTripData.distanceKm / hours : 0;
     // The validator outlives the trip unless it is stopped here — its ticker keeps running on
     // the last speed it saw, and start() early-returns while that ticker is alive, so the next
     // session inherits this one's state instead of resetting.
@@ -366,39 +403,33 @@ export class DrivingSDK {
     const WARMUP_MS = 3000;
     if (Date.now() - this.tripStartTime < WARMUP_MS) return;
 
-    // Per-type cooldown — spec §א Table 1: minimum time between events = 0.5 s.
-    // Recommended for less sensitivity: raise IMU cooldowns to 2–3 s.
-    if (event.type !== DrivingEventType.PHONE_USAGE) {
-      const cooldownMs = 500;
-      const last = this.lastEventTime[event.type] ?? 0;
-      if (event.timestamp.getTime() - last < cooldownMs) return;
-      this.lastEventTime[event.type] = event.timestamp.getTime();
-    }
-
-    // Stamp GPS speed and location onto the event.
+    // Stamp GPS speed and location onto the event, before either cooldown: a listener
+    // reads the speed off the event it is handed, and it is handed events the trip does
+    // not store.
     event.speedKmh = this.currentSpeedKmh;
     if (this.lastKnownLocation) {
       event.location = { latitude: this.lastKnownLocation.lat, longitude: this.lastKnownLocation.lng };
     }
 
-    // Store all SDK-qualified events in the trip (used for route map markers and raw display).
-    // Whether an event counts toward a score is decided by each registered listener's conditions.
-    this.currentTripData.events.push(event);
-    // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
-    const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
-    console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
-
-    // Dispatch to conditional listeners — each listener fires only when its conditions are met.
-    const snapshot = { ...event };
-    for (const { type, condition, handler } of this.sensorListeners.values()) {
-      if (type !== event.type) continue;
-      if (condition.minSpeedKmh !== undefined && this.currentSpeedKmh < condition.minSpeedKmh) continue;
-      // severity only exists on PHONE_USAGE (CAR-156) — minSeverity is not a filter
-      // motion events can satisfy, so it must not silently block them either.
-      if (condition.minSeverity !== undefined && event.type === DrivingEventType.PHONE_USAGE
-          && (event.severity ?? 0) < condition.minSeverity) continue;
-      try { handler(snapshot); } catch (e) { console.warn('[SDK] Listener threw:', e); }
+    // What the trip stores: one entry per type per window, whatever the speed, matching
+    // the merge the server performs over the same window. Listeners are not gated on
+    // this — an event dropped by a listener's own condition used to seal the type here
+    // and swallow the next one that would have qualified (CAR-300).
+    const reported = this.events.passesCooldown(event);
+    if (reported) {
+      // Whether an event counts toward a score is decided by each registered listener's conditions.
+      this.currentTripData.events.push(event);
+      // severity is PHONE_USAGE-only since CAR-156 — omit the suffix on motion events instead of logging "severity=undefined".
+      const severitySuffix = event.severity !== undefined ? ` severity=${event.severity.toFixed(2)}` : '';
+      console.log(`[SDK] Event: ${event.type} speed=${Math.round(this.currentSpeedKmh)} km/h${severitySuffix}`);
     }
+
+    // A copy, so a listener that mutates what it is handed cannot reach the event this
+    // trip stored above.
+    const snapshot = { ...event };
+    this.events.dispatch(snapshot, this.currentSpeedKmh);
+
+    if (!reported) return;
 
     // Legacy single callback — fires for every SDK-qualified event regardless of conditions.
     if (this.onEventDetected) this.onEventDetected(snapshot);
@@ -408,8 +439,8 @@ export class DrivingSDK {
 
   private handleInteractionData(data: InteractionData) {
     if (!this.isTripActive || !this.currentTripData) return;
-    this.currentTripData.touchEpochs += data.touchEpochs;
     this.currentTripData.screenInteractionSeconds += data.screenInteractionSeconds;
+    this.currentTripData.phoneMotionSeconds += data.phoneMotionSeconds;
     if (this.onInteractionData) this.onInteractionData({ ...data });
     if (this.onUpdate) this.onUpdate({ ...this.currentTripData });
   }
@@ -426,13 +457,19 @@ export class DrivingSDK {
     if (update.lat !== undefined && update.lng !== undefined) {
       this.lastKnownLocation = { lat: update.lat, lng: update.lng };
       // Every GPS fix, unthinned — waypoints below downsample for TripData, this doesn't.
-      this.rawRecorder.pushLocationSample(update.lat, update.lng, update.currentSpeed, update.accuracy ?? null);
+      // Stamped with the fix time for the same reason the waypoints below are (CAR-178):
+      // a batch of deferred Android fixes all arrive in one turn, and arrival time would
+      // record a whole window of driving as a single instant.
+      this.rawRecorder.pushLocationSample(
+        update.lat, update.lng, update.currentSpeed, update.accuracy ?? null, update.fixTs,
+      );
     }
 
     // Always feed sensor data to the validator (works in both phases)
     this.validationManager.updateSample({
       speedKmh: update.currentSpeed,
       timestamp: Date.now(),
+      longitudinalAccelG: update.longitudinalAccelG,
       lateralAccelG: update.lateralAccelG,
       yawRate: update.yawRateRadS,
       lat: update.lat,
@@ -538,10 +575,10 @@ export class DrivingSDK {
   // whether or not startTrip() was ever called, and never touches currentTripData.
 
   /** Starts a staged recording session, tagged with a caller-supplied scenario/platform label. */
-  public async startRawRecording(scenario: string, platform: string): Promise<void> {
+  public async startRawRecording(scenario: string, platform: string, deviceModel?: string): Promise<void> {
     await this.sensorManager.start(); // idempotent — no-op if a real trip already has it running
     try {
-      this.rawRecorder.start(scenario, platform);
+      this.rawRecorder.start(scenario, platform, deviceModel);
     } catch (e) {
       // start() creates the session file up front, so it can throw on a storage failure
       // after the sensors are already streaming. Without this the caller sees a failed
@@ -558,21 +595,62 @@ export class DrivingSDK {
    * in that case, so the caller can retry instead of exporting a truncated file.
    */
   public async stopRawRecording(): Promise<void> {
-    await this.rawRecorder.stop();
-    // An automatically started trip may be mid-validation (isValidating, before isTripActive
-    // flips) when a calibration session starts — stopping sensors here would silently
-    // kill that trip's confirmation. Same two-flag check as handleDriveDetected.
-    if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+    try {
+      await this.rawRecorder.stop();
+    } finally {
+      // In a finally, so it also runs on the rejection above: stop() rejects when the
+      // final write failed, and the sensors this session started would otherwise stay
+      // subscribed with nothing left that turns them off (CAR-324).
+      //
+      // An automatically started trip may be mid-validation (isValidating, before
+      // isTripActive flips) when a calibration session starts — stopping sensors here
+      // would silently kill that trip's confirmation. Same two-flag check as
+      // handleDriveDetected.
+      if (!this.isTripActive && !this.isValidating) this.sensorManager.stop();
+    }
   }
 
-  /** Shares the last completed recording via the OS share sheet. See RawSampleRecorder.exportAsync for the failure shape. */
-  public async exportRawRecording(): Promise<string | RawExportFailure> {
-    return this.rawRecorder.exportAsync();
+  /**
+   * Places a labelled point in the running session — a hard brake, a phone pickup, a
+   * change of scenario. False when the marker was not recorded — no session running, or
+   * a session at its line cap — so a UI can tell a recorded marker from a dropped tap.
+   */
+  public markRawRecording(markerType: string, label?: string, metadata?: Record<string, unknown>): boolean {
+    return this.rawRecorder.pushMarker(markerType, label, metadata);
   }
 
-  /** Completed recordings on disk, newest first — including sessions from earlier app runs. */
+  /**
+   * Re-labels the running session from here on, leaving a marker where it changed. The
+   * session header keeps the scenario the drive opened with — see changeScenario.
+   */
+  public changeRawRecordingScenario(scenario: string): boolean {
+    return this.rawRecorder.changeScenario(scenario);
+  }
+
+  /**
+   * Shares a recording via the OS share sheet — the last completed one, or the file at
+   * `filePath` when the host picked an older session from `listRawRecordings()`. See
+   * RawSampleRecorder.exportAsync for the failure shape.
+   */
+  public async exportRawRecording(filePath?: string): Promise<string | RawExportFailure> {
+    return this.rawRecorder.exportAsync(filePath);
+  }
+
+  /**
+   * Completed recordings on disk, newest first — including sessions from earlier app
+   * runs, and excluding the one still being written.
+   */
   public listRawRecordings(): string[] {
     return this.rawRecorder.listRecordings();
+  }
+
+  /**
+   * The staged session in progress, or null. A host screen that was unmounted and
+   * remounted mid-session has no state of its own left to restore from — this is what it
+   * reads to find out that a session is running, and under which scenario (CAR-321).
+   */
+  public getRawRecordingSession(): RawRecordingSession | null {
+    return this.rawRecorder.currentSession();
   }
 }
 
@@ -581,3 +659,15 @@ export * from './types';
 // Emitted by onInteractionData — part of the public surface, so it is re-exported here
 // rather than leaving hosts to reach into sensors/.
 export type { InteractionData } from '@/lib/driving-sdk/sensors/PhoneUsageManager';
+// Returned by getRawRecordingSession — part of the public surface for the same reason
+// (CAR-334): a host cannot type what it receives without reaching into sensors/.
+export type { RawRecordingSession } from '@/lib/driving-sdk/sensors/RawSampleRecorder';
+
+// Consumed by host apps today through deep paths, which break the moment this package
+// gains an `exports` map (CAR-334). The entry point is the only supported import path.
+export { isBackgroundThrottlingRiskPlatform, openAppSystemSettings } from './PowerManagement';
+export { checkDeviceCapabilities } from './DeviceCapabilities';
+export type { DeviceCapabilities } from './DeviceCapabilities';
+// Two documents point a consumer at this as the reference for overriding
+// SDKConfig.motionThresholds, so it has to be reachable from the package root.
+export { DEFAULT_MOTION_THRESHOLDS } from './sensors/SensorManager';

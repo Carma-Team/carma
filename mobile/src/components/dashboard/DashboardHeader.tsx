@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useApp } from '@/context/AppContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, TYPOGRAPHY, COMMON_STYLES } from '@/constants/theme';
 import { ICONS } from '@/constants/icons';
@@ -20,6 +21,7 @@ export function DashboardHeader({
   userName, currentStreak, bestStreak, pendingRequests, unreadNotifications,
 }: DashboardHeaderProps) {
   const { t } = useTranslation();
+  const { addToast } = useApp();
   const router = useRouter();
   const firstName = userName.split(' ')[0];
 
@@ -30,13 +32,17 @@ export function DashboardHeader({
         <Text style={styles.name}>{firstName}</Text>
       </View>
       <View style={styles.actions}>
-        <View
+        {/* The flame and its number said nothing about what they counted. A toast
+            rather than a screen: one sentence is the whole answer, and a route for it
+            would be a screen nobody visits twice. */}
+        <TouchableOpacity
           style={styles.streakBadge}
+          onPress={() => addToast({ type: 'info', title: t('stats.currentStreak'), message: t('stats.streakInfo') })}
           accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak ?? '--'}. ${t('stats.bestStreak')}: ${bestStreak ?? '--'}`}
         >
           <Ionicons name={ICONS.streak} size={16} color={COLORS.text} />
           <Text style={styles.streakValue}>{currentStreak ?? '--'}</Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.settingsBtn}
           onPress={() => router.push('/(home)/friend-requests')}

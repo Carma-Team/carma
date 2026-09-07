@@ -16,6 +16,8 @@ function renderSignIn() {
       { path: '/sign-in', element: <SignInPage /> },
       { path: '/', element: <div>home</div> },
       { path: '/accept-invite', element: <div>manual code entry page</div> },
+      { path: '/register', element: <div>business registration page</div> },
+      { path: '/register/status', element: <div>business request status page</div> },
     ],
     { initialEntries: ['/sign-in'] },
   );
@@ -124,9 +126,46 @@ describe('SignInPage', () => {
     });
 
     renderSignIn();
-    fireEvent.click(screen.getByRole('link', { name: 'יש לכם קוד הזמנה לעסק?' }));
+    fireEvent.click(screen.getByRole('link', { name: 'קיבלתם קוד הזמנה מבעל העסק? התחברו כאן' }));
 
     await waitFor(() => expect(screen.getByText('manual code entry page')).toBeInTheDocument());
+  });
+
+  // CAR-315: sign-in is the only public page most prospective business
+  // owners land on, so /register and /register/status need a real,
+  // discoverable entry point here — not just a URL someone happens to know.
+  it('offers a discoverable register button next to the sign-in button', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'unauthenticated',
+      user: null,
+      login,
+      loginWithOtp,
+      register,
+      logout,
+      retry,
+    });
+
+    renderSignIn();
+    fireEvent.click(screen.getByRole('button', { name: 'הרשמה' }));
+
+    await waitFor(() => expect(screen.getByText('business registration page')).toBeInTheDocument());
+  });
+
+  it('offers a discoverable link to check an existing registration request status', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'unauthenticated',
+      user: null,
+      login,
+      loginWithOtp,
+      register,
+      logout,
+      retry,
+    });
+
+    renderSignIn();
+    fireEvent.click(screen.getByRole('link', { name: 'בדיקת סטטוס בקשת הרשמה' }));
+
+    await waitFor(() => expect(screen.getByText('business request status page')).toBeInTheDocument());
   });
 
   // ─── CAR-265: the phone + OTP door ──────────────────────────────────────
