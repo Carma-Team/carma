@@ -58,6 +58,13 @@ NOISE_NAMES = ["Cloud Test", "Verify"]
 # on suspicion alone.
 FORCE_DELETE_EMAILS = ["verify_898899204@carma.app"]
 
+# Confirmed by Dan: an email-less leftover from Shaun's own earlier signup,
+# distinct from "שון פבר" (his real account, in TEAM_NAMES below) and unlike
+# eran34567@gmail.com / galgryn8@gmail.com, which PR #343's review settled are
+# real third parties and stay untouched. The name-based dedup below can't
+# catch this one — it never matched "שון פבר" — so it is named here instead.
+FORCE_DELETE_USER_IDS = ["da688e4bc7514d9086a5db42d11986b8"]  # no email — "שון" (Shaun's leftover duplicate)
+
 # Real team members who may have a leftover zero-point duplicate account from
 # an earlier signup. Bounded on purpose — a name-collision sweep over every
 # user would just as happily delete a genuine new driver who shares a common
@@ -147,6 +154,16 @@ async def purge_noise_accounts(db: AsyncSession) -> None:
             continue
         await db.delete(user)
         print(f"  Deleted confirmed-synthetic account {email}")
+
+    for user_id in FORCE_DELETE_USER_IDS:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user is None:
+            continue
+        if await _trip_count(db, user.id) > 0:
+            print(f"  Skipping '{user.name}' ({user_id}) — has real trips, not a leftover duplicate")
+            continue
+        await db.delete(user)
+        print(f"  Deleted leftover duplicate account '{user.name}' ({user_id})")
 
     for name in NOISE_NAMES:
         user = await db.scalar(select(User).where(User.name == name))
