@@ -250,6 +250,10 @@ const he = {
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
       vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
+      today: 'היום',
+      // שמות מקוצרים ולא Intl: תמיכת Intl ב-Hermes משתנה בין גרסאות, ושם חודש
+      // שנופל חזרה לאנגלית באמצע רצועה בעברית גרוע מטבלה בת שתים עשרה שורות
+      months: ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'],
       // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
       // by its own weekday, not by its position in the row.
       days: ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'],
