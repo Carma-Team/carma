@@ -5,7 +5,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import CursorResult, and_, case, func, select, tuple_, update
+from sqlalchemy import CursorResult, and_, case, exists, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -362,17 +362,26 @@ async def update_branch(db: AsyncSession, business: Business, branch_id: str, dt
     return BranchOut.from_orm_branch(branch)
 
 
-async def _owned_reward(db: AsyncSession, business: Business, reward_id: str) -> Reward:
+async def _owned_reward(db: AsyncSession, business: Business, reward_id: str, *, for_update: bool = False) -> Reward:
     """Load a reward that belongs to this business, or 404.
 
     A reward owned by *another* business also yields 404 rather than 403 — a 403
     would confirm the id exists and leak the catalog of a competitor.
+
+    `for_update` takes the same row lock `rewards_service.redeem()` takes on its
+    own first read of a reward — `trash_reward` passes it so the two serialise
+    against each other. Without it, a live-voucher count taken here could read
+    "zero" a moment before a concurrent redeem's INSERT lands, and the trash
+    would go through none the wiser.
     """
-    reward = await db.scalar(
+    query = (
         select(Reward)
         .where(Reward.id == reward_id, Reward.business_id == business.id)
         .options(selectinload(Reward.business))
     )
+    if for_update:
+        query = query.with_for_update()
+    reward = await db.scalar(query)
     if reward is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not found")
     return reward
@@ -385,10 +394,17 @@ async def list_rewards(db: AsyncSession, business: Business, role: BusinessMembe
     gets `rewards_service.active_reward_where`, the exact predicate the
     driver-facing catalog filters on (CAR-131's campaign-expiry leg included),
     rather than a second definition of "active" invented for this endpoint.
-    OWNER and MANAGER are unchanged — they manage the catalog, so they still
-    see everything.
+    OWNER and MANAGER are unchanged — they still see everything short of a
+    tombstone: `deleted_at` is filtered out unconditionally, for
+    every role, because a permanently-deleted reward must never resurface in
+    any business-facing view again — that is the whole point of the tombstone
+    over just leaving it in Trash.
     """
-    query = select(Reward).where(Reward.business_id == business.id).options(selectinload(Reward.business))
+    query = (
+        select(Reward)
+        .where(Reward.business_id == business.id, Reward.deleted_at.is_(None))
+        .options(selectinload(Reward.business))
+    )
     if role == BusinessMembershipRole.CASHIER:
         query = query.where(*rewards_service.active_reward_where(datetime.now(UTC)))
     rewards = (await db.scalars(query.order_by(Reward.created_at.desc()))).all()
@@ -462,6 +478,100 @@ async def archive_reward(db: AsyncSession, business: Business, reward_id: str) -
     reward.archived_at = datetime.now(UTC)
     await db.commit()
     audit("business.reward.archived", business_id=business.id, reward_id=reward_id)
+
+
+REWARD_HAS_LIVE_VOUCHERS = "REWARD_HAS_LIVE_VOUCHERS"
+
+
+async def trash_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Move a reward to trash — reachable directly from Active or Archive.
+
+    Unlike archiving, this is a hard 409 while a live voucher is outstanding,
+    not a warning: once trashed the reward can no longer be found to redeem
+    against, so a live voucher would be stranded with no path back for the
+    driver holding it. Sets `archived_at` too when it was not already set, so
+    the only way out — `restore_reward` — always lands in Archive regardless
+    of which state this was trashed from.
+
+    Loads the reward `FOR UPDATE` (see `_owned_reward`) before counting live
+    vouchers — the same row lock `redeem()` takes on its own first read, so
+    the two can never interleave. Whichever gets there first wins outright:
+    a concurrent redeem already past this lock finishes and lands a voucher
+    this count then sees, refusing the trash; a trash that locked first holds
+    the row until it commits, so a redeem arriving after it re-reads the
+    reward as trashed and 404s, never landing a voucher this check missed.
+    """
+    reward = await _owned_reward(db, business, reward_id, for_update=True)
+    live = await rewards_service.count_live_vouchers(db, reward.id)
+    if live > 0:
+        # Same convention as redeem()'s own early exits: releases the row lock
+        # immediately on refusal rather than holding it open on an idle session.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": REWARD_HAS_LIVE_VOUCHERS, "message": "This reward still has live vouchers outstanding"},
+        )
+    now = datetime.now(UTC)
+    if reward.archived_at is None:
+        reward.archived_at = now
+    reward.trashed_at = now
+    await db.commit()
+    audit("business.reward.trashed", business_id=business.id, reward_id=reward_id)
+
+
+async def restore_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Restore a trashed reward — always back to Archive, never straight to Active.
+
+    Recovering from an accidental trash should land in the same safe,
+    non-public state a fresh archive would; reactivating into the marketplace
+    is a separate, explicit action (`reactivate_reward`) the business takes
+    from the Archive view once it has actually decided to.
+    """
+    reward = await _owned_reward(db, business, reward_id)
+    if reward.trashed_at is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reward is not in trash")
+    reward.trashed_at = None
+    await db.commit()
+    audit("business.reward.restored_from_trash", business_id=business.id, reward_id=reward_id)
+
+
+async def reactivate_reward(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Archive -> Active — the one path back into the catalog and marketplace.
+
+    Refuses a trashed reward outright: it must go through `restore_reward`
+    first, so reactivating a reward that was trashed can never skip the
+    Archive stopover restoring is supposed to guarantee.
+    """
+    reward = await _owned_reward(db, business, reward_id)
+    if reward.trashed_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reward is in trash — restore it before reactivating")
+    if reward.archived_at is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reward is not archived")
+    reward.archived_at = None
+    await db.commit()
+    audit("business.reward.reactivated", business_id=business.id, reward_id=reward_id)
+
+
+async def delete_reward_permanently(db: AsyncSession, business: Business, reward_id: str) -> None:
+    """Trash -> gone — only reachable from Trash, never from Active or Archive.
+
+    "Permanently delete" is a product concept, not necessarily a physical row
+    delete: `Redemption.reward_id` has no cascade, so a reward ever referenced
+    by a redemption is tombstoned (`deleted_at`) instead of dropped — the row
+    stays for every historical join, but `list_rewards` filters it out
+    unconditionally, so the business never sees it again. A reward with no
+    redemption history at all — nothing to break — is hard-deleted outright.
+    """
+    reward = await _owned_reward(db, business, reward_id)
+    if reward.trashed_at is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reward must be trashed before it can be permanently deleted")
+    has_history = await db.scalar(select(exists().where(Redemption.reward_id == reward.id)))
+    if has_history:
+        reward.deleted_at = datetime.now(UTC)
+    else:
+        await db.delete(reward)
+    await db.commit()
+    audit("business.reward.deleted_permanently", business_id=business.id, reward_id=reward_id, tombstoned=has_history)
 
 
 # ── Vouchers ─────────────────────────────────────────────────────────────────

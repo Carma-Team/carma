@@ -2,7 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { LanguageProvider } from '@/i18n/LanguageContext';
 import { RewardsPage } from './RewardsPage';
-import { listRewards, createReward, updateReward, retireReward, setRewardActive, getLiveVoucherCount } from '@/lib/api/rewards';
+import {
+  listRewards,
+  createReward,
+  updateReward,
+  retireReward,
+  setRewardActive,
+  getLiveVoucherCount,
+  trashReward,
+  restoreRewardFromTrash,
+  reactivateReward,
+  deleteRewardPermanently,
+} from '@/lib/api/rewards';
 import type { Reward } from '@/lib/api/rewards';
 import { useAuth } from '@/hooks/useAuth';
 import type { AuthContextValue, AuthUser } from '@/lib/auth/types';
@@ -17,6 +28,10 @@ vi.mock('@/lib/api/rewards', async (importOriginal) => {
     retireReward: vi.fn(),
     setRewardActive: vi.fn(),
     getLiveVoucherCount: vi.fn(),
+    trashReward: vi.fn(),
+    restoreRewardFromTrash: vi.fn(),
+    reactivateReward: vi.fn(),
+    deleteRewardPermanently: vi.fn(),
   };
 });
 vi.mock('@/hooks/useAuth');
@@ -49,6 +64,7 @@ function reward(overrides: Partial<Reward> = {}): Reward {
     imageIcon: 'gift-outline',
     isActive: true,
     archivedAt: null,
+    trashedAt: null,
     stock: null,
     available: null,
     expiresAt: null,
@@ -89,6 +105,10 @@ describe('RewardsPage', () => {
     vi.mocked(setRewardActive).mockReset();
     vi.mocked(getLiveVoucherCount).mockReset();
     vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 0 });
+    vi.mocked(trashReward).mockReset();
+    vi.mocked(restoreRewardFromTrash).mockReset();
+    vi.mocked(reactivateReward).mockReset();
+    vi.mocked(deleteRewardPermanently).mockReset();
   });
 
   afterEach(() => {
@@ -719,5 +739,126 @@ describe('RewardsPage', () => {
     const addStockButton = screen.getByRole('button', { name: 'הוספת מלאי' });
     expect(editButton.className).not.toMatch(/primary/);
     expect(addStockButton.className).toMatch(/primary/);
+  });
+
+  // ── Trash / restore / reactivate / permanent delete ─────────────────────
+
+  it('trashes an active reward and moves it under the Trash tab, not Archived', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(trashReward).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
+    expect(await screen.findByText('ההטבה תיעלם מכל התצוגות מלבד האשפה. תוכלו לשחזר אותה לארכיון מאוחר יותר, או למחוק אותה משם לצמיתות — שוברים שכבר הונפקו לא ייפגעו.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'כן, העבר לאשפה' }));
+    await waitFor(() => expect(trashReward).toHaveBeenCalledWith('r1'));
+
+    // Tab bar renders before the cards, so the first "אשפה…"/"ארכיון…" match
+    // is always the tab itself.
+    const [trashTab] = screen.getAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    expect(await screen.findByText('שובר')).toBeInTheDocument();
+
+    const [archivedTab] = screen.getAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+    expect(screen.queryByText('שובר')).not.toBeInTheDocument();
+  });
+
+  it('keeps the trash confirm button disabled and shows a blocked message while a voucher is live', async () => {
+    vi.mocked(listRewards).mockResolvedValue({ outcome: 'ok', rewards: [reward()] });
+    vi.mocked(getLiveVoucherCount).mockResolvedValue({ outcome: 'ok', liveVouchers: 1 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'העברה לאשפה' }));
+    expect(await screen.findByText(/שובר חי אחד/)).toBeInTheDocument();
+
+    const confirmButton = screen.getByRole('button', { name: 'כן, העבר לאשפה' });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(confirmButton);
+    expect(trashReward).not.toHaveBeenCalled();
+  });
+
+  it('reactivates an archived reward back to Active, without going through Trash', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z' })],
+    });
+    vi.mocked(reactivateReward).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [archivedTab] = await screen.findAllByRole('button', { name: /^ארכיון/ });
+    fireEvent.click(archivedTab);
+    await waitFor(() => expect(screen.getByText('שובר')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'הפעלה מחדש' }));
+    await waitFor(() => expect(reactivateReward).toHaveBeenCalledWith('r1'));
+
+    const [activeTab] = screen.getAllByRole('button', { name: /^פעילות/ });
+    fireEvent.click(activeTab);
+    expect(await screen.findByText('שובר')).toBeInTheDocument();
+  });
+
+  it('restores a trashed reward to Archive, not Active, and shows a success banner', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(restoreRewardFromTrash).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByText('שחזור לארכיון')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'שחזור לארכיון' }));
+    await waitFor(() => expect(restoreRewardFromTrash).toHaveBeenCalledWith('r1'));
+
+    expect(await screen.findByText('ההטבה שוחזרה לארכיון.')).toBeInTheDocument();
+    // Landed in Archive, not Active — the reward still needs an explicit
+    // reactivate before it can reappear in the marketplace.
+    expect(screen.getByRole('button', { name: 'הפעלה מחדש' })).toBeInTheDocument();
+  });
+
+  it('permanently deletes a trashed reward after confirmation, and it disappears from every tab', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(deleteRewardPermanently).mockResolvedValue({ outcome: 'ok' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByText('מחיקה לצמיתות')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
+    expect(await screen.findByText('למחוק את ההטבה לצמיתות?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'כן, מחק לצמיתות' }));
+    await waitFor(() => expect(deleteRewardPermanently).toHaveBeenCalledWith('r1'));
+
+    // It was the only reward, so deleting it permanently empties the catalog
+    // outright — the tab bar disappears along with it, confirming the
+    // reward is gone from every tab rather than merely the one open now.
+    expect(await screen.findByText('עדיין אין הטבות')).toBeInTheDocument();
+    expect(screen.queryByText('שובר')).not.toBeInTheDocument();
+  });
+
+  it('keeps the reward visible with an error when permanent delete fails', async () => {
+    vi.mocked(listRewards).mockResolvedValue({
+      outcome: 'ok',
+      rewards: [reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })],
+    });
+    vi.mocked(deleteRewardPermanently).mockResolvedValue({ outcome: 'unexpected_error' });
+    renderPage();
+    const [trashTab] = await screen.findAllByRole('button', { name: /^אשפה/ });
+    fireEvent.click(trashTab);
+    await waitFor(() => expect(screen.getByText('מחיקה לצמיתות')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'מחיקה לצמיתות' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'כן, מחק לצמיתות' }));
+
+    expect(await screen.findByText('לא הצלחנו למחוק את ההטבה. נסו שוב.')).toBeInTheDocument();
+    expect(screen.getByText('שובר')).toBeInTheDocument();
   });
 });

@@ -100,17 +100,21 @@ def live_voucher_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElemen
     return (Redemption.status == RedemptionStatus.PENDING, Redemption.expires_at > now)
 
 
-def active_reward_where(now: datetime) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
-    """A reward the marketplace still shows: live, not archived, campaign not over.
+def active_reward_where(
+    now: datetime,
+) -> tuple[ColumnElement[bool], ColumnElement[bool], ColumnElement[bool], ColumnElement[bool]]:
+    """A reward the marketplace still shows: live, not archived, not trashed, campaign not over.
 
-    The same three conditions `list_rewards` below already filters the driver
-    catalog on (CAR-131 added the campaign-expiry leg) — factored out so a
-    business's CASHIER view (CAR-74) can never define "active" differently
-    than the marketplace does.
+    The same conditions `list_rewards` below already filters the driver catalog
+    on (CAR-131 added the campaign-expiry leg, this change the trash leg) —
+    factored out so a business's CASHIER view (CAR-74) can never define "active"
+    differently than the marketplace does. `trashed_at` alone covers a
+    tombstoned reward too — deleting one permanently never clears trashed_at.
     """
     return (
         Reward.is_active.is_(True),
         Reward.archived_at.is_(None),
+        Reward.trashed_at.is_(None),
         or_(Reward.expires_at.is_(None), Reward.expires_at > now),
     )
 
@@ -133,8 +137,9 @@ async def reserved_points(db: AsyncSession, user_id: str) -> int:
 async def count_live_vouchers(db: AsyncSession, reward_id: str) -> int:
     """Outstanding vouchers for one reward a driver could still redeem.
 
-    What a business is told before it archives the reward (CAR-111) — archiving
-    does not cancel these, so this is the number that would keep working anyway.
+    What a business is told before it archives or trashes the reward (CAR-111)
+    — archiving does not cancel these, so this is the number that would keep
+    working anyway; trashing refuses outright while it is nonzero.
     """
     count = await db.scalar(
         select(func.count())
@@ -285,7 +290,7 @@ async def redeem(db: AsyncSession, user: User, reward_id: str) -> VoucherOut:
     reward = await db.scalar(
         select(Reward).where(Reward.id == reward_id).options(selectinload(Reward.business)).with_for_update()
     )
-    if reward is None or not reward.is_active or reward.archived_at is not None:
+    if reward is None or not reward.is_active or reward.archived_at is not None or reward.trashed_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reward not available")
     # `<=`, matching the boundary `list_rewards` excludes on — the expiry instant
     # itself is already over, not the last valid moment.

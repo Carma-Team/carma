@@ -3,10 +3,14 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasBusinessRole } from '@/lib/auth/businessRole';
 import {
+  deleteRewardPermanently,
   getLiveVoucherCount,
   listRewards,
+  reactivateReward,
+  restoreRewardFromTrash,
   retireReward,
   setRewardActive,
+  trashReward,
   type Reward,
 } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, normalizeBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
@@ -14,13 +18,14 @@ import {
   categoryTranslationKey,
   getRewardState,
   isArchived,
+  isTrashed,
   localizedRewardText,
   matchesTab,
   type RewardState,
   type RewardTab,
 } from '@/lib/rewardState';
 import { RewardForm } from '@/components/business/RewardForm';
-import { Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton, CategoryIcon } from '@/components/ui';
+import { Alert, Card, Heading, Text, Button, Dialog, ErrorState, EmptyState, Input, StatusBadge, CountBadge, Skeleton, CategoryIcon } from '@/components/ui';
 import type { TranslationMap } from '@/i18n/types';
 import styles from './RewardsPage.module.css';
 
@@ -47,9 +52,10 @@ const TAB_KEY: Record<RewardTab, keyof TranslationMap['rewards']> = {
   paused: 'filterPaused',
   ended: 'filterEnded',
   archived: 'filterArchived',
+  trash: 'filterTrash',
 };
 
-const TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
+const TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived', 'trash'];
 
 function matchesSearch(reward: Reward, query: string): boolean {
   if (query === '') return true;
@@ -78,6 +84,50 @@ export function RewardsPage() {
   // reopened, for the same or a different reward, before the earlier request
   // resolved — so a slow first fetch can never overwrite a later one's result.
   const liveVoucherRequestId = useRef(0);
+
+  // Move-to-trash — its own confirm dialog and live-voucher check,
+  // mirroring the archive dialog above, but the count *blocks* the confirm
+  // button once nonzero rather than only warning: the server hard-refuses a
+  // trash with a live voucher outstanding.
+  const [trashTarget, setTrashTarget] = useState<Reward | null>(null);
+  const [trashingId, setTrashingId] = useState<string | null>(null);
+  const [trashErrors, setTrashErrors] = useState<Record<string, string>>({});
+  const [trashLiveVoucherCheck, setTrashLiveVoucherCheck] = useState<LiveVoucherCheck>({ status: 'loading' });
+  const trashInFlight = useRef(false);
+  const trashLiveVoucherRequestId = useRef(0);
+
+  // Restore (Trash -> Archive) and reactivate (Archive -> Active) are each a
+  // single explicit step — no confirm dialog, since neither removes
+  // anything or touches a voucher.
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [restoreErrors, setRestoreErrors] = useState<Record<string, string>>({});
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
+  const [reactivateErrors, setReactivateErrors] = useState<Record<string, string>>({});
+
+  // Permanent delete — only ever reached from the Trash tab.
+  const [deleteTarget, setDeleteTarget] = useState<Reward | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
+  const deleteInFlight = useRef(false);
+
+  // A one-off confirmation banner: restoring from trash moves the
+  // reward out of the tab the business was just looking at, so a card
+  // disappearing on its own isn't enough feedback that it landed safely in
+  // Archive rather than vanishing.
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+
+  // Any lifecycle mutation in flight, for any reward — the broadest form of
+  // the same cross-action guard `handleToggleActive`'s own comment explains:
+  // with six independent actions now touching the same rows (pause/resume,
+  // archive, trash, restore, reactivate, permanent delete), disabling only
+  // the pair that used to collide would miss the rest.
+  const lifecycleActionInFlight =
+    togglingId !== null ||
+    retiringId !== null ||
+    trashingId !== null ||
+    restoringId !== null ||
+    reactivatingId !== null ||
+    deletingId !== null;
 
   const defaultCategory = useMemo<BusinessCategory>(() => {
     const category = user?.businessCategory?.toLowerCase() ?? '';
@@ -148,10 +198,11 @@ export function RewardsPage() {
   }
 
   async function handleToggleActive(reward: Reward) {
-    // Also bails while an archive is in flight (for this reward or any
-    // other) — same cross-action guard the buttons below enforce, so a
-    // pause/resume PATCH can never race the reward's own archive DELETE.
-    if (togglingId !== null || retiringId !== null) return;
+    // Also bails while any other lifecycle action is in flight (for this
+    // reward or any other) — same cross-action guard the buttons below
+    // enforce, so a pause/resume PATCH can never race the reward's own
+    // archive/trash/restore/reactivate/delete call.
+    if (lifecycleActionInFlight) return;
     setTogglingId(reward.id);
     const result = await setRewardActive(reward.id, !reward.isActive);
     setTogglingId(null);
@@ -173,11 +224,12 @@ export function RewardsPage() {
   }
 
   async function handleConfirmRetire() {
-    // togglingId here would mean a pause/resume for this reward started
-    // after the dialog opened but before this confirm ran — the button that
-    // opens this dialog is itself disabled while any toggle is in flight, so
-    // this is a defensive second gate on the same cross-action rule.
-    if (!retireTarget || retireInFlight.current || togglingId !== null || liveVoucherCheck.status !== 'ok') return;
+    // lifecycleActionInFlight here would mean some other action for this
+    // reward (or another) started after the dialog opened but before this
+    // confirm ran — the button that opens this dialog is itself disabled
+    // while any other action is in flight, so this is a defensive second
+    // gate on the same cross-action rule.
+    if (!retireTarget || retireInFlight.current || lifecycleActionInFlight || liveVoucherCheck.status !== 'ok') return;
     const target = retireTarget;
     retireInFlight.current = true;
     setRetiringId(target.id);
@@ -208,11 +260,144 @@ export function RewardsPage() {
     setRetireErrors((prev) => ({ ...prev, [target.id]: t('rewards.retireErrorMessage') }));
   }
 
-  const nonArchived = useMemo(() => rewards.filter((r) => !isArchived(r)), [rewards]);
+  // Same shape as openRetireDialog, its own request-id ref so a stale
+  // response from a previous trash dialog can never overwrite this one's.
+  function openTrashDialog(reward: Reward) {
+    setTrashTarget(reward);
+    setTrashLiveVoucherCheck({ status: 'loading' });
+    const requestId = ++trashLiveVoucherRequestId.current;
+    getLiveVoucherCount(reward.id).then((result) => {
+      if (trashLiveVoucherRequestId.current !== requestId) return;
+      setTrashLiveVoucherCheck(
+        result.outcome === 'ok' ? { status: 'ok', count: result.liveVouchers } : { status: 'error' },
+      );
+    });
+  }
+
+  async function handleConfirmTrash() {
+    // Unlike retire, a nonzero count keeps this disabled — the server 409s
+    // outright rather than warning, so there is nothing to confirm past it.
+    if (
+      !trashTarget ||
+      trashInFlight.current ||
+      lifecycleActionInFlight ||
+      trashLiveVoucherCheck.status !== 'ok' ||
+      trashLiveVoucherCheck.count > 0
+    ) {
+      return;
+    }
+    const target = trashTarget;
+    trashInFlight.current = true;
+    setTrashingId(target.id);
+    const result = await trashReward(target.id);
+    trashInFlight.current = false;
+    setTrashingId(null);
+
+    if (result.outcome === 'ok') {
+      setTrashTarget(null);
+      const now = new Date().toISOString();
+      // Mirrors trash_reward (services/business.py): archivedAt is set too
+      // when it wasn't already, so a reward trashed straight from Active
+      // still shows the same Archive stopover restoring will land it back in.
+      setRewards((prev) =>
+        prev.map((r) => (r.id === target.id ? { ...r, trashedAt: now, archivedAt: r.archivedAt ?? now } : r)),
+      );
+      setTrashErrors((prev) => {
+        if (!(target.id in prev)) return prev;
+        const rest = { ...prev };
+        delete rest[target.id];
+        return rest;
+      });
+      return;
+    }
+    if (result.outcome === 'has_live_vouchers') {
+      // A voucher went live between the pre-check and this confirm (or the
+      // dialog was left open a while) — re-run the check rather than closing
+      // the dialog, so the business sees why it was refused.
+      setTrashLiveVoucherCheck({ status: 'loading' });
+      const recheck = await getLiveVoucherCount(target.id);
+      setTrashLiveVoucherCheck(
+        recheck.outcome === 'ok' ? { status: 'ok', count: recheck.liveVouchers } : { status: 'error' },
+      );
+      return;
+    }
+    setTrashTarget(null);
+    setTrashErrors((prev) => ({ ...prev, [target.id]: t('rewards.trashErrorMessage') }));
+  }
+
+  async function handleRestore(reward: Reward) {
+    if (lifecycleActionInFlight) return;
+    setRestoringId(reward.id);
+    const result = await restoreRewardFromTrash(reward.id);
+    setRestoringId(null);
+
+    if (result.outcome === 'ok') {
+      setRewards((prev) => prev.map((r) => (r.id === reward.id ? { ...r, trashedAt: null } : r)));
+      setRestoreErrors((prev) => {
+        if (!(reward.id in prev)) return prev;
+        const rest = { ...prev };
+        delete rest[reward.id];
+        return rest;
+      });
+      // Restoring moves the card out of the Trash tab the business is
+      // looking at right now — surfaced explicitly rather than
+      // letting it silently vanish from the list.
+      setActiveTab('archived');
+      setSuccessBanner(t('rewards.restoreSuccessMessage'));
+      return;
+    }
+    setRestoreErrors((prev) => ({ ...prev, [reward.id]: t('rewards.restoreErrorMessage') }));
+  }
+
+  async function handleReactivate(reward: Reward) {
+    if (lifecycleActionInFlight) return;
+    setReactivatingId(reward.id);
+    const result = await reactivateReward(reward.id);
+    setReactivatingId(null);
+
+    if (result.outcome === 'ok') {
+      setRewards((prev) => prev.map((r) => (r.id === reward.id ? { ...r, archivedAt: null } : r)));
+      setReactivateErrors((prev) => {
+        if (!(reward.id in prev)) return prev;
+        const rest = { ...prev };
+        delete rest[reward.id];
+        return rest;
+      });
+      return;
+    }
+    setReactivateErrors((prev) => ({ ...prev, [reward.id]: t('rewards.reactivateErrorMessage') }));
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget || deleteInFlight.current || lifecycleActionInFlight) return;
+    const target = deleteTarget;
+    deleteInFlight.current = true;
+    setDeletingId(target.id);
+    const result = await deleteRewardPermanently(target.id);
+    deleteInFlight.current = false;
+    setDeletingId(null);
+    setDeleteTarget(null);
+
+    if (result.outcome === 'ok') {
+      // Removed, not updated — a permanently deleted reward must not
+      // resurface in any tab, unlike every other lifecycle step.
+      setRewards((prev) => prev.filter((r) => r.id !== target.id));
+      setDeleteErrors((prev) => {
+        if (!(target.id in prev)) return prev;
+        const rest = { ...prev };
+        delete rest[target.id];
+        return rest;
+      });
+      return;
+    }
+    setDeleteErrors((prev) => ({ ...prev, [target.id]: t('rewards.deletePermanentlyErrorMessage') }));
+  }
+
+  const nonArchived = useMemo(() => rewards.filter((r) => !isArchived(r) && !isTrashed(r)), [rewards]);
   const activeCount = useMemo(() => rewards.filter((r) => matchesTab(r, 'active')).length, [rewards]);
 
   const tabCounts = useMemo(() => {
-    const counts: Record<RewardTab, number> = { all: 0, active: 0, paused: 0, ended: 0, archived: 0 };
+    const counts: Record<RewardTab, number> = { all: 0, active: 0, paused: 0, ended: 0, archived: 0, trash: 0 };
     for (const tab of TABS) counts[tab] = rewards.filter((r) => matchesTab(r, tab)).length;
     return counts;
   }, [rewards]);
@@ -273,6 +458,10 @@ export function RewardsPage() {
         )}
       </div>
 
+      {successBanner && (
+        <Alert tone="success" title={successBanner} className={styles.banner} onClick={() => setSuccessBanner(null)} />
+      )}
+
       {!noRewardsAtAll && (
         <div className={styles.toolbar}>
           {canManage && (
@@ -326,14 +515,27 @@ export function RewardsPage() {
           />
         ) : (
           <EmptyState
-            title={activeTab === 'archived' ? t('rewards.filterArchived') : t('rewards.noResultsTitle')}
-            message={activeTab === 'archived' ? t('rewards.archivedEmptyMessage') : t('rewards.noResultsMessage')}
+            title={
+              activeTab === 'archived'
+                ? t('rewards.filterArchived')
+                : activeTab === 'trash'
+                  ? t('rewards.filterTrash')
+                  : t('rewards.noResultsTitle')
+            }
+            message={
+              activeTab === 'archived'
+                ? t('rewards.archivedEmptyMessage')
+                : activeTab === 'trash'
+                  ? t('rewards.trashEmptyMessage')
+                  : t('rewards.noResultsMessage')
+            }
           />
         )
       ) : (
         <div className={styles.grid}>
           {visibleRewards.map((reward) => {
             const archived = isArchived(reward);
+            const trashed = isTrashed(reward);
             const state = getRewardState(reward);
             const category = normalizeBusinessCategory(reward.category);
             const title = lang === 'HE' ? localizedRewardText(reward.titleHe, reward.titleEn) : localizedRewardText(reward.titleEn, reward.titleHe);
@@ -346,7 +548,9 @@ export function RewardsPage() {
               <Card key={reward.id} className={styles.card}>
                 <div className={styles.cardTop}>
                   <CategoryIcon category={category} label={t(`rewards.${categoryTranslationKey(category)}`)} />
-                  {archived ? (
+                  {trashed ? (
+                    <StatusBadge tone="danger">{t('rewards.stateTrashed')}</StatusBadge>
+                  ) : archived ? (
                     <StatusBadge tone="neutral">{t('rewards.stateArchived')}</StatusBadge>
                   ) : (
                     <StatusBadge tone={state === 'active' ? 'success' : state === 'endingSoon' || state === 'soldOut' ? 'warning' : 'neutral'}>
@@ -387,8 +591,38 @@ export function RewardsPage() {
                     {toggleErrors[reward.id]}
                   </Text>
                 )}
+                {canManage && trashErrors[reward.id] && (
+                  <Text variant="caption" role="alert">
+                    {trashErrors[reward.id]}
+                  </Text>
+                )}
+                {canManage && restoreErrors[reward.id] && (
+                  <Text variant="caption" role="alert">
+                    {restoreErrors[reward.id]}
+                  </Text>
+                )}
+                {canManage && reactivateErrors[reward.id] && (
+                  <Text variant="caption" role="alert">
+                    {reactivateErrors[reward.id]}
+                  </Text>
+                )}
+                {canManage && deleteErrors[reward.id] && (
+                  <Text variant="caption" role="alert">
+                    {deleteErrors[reward.id]}
+                  </Text>
+                )}
 
-                {canManage && !archived && (
+                {/* Disabled whenever *any* lifecycle action is in flight —
+                    not just this card's, and not just this action's.
+                    CAR-202's pre-commit review (B3) found that a second
+                    card's confirm dialog opening while another reward's
+                    mutation was in flight let the first request's completion
+                    silently clear the second reward's still-unconfirmed
+                    dialog; this feature adds four more actions to the same rows,
+                    so every button below shares the one combined guard
+                    (`lifecycleActionInFlight`) rather than reinventing a
+                    pairwise one per new action. */}
+                {canManage && !archived && !trashed && (
                   <div className={styles.actions}>
                     <Button
                       variant={state === 'soldOut' ? 'primary' : 'secondary'}
@@ -396,32 +630,38 @@ export function RewardsPage() {
                     >
                       {state === 'soldOut' ? t('rewards.addStockButton') : t('rewards.editButton')}
                     </Button>
-                    {/* Disabled whenever *any* toggle or archive is in
-                        flight — not just this card's, and not just this
-                        action's. CAR-202's pre-commit review (B3) found that
-                        a second card's confirm dialog opening while another
-                        reward's DELETE was in flight let the first request's
-                        completion silently clear the second reward's
-                        still-unconfirmed dialog; the same interleaving is
-                        possible between a pause/resume PATCH and an archive
-                        DELETE on the very same reward, so both buttons below
-                        share one combined guard rather than two independent
-                        ones. */}
-                    <Button
-                      variant="secondary"
-                      disabled={togglingId !== null || retiringId !== null}
-                      onClick={() => handleToggleActive(reward)}
-                    >
+                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => handleToggleActive(reward)}>
                       {toggling
                         ? t(reward.isActive ? 'rewards.pausingLabel' : 'rewards.resumingLabel')
                         : t(reward.isActive ? 'rewards.pauseButton' : 'rewards.resumeButton')}
                     </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={retiringId !== null || togglingId !== null}
-                      onClick={() => openRetireDialog(reward)}
-                    >
+                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openRetireDialog(reward)}>
                       {retiringId === reward.id ? t('rewards.retiringLabel') : t('rewards.retireButton')}
+                    </Button>
+                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openTrashDialog(reward)}>
+                      {trashingId === reward.id ? t('rewards.trashingLabel') : t('rewards.trashButton')}
+                    </Button>
+                  </div>
+                )}
+
+                {canManage && archived && !trashed && (
+                  <div className={styles.actions}>
+                    <Button variant="primary" disabled={lifecycleActionInFlight} onClick={() => handleReactivate(reward)}>
+                      {reactivatingId === reward.id ? t('rewards.reactivatingLabel') : t('rewards.reactivateButton')}
+                    </Button>
+                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => openTrashDialog(reward)}>
+                      {trashingId === reward.id ? t('rewards.trashingLabel') : t('rewards.trashButton')}
+                    </Button>
+                  </div>
+                )}
+
+                {canManage && trashed && (
+                  <div className={styles.actions}>
+                    <Button variant="primary" disabled={lifecycleActionInFlight} onClick={() => handleRestore(reward)}>
+                      {restoringId === reward.id ? t('rewards.restoringLabel') : t('rewards.restoreButton')}
+                    </Button>
+                    <Button variant="secondary" disabled={lifecycleActionInFlight} onClick={() => setDeleteTarget(reward)}>
+                      {deletingId === reward.id ? t('rewards.deletingPermanentlyLabel') : t('rewards.deletePermanentlyButton')}
                     </Button>
                   </div>
                 )}
@@ -449,13 +689,20 @@ export function RewardsPage() {
         title={t('rewards.retireConfirmTitle')}
         closeLabel={t('rewards.retireConfirmCloseLabel')}
       >
-        {liveVoucherCheck.status === 'loading' && <Text variant="caption">{t('rewards.retireCheckingVouchers')}</Text>}
-        {liveVoucherCheck.status === 'error' && (
+        {/* Gated on retireTarget, not just the status: Dialog keeps its
+            children mounted while closed (native <dialog> hides them, but
+            jsdom in tests does not), so an ungated 'loading' default would
+            leak this text into the document before the dialog was ever
+            opened. */}
+        {retireTarget !== null && liveVoucherCheck.status === 'loading' && (
+          <Text variant="caption">{t('rewards.retireCheckingVouchers')}</Text>
+        )}
+        {retireTarget !== null && liveVoucherCheck.status === 'error' && (
           <Text variant="caption" role="alert">
             {t('rewards.retireCheckErrorMessage')}
           </Text>
         )}
-        {liveVoucherCheck.status === 'ok' && (
+        {retireTarget !== null && liveVoucherCheck.status === 'ok' && (
           <Text variant="body">
             {liveVoucherCheck.count === 0
               ? t('rewards.retireConfirmBody')
@@ -469,13 +716,82 @@ export function RewardsPage() {
               and never the still-loading or failed-fetch states (CAR-115). */}
           <Button
             variant="primary"
-            disabled={retiringId !== null || liveVoucherCheck.status !== 'ok'}
+            disabled={lifecycleActionInFlight || liveVoucherCheck.status !== 'ok'}
             onClick={handleConfirmRetire}
           >
             {t('rewards.retireConfirmYes')}
           </Button>
           <Button variant="secondary" disabled={retiringId !== null} onClick={() => setRetireTarget(null)}>
             {t('rewards.retireConfirmCancel')}
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={trashTarget !== null}
+        onClose={() => {
+          if (trashInFlight.current) return;
+          setTrashTarget(null);
+        }}
+        title={t('rewards.trashConfirmTitle')}
+        closeLabel={t('rewards.trashConfirmCloseLabel')}
+      >
+        {/* Gated on trashTarget for the same reason the retire dialog above
+            is — Dialog's children stay mounted while closed. */}
+        {trashTarget !== null && trashLiveVoucherCheck.status === 'loading' && (
+          <Text variant="caption">{t('rewards.trashCheckingVouchers')}</Text>
+        )}
+        {trashTarget !== null && trashLiveVoucherCheck.status === 'error' && (
+          <Text variant="caption" role="alert">
+            {t('rewards.trashCheckErrorMessage')}
+          </Text>
+        )}
+        {trashTarget !== null && trashLiveVoucherCheck.status === 'ok' && (
+          <Text variant="body" role={trashLiveVoucherCheck.count > 0 ? 'alert' : undefined}>
+            {trashLiveVoucherCheck.count === 0
+              ? t('rewards.trashConfirmBody')
+              : trashLiveVoucherCheck.count === 1
+                ? t('rewards.trashBlockedLiveVoucherSingular')
+                : t('rewards.trashBlockedLiveVoucherPlural').replace('{count}', String(trashLiveVoucherCheck.count))}
+          </Text>
+        )}
+        <div className={styles.actions}>
+          {/* A nonzero count keeps this disabled, not just an unconfirmed
+              count — the server hard-refuses a live voucher, unlike
+              archiving's own warn-but-allow dialog above. */}
+          <Button
+            variant="primary"
+            disabled={
+              lifecycleActionInFlight ||
+              trashLiveVoucherCheck.status !== 'ok' ||
+              trashLiveVoucherCheck.count > 0
+            }
+            onClick={handleConfirmTrash}
+          >
+            {t('rewards.trashConfirmYes')}
+          </Button>
+          <Button variant="secondary" disabled={trashingId !== null} onClick={() => setTrashTarget(null)}>
+            {t('rewards.trashConfirmCancel')}
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (deleteInFlight.current) return;
+          setDeleteTarget(null);
+        }}
+        title={t('rewards.deletePermanentlyConfirmTitle')}
+        closeLabel={t('rewards.deletePermanentlyConfirmCloseLabel')}
+      >
+        <Text variant="body">{t('rewards.deletePermanentlyConfirmBody')}</Text>
+        <div className={styles.actions}>
+          <Button variant="primary" disabled={lifecycleActionInFlight} onClick={handleConfirmDelete}>
+            {t('rewards.deletePermanentlyConfirmYes')}
+          </Button>
+          <Button variant="secondary" disabled={deletingId !== null} onClick={() => setDeleteTarget(null)}>
+            {t('rewards.deletePermanentlyConfirmCancel')}
           </Button>
         </div>
       </Dialog>

@@ -7,6 +7,11 @@
   margin-bottom: var(--space-lg);
 }
 
+.banner {
+  margin-bottom: var(--space-md);
+  cursor: pointer;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
