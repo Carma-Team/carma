@@ -73,6 +73,9 @@ export const ICONS = {
   notSent:        'cloud-offline'             as IoniconName,
   // The night-hours points incentive on a trip summary.
   night:          'moon-outline'              as IoniconName,
+  // A trip the user rode rather than drove. Deliberately not a steering wheel or a
+  // person-off glyph: neither says "someone else was driving" without a caption.
+  passenger:      'people-outline'            as IoniconName,
 } as const;
 
 /** Returns the outline variant of an icon name (for inactive/unfocused state). */

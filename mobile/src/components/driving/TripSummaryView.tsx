@@ -6,6 +6,7 @@ import { ICONS } from '@/constants/icons';
 import { formatTripDuration, formatTripDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
+import { TripOccupancyControl } from '@/components/driving/TripOccupancyControl';
 import { TripScoreGauge } from '@/components/driving/TripScoreGauge';
 import { StatsGrid } from '@/components/ui/StatsGrid';
 import { Progress } from '@/components/ui/Progress';
@@ -111,6 +112,12 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           <Text style={COMMON_STYLES.noticeText}>{t('trip.pointsCapped')}</Text>
         </View>
       )}
+
+      {/* Declaring who drove is a call against a server trip, so it needs a trip the
+          server has. A trip still in the queue is unreachable by id until the queue
+          lands it — the driver reaches it from history afterwards, which is the whole
+          reason this control is not only the post-trip prompt. */}
+      {summary.state === 'scored' && summary.id && <TripOccupancyControl key={summary.id} tripId={summary.id} />}
 
       {/* Route + bad-event markers (route shown when GPS waypoints exist) */}
       <View style={styles.mapWrapper}>
