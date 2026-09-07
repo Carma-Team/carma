@@ -11,14 +11,13 @@ import { StatsGrid } from '@/components/ui/StatsGrid';
 import { Progress } from '@/components/ui/Progress';
 import type { TripSummary } from '@/lib/tripSummary';
 
-// Mirrors `risk_multiplier_floor_score` in the server's scoring engine: below it the
-// night multiplier is worth nothing, at 100 it is worth all of it, and in between it
-// tapers. The bar below shows exactly that fraction, so the two must not drift apart.
-const NIGHT_BONUS_FLOOR_SCORE = 70;
-
-/** How much of the night multiplier a score has earned, 0–1. */
-function nightBonusEarned(score: number): number {
-  return Math.min(1, Math.max(0, (score - NIGHT_BONUS_FLOOR_SCORE) / (100 - NIGHT_BONUS_FLOOR_SCORE)));
+/** How much of the night multiplier this trip earned, 0–1. Read off the two
+ *  multipliers the server already sends rather than re-deriving its taper: the
+ *  effective multiplier is the base one tapered by exactly this fraction, so a change
+ *  to the server's floor score can never leave this bar behind. Callers gate on a base
+ *  multiplier above 1; the clamp is against float drift, not against that. */
+function nightBonusEarned(summary: TripSummary): number {
+  return Math.min(1, Math.max(0, (summary.effectiveRiskMultiplier - 1) / (summary.riskMultiplier - 1)));
 }
 
 interface TripSummaryViewProps {
@@ -50,6 +49,10 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
   // neither shows a gauge or a server-owned number. Only the sentence differs: one is
   // still coming, the other never will.
   const unscored = summary.state === 'pending' || summary.state === 'failed';
+
+  // The gauge above rounds, so the night line has to round with it: at 99.6 an unrounded
+  // gate reads "100" on the gauge and still promises the bonus in the future tense below.
+  const score = Math.round(summary.score);
 
   return (
     <View style={styles.body}>
@@ -91,13 +94,13 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           <View style={COMMON_STYLES.noticeRow}>
             <Ionicons name={ICONS.night} size={16} color={COLORS.textMuted} />
             <Text style={COMMON_STYLES.noticeText}>
-              {t(summary.score >= 100
+              {t(score >= 100
                 ? 'trip.nightBonusFull'
                 : summary.riskMultiplier >= 2 ? 'trip.nightBonusDouble' : 'trip.nightBonusHalf')}
             </Text>
           </View>
-          {summary.score < 100 && (
-            <Progress value={nightBonusEarned(summary.score) * 100} showValue={false} height={6} />
+          {score < 100 && (
+            <Progress value={nightBonusEarned(summary) * 100} showValue={false} height={6} />
           )}
         </View>
       )}

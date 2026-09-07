@@ -47,7 +47,7 @@ describe('TripSummaryView', () => {
     expect(screen.queryByText(he.trip.finalScore)).toBeNull()
     expect(screen.getByText(he.trip.notSentFailed)).toBeOnTheScreen()
     expect(screen.queryByText(he.trip.notSent)).toBeNull()
-    expect(screen.getAllByText('--')).toHaveLength(2)
+    expect(screen.getAllByText('--')).toHaveLength(1)
   })
 
   it('explains a trip too short to have been recorded', () => {
@@ -87,6 +87,13 @@ describe('TripSummaryView', () => {
     render(<TripSummaryView summary={summary({ score: 100, riskMultiplier: 2 })} />)
     expect(screen.getByText(he.trip.nightBonusFull)).toBeOnTheScreen()
     expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
+  })
+
+  // The gauge rounds, so a 99.6 reads "100" up there; the line below has to agree
+  // rather than promise the bonus the gauge already says was earned.
+  it('agrees with the gauge on a score that rounds to a hundred', () => {
+    render(<TripSummaryView summary={summary({ score: 99.6, riskMultiplier: 2, effectiveRiskMultiplier: 2 })} />)
+    expect(screen.getByText(he.trip.nightBonusFull)).toBeOnTheScreen()
   })
 
   it('holds the night line back until the trip has a score', () => {
