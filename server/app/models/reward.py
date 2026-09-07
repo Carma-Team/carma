@@ -24,7 +24,7 @@ class Reward(Base):
     )
     title_he: Mapped[str] = mapped_column(String(120), nullable=False)
     title_en: Mapped[str | None] = mapped_column(String(120))
-    description_he: Mapped[str] = mapped_column(String(500), nullable=False)
+    description_he: Mapped[str | None] = mapped_column(String(500))
     description_en: Mapped[str | None] = mapped_column(String(500))
     category: Mapped[BusinessCategory] = mapped_column(
         Enum(BusinessCategory, name="business_category", create_type=False),
@@ -39,6 +39,19 @@ class Reward(Base):
     # separate so a business can reactivate without losing the archive, and an
     # archived reward's own history (vouchers, redemptions) is never touched.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A step past archived: out of every business-facing view (Active, Archive,
+    # marketplace), independent of archived_at. Reachable directly from
+    # either Active or Archive, and only recoverable back to Archive — never
+    # straight to Active — so a restore always lands in the same safe,
+    # non-public state a fresh archive would.
+    trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set only when a trashed reward is "permanently deleted" but still has
+    # redemption history — Redemption.reward_id has no cascade, so the row must
+    # outlive the product-level delete. A tombstoned reward is invisible to the
+    # business (list_rewards filters it out unconditionally) but its row stays
+    # for every historical join. NULL for every reward that was hard-deleted
+    # outright (no history to preserve) or was never deleted at all.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Total units the business allocated to this reward — never decremented.
     # NULL means unlimited, 0 means sold out. What is left is derived from the
     # redemptions ledger (services/rewards.py), so a lapsed voucher releases its

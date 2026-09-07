@@ -185,7 +185,7 @@ export default function BluetoothSettings() {
 const styles = StyleSheet.create({
   refreshHeaderBtn: { marginStart: 'auto' },
   content:          { flex: 1, padding: SPACING.lg },
-  description:      { ...TYPOGRAPHY.body, color: COLORS.textMuted, marginBottom: 30, textAlign: 'left' },
+  description:      { ...TYPOGRAPHY.body, color: COLORS.textMuted, marginBottom: 30 },
   deviceItem: {
     flexDirection: 'row',
     alignItems: 'center',

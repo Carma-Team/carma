@@ -23,13 +23,28 @@ export type InvitationRole = 'manager' | 'cashier';
 
 // The one TypeScript mirror of `BusinessInvitationOut` — returned once, at
 // creation, and never re-derivable afterward.
+//
+// `url` is deliberately omitted: the server builds it from
+// `settings.invite_base_url`, the same generic CARMA host
+// `services/invites.py` uses for its friend-referral link, so it never points
+// at this Business Web deployment's own origin (staging vs. production).
+// `businessInviteUrl` below builds the shareable link instead.
 export type CreatedInvitation = {
   id: string;
   role: InvitationRole;
   token: string;
-  url: string;
   expiresAt: string;
 };
+
+// The link an OWNER copies to share, rooted at whichever origin they're
+// currently on — so a link copied from staging opens on staging, and one
+// copied from production opens on production. Mirrors `_link()` in
+// `server/app/services/business_invitations.py`: same `#token` fragment
+// format, just anchored to this app's own origin instead of the server's
+// fixed `invite_base_url`.
+export function businessInviteUrl(token: string): string {
+  return `${window.location.origin}/business-invite#${token}`;
+}
 
 // Mirrors `BusinessInvitationListItem` — never the token or the url.
 export type PendingInvitation = {

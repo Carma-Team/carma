@@ -489,7 +489,9 @@ async def _compute_score(
     level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
-) -> tuple[float, float, float, bool, scoring.WeakestFactor | None]:
+    accel_available: bool | None,
+    accel_init_failed: bool | None,
+) -> tuple[float, float, float, bool, scoring.WeakestFactor | None, bool]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
@@ -500,8 +502,10 @@ async def _compute_score(
     speeding ratio is the share of judged distance above the road's posted
     limit plus a buffer, and the confidence caps how far above the rolling
     score a trip can land when the trace is too sparse to prove clean driving.
-    Returns (trip_score, driver_score, points, points_capped, weakest_factor).
+    Returns (trip_score, driver_score, points, points_capped, weakest_factor, imu_degraded).
     """
+    # Both None means a legacy client (pre-CAR-189) — unknown, not dead, so no cap.
+    imu_dead = accel_init_failed is True or accel_available is False
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
     # row: it counts pickups, and summing it with seconds charged one behaviour twice.
@@ -522,7 +526,13 @@ async def _compute_score(
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
-    trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
+    # IMU cap first: a sparse GPS trace can independently floor the score at
+    # `rolling`, and if that ran first a dead-sensor trip would read raw <=
+    # rolling to `apply_imu_confidence` and skip the absolute ceiling below it
+    # — exactly the farm-proofing gap CAR-190 exists to close.
+    trip_score = scoring.apply_imu_confidence(trip_v2.score, rolling, imu_dead)
+    imu_degraded = imu_dead and trip_score < trip_v2.score
+    trip_score = scoring.apply_confidence(trip_score, rolling, gps.confidence)
 
     # Serialise per driver before reading the day's history: the anti-grind caps
     # below are measured against committed trips, so concurrent saves would each
@@ -590,7 +600,14 @@ async def _compute_score(
         risk_multiplier=risk_multiplier,
         level_multiplier=level_multiplier,
     )
-    return trip_score, driver_score, points, round(points) < round(points_uncapped), trip_v2.weakest_factor
+    return (
+        trip_score,
+        driver_score,
+        points,
+        round(points) < round(points_uncapped),
+        trip_v2.weakest_factor,
+        imu_degraded,
+    )
 
 
 async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
@@ -725,7 +742,7 @@ async def save(
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
 
-    score_v2, new_driver_score, points_v2, points_capped, weakest_factor = await _compute_score(
+    score_v2, new_driver_score, points_v2, points_capped, weakest_factor, imu_degraded = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -739,6 +756,8 @@ async def save(
         level_multiplier=levels.by_number(entering_level).bonus_multiplier,
         now=now,
         gps=gps,
+        accel_available=accel_available,
+        accel_init_failed=accel_init_failed,
     )
 
     # Counted to yesterday, so this trip's own day is credited on the driver's
@@ -756,6 +775,7 @@ async def save(
         distance_km=distance,
         avg_score=score_v2,
         score_v2=score_v2,
+        weakest_factor=weakest_factor,
         scoring_version=scoring.CONFIG.version,
         points=round(points_v2),
         risk_multiplier=risk_multiplier,
@@ -869,7 +889,11 @@ async def save(
         events=event_count,
         gps_confidence=gps.confidence,
         points_capped=points_capped,
+        imu_degraded=imu_degraded,
     )
     return TripOut.from_orm_trip(
-        trip, points_capped=points_capped, user_level=level_after, weakest_factor=weakest_factor
+        trip,
+        points_capped=points_capped,
+        user_level=level_after,
+        imu_degraded=imu_degraded,
     )

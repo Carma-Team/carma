@@ -20,32 +20,34 @@ export type Reward = {
   businessHe: string | null;
   titleHe: string;
   titleEn: string | null;
-  descriptionHe: string;
+  descriptionHe: string | null;
   descriptionEn: string | null;
   category: string;
   costPoints: number;
   imageIcon: string;
   isActive: boolean;
   archivedAt: string | null;
+  trashedAt: string | null;
   stock: number | null;
   available: number | null;
   expiresAt: string | null;
 };
 
 // What the form actually collects and the server actually accepts (a subset
-// of BusinessRewardIn/BusinessRewardPatchIn — image_icon and is_active stay
-// server defaults, out of this ticket's scope). `stock: null` is sent
-// explicitly for "unlimited", never omitted — omitting a field from a PATCH
-// body means "leave it as it was" server-side (`model_dump(exclude_unset=True)`
-// in `services/business.py::update_reward`), so a blank allocation field must
+// of BusinessRewardIn/BusinessRewardPatchIn — is_active stays a server
+// default, out of this ticket's scope). `stock: null` is sent explicitly for
+// "unlimited", never omitted — omitting a field from a PATCH body means
+// "leave it as it was" server-side (`model_dump(exclude_unset=True)` in
+// `services/business.py::update_reward`), so a blank allocation field must
 // serialize to an explicit null to actually clear a previously-set stock.
 export type RewardPayload = {
   titleHe: string;
   titleEn: string;
-  descriptionHe: string;
-  descriptionEn: string;
+  descriptionHe: string | null;
+  descriptionEn: string | null;
   category: string;
   costPoints: number;
+  imageIcon: string;
   stock: number | null;
   // null is a real, first-class value here (matches the server's
   // `expires_at: datetime | None` — no expiry at all), sent explicitly for
@@ -67,6 +69,19 @@ export type RewardMutationResult =
   | { outcome: 'unexpected_error' };
 
 export type RetireRewardResult =
+  | { outcome: 'ok' }
+  | { outcome: 'forbidden' }
+  | { outcome: 'network_error' }
+  | { outcome: 'unexpected_error' };
+
+export type TrashRewardResult =
+  | { outcome: 'ok' }
+  | { outcome: 'has_live_vouchers' }
+  | { outcome: 'forbidden' }
+  | { outcome: 'network_error' }
+  | { outcome: 'unexpected_error' };
+
+export type RewardLifecycleResult =
   | { outcome: 'ok' }
   | { outcome: 'forbidden' }
   | { outcome: 'network_error' }
@@ -139,6 +154,55 @@ export async function setRewardActive(rewardId: string, isActive: boolean): Prom
 export async function retireReward(rewardId: string): Promise<RetireRewardResult> {
   try {
     await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}`, { method: 'DELETE' });
+    return { outcome: 'ok' };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Active or Archive -> Trash. The server 409s with this code while a
+// live voucher is outstanding — surfaced as its own outcome rather than
+// folded into 'unexpected_error' so the confirm dialog can show the same
+// live-voucher framing the archive dialog already does.
+export async function trashReward(rewardId: string): Promise<TrashRewardResult> {
+  try {
+    await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}/trash`, { method: 'POST' });
+    return { outcome: 'ok' };
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'REWARD_HAS_LIVE_VOUCHERS') return { outcome: 'has_live_vouchers' };
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Trash -> Archive only, never straight to Active — see the model's own
+// comment (server/app/models/reward.py) for why restoring stops there.
+export async function restoreRewardFromTrash(rewardId: string): Promise<RewardLifecycleResult> {
+  try {
+    await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}/restore`, { method: 'POST' });
+    return { outcome: 'ok' };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Archive -> Active — the one explicit action that puts a reward back in the
+// catalog and marketplace. Never available for a still-trashed reward; that
+// one goes through restoreRewardFromTrash first.
+export async function reactivateReward(rewardId: string): Promise<RewardLifecycleResult> {
+  try {
+    await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}/reactivate`, { method: 'POST' });
+    return { outcome: 'ok' };
+  } catch (err) {
+    return { outcome: errorOutcome(err) };
+  }
+}
+
+// Trash -> gone. Only ever reachable from the Trash view — irreversible from
+// the business's own perspective even though the server may keep a tombstoned
+// row for historical joins (server/app/services/business.py).
+export async function deleteRewardPermanently(rewardId: string): Promise<RewardLifecycleResult> {
+  try {
+    await request<undefined>(`/api/business/rewards/${encodeURIComponent(rewardId)}/permanent`, { method: 'DELETE' });
     return { outcome: 'ok' };
   } catch (err) {
     return { outcome: errorOutcome(err) };

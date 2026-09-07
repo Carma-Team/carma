@@ -3,8 +3,10 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { createReward, updateReward, type Reward, type RewardPayload } from '@/lib/api/rewards';
 import { BUSINESS_CATEGORIES, isBusinessCategory, type BusinessCategory } from '@/lib/businessCategory';
 import { categoryTranslationKey, expiryDateInputToIso, isoToExpiryDateInput } from '@/lib/rewardState';
+import { DEFAULT_REWARD_ICON } from '@/lib/rewardIcons';
 import { Alert, Card, Dialog, Heading, Input, Button, Text } from '@/components/ui';
 import inputStyles from '@/components/ui/Input.module.css';
+import { RewardIconPicker } from './RewardIconPicker';
 import styles from './RewardForm.module.css';
 
 const TITLE_MAX = 120;
@@ -16,6 +18,7 @@ type FormState = {
   descriptionHe: string;
   descriptionEn: string;
   category: BusinessCategory;
+  imageIcon: string;
   costPoints: string;
   stock: string;
   expiresAt: string;
@@ -35,6 +38,7 @@ function emptyForm(defaultCategory: BusinessCategory): FormState {
     descriptionHe: '',
     descriptionEn: '',
     category: defaultCategory,
+    imageIcon: DEFAULT_REWARD_ICON,
     costPoints: '',
     stock: '',
     expiresAt: '',
@@ -45,7 +49,7 @@ function formFromReward(reward: Reward, defaultCategory: BusinessCategory): Form
   return {
     titleHe: reward.titleHe,
     titleEn: reward.titleEn ?? '',
-    descriptionHe: reward.descriptionHe,
+    descriptionHe: reward.descriptionHe ?? '',
     descriptionEn: reward.descriptionEn ?? '',
     // A form field must hold a *selectable* option, so an unrecognized
     // legacy category falls back to the business's own category — unlike
@@ -54,6 +58,7 @@ function formFromReward(reward: Reward, defaultCategory: BusinessCategory): Form
     // targets for genuinely different jobs, both built on the same
     // `isBusinessCategory` check.
     category: isBusinessCategory(reward.category) ? reward.category : defaultCategory,
+    imageIcon: reward.imageIcon,
     costPoints: String(reward.costPoints),
     stock: reward.stock === null ? '' : String(reward.stock),
     expiresAt: reward.expiresAt ? isoToExpiryDateInput(reward.expiresAt) : '',
@@ -75,11 +80,11 @@ function validate(form: FormState, t: (key: string) => string): FieldErrors {
   if (form.titleEn.trim() === '') errors.titleEn = t('rewards.validationRequired');
   else if (form.titleEn.trim().length > TITLE_MAX) errors.titleEn = t('rewards.validationTitleTooLong');
 
-  if (form.descriptionHe.trim() === '') errors.descriptionHe = t('rewards.validationRequired');
-  else if (form.descriptionHe.trim().length > DESCRIPTION_MAX) errors.descriptionHe = t('rewards.validationDescriptionTooLong');
+  // Both descriptions are optional (CAR-339 follow-up) — a business may leave
+  // either or both blank, unlike title which stays required.
+  if (form.descriptionHe.trim().length > DESCRIPTION_MAX) errors.descriptionHe = t('rewards.validationDescriptionTooLong');
 
-  if (form.descriptionEn.trim() === '') errors.descriptionEn = t('rewards.validationRequired');
-  else if (form.descriptionEn.trim().length > DESCRIPTION_MAX) errors.descriptionEn = t('rewards.validationDescriptionTooLong');
+  if (form.descriptionEn.trim().length > DESCRIPTION_MAX) errors.descriptionEn = t('rewards.validationDescriptionTooLong');
 
   const cost = form.costPoints.trim();
   if (!INTEGER_PATTERN.test(cost) || Number(cost) < 1) errors.costPoints = t('rewards.validationCostInvalid');
@@ -98,9 +103,10 @@ function toPayload(form: FormState): RewardPayload {
   return {
     titleHe: form.titleHe.trim(),
     titleEn: form.titleEn.trim(),
-    descriptionHe: form.descriptionHe.trim(),
-    descriptionEn: form.descriptionEn.trim(),
+    descriptionHe: form.descriptionHe.trim() === '' ? null : form.descriptionHe.trim(),
+    descriptionEn: form.descriptionEn.trim() === '' ? null : form.descriptionEn.trim(),
     category: form.category,
+    imageIcon: form.imageIcon,
     costPoints: Number(form.costPoints.trim()),
     stock: stock === '' ? null : Number(stock),
     expiresAt: form.expiresAt === '' ? null : expiryDateInputToIso(form.expiresAt),
@@ -271,7 +277,6 @@ function RewardFormBody({
             id="reward-description-he"
             dir="rtl"
             maxLength={DESCRIPTION_MAX}
-            required
             className={[inputStyles.input, errors.descriptionHe && inputStyles.inputError].filter(Boolean).join(' ')}
             aria-invalid={Boolean(errors.descriptionHe)}
             aria-describedby={errors.descriptionHe ? 'reward-description-he-error' : undefined}
@@ -293,7 +298,6 @@ function RewardFormBody({
             id="reward-description-en"
             dir="ltr"
             maxLength={DESCRIPTION_MAX}
-            required
             className={[inputStyles.input, errors.descriptionEn && inputStyles.inputError].filter(Boolean).join(' ')}
             aria-invalid={Boolean(errors.descriptionEn)}
             aria-describedby={errors.descriptionEn ? 'reward-description-en-error' : undefined}
@@ -324,6 +328,11 @@ function RewardFormBody({
             ))}
           </select>
         </div>
+        <RewardIconPicker
+          id="reward-icon"
+          value={form.imageIcon}
+          onChange={(imageIcon) => updateField('imageIcon', imageIcon)}
+        />
       </Card>
 
       <Card variant="sunken" className={styles.section}>

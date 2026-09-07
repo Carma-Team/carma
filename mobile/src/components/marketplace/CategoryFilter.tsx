@@ -45,7 +45,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
             onPress={() => onSelectCategory(cat.key)}
             style={[styles.catBtn, isActive && styles.catBtnActive]}
           >
-            <Ionicons name={cat.icon} size={13} color={iconColor} style={{ marginRight: 4 }} />
+            <Ionicons name={cat.icon} size={13} color={iconColor} style={{ marginEnd: 4 }} />
             <Text style={[styles.catText, isActive && styles.catTextActive]}>
               {localize(cat.labelHe, cat.labelEn, lang)}
             </Text>

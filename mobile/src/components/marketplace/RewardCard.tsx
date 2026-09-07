@@ -55,7 +55,7 @@ export function RewardCard({ reward, userPoints, vouchers, onRedeem, onVoucherPr
 
       <View style={styles.footerRow}>
         <View style={styles.costBadge}>
-          <Ionicons name={ICONS.points} size={12} color={COLORS.brandLight} style={{ marginRight: 4 }} />
+          <Ionicons name={ICONS.points} size={12} color={COLORS.brandLight} style={{ marginEnd: 4 }} />
           <Text style={styles.rewardCost}>{reward.costPoints} {t('common.points')}</Text>
         </View>
 

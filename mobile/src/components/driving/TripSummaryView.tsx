@@ -46,17 +46,22 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
     );
   }
 
-  const pending = summary.state === 'pending';
+  // A trip still waiting and a trip the queue gave up on both have no server score, so
+  // neither shows a gauge or a server-owned number. Only the sentence differs: one is
+  // still coming, the other never will.
+  const unscored = summary.state === 'pending' || summary.state === 'failed';
 
   return (
     <View style={styles.body}>
-      {pending ? (
+      {unscored ? (
         // No gauge at all rather than a gauge reading zero: the server is the only
         // scoring oracle, and a 0 here told the driver they drove badly when the app
         // had simply never reached it.
         <View style={styles.stateBlock}>
           <Ionicons name={ICONS.notSent} size={44} color={COLORS.textMuted} style={{ marginBottom: 12 }} />
-          <Text style={styles.stateText}>{t('trip.notSent')}</Text>
+          <Text style={styles.stateText}>
+            {t(summary.state === 'failed' ? 'trip.notSentFailed' : 'trip.notSent')}
+          </Text>
         </View>
       ) : (
         <>
@@ -73,7 +78,7 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
         // and never what to do about it. It is the night line below now (CAR-192).
         { icon: ICONS.duration, label: t('trip.duration'), value: formatTripDuration(summary.durationSeconds) },
         { icon: ICONS.distance, label: t('trip.distance'), value: formatTripDistance(summary.distanceKm) },
-        { icon: ICONS.points,   label: t('trip.points'),   value: pending ? '--' : `+${summary.points}` },
+        { icon: ICONS.points,   label: t('trip.points'),   value: unscored ? '--' : `+${summary.points}` },
       ]} />
 
       {/* Night hours pay more for driving well, not for being out late — so the line
@@ -81,7 +86,7 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           Gated on the base multiplier, never the effective one: a night trip at or
           below the taper floor has an effective of exactly 1, the same as any daytime
           trip, and that is the trip where the gap is widest and worth saying. */}
-      {!pending && summary.riskMultiplier > 1 && (
+      {!unscored && summary.riskMultiplier > 1 && (
         <View style={styles.nightBlock}>
           <View style={COMMON_STYLES.noticeRow}>
             <Ionicons name={ICONS.night} size={16} color={COLORS.textMuted} />

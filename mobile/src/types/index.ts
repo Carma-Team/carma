@@ -59,6 +59,10 @@ type TripClientFields = {
    * Client-only exception. Set when the queue gives up on a row it has been carrying
    * for too long (CAR-166). The trip stays on the device and is never sent — nothing
    * here retries it, so it is a terminal state and not a slower `pendingSync`.
+   *
+   * It is set *alongside* `pendingSync`, never instead of it: the row still carries the
+   * placeholder zero, so everything that filters an unscored trip out still must. Where
+   * the two are shown rather than filtered, `syncFailed` wins — it is the later answer.
    */
   syncFailed?: boolean;
 };

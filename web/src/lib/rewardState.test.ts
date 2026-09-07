@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getRewardState,
   isArchived,
+  isTrashed,
   isEnded,
   matchesTab,
   expiryDateInputToIso,
@@ -29,6 +30,7 @@ function reward(overrides: Partial<Reward> = {}): Reward {
     imageIcon: 'gift-outline',
     isActive: true,
     archivedAt: null,
+    trashedAt: null,
     stock: null,
     available: null,
     expiresAt: null,
@@ -110,10 +112,48 @@ describe('isArchived', () => {
   it('is true once archivedAt is set, regardless of isActive', () => {
     expect(isArchived(reward({ archivedAt: '2026-01-01T00:00:00.000Z', isActive: true }))).toBe(true);
   });
+
+  // Regression (reward-trash-lifecycle rollout): an API build deployed
+  // without server PR #337 omits `archivedAt` from RewardOut entirely
+  // rather than sending `null`. `reward()` always fills in `null`, so this
+  // deletes the key outright to reproduce what that older backend actually
+  // sends over the wire.
+  it('is false when archivedAt is absent (older backend response), not just null', () => {
+    const legacyReward = reward() as Omit<Reward, 'archivedAt'> & Partial<Pick<Reward, 'archivedAt'>>;
+    delete legacyReward.archivedAt;
+    expect(isArchived(legacyReward as Reward)).toBe(false);
+  });
+
+  it('is false when archivedAt is explicitly undefined', () => {
+    expect(isArchived(reward({ archivedAt: undefined as unknown as null }))).toBe(false);
+  });
+});
+
+describe('isTrashed', () => {
+  it('is false when trashedAt is null', () => {
+    expect(isTrashed(reward({ trashedAt: null }))).toBe(false);
+  });
+
+  it('is true once trashedAt is set, independently of archivedAt', () => {
+    expect(isTrashed(reward({ trashedAt: '2026-01-01T00:00:00.000Z', archivedAt: null }))).toBe(true);
+  });
+
+  // Regression: same as isArchived above, for the flag that actually
+  // decides the Trash bucket. Before this fix, `undefined !== null` sorted
+  // every ordinary reward from an older backend straight into Trash.
+  it('is false when trashedAt is absent (older backend response), not just null', () => {
+    const legacyReward = reward() as Omit<Reward, 'trashedAt'> & Partial<Pick<Reward, 'trashedAt'>>;
+    delete legacyReward.trashedAt;
+    expect(isTrashed(legacyReward as Reward)).toBe(false);
+  });
+
+  it('is false when trashedAt is explicitly undefined', () => {
+    expect(isTrashed(reward({ trashedAt: undefined as unknown as null }))).toBe(false);
+  });
 });
 
 describe('matchesTab', () => {
-  const ALL_TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived'];
+  const ALL_TABS: RewardTab[] = ['all', 'active', 'paused', 'ended', 'archived', 'trash'];
 
   function tabsMatching(r: Reward): RewardTab[] {
     return ALL_TABS.filter((tab) => matchesTab(r, tab, NOW));
@@ -140,8 +180,28 @@ describe('matchesTab', () => {
     expect(tabsMatching(reward({ archivedAt: '2026-01-01T00:00:00.000Z' }))).toEqual(['archived']);
   });
 
+  it('sorts a trashed reward into trash only, even though archivedAt is also set', () => {
+    expect(
+      tabsMatching(reward({ archivedAt: '2026-01-01T00:00:00.000Z', trashedAt: '2026-01-02T00:00:00.000Z' })),
+    ).toEqual(['trash']);
+  });
+
+  it('sorts a reward trashed directly from active into trash only', () => {
+    expect(tabsMatching(reward({ trashedAt: '2026-01-02T00:00:00.000Z' }))).toEqual(['trash']);
+  });
+
   it('excludes a sold-out-but-not-expired reward from ended', () => {
     expect(tabsMatching(reward({ stock: 5, available: 0 }))).toEqual(['all', 'active']);
+  });
+
+  // Regression: a newly-created or legacy reward served by a backend that
+  // predates server PR #337 has no `trashedAt`/`archivedAt` keys at all.
+  // It must stay in the normal catalog, never fall into Trash.
+  it('sorts a reward with no trashedAt/archivedAt keys into all and active only', () => {
+    const legacyReward = reward() as Partial<Reward>;
+    delete legacyReward.trashedAt;
+    delete legacyReward.archivedAt;
+    expect(tabsMatching(legacyReward as Reward)).toEqual(['all', 'active']);
   });
 });
 

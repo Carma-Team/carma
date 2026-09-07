@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   content: { padding: SPACING.lg },
   statusRow:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
   settingCard: { backgroundColor: COLORS.card, padding: 16 },
-  settingDescription: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 16, lineHeight: 18, textAlign: 'left' },
+  settingDescription: { ...TYPOGRAPHY.caption, color: COLORS.textMuted, marginBottom: 16, lineHeight: 18 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusText: { color: COLORS.text, fontWeight: '700' },
   linkButton: {

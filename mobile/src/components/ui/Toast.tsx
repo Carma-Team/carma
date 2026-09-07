@@ -31,8 +31,9 @@ export function Toast({ toast, onDismiss }: ToastProps) {
 
   return (
     <Animated.View style={[styles.container, { opacity, borderLeftColor: typeColors[toast.type] }]}>
-      {/* `left`, not `start`: the X stays on the physical left in Hebrew too, where a
-          start-anchored button would jump to the other side of the toast. */}
+      {/* `end`, so the X sits where the text finishes: the left in Hebrew, the right in
+          English. The root view's direction resolves it, so it is already correct
+          before the RTL flag takes effect on the next launch. */}
       <TouchableOpacity
         style={styles.close}
         onPress={() => onDismiss(toast.id)}
@@ -59,8 +60,8 @@ export function ToastContainer({ toasts, onDismiss }: { toasts: ToastMessage[]; 
 
 const styles = StyleSheet.create({
   wrapper:   { position: 'absolute', top: 60, left: 16, right: 16, zIndex: 999 },
-  container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, paddingLeft: 34, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
-  close:     { position: 'absolute', left: 8, top: 8, padding: 2, zIndex: 1 },
+  container: { backgroundColor: COLORS.card, borderRadius: 12, padding: 14, paddingEnd: 34, marginBottom: 8, borderLeftWidth: 4, borderWidth: 1, borderColor: COLORS.border },
+  close:     { position: 'absolute', end: 8, top: 8, padding: 2, zIndex: 1 },
   title:     { color: COLORS.text, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   text:      { color: COLORS.text, fontSize: 14, fontWeight: '500' },
 })
