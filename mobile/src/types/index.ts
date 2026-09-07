@@ -190,5 +190,9 @@ export interface ToastMessage {
   type: 'success' | 'error' | 'info' | 'warning';
   title?: string;
   message: string;
+  /** Aside under the message, one step smaller and dimmer than it. */
+  note?: string;
   duration?: number;
+  /** Stays until the driver closes it. `duration` is ignored while it is set. */
+  sticky?: boolean;
 }

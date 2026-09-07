@@ -55,12 +55,9 @@ const he = {
     welcome: 'שלום', yourScore: 'הציון שלך', startTrip: 'התחל נסיעה',
     noTrips: 'עדיין אין נסיעות', noTripsDesc: 'התחל את הנסיעה הראשונה שלך!',
     recentTrips: 'נסיעות אחרונות', viewAll: 'הצג הכל', showMore: 'הצג עוד',
-    // מצב הבחירה למחיקה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
-    deleteTrips: 'מחיקת נסיעות',
-    selectAll: 'בחירת הכל',
-    clearSelection: 'ניקוי הבחירה',
-    selectedCount: 'נבחרו {count}',
-    deleteSelectedConfirm: 'למחוק את הנסיעות שנבחרו? הפעולה מסתירה אותן במכשיר הזה בלבד.',
+    // מחיקת ההיסטוריה. שמות-פעולה, בלי פנייה בלשון זכר או נקבה
+    deleteAllTrips: 'מחיקת כל הנסיעות',
+    deleteAllConfirm: 'למחוק את כל הנסיעות מההיסטוריה? הפעולה מסתירה אותן במכשיר הזה בלבד.',
     totalDistance: 'מרחק כולל', totalTrips: 'נסיעות',
     avgScore: 'ציון ממוצע', pointsToNextLevel: 'נקודות לרמה הבאה',
   },
@@ -70,7 +67,7 @@ const he = {
     endTripConfirm: 'סיום נסיעה', endTripMessage: 'האם אתה בטוח שברצונך לסיים את הנסיעה הנוכחית?',
     calculatingScore: 'מחשב את הציון שלך…', calculatingScoreDesc: 'זה עשוי לקחת כמה שניות',
     eventsDetected: 'אירועים שזוהו', safetyTip: 'נהיגה רגועה ללא בלימות פתע מעלה את הציון שלך!',
-    duration: 'זמן', distance: 'מרחק', score: 'ציון', events: 'אירועים',
+    duration: 'זמן', distance: 'מרחק', score: 'ציון',
     hardBrakes: 'בלימה חזקה', aggressiveAccels: 'האצה חריגה',
     sharpTurns: 'פנייה חדה', screenSeconds: 'שניות מסך', phoneMotionSeconds: 'שניות תנועה',
     trafficLight: { green: 'נסיעה מצוינת!', yellow: 'שים לב', red: 'נהיגה מסוכנת' },
@@ -245,8 +242,11 @@ const he = {
     totalTrips: 'סה"כ נסיעות', avgScore: 'ציון ממוצע', safeTrips: 'נסיעות בטוחות',
     totalPoints: 'נקודות שנצברו', totalDuration: 'זמן נהיגה', noData: 'אין נתונים',
     currentStreak: 'רצף נוכחי', bestStreak: 'השיא שלי',
-    // שורה אחת, בטוסט. מה נספר ומה שומר עליו — בלי לפתוח מסך בשביל משפט
-    streakInfo: 'רצף נהיגה — מספר הימים הרצופים שבהם נסעת. נסיעה אחת ביום מאריכה אותו, ויום בלי נסיעה מאפס אותו.',
+    // בטוסט: כותרת, משפט אחד, והערת צד. 80 הוא streak_qualifying_score בשרת ואינו
+    // חשוף בשום endpoint, ולכן הוא כתוב כאן — שינוי של הסף בשרת מגיע גם לכאן
+    streakTitle: 'רצף נהיגה',
+    streakInfo: 'ציון יומי 80 ומעלה מאריך את הרצף, וציון נמוך יותר מאפס אותו.',
+    streakNote: 'חשוב לדעת: ימים בלי נסיעה לא נספרים ולא פוגעים ברצף.',
     chart: {
       thisWeek: 'השבוע', weekAvg: 'ממוצע', noDrive: 'אין נסיעה',
       vsLastWeek: 'בהשוואה לשבעת הימים שלפני כן',
@@ -262,7 +262,9 @@ const he = {
     done: 'סיום', points: 'נקודות', level: 'רמה', score: 'ציון', noData: 'אין נתונים',
     seeAll: 'ראה הכל',
     tripsDeleted: 'הנסיעות נמחקו',
-    tripsDeletedDesc: 'הנסיעות שנבחרו הוסרו מההיסטוריה',
+    tripsDeletedDesc: 'ההיסטוריה רוקנה במכשיר הזה',
+    restartRequired: 'נדרשת פתיחה מחדש',
+    restartRequiredDesc: 'כדי שכיוון הכתיבה יתעדכן, יש לסגור את CARMA ולפתוח אותה שוב.',
     serverUnreachable: 'השרת אינו זמין כרגע. חלק מהתכונות יפעלו במצב לא מקוון.',
   },
   fraud: {

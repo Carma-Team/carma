@@ -37,7 +37,13 @@ export function DashboardHeader({
             would be a screen nobody visits twice. */}
         <TouchableOpacity
           style={styles.streakBadge}
-          onPress={() => addToast({ type: 'info', title: t('stats.currentStreak'), message: t('stats.streakInfo') })}
+          onPress={() => addToast({
+            type: 'info',
+            title: t('stats.streakTitle'),
+            message: t('stats.streakInfo'),
+            note: t('stats.streakNote'),
+            sticky: true,
+          })}
           accessibilityLabel={`${t('stats.currentStreak')}: ${currentStreak ?? '--'}. ${t('stats.bestStreak')}: ${bestStreak ?? '--'}`}
         >
           <Ionicons name={ICONS.streak} size={16} color={COLORS.text} />
