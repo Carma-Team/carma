@@ -64,20 +64,6 @@ FORCE_DELETE_EMAILS = ["verify_898899204@carma.app"]
 # name with someone else and hasn't driven yet.
 TEAM_NAMES = ["דן עופרי", "נווה צוויג", "שון פבר", "מאי חג'בי"]
 
-# Confirmed by Dan: registered, never drove, no points, no trips — noise for
-# the demo the same way verify_898899204@carma.app was. Not hidden via
-# is_private (PR #343 review): a driver with zero trips ranking at the
-# cold-start prior is CAR-19's own intended design, reviewed by @mayh and
-# pinned by test_a_null_driver_score_ranks_at_the_prior_it_displays — these
-# three just have no reason to exist in the demo dataset at all. Matched by
-# id, not name — "eran34567"/"galgryn8" are email local-parts, not display
-# names, and the third account has no email.
-FORCE_DELETE_USER_IDS = [
-    "31f9cceacaee481db8e3f114e0b87425",  # eran34567@gmail.com — ערן
-    "4050bac28e59448e9a93affe7694b658",  # galgryn8@gmail.com — גל גרין
-    "da688e4bc7514d9086a5db42d11986b8",  # no email — שון
-]
-
 
 async def _trip_count(db: AsyncSession, user_id: str) -> int:
     return await db.scalar(select(func.count(Trip.id)).where(Trip.user_id == user_id)) or 0
@@ -161,13 +147,6 @@ async def purge_noise_accounts(db: AsyncSession) -> None:
             continue
         await db.delete(user)
         print(f"  Deleted confirmed-synthetic account {email}")
-
-    for user_id in FORCE_DELETE_USER_IDS:
-        user = await db.scalar(select(User).where(User.id == user_id))
-        if user is None:
-            continue
-        await db.delete(user)
-        print(f"  Deleted confirmed-synthetic account '{user.name}' ({user_id})")
 
     for name in NOISE_NAMES:
         user = await db.scalar(select(User).where(User.name == name))
