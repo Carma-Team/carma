@@ -257,6 +257,8 @@ export default function LeaderboardScreen() {
           onPress={handleSearch}
           style={styles.searchBtn}
           disabled={searchState === 'loading'}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.search')}
         >
           {searchState === 'loading'
             ? <ActivityIndicator size="small" color={COLORS.text} />
@@ -267,6 +269,8 @@ export default function LeaderboardScreen() {
           onPress={handleAddFriend}
           disabled={searchState !== 'found'}
           style={[styles.addBtn, searchState !== 'found' && styles.addBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.addFriend')}
         >
           <Ionicons
             name="add"

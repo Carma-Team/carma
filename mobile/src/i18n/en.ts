@@ -179,6 +179,8 @@ const en: TranslationMap = {
     score: 'Driving score', you: 'You',
     noFriends: 'No friends yet',
     showing_city: 'Showing drivers in',
+    search: 'Search',
+    addFriend: 'Add friend',
     searchPhone: 'Search by phone number',
     userNotFound: 'User not found in system',
     sendInvite: 'Send invitation to join',

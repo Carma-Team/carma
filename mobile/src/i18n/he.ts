@@ -183,6 +183,8 @@ const he = {
     score: 'ציון נהיגה', you: 'אתה',
     noFriends: 'אין חברים עדיין',
     showing_city: 'מציג נהגים ב',
+    search: 'חיפוש',
+    addFriend: 'הוספת חבר',
     searchPhone: 'חפש לפי מספר טלפון',
     userNotFound: 'המשתמש לא קיים במערכת',
     sendInvite: 'שלח/י הזמנה להצטרף',
