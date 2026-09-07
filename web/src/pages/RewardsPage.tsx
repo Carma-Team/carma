@@ -355,7 +355,7 @@ export function RewardsPage() {
                   )}
                 </div>
                 <Heading level={2}>{title}</Heading>
-                <Text variant="body">{description}</Text>
+                {description !== '' && <Text variant="body">{description}</Text>}
                 <Text variant="caption">{t(`rewards.${categoryTranslationKey(reward.category)}`)}</Text>
 
                 <div className={styles.detailRow}>
