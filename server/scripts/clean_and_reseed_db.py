@@ -9,30 +9,23 @@ so the judges see Dan's real account next to a credible, below-him field.
 Safe to run more than once: every step is a no-op once the DB matches the
 target state.
 
-Usage (from the repo root):
+Usage (from server/):
     DATABASE_URL=postgresql+asyncpg://... python -m scripts.clean_and_reseed_db
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import defaultdict
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-_SERVER_DIR = Path(__file__).resolve().parent.parent / "server"
-sys.path.insert(0, str(_SERVER_DIR))
-
-from dotenv import load_dotenv  # noqa: E402
+from dotenv import load_dotenv
 
 # Local dev convenience only: `app.config.Settings` reads ".env" relative to
-# the process's cwd, so running this from the repo root (as `-m scripts.x`
-# requires) never finds server/.env on its own. `override=False` means a
-# DATABASE_URL already exported into the environment — the remote-run case —
-# always wins over whatever this file holds.
-load_dotenv(_SERVER_DIR / ".env", override=False)
+# the process's cwd. `override=False` means a DATABASE_URL already exported
+# into the environment — the remote-run case — always wins over this file.
+load_dotenv(override=False)
 
 from sqlalchemy import delete as sql_delete  # noqa: E402
 from sqlalchemy import func, select  # noqa: E402
@@ -40,12 +33,18 @@ from sqlalchemy.engine import CursorResult  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
-from app.models import Trip, User, UserFriend  # noqa: E402
+from app.models import Redemption, RedemptionStatus, Trip, User, UserFriend  # noqa: E402
 from app.seed import DAN_FRIEND_EMAILS, LEADERBOARD_USERS  # noqa: E402
 from app.services import scoring  # noqa: E402
 from app.services.levels import level_for_points  # noqa: E402
 
 DAN_EMAIL = "ofridan@gmail.com"
+
+# The old seed.py gave Dan one fixed, already-used demo voucher with this
+# exact code (git history: "Real voucher format... last place that should
+# contain an 0 or a 1"). It predates Dan being a real account and nothing
+# currently seeds it, so it is named once here rather than matched by pattern.
+DAN_SEEDED_VOUCHER_QR = "SEEDPAZ234"
 
 # Old English-named mock leaderboard, replaced by LEADERBOARD_USERS in app.seed.
 STALE_MOCK_EMAILS = ["yoav@carma.app", "noa@carma.app", "michal@carma.app", "uri@carma.app", "shira@carma.app"]
@@ -65,6 +64,18 @@ FORCE_DELETE_EMAILS = ["verify_898899204@carma.app"]
 # name with someone else and hasn't driven yet.
 TEAM_NAMES = ["דן עופרי", "נווה צוויג", "שון פבר", "מאי חג'בי"]
 
+# Real signups that never completed a trip, so their leaderboard row shows the
+# cold-start prior (75) — ahead of every mock driver placed below it on
+# purpose (PR #343 review). Hidden from the public board the same way any
+# user can hide themselves; nothing about the account is deleted or changed.
+# Matched by id, not name — "eran34567"/"galgryn8" are the local-parts of real
+# emails, not display names, and the third account has no email at all.
+DEMO_HIDE_USER_IDS = [
+    "31f9cceacaee481db8e3f114e0b87425",  # eran34567@gmail.com — ערן
+    "4050bac28e59448e9a93affe7694b658",  # galgryn8@gmail.com — גל גרין
+    "da688e4bc7514d9086a5db42d11986b8",  # no email — שון
+]
+
 
 async def _trip_count(db: AsyncSession, user_id: str) -> int:
     return await db.scalar(select(func.count(Trip.id)).where(Trip.user_id == user_id)) or 0
@@ -83,6 +94,12 @@ async def clean_dan(db: AsyncSession) -> None:
         sql_delete(Trip).where(Trip.user_id == dan.id, Trip.idempotency_key.like("seed-trip-dan-%"))
     )
     print(f"  Removed {deleted.rowcount} seeded trip(s) from Dan's account")
+
+    deleted_voucher: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        sql_delete(Redemption).where(Redemption.user_id == dan.id, Redemption.qr_code == DAN_SEEDED_VOUCHER_QR)
+    )
+    if deleted_voucher.rowcount:
+        print(f"  Removed {deleted_voucher.rowcount} seeded voucher(s) from Dan's account")
 
     rows = (
         await db.execute(
@@ -111,13 +128,26 @@ async def clean_dan(db: AsyncSession) -> None:
             )
         )
 
+    # `points` is the spendable balance (business.py's `consume_voucher`
+    # decrements it, never total_points), so it must exclude whatever Dan has
+    # already redeemed — recomputed from live USED redemptions on every run,
+    # not adjusted incrementally, so a second run can never double-charge it.
+    used_cost = (
+        await db.scalar(
+            select(func.coalesce(func.sum(Redemption.points_cost), 0)).where(
+                Redemption.user_id == dan.id, Redemption.status == RedemptionStatus.USED
+            )
+        )
+        or 0
+    )
+
     dan.total_points = total_points
-    dan.points = total_points
+    dan.points = total_points - used_cost
     dan.total_distance = round(total_distance, 1)
     dan.driver_score = scoring.compute_driver_score(history)
     dan.level = level_for_points(total_points)
     print(
-        f"  Dan recalculated: {len(rows)} real trips, {total_points} pts, "
+        f"  Dan recalculated: {len(rows)} real trips, {total_points} pts ({dan.points} spendable), "
         f"{dan.total_distance} km, driver_score={dan.driver_score:.1f}, level={dan.level}"
     )
 
@@ -161,6 +191,20 @@ async def purge_noise_accounts(db: AsyncSession) -> None:
                 print(f"  Deleted duplicate empty account for '{name}' ({dup.email})")
 
 
+async def hide_never_driven_accounts(db: AsyncSession) -> None:
+    for user_id in DEMO_HIDE_USER_IDS:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user is None:
+            continue
+        if await _trip_count(db, user.id) > 0:
+            print(f"  Skipping account {user_id} — has real trips, not hiding")
+            continue
+        if user.is_private:
+            continue
+        user.is_private = True
+        print(f"  Hid never-driven account '{user.name}' from the public leaderboard")
+
+
 async def purge_stale_mock_users(db: AsyncSession) -> None:
     for email in STALE_MOCK_EMAILS:
         user = await db.scalar(select(User).where(User.email == email))
@@ -171,11 +215,6 @@ async def purge_stale_mock_users(db: AsyncSession) -> None:
             continue
         await db.delete(user)
         print(f"  Deleted stale mock account {email}")
-
-    daniel = await db.scalar(select(User).where(User.email == "daniel@carma.app"))
-    if daniel is not None and await _trip_count(db, daniel.id) == 0:
-        await db.delete(daniel)
-        print("  Deleted unused legacy test account daniel@carma.app")
 
 
 async def upsert_mock_leaderboard(db: AsyncSession) -> None:
@@ -190,7 +229,7 @@ async def upsert_mock_leaderboard(db: AsyncSession) -> None:
         user.points = lu["total_points"]
         user.total_points = lu["total_points"]
         user.total_distance = lu["total_distance"]
-        user.level = lu["level"]
+        user.level = level_for_points(lu["total_points"])
     print(f"  Upserted {len(LEADERBOARD_USERS)} mock leaderboard users")
 
 
@@ -216,12 +255,14 @@ async def run() -> None:
         await clean_dan(db)
         print("2. Purging test/noise accounts")
         await purge_noise_accounts(db)
-        print("3. Purging stale English-named mock users")
+        print("3. Hiding never-driven accounts from the public board")
+        await hide_never_driven_accounts(db)
+        print("4. Purging stale English-named mock users")
         await purge_stale_mock_users(db)
         await db.flush()
-        print("4. Upserting the 4 Hebrew mock leaderboard users")
+        print("5. Upserting the 4 Hebrew mock leaderboard users")
         await upsert_mock_leaderboard(db)
-        print("5. Syncing Dan's Friends list")
+        print("6. Syncing Dan's Friends list")
         await sync_dan_friends(db)
         await db.commit()
     print("Done.")

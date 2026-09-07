@@ -31,6 +31,7 @@ from app.models import (
     UserRole,
 )
 from app.services.business import ensure_owner_membership
+from app.services.levels import level_for_points
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -214,11 +215,14 @@ REWARDS = [
 _TEL_AVIV = "5000"
 _RAMAT_GAN = "8600"
 
+# Level is derived from total_points via level_for_points, not written here —
+# the level ladder (levels.py) already learned the hard way that a level
+# hand-copied next to points drifts the moment the ladder's thresholds move.
 LEADERBOARD_USERS: list[dict[str, Any]] = [
-    {"email": "tamar@carma.app", "name": "תמר רוזן",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "driver_score": 73.5, "total_points": 4200, "level": 4, "total_distance": 210.0},
-    {"email": "ron@carma.app",   "name": "רון ביטון", "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "driver_score": 70.0, "total_points": 3100, "level": 3, "total_distance": 160.0},
-    {"email": "omer@carma.app",  "name": "עומר פרץ",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "driver_score": 66.5, "total_points": 1850, "level": 3, "total_distance": 95.0},
-    {"email": "eli@carma.app",   "name": "אלי גולן",  "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "driver_score": 61.0, "total_points": 950,  "level": 2, "total_distance": 55.0},
+    {"email": "tamar@carma.app", "name": "תמר רוזן",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "driver_score": 73.5, "total_points": 4200, "total_distance": 210.0},
+    {"email": "ron@carma.app",   "name": "רון ביטון", "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "driver_score": 70.0, "total_points": 3100, "total_distance": 160.0},
+    {"email": "omer@carma.app",  "name": "עומר פרץ",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "driver_score": 66.5, "total_points": 1850, "total_distance": 95.0},
+    {"email": "eli@carma.app",   "name": "אלי גולן",  "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "driver_score": 61.0, "total_points": 950,  "total_distance": 55.0},
 ]
 
 # Dan follows these four (shows in his Friends leaderboard)
@@ -381,12 +385,11 @@ async def run() -> None:
                     points=1250,
                     total_points=1250,
                     total_distance=120.3,
-                    level=2,
+                    level=level_for_points(1250),
                 )
             )
         else:
-            # Fix level to match actual points (level 2 threshold = 500, level 3 = 1 500)
-            daniel.level = 2
+            daniel.level = level_for_points(1250)
             daniel.total_points = 1250
             daniel.points = 1250
 
@@ -407,7 +410,7 @@ async def run() -> None:
                         points=lu["total_points"],
                         total_points=lu["total_points"],
                         total_distance=lu["total_distance"],
-                        level=lu["level"],
+                        level=level_for_points(lu["total_points"]),
                     )
                 )
             else:
@@ -417,7 +420,7 @@ async def run() -> None:
                 existing_lu.points = lu["total_points"]
                 existing_lu.total_points = lu["total_points"]
                 existing_lu.total_distance = lu["total_distance"]
-                existing_lu.level = lu["level"]
+                existing_lu.level = level_for_points(lu["total_points"])
         await db.flush()
 
         # --- Dan Ofri ---
