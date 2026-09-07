@@ -218,11 +218,16 @@ _RAMAT_GAN = "8600"
 # Level is derived from total_points via level_for_points, not written here —
 # the level ladder (levels.py) already learned the hard way that a level
 # hand-copied next to points drifts the moment the ladder's thresholds move.
+#
+# total_points is rescaled to ~6.15 pts/km (Dan's real rate: 2348 pts over
+# 382.1 km, 2026-09-08) — the old values ran ~20 pts/km, a holdover from the
+# fake seeded trips, so a below-average driver_score still carried an
+# implausibly high point total next to a real driver's (PR #343 review).
 LEADERBOARD_USERS: list[dict[str, Any]] = [
-    {"email": "tamar@carma.app", "name": "תמר רוזן",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "driver_score": 73.5, "total_points": 4200, "total_distance": 210.0},
-    {"email": "ron@carma.app",   "name": "רון ביטון", "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "driver_score": 70.0, "total_points": 3100, "total_distance": 160.0},
-    {"email": "omer@carma.app",  "name": "עומר פרץ",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "driver_score": 66.5, "total_points": 1850, "total_distance": 95.0},
-    {"email": "eli@carma.app",   "name": "אלי גולן",  "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "driver_score": 61.0, "total_points": 950,  "total_distance": 55.0},
+    {"email": "tamar@carma.app", "name": "תמר רוזן",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "driver_score": 73.5, "total_points": 1291, "total_distance": 210.0},
+    {"email": "ron@carma.app",   "name": "רון ביטון", "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "driver_score": 70.0, "total_points": 983,  "total_distance": 160.0},
+    {"email": "omer@carma.app",  "name": "עומר פרץ",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "driver_score": 66.5, "total_points": 584,  "total_distance": 95.0},
+    {"email": "eli@carma.app",   "name": "אלי גולן",  "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "driver_score": 61.0, "total_points": 338,  "total_distance": 55.0},
 ]
 
 # Dan follows these four (shows in his Friends leaderboard)

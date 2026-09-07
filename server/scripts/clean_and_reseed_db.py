@@ -64,13 +64,15 @@ FORCE_DELETE_EMAILS = ["verify_898899204@carma.app"]
 # name with someone else and hasn't driven yet.
 TEAM_NAMES = ["דן עופרי", "נווה צוויג", "שון פבר", "מאי חג'בי"]
 
-# Real signups that never completed a trip, so their leaderboard row shows the
-# cold-start prior (75) — ahead of every mock driver placed below it on
-# purpose (PR #343 review). Hidden from the public board the same way any
-# user can hide themselves; nothing about the account is deleted or changed.
-# Matched by id, not name — "eran34567"/"galgryn8" are the local-parts of real
-# emails, not display names, and the third account has no email at all.
-DEMO_HIDE_USER_IDS = [
+# Confirmed by Dan: registered, never drove, no points, no trips — noise for
+# the demo the same way verify_898899204@carma.app was. Not hidden via
+# is_private (PR #343 review): a driver with zero trips ranking at the
+# cold-start prior is CAR-19's own intended design, reviewed by @mayh and
+# pinned by test_a_null_driver_score_ranks_at_the_prior_it_displays — these
+# three just have no reason to exist in the demo dataset at all. Matched by
+# id, not name — "eran34567"/"galgryn8" are email local-parts, not display
+# names, and the third account has no email.
+FORCE_DELETE_USER_IDS = [
     "31f9cceacaee481db8e3f114e0b87425",  # eran34567@gmail.com — ערן
     "4050bac28e59448e9a93affe7694b658",  # galgryn8@gmail.com — גל גרין
     "da688e4bc7514d9086a5db42d11986b8",  # no email — שון
@@ -160,6 +162,13 @@ async def purge_noise_accounts(db: AsyncSession) -> None:
         await db.delete(user)
         print(f"  Deleted confirmed-synthetic account {email}")
 
+    for user_id in FORCE_DELETE_USER_IDS:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user is None:
+            continue
+        await db.delete(user)
+        print(f"  Deleted confirmed-synthetic account '{user.name}' ({user_id})")
+
     for name in NOISE_NAMES:
         user = await db.scalar(select(User).where(User.name == name))
         if user is None:
@@ -189,20 +198,6 @@ async def purge_noise_accounts(db: AsyncSession) -> None:
             if dup.total_points == 0 and dup.points == 0 and await _trip_count(db, dup.id) == 0:
                 await db.delete(dup)
                 print(f"  Deleted duplicate empty account for '{name}' ({dup.email})")
-
-
-async def hide_never_driven_accounts(db: AsyncSession) -> None:
-    for user_id in DEMO_HIDE_USER_IDS:
-        user = await db.scalar(select(User).where(User.id == user_id))
-        if user is None:
-            continue
-        if await _trip_count(db, user.id) > 0:
-            print(f"  Skipping account {user_id} — has real trips, not hiding")
-            continue
-        if user.is_private:
-            continue
-        user.is_private = True
-        print(f"  Hid never-driven account '{user.name}' from the public leaderboard")
 
 
 async def purge_stale_mock_users(db: AsyncSession) -> None:
@@ -255,14 +250,12 @@ async def run() -> None:
         await clean_dan(db)
         print("2. Purging test/noise accounts")
         await purge_noise_accounts(db)
-        print("3. Hiding never-driven accounts from the public board")
-        await hide_never_driven_accounts(db)
-        print("4. Purging stale English-named mock users")
+        print("3. Purging stale English-named mock users")
         await purge_stale_mock_users(db)
         await db.flush()
-        print("5. Upserting the 4 Hebrew mock leaderboard users")
+        print("4. Upserting the 4 Hebrew mock leaderboard users")
         await upsert_mock_leaderboard(db)
-        print("6. Syncing Dan's Friends list")
+        print("5. Syncing Dan's Friends list")
         await sync_dan_friends(db)
         await db.commit()
     print("Done.")

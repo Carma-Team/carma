@@ -37,6 +37,7 @@ sys.path.insert(0, str(_SERVER))
 os.chdir(_SERVER)
 
 from sqlalchemy import text  # noqa: E402
+from sqlalchemy.engine import CursorResult  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
@@ -177,7 +178,7 @@ async def _apply_urban_limits(db: AsyncSession, areas: list[dict[str, Any]]) -> 
     )
     await db.execute(text("CREATE INDEX ON built_up USING gist (geom)"))
     await db.execute(text("ANALYZE built_up"))
-    result = await db.execute(
+    result: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
         text(
             """
             UPDATE road_segments r
@@ -209,6 +210,7 @@ async def _copy_rows(db: AsyncSession, rows: list[dict[str, Any]]) -> None:
     """
     raw = await db.connection()
     asyncpg_conn = (await raw.get_raw_connection()).driver_connection
+    assert asyncpg_conn is not None
 
     await db.execute(
         text("CREATE TEMP TABLE road_import (osm_id bigint, wkt text, limit_kmh int, limit_source text, fclass text)")
