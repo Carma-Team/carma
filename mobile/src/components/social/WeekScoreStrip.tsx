@@ -27,6 +27,16 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
   // The window ends on today, so today is always the last circle.
   const todayIndex = days.length - 1
 
+  // Which seven days these are. The weekday letters alone leave the driver counting
+  // backwards from today to work it out, and there is no room for a date under every
+  // circle. A short month name rather than a number, so nobody reads 8.9 as 9 August.
+  const from = days[0]
+  const to = days[todayIndex]
+  const month = (d: Date) => text.months[d.getMonth()]
+  const range = from.getMonth() === to.getMonth()
+    ? `${from.getDate()}–${to.getDate()} ${month(to)}`
+    : `${from.getDate()} ${month(from)} – ${to.getDate()} ${month(to)}`
+
   const direction = delta === null || delta === 0 ? 'flat' : delta > 0 ? 'up' : 'down'
   const deltaColor =
     direction === 'up' ? COLORS.success : direction === 'down' ? COLORS.danger : COLORS.textMuted
@@ -34,7 +44,10 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
   return (
     <Card style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>{text.thisWeek}</Text>
+        <View style={styles.titleBox}>
+          <Text style={styles.title}>{text.thisWeek}</Text>
+          <Text style={styles.range}>{range}</Text>
+        </View>
         <View style={styles.avgBox}>
           {/* A dash reads as a value that failed to arrive. There is no missing field
               here — a null average only ever means no trip fell in this window — so the
@@ -63,9 +76,10 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
           const isToday = i === todayIndex
           const size = isToday ? TODAY_SIZE : DAY_SIZE
           const color = score !== null ? scoreToColor(score) : COLORS.border
-          // Swap this for `${date.getDate()}/${date.getMonth() + 1}` to label the
-          // circles by date instead of by weekday.
-          const label = text.days[date.getDay()]
+          // Today is named rather than lettered: the last circle being today is the
+          // one thing the strip cannot show by position alone. The dates the row
+          // covers are in the header, where there is room for them.
+          const label = isToday ? text.today : text.days[date.getDay()]
 
           return (
             <View
@@ -91,6 +105,8 @@ export function WeekScoreStrip({ trips, lang }: WeekScoreStripProps) {
                   <Text style={[styles.score, { color }]}>{score}</Text>
                 )}
               </View>
+              {/* Named rather than lettered: the last circle being today is the one
+                  thing the strip cannot show by position alone. */}
               <Text style={[styles.dayLabel, isToday && styles.dayLabelToday]}>{label}</Text>
             </View>
           )
@@ -110,7 +126,9 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     marginBottom: 12,
   },
+  titleBox: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   title: { ...TYPOGRAPHY.h3, fontSize: 14 },
+  range: { ...TYPOGRAPHY.caption, fontSize: 11 },
   avgBox: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   avg: { ...TYPOGRAPHY.caption, fontSize: 11 },
   deltaBox: { flexDirection: 'row', alignItems: 'center', gap: 1 },

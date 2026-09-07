@@ -244,6 +244,8 @@ const en: TranslationMap = {
     chart: {
       thisWeek: 'This Week', weekAvg: 'Avg', noDrive: 'No drive',
       vsLastWeek: 'Compared with the seven days before',
+      today: 'Today',
+      months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
       // Indexed by Date.getDay(), so Sunday sits at 0 — the strip looks each day up
       // by its own weekday, not by its position in the row.
       days: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
