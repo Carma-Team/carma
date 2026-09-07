@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TripStatus, UserRole
@@ -128,6 +129,35 @@ async def test_a_failed_attempt_is_not_retried(db_session: AsyncSession, monkeyp
     second = await trips_service.ensure_ai_insight(db_session, first)
     assert second.ai_insight is None
     mock_generate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_racing_second_request_does_not_double_call(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two requests loading the same never-viewed trip must not both call Gemini.
+
+    Simulates the race directly: a concurrent request claims the attempt in
+    the database (`synchronize_session=False` keeps our in-memory `trip`
+    stale, exactly as a second request that loaded the row before the first
+    committed would see it) before this call's atomic claim runs.
+    """
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(return_value="should never be called")
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    await db_session.execute(
+        update(Trip).where(Trip.id == trip.id).values(ai_insight_attempted_at=datetime.now(UTC)),
+        execution_options={"synchronize_session": False},
+    )
+    await db_session.commit()
+
+    result = await trips_service.ensure_ai_insight(db_session, trip)
+
+    mock_generate.assert_not_awaited()
+    assert result.ai_insight is None
 
 
 @pytest.mark.asyncio
