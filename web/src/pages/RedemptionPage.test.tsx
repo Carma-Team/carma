@@ -25,6 +25,7 @@ const REWARD = {
   imageIcon: 'coffee',
   isActive: true,
   archivedAt: null,
+  trashedAt: null,
   stock: null,
   available: null,
   expiresAt: null,

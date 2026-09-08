@@ -242,9 +242,11 @@ export default function SplashAnimation({ ready, onDone }: Props) {
           {LETTERS.map((letter, i) => (
             <Animated.View
               key={letter.id}
+              testID={`splash-glyph-${letter.id}`}
               style={{
                 position: 'absolute',
-                left: letter.x * k,
+                top: 0,
+                alignSelf: 'center',
                 width: letter.width * k,
                 height: lockHeight,
                 opacity: letters[i].interpolate({
@@ -253,6 +255,15 @@ export default function SplashAnimation({ ready, onDone }: Props) {
                   extrapolate: 'clamp',
                 }),
                 transform: [
+                  // Wordmark coordinates measured from the centre of the lock-up,
+                  // not from its left edge. The mark is English in both languages
+                  // and has to stay left to right, but with the app in Hebrew
+                  // React Native reads both `left` and `right` as `start`, which
+                  // pins every glyph to whichever edge is leading and throws the
+                  // word off the screen. `alignSelf: center` is the one placement
+                  // that means the same thing in both directions, and transforms
+                  // are physical and are never flipped.
+                  { translateX: (letter.x + letter.width / 2 - LOGO_WIDTH / 2) * k },
                   {
                     translateX: letters[i].interpolate({
                       inputRange: [0, 1],
@@ -281,12 +292,16 @@ export default function SplashAnimation({ ready, onDone }: Props) {
           ))}
 
           <Animated.View
+            testID="splash-glyph-c"
             style={{
               position: 'absolute',
-              left: C_BOX.x * k,
+              top: 0,
+              alignSelf: 'center',
               width: C_BOX.width * k,
               height: lockHeight,
               transform: [
+                // Same as the letters above: centre-relative, so it survives RTL.
+                { translateX: (C_CENTRE_X - LOGO_WIDTH / 2) * k },
                 { scale: assemble.interpolate({ inputRange: [0, 1], outputRange: [C_START_SCALE, 1] }) },
                 {
                   rotate: assemble.interpolate({

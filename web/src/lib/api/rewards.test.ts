@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listRewards, createReward, updateReward, retireReward, getLiveVoucherCount, type Reward, type RewardPayload } from './rewards';
+import {
+  listRewards,
+  createReward,
+  updateReward,
+  retireReward,
+  trashReward,
+  restoreRewardFromTrash,
+  reactivateReward,
+  deleteRewardPermanently,
+  getLiveVoucherCount,
+  type Reward,
+  type RewardPayload,
+} from './rewards';
 import { setSession } from '@/lib/auth/session';
 import { attemptRefresh } from '@/lib/auth/refresh';
 import type { AuthUser } from '@/lib/auth/types';
@@ -33,6 +45,7 @@ const REWARD: Reward = {
   imageIcon: 'gift-outline',
   isActive: true,
   archivedAt: null,
+  trashedAt: null,
   stock: 5,
   available: 3,
   expiresAt: '2030-01-01T21:59:59.999Z',
@@ -44,6 +57,7 @@ const PAYLOAD: RewardPayload = {
   descriptionHe: 'תיאור',
   descriptionEn: 'Description',
   category: 'food',
+  imageIcon: 'gift-outline',
   costPoints: 10,
   stock: null,
   expiresAt: '2030-01-01T21:59:59.999Z',
@@ -156,6 +170,56 @@ describe('rewards', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ detail: 'Internal server error' }, 500));
 
     await expect(retireReward('r1')).resolves.toEqual({ outcome: 'unexpected_error' });
+  });
+
+  // ── trash / restore / reactivate / permanent delete ───────────
+
+  it('trashReward issues a POST against /api/business/rewards/{id}/trash and resolves ok on 204', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(trashReward('r1')).resolves.toEqual({ outcome: 'ok' });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url).endsWith('/api/business/rewards/r1/trash')).toBe(true);
+    expect(init?.method).toBe('POST');
+  });
+
+  it('trashReward maps the server\'s live-voucher 409 to its own outcome, not unexpected_error', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ detail: { code: 'REWARD_HAS_LIVE_VOUCHERS', message: 'still live' } }, 409),
+    );
+
+    await expect(trashReward('r1')).resolves.toEqual({ outcome: 'has_live_vouchers' });
+  });
+
+  it('restoreRewardFromTrash issues a POST against /api/business/rewards/{id}/restore', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(restoreRewardFromTrash('r1')).resolves.toEqual({ outcome: 'ok' });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url).endsWith('/api/business/rewards/r1/restore')).toBe(true);
+    expect(init?.method).toBe('POST');
+  });
+
+  it('reactivateReward issues a POST against /api/business/rewards/{id}/reactivate', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(reactivateReward('r1')).resolves.toEqual({ outcome: 'ok' });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url).endsWith('/api/business/rewards/r1/reactivate')).toBe(true);
+    expect(init?.method).toBe('POST');
+  });
+
+  it('deleteRewardPermanently issues a DELETE against /api/business/rewards/{id}/permanent', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(deleteRewardPermanently('r1')).resolves.toEqual({ outcome: 'ok' });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url).endsWith('/api/business/rewards/r1/permanent')).toBe(true);
+    expect(init?.method).toBe('DELETE');
   });
 
   // ── live voucher count ──────────────────────────────────────────────────

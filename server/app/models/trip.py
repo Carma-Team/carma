@@ -78,6 +78,11 @@ class Trip(Base):
     weakest_factor: Mapped[str | None] = mapped_column(Enum(*WEAKEST_FACTORS, name="weakest_factor"), nullable=True)
 
     ai_insight: Mapped[str | None] = mapped_column(String(500))
+    # Set the first time generation is attempted for this trip, success or not.
+    # Without it a failed/quota-exhausted call retries on every future view of
+    # the same trip, burning the free Gemini tier's daily budget on a trip that
+    # already failed once.
+    ai_insight_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     start_location: Mapped[str | None] = mapped_column(String(200))
     end_location: Mapped[str | None] = mapped_column(String(200))
 

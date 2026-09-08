@@ -86,7 +86,9 @@ export function LeaderboardRow({
         </View>
         {entry.user?.city && <Text style={styles.city}>{cityLabel(entry.user.city, lang)}</Text>}
       </View>
-      <Text style={styles.score}>{entry.score.toLocaleString()}</Text>
+      {/* The number the board is ranked by. `entry.score` (total points) is still on the
+          payload for now, and is deliberately not what the row shows. */}
+      <Text style={styles.score}>{Math.round(entry.driverScore)}</Text>
 
       {showFollowButton && !isCurrentUser && followStatus !== 'blocked' && (
         <FollowButton

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
+  businessInviteUrl,
   createInvitation,
   listInvitations,
   revokeInvitation,
@@ -300,7 +301,7 @@ export function InvitationsPage() {
 
             <div className={styles.copyRow}>
               <div className={styles.copyField}>
-                <Input label={t('invitations.linkLabel')} dir="ltr" readOnly value={created.url} />
+                <Input label={t('invitations.linkLabel')} dir="ltr" readOnly value={businessInviteUrl(created.token)} />
               </div>
               {/* `aria-live` on the button itself — its own visible label is
                   what changes ("Copy link" -> "Copied"), and that is also
@@ -308,7 +309,7 @@ export function InvitationsPage() {
               <Button
                 variant="secondary"
                 aria-live="polite"
-                onClick={() => copyToClipboard('link', created.url)}
+                onClick={() => copyToClipboard('link', businessInviteUrl(created.token))}
               >
                 {copied === 'link' ? t('invitations.copiedLabel') : t('invitations.copyLinkButton')}
               </Button>

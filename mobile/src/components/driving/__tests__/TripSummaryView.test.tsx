@@ -9,6 +9,14 @@ import he from '@/i18n/he'
 // only linked in a device build. Neither is what this screen is being tested for.
 jest.mock('@/context/AppContext', () => ({ useApp: () => ({ lang: 'HE' }) }))
 jest.mock('react-native-maps', () => ({ __esModule: true, default: 'MapView', Polyline: 'Polyline', Marker: 'Marker' }))
+// Kept for when the occupancy control is shown again: it calls the server on mount,
+// and it has its own test file either way.
+jest.mock('@/services/api/trips.api', () => ({
+  tripsApi: {
+    occupancy: jest.fn().mockResolvedValue({ tripId: 't1', verdict: 'UNKNOWN', excludedFromDriverScore: false }),
+    declareOccupancy: jest.fn(),
+  },
+}))
 
 const summary = (over: Partial<TripSummary> = {}): TripSummary => ({
   id: 't1',
@@ -17,6 +25,7 @@ const summary = (over: Partial<TripSummary> = {}): TripSummary => ({
   points: 42,
   distanceKm: 12.5,
   durationSeconds: 900,
+  riskMultiplier: 1,
   effectiveRiskMultiplier: 1.25,
   pointsCapped: false,
   routeWaypoints: [],
@@ -29,7 +38,6 @@ describe('TripSummaryView', () => {
     render(<TripSummaryView summary={summary()} />)
     expect(screen.getByText(he.trip.finalScore)).toBeOnTheScreen()
     expect(screen.getByText('+42')).toBeOnTheScreen()
-    expect(screen.getByText('x1.25')).toBeOnTheScreen()
   })
 
   // A trip the server never answered for shows no gauge and no zero: a 0 here told
@@ -38,7 +46,7 @@ describe('TripSummaryView', () => {
     render(<TripSummaryView summary={summary({ state: 'pending' })} />)
     expect(screen.queryByText(he.trip.finalScore)).toBeNull()
     expect(screen.getByText(he.trip.notSent)).toBeOnTheScreen()
-    expect(screen.getAllByText('--')).toHaveLength(2)
+    expect(screen.getAllByText('--')).toHaveLength(1)
   })
 
   // Same withheld numbers, opposite promise: this one is not on its way (CAR-312).
@@ -47,7 +55,7 @@ describe('TripSummaryView', () => {
     expect(screen.queryByText(he.trip.finalScore)).toBeNull()
     expect(screen.getByText(he.trip.notSentFailed)).toBeOnTheScreen()
     expect(screen.queryByText(he.trip.notSent)).toBeNull()
-    expect(screen.getAllByText('--')).toHaveLength(2)
+    expect(screen.getAllByText('--')).toHaveLength(1)
   })
 
   it('explains a trip too short to have been recorded', () => {
@@ -59,6 +67,54 @@ describe('TripSummaryView', () => {
   it('renders a trip that covered no distance', () => {
     render(<TripSummaryView summary={summary({ distanceKm: 0, durationSeconds: 0, points: 0 })} />)
     expect(screen.getByText(he.trip.finalScore)).toBeOnTheScreen()
+  })
+
+  // CAR-192: the raw multiplier told a driver what happened and never what to do about
+  // it. What replaced it is what a score of 100 would be worth, on the night trips where
+  // that is true at all.
+  it('says nothing about a night bonus on a daytime trip', () => {
+    render(<TripSummaryView summary={summary({ riskMultiplier: 1, effectiveRiskMultiplier: 1 })} />)
+    expect(screen.queryByText(he.trip.nightBonusHalf)).toBeNull()
+    expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
+    expect(screen.queryByText(he.trip.nightBonusFull)).toBeNull()
+  })
+
+  // The gate is the base multiplier, not the effective one: at or below the taper floor
+  // a night trip's effective is exactly 1, and that is the trip the line matters most on.
+  it('states what a full score is worth on a night trip that earned none of it', () => {
+    render(<TripSummaryView summary={summary({ score: 65, riskMultiplier: 1.5, effectiveRiskMultiplier: 1 })} />)
+    expect(screen.getByText(he.trip.nightBonusHalf)).toBeOnTheScreen()
+  })
+
+  it('separates a weekend night from a weekday one', () => {
+    render(<TripSummaryView summary={summary({ score: 85, riskMultiplier: 2 })} />)
+    expect(screen.getByText(he.trip.nightBonusDouble)).toBeOnTheScreen()
+  })
+
+  it('congratulates a trip that earned the whole bonus', () => {
+    render(<TripSummaryView summary={summary({ score: 100, riskMultiplier: 2 })} />)
+    expect(screen.getByText(he.trip.nightBonusFull)).toBeOnTheScreen()
+    expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
+  })
+
+  // The gauge rounds, so a 99.6 reads "100" up there; the line below has to agree
+  // rather than promise the bonus the gauge already says was earned.
+  it('agrees with the gauge on a score that rounds to a hundred', () => {
+    render(<TripSummaryView summary={summary({ score: 99.6, riskMultiplier: 2, effectiveRiskMultiplier: 2 })} />)
+    expect(screen.getByText(he.trip.nightBonusFull)).toBeOnTheScreen()
+  })
+
+  it('holds the night line back until the trip has a score', () => {
+    render(<TripSummaryView summary={summary({ state: 'pending', riskMultiplier: 2 })} />)
+    expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
+  })
+
+  // Hidden on every surface while the declaration is off; the control keeps its own
+  // tests for when it comes back.
+  it('does not offer the occupancy declaration', () => {
+    render(<TripSummaryView summary={summary()} />)
+    expect(screen.queryByText(he.trip.occupancyPassengerCta)).toBeNull()
+    expect(screen.queryByText(he.trip.occupancyExplainer)).toBeNull()
   })
 
   it('warns when the points were capped', () => {

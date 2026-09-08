@@ -45,6 +45,7 @@ def _fake_redemption(*, qr_code: str, qr_data: str | None, status: str = "PENDIN
         image_icon="car",
         is_active=True,
         archived_at=None,
+        trashed_at=None,
         stock=10,
         expires_at=None,
     )

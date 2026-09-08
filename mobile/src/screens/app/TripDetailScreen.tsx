@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { COLORS, COMMON_STYLES } from '@/constants/theme';
 import { TripDetailHeader } from '@/components/driving/TripDetailHeader';
 import { TripSummaryView } from '@/components/driving/TripSummaryView';
+import { AiInsightCard } from '@/components/driving/AiInsightCard';
 import { tripsApi } from '@/services/api/trips.api';
 import { toDrivingEvents } from '@/lib/tripEvents';
 import { fromServerTrip } from '@/lib/tripSummary';
@@ -54,6 +55,11 @@ export default function TripDetailScreen() {
   // tap. Without it every step would show the spinner again for a trip just seen.
   const cache = useRef(new Map<string, TripDetail>()).current;
 
+  // Ids whose cache entry came from a neighbour prefetch, so it was fetched with
+  // generateInsight: false. Stepping onto one of these must still fill in its insight
+  // rather than silently showing a cached detail that never got one.
+  const insightPending = useRef(new Set<string>()).current;
+
   const shift = useRef(new Animated.Value(0)).current;
   const animating = useRef(false);
 
@@ -80,6 +86,12 @@ export default function TripDetailScreen() {
       setDetail(hit);
       setFailed(false);
       setLoading(false);
+      // Prefetched without an insight — fill it in now that this is the trip on screen.
+      // The cached detail is already painted, so this runs silently in the background.
+      if (insightPending.has(currentId)) {
+        insightPending.delete(currentId);
+        load(currentId).then(trip => { if (alive) setDetail(trip); }).catch(() => {});
+      }
     } else {
       setDetail(null);
       setFailed(false);
@@ -97,13 +109,20 @@ export default function TripDetailScreen() {
 
     // Both neighbours, so the next tap in either direction lands on a trip whose
     // detail is already here. Failures are ignored: this is only ever an optimisation.
+    // generateInsight: false — a prefetch the driver may never tap into must not spend
+    // a Gemini call, and this is the trip's only view where it wouldn't be the one on screen.
     [idx - 1, idx + 1].forEach(i => {
       const id = recentTrips[i]?.id;
-      if (id && !cache.has(id)) load(id).catch(() => {});
+      if (id && !cache.has(id)) {
+        tripsApi
+          .getById(id, { generateInsight: false })
+          .then(res => { cache.set(id, res.trip); insightPending.add(id); })
+          .catch(() => {});
+      }
     });
 
     return () => { alive = false; };
-  }, [currentId, idx, recentTrips, cache]);
+  }, [currentId, idx, recentTrips, cache, insightPending]);
 
   const trip = detail ?? cached;
 
@@ -204,6 +223,8 @@ export default function TripDetailScreen() {
           />
 
           <TripSummaryView summary={summary} loadingRoute={loading} />
+
+          {trip.aiInsight && <AiInsightCard text={trip.aiInsight} />}
 
           {failed && (
             <Text style={styles.partial}>{t('trip.detailUnavailable')}</Text>

@@ -4,12 +4,14 @@ import hashlib
 import hmac as _hmac
 import json
 import math
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import case, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,7 +29,7 @@ from app.models import (
     User,
 )
 from app.schemas.trip import SaveTripIn, TripOut
-from app.services import levels, notifications, scoring, speed_limits, telemetry
+from app.services import insights, levels, notifications, scoring, speed_limits, telemetry
 from app.services.risk import get_risk_multiplier
 
 _TZ_IL = ZoneInfo("Asia/Jerusalem")
@@ -115,6 +117,19 @@ _EVENT_TYPE_ALIASES: dict[str, EventType] = {
     "PHONE_USAGE": EventType.PHONE_USE,  # SDK name → column name
     "PHONE_USE": EventType.PHONE_USE,
     "SPEEDING": EventType.SPEEDING,
+}
+
+
+# Which persisted column backs the occurrence count `insights.generate` cites
+# for each weakest_factor. `touch_epochs` (pickups), not
+# `screen_interaction_seconds` (a duration) — the prompt says "N מקרים",
+# which a pickup count answers and a second count does not. Speeding has no
+# entry: Trip stores no ratio/occurrences column for it.
+_WEAKEST_FACTOR_COUNT: dict[str, Callable[[Trip], int | None]] = {
+    "braking": lambda t: t.hard_brakes,
+    "acceleration": lambda t: t.aggressive_accels,
+    "cornering": lambda t: t.sharp_turns,
+    "distraction": lambda t: t.touch_epochs,
 }
 
 
@@ -489,7 +504,9 @@ async def _compute_score(
     level_multiplier: float,
     now: datetime,
     gps: telemetry.TelemetryAnalysis,
-) -> tuple[float, float, float, bool, scoring.WeakestFactor | None]:
+    accel_available: bool | None,
+    accel_init_failed: bool | None,
+) -> tuple[float, float, float, bool, scoring.WeakestFactor | None, bool]:
     """Compute the v2 trip score, updated driver score, and points.
 
     v2 is the sole scoring engine (scoring.md). Pure-formula work
@@ -500,8 +517,10 @@ async def _compute_score(
     speeding ratio is the share of judged distance above the road's posted
     limit plus a buffer, and the confidence caps how far above the rolling
     score a trip can land when the trace is too sparse to prove clean driving.
-    Returns (trip_score, driver_score, points, points_capped, weakest_factor).
+    Returns (trip_score, driver_score, points, points_capped, weakest_factor, imu_degraded).
     """
+    # Both None means a legacy client (pre-CAR-189) — unknown, not dead, so no cap.
+    imu_dead = accel_init_failed is True or accel_available is False
     # Handling seconds per driving hour, CMT's definition (scoring.md "Phone
     # distraction"). `touch_epochs` stays a diagnostic on the payload and the
     # row: it counts pickups, and summing it with seconds charged one behaviour twice.
@@ -522,7 +541,13 @@ async def _compute_score(
         has_speed_data=gps.has_speed_data,
         rolling_score=rolling,
     )
-    trip_score = scoring.apply_confidence(trip_v2.score, rolling, gps.confidence)
+    # IMU cap first: a sparse GPS trace can independently floor the score at
+    # `rolling`, and if that ran first a dead-sensor trip would read raw <=
+    # rolling to `apply_imu_confidence` and skip the absolute ceiling below it
+    # — exactly the farm-proofing gap CAR-190 exists to close.
+    trip_score = scoring.apply_imu_confidence(trip_v2.score, rolling, imu_dead)
+    imu_degraded = imu_dead and trip_score < trip_v2.score
+    trip_score = scoring.apply_confidence(trip_score, rolling, gps.confidence)
 
     # Serialise per driver before reading the day's history: the anti-grind caps
     # below are measured against committed trips, so concurrent saves would each
@@ -590,7 +615,14 @@ async def _compute_score(
         risk_multiplier=risk_multiplier,
         level_multiplier=level_multiplier,
     )
-    return trip_score, driver_score, points, round(points) < round(points_uncapped), trip_v2.weakest_factor
+    return (
+        trip_score,
+        driver_score,
+        points,
+        round(points) < round(points_uncapped),
+        trip_v2.weakest_factor,
+        imu_degraded,
+    )
 
 
 async def current_streak(db: AsyncSession, user_id: str, now: datetime) -> int:
@@ -629,6 +661,57 @@ async def get_by_id(db: AsyncSession, user_id: str, trip_id: str) -> Trip:
     )
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
+    return trip
+
+
+async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
+    """Generate the coaching sentence on first view, and never retry it after.
+
+    Deliberately not folded into `get_by_id`: that function is also used as a
+    pure ownership check (`occupancy.py`'s declare/get, both 404-guards that
+    never look at the trip's fields), and those are reachable from the
+    post-trip summary modal — exactly the hot path a Gemini call must stay off
+    of. Call this only from the trip-detail route.
+
+    `ai_insight_attempted_at` is set whether or not the call produced text, so
+    a quota-exhausted or erroring attempt is not retried on the next view —
+    the free Gemini tier's daily budget would otherwise be spent re-trying
+    trips that already failed once.
+
+    The attempt is claimed with an atomic UPDATE before calling out, not by
+    checking the field on `trip` and setting it after: two requests racing the
+    same first view (a client retry, a double-tap) would otherwise both pass
+    the check before either commits, and both would call Gemini.
+
+    A trip declared PASSENGER (`occupancy.declare`) skips generation without
+    claiming the attempt — coaching a driver on a trip they said they didn't
+    drive is wrong regardless of quota, and the declaration can later flip
+    back to DRIVER, at which point generation should still be free to run.
+    """
+    if trip.ai_insight is not None or trip.ai_insight_attempted_at is not None or trip.score_v2 is None:
+        return trip
+
+    occupancy = await db.get(TripOccupancy, trip.id)
+    if occupancy is not None and occupancy.excluded_from_driver_score:
+        return trip
+
+    claimed: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
+        update(Trip)
+        .where(Trip.id == trip.id, Trip.ai_insight_attempted_at.is_(None), Trip.ai_insight.is_(None))
+        .values(ai_insight_attempted_at=datetime.now(UTC))
+    )
+    await db.commit()
+    if claimed.rowcount == 0:
+        return trip
+
+    counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
+    occurrences = counter(trip) if counter else None
+    insight = await insights.generate(
+        trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
+    )
+    if insight:
+        trip.ai_insight = insight
+        await db.commit()
     return trip
 
 
@@ -725,7 +808,7 @@ async def save(
         _level_cap(user.driver_score) if user.driver_score is not None else levels.MAX_LEVEL,
     )
 
-    score_v2, new_driver_score, points_v2, points_capped, weakest_factor = await _compute_score(
+    score_v2, new_driver_score, points_v2, points_capped, weakest_factor, imu_degraded = await _compute_score(
         db,
         user,
         hard_brakes=scored_hard_brakes,
@@ -739,6 +822,8 @@ async def save(
         level_multiplier=levels.by_number(entering_level).bonus_multiplier,
         now=now,
         gps=gps,
+        accel_available=accel_available,
+        accel_init_failed=accel_init_failed,
     )
 
     # Counted to yesterday, so this trip's own day is credited on the driver's
@@ -767,7 +852,9 @@ async def save(
         screen_interaction_seconds=scored_screen_secs,
         start_location=dto.start_location,
         end_location=dto.end_location,
-        ai_insight=dto.ai_insight,
+        # Generated lazily on first view (ensure_ai_insight, called only from the
+        # trip-detail route), once weakest_factor exists to build a prompt from.
+        ai_insight=None,
         accel_available=accel_available,
         accel_init_failed=accel_init_failed,
         telemetry_digest=dto.telemetry_digest,
@@ -870,5 +957,11 @@ async def save(
         events=event_count,
         gps_confidence=gps.confidence,
         points_capped=points_capped,
+        imu_degraded=imu_degraded,
     )
-    return TripOut.from_orm_trip(trip, points_capped=points_capped, user_level=level_after)
+    return TripOut.from_orm_trip(
+        trip,
+        points_capped=points_capped,
+        user_level=level_after,
+        imu_degraded=imu_degraded,
+    )

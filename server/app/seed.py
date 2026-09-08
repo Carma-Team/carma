@@ -23,7 +23,6 @@ from app.models import (
     BusinessCategory,
     FriendStatus,
     Redemption,
-    RedemptionStatus,
     Reward,
     Trip,
     TripStatus,
@@ -32,7 +31,7 @@ from app.models import (
     UserRole,
 )
 from app.services.business import ensure_owner_membership
-from app.services.rewards import VOUCHER_TTL_DAYS
+from app.services.levels import level_for_points
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -216,37 +215,29 @@ REWARDS = [
 _TEL_AVIV = "5000"
 _RAMAT_GAN = "8600"
 
+# Level is derived from total_points via level_for_points, not written here —
+# the level ladder (levels.py) already learned the hard way that a level
+# hand-copied next to points drifts the moment the ladder's thresholds move.
+#
+# total_points is rescaled to ~6.15 pts/km (Dan's real rate: 2348 pts over
+# 382.1 km, 2026-09-08) — the old values ran ~20 pts/km, a holdover from the
+# fake seeded trips, so a below-average driver_score still carried an
+# implausibly high point total next to a real driver's (PR #343 review).
 LEADERBOARD_USERS: list[dict[str, Any]] = [
-    # Tel Aviv
-    {"email": "yoav@carma.app",   "name": "Yoav Levi",    "city_code": _TEL_AVIV,  "age": 28, "license_year": 2015, "total_points": 12400, "level": 6, "total_distance": 596.2},
-    {"email": "noa@carma.app",    "name": "Noa Shamir",   "city_code": _TEL_AVIV,  "age": 25, "license_year": 2018, "total_points": 7800,  "level": 5, "total_distance": 374.8},
-    {"email": "tamar@carma.app",  "name": "Tamar Rozen",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "total_points": 5200,  "level": 4, "total_distance": 250.1},
-    {"email": "eli@carma.app",    "name": "Eli Golan",    "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "total_points": 2900,  "level": 3, "total_distance": 139.5},
-    {"email": "michal@carma.app", "name": "Michal David", "city_code": _TEL_AVIV,  "age": 22, "license_year": 2022, "total_points": 1600,  "level": 3, "total_distance": 77.0},
-    {"email": "uri@carma.app",    "name": "Uri Cohen",    "city_code": _TEL_AVIV,  "age": 24, "license_year": 2020, "total_points": 820,   "level": 2, "total_distance": 39.4},
-    # Ramat Gan
-    {"email": "ron@carma.app",    "name": "Ron Biton",    "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "total_points": 6100,  "level": 5, "total_distance": 293.5},
-    {"email": "shira@carma.app",  "name": "Shira Amir",   "city_code": _RAMAT_GAN, "age": 27, "license_year": 2017, "total_points": 3200,  "level": 3, "total_distance": 154.0},
-    {"email": "omer@carma.app",   "name": "Omer Peretz",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "total_points": 1100,  "level": 2, "total_distance": 53.2},
+    {"email": "tamar@carma.app", "name": "תמר רוזן",  "city_code": _TEL_AVIV,  "age": 30, "license_year": 2012, "driver_score": 73.5, "total_points": 1291, "total_distance": 210.0},
+    {"email": "ron@carma.app",   "name": "רון ביטון", "city_code": _RAMAT_GAN, "age": 31, "license_year": 2013, "driver_score": 70.0, "total_points": 983,  "total_distance": 160.0},
+    {"email": "omer@carma.app",  "name": "עומר פרץ",  "city_code": _RAMAT_GAN, "age": 23, "license_year": 2021, "driver_score": 66.5, "total_points": 584,  "total_distance": 95.0},
+    {"email": "eli@carma.app",   "name": "אלי גולן",  "city_code": _TEL_AVIV,  "age": 35, "license_year": 2008, "driver_score": 61.0, "total_points": 338,  "total_distance": 55.0},
 ]
 
-# Dan follows these three (shows in his Friends leaderboard)
-DAN_FRIEND_EMAILS = [
-    "yoav@carma.app",
-    "noa@carma.app",
-    "tamar@carma.app",
-    "ron@carma.app",
-    "shira@carma.app",
-    "eli@carma.app",
-    "michal@carma.app",
-    "uri@carma.app",
-]
+# Dan follows these four (shows in his Friends leaderboard)
+DAN_FRIEND_EMAILS = [lu["email"] for lu in LEADERBOARD_USERS]
 
 # ---------------------------------------------------------------------------
 # Yoni — investor-demo protagonist (Tel Aviv, ranked near bottom → motivation)
 # ---------------------------------------------------------------------------
 
-YONI_FRIENDS = ["yoav@carma.app", "noa@carma.app", "uri@carma.app"]
+YONI_FRIENDS = ["tamar@carma.app", "ron@carma.app", "omer@carma.app"]
 
 # Yoni's trip history — 12 trips over ~4 weeks, arc of gradual improvement
 # Columns: date_str, start_hour_utc, dur_sec, dist_km, score,
@@ -273,46 +264,6 @@ _YONI_TRIPS: list[tuple[Any, ...]] = [
 
 _YONI_TOTAL_POINTS = sum(t[10] for t in _YONI_TRIPS)   # 2 095
 _YONI_TOTAL_DISTANCE = round(sum(t[3] for t in _YONI_TRIPS), 1)  # 120.2
-
-# ---------------------------------------------------------------------------
-# Dan Ofri trip history — 18 trips over ~3 weeks (total 4 540 pts, 218.4 km)
-#
-# Columns:
-#   date_str, start_hour_utc, dur_sec, dist_km, score,
-#   hard_brakes, aggr_accels, sharp_turns, risk_mult, points,
-#   start_loc, end_loc, ai_insight
-# ---------------------------------------------------------------------------
-
-_DAN_TRIPS: list[tuple[Any, ...]] = [
-    # Phase 1 — starting out, rough driving (scores 58–70)
-    ("2026-05-15", 5,  1440, 8.2,  58, 5, 3, 2, 1.0, 175, "הרצליה פיתוח",    "תל אביב - מרכז",    "בלימות קשות תכופות — נסה להגדיל מרחק מהרכב לפניך."),
-    ("2026-05-16", 15, 2100, 12.1, 62, 4, 2, 1, 1.0, 275, "תל אביב - צפון",  "רמת גן",             "שיפור קטן מאתמול! עבוד על העקביות בנהיגה."),
-    ("2026-05-17", 19, 2580, 14.5, 65, 4, 2, 1, 1.5, 310, "תל אביב",         "חולון",               "נסיעת ערב — האטה בצמתים תשפר את הציון שלך."),
-    ("2026-05-19", 5,  1200, 6.3,  60, 5, 2, 1, 1.0, 145, "תל אביב - לב",    "גבעתיים",             "בוקר עמוס — נסה לצאת מוקדם יותר כדי להפחית לחץ."),
-    ("2026-05-20", 13, 3120, 22.0, 68, 3, 2, 2, 1.0, 395, "תל אביב",         "הרצליה",              None),
-    ("2026-05-21", 6,  1680, 10.5, 63, 4, 1, 1, 1.0, 235, "גבעתיים",         "תל אביב - לב",       "הפחת תאוצות חזקות — זה חוסך דלק ומשפר ציון."),
-    ("2026-05-22", 11, 1440, 8.8,  70, 3, 1, 1, 1.0, 185, "תל אביב",         "יפו",                 None),
-    # Phase 2 — CARMA coaching kicks in, gradual improvement (scores 72–85)
-    ("2026-05-23", 5,  2280, 13.2, 72, 3, 1, 0, 1.0, 255, "הרצליה",          "תל אביב",             "מגמה חיובית! פחות בלימות קשות מהשבוע שעבר."),
-    ("2026-05-25", 14, 1980, 13.7, 76, 2, 1, 0, 1.0, 305, "תל אביב",         "פתח תקווה",           None),
-    ("2026-05-26", 19, 2880, 15.4, 78, 2, 1, 0, 1.5, 295, "תל אביב",         "ראשון לציון",         None),
-    ("2026-05-27", 5,  1560, 9.6,  76, 2, 1, 0, 1.0, 210, "תל אביב - צפון",  "בני ברק",             None),
-    ("2026-05-28", 15, 2520, 16.0, 83, 1, 1, 0, 1.0, 345, "כפר סבא",         "תל אביב",             "שיפור ניכר! הנהיגה שלך הרבה יותר חלקה השבוע."),
-    ("2026-05-29", 5,  1260, 7.4,  85, 1, 0, 0, 1.0, 165, "תל אביב",         "רמת השרון",           "כמעט מושלם! רק בלימה קשה אחת."),
-    # Phase 3 — skilled driver, high and consistent (scores 84–95)
-    ("2026-05-30", 12, 2220, 13.2, 84, 1, 1, 0, 1.0, 260, "רמת גן",          "תל אביב",             None),
-    ("2026-06-01", 6,  1860, 11.8, 88, 1, 0, 0, 1.0, 250, "תל אביב",         "הרצליה פיתוח",        "נהיגה מצוינת! שמרת על מרחק בטוח לאורך כל הדרך."),
-    ("2026-06-02", 15, 1620, 9.9,  90, 0, 0, 1, 1.0, 200, "תל אביב - מרכז",  "גבעתיים",             None),
-    ("2026-06-03", 5,  2460, 17.3, 92, 0, 1, 0, 1.0, 345, "נתניה",           "תל אביב",             "נסיעת בוקר מוצלחת! שמירה מצוינת על מהירות קבועה."),
-    ("2026-06-03", 17, 1740, 8.5,  95, 0, 0, 0, 1.0, 190, "תל אביב",         "יפו הישנה",           "נסיעה כמעט מושלמת! המשך כך."),
-]
-
-# Points from Paz voucher Dan already redeemed
-_DAN_REDEEMED_POINTS = 500
-_DAN_TOTAL_POINTS = sum(t[9] for t in _DAN_TRIPS)   # 4 540
-_DAN_TOTAL_DISTANCE = round(sum(t[3] for t in _DAN_TRIPS), 1)  # 218.4
-
-
 
 async def backfill_driver_scores(db: AsyncSession) -> None:
     """Fill driver_score (scoring.md "The driver's own score") where it is NULL.
@@ -439,12 +390,11 @@ async def run() -> None:
                     points=1250,
                     total_points=1250,
                     total_distance=120.3,
-                    level=2,
+                    level=level_for_points(1250),
                 )
             )
         else:
-            # Fix level to match actual points (level 2 threshold = 500, level 3 = 1 500)
-            daniel.level = 2
+            daniel.level = level_for_points(1250)
             daniel.total_points = 1250
             daniel.points = 1250
 
@@ -461,22 +411,28 @@ async def run() -> None:
                         city_code=lu["city_code"],
                         age=lu["age"],
                         license_year=lu["license_year"],
+                        driver_score=lu["driver_score"],
                         points=lu["total_points"],
                         total_points=lu["total_points"],
                         total_distance=lu["total_distance"],
-                        level=lu["level"],
+                        level=level_for_points(lu["total_points"]),
                     )
                 )
             else:
                 existing_lu.name = lu["name"]
                 existing_lu.city_code = lu["city_code"]
+                existing_lu.driver_score = lu["driver_score"]
                 existing_lu.points = lu["total_points"]
                 existing_lu.total_points = lu["total_points"]
                 existing_lu.total_distance = lu["total_distance"]
-                existing_lu.level = lu["level"]
+                existing_lu.level = level_for_points(lu["total_points"])
         await db.flush()
 
-        # --- Dan Ofri (investor-demo primary account) ---
+        # --- Dan Ofri ---
+        # A real driver, not a demo fixture: on a fresh DB this creates a plain
+        # account with no trips or points. On every other run it is left alone
+        # entirely — his points, level and driver_score are the app's own
+        # output from real trips, and seeding must never overwrite them.
         dan = await db.scalar(select(User).where(User.email == "ofridan@gmail.com"))
         if dan is None:
             dan = User(
@@ -487,85 +443,22 @@ async def run() -> None:
                 city_code=_RAMAT_GAN,
                 age=32,
                 license_year=2012,
-                points=_DAN_TOTAL_POINTS - _DAN_REDEEMED_POINTS,
-                total_points=_DAN_TOTAL_POINTS,
-                total_distance=_DAN_TOTAL_DISTANCE,
-                level=4,
             )
             db.add(dan)
-        else:
-            dan.name = "דן עופרי"
-            dan.password_hash = hash_password("Dan1234")
-            dan.city_code = _RAMAT_GAN
-            dan.points = _DAN_TOTAL_POINTS - _DAN_REDEEMED_POINTS
-            dan.total_points = _DAN_TOTAL_POINTS
-            dan.total_distance = _DAN_TOTAL_DISTANCE
-            dan.level = 4
-        await db.flush()
+            await db.flush()
 
-        # Reset Dan's demo data for idempotent re-runs
-        await db.execute(sql_delete(Trip).where(Trip.user_id == dan.id))
-        await db.execute(sql_delete(Redemption).where(Redemption.user_id == dan.id))
-        await db.execute(sql_delete(UserFriend).where(UserFriend.follower_id == dan.id))
-        await db.flush()
-
-        # --- Dan's trips ---
-        for idx, row in enumerate(_DAN_TRIPS):
-            date_str, start_h, dur_sec, dist_km, score, n_hb, n_aa, n_st, risk, pts, sloc, eloc, insight = row
-            y, mo, d = int(date_str[:4]), int(date_str[5:7]), int(date_str[8:10])
-            start_time = datetime(y, mo, d, start_h, 0, tzinfo=UTC)
-            end_time = start_time + timedelta(seconds=dur_sec)
-            db.add(
-                Trip(
-                    user_id=dan.id,
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration_seconds=dur_sec,
-                    distance_km=dist_km,
-                    avg_score=float(score),
-                    points=pts,
-                    risk_multiplier=risk,
-                    status=TripStatus.COMPLETED,
-                    hard_brakes=n_hb,
-                    aggressive_accels=n_aa,
-                    sharp_turns=n_st,
-                    start_location=sloc,
-                    end_location=eloc,
-                    ai_insight=insight,
-                    synced_at=end_time,
-                    idempotency_key=f"seed-trip-dan-{idx:02d}",
-                )
-            )
-
-        # --- Dan's redeemed voucher (Paz 50 ₪, used on May 21) ---
-        paz_reward = reward_map.get(("Paz", '50 ש"ח הנחה בתדלוק'))
-        if paz_reward:
-            used_at = datetime(2026, 5, 21, 9, 45, tzinfo=UTC)
-            db.add(
-                Redemption(
-                    user_id=dan.id,
-                    reward_id=paz_reward.id,
-                    business_id=paz_reward.business_id,
-                    points_cost=paz_reward.cost_points,
-                    # Real voucher format, not a descriptive slug: lookups fold
-                    # the input to upper case with separators stripped, so the
-                    # old `seed-dan-voucher-paz-01` could not be looked up at
-                    # all. Drawn from READABLE_ALPHABET too — this is the code
-                    # that gets read aloud in a demo, so it is the last place
-                    # that should contain an 0 or a 1.
-                    qr_code="SEEDPAZ234",
-                    qr_data="SEEDPAZ234",
-                    status=RedemptionStatus.USED,
-                    expires_at=used_at + timedelta(days=VOUCHER_TTL_DAYS),
-                    used_at=used_at,
-                    settled_at=used_at,
-                )
-            )
-
-        # --- Dan follows the demo drivers (Friends leaderboard) ---
+        # Dan is a real driver now (CAR-190 follow-up) — his trips, redemptions
+        # and points are the app's live data, so seeding never deletes or
+        # recomputes them. Only his Friends graph is kept in sync with the
+        # current mock roster, additively, since it costs him nothing real.
         for friend_email in DAN_FRIEND_EMAILS:
             friend = await db.scalar(select(User).where(User.email == friend_email))
-            if friend is not None:
+            if friend is None:
+                continue
+            already_follows = await db.scalar(
+                select(UserFriend.id).where(UserFriend.follower_id == dan.id, UserFriend.followee_id == friend.id)
+            )
+            if already_follows is None:
                 db.add(UserFriend(follower_id=dan.id, followee_id=friend.id, status=FriendStatus.ACCEPTED))
 
         await db.flush()
@@ -665,7 +558,7 @@ async def run() -> None:
         await db.commit()
 
     print("Seed completed OK")
-    print(f"  Demo login  : ofridan@gmail.com / Dan1234  (Level 4, {_DAN_TOTAL_POINTS} pts, {len(_DAN_TRIPS)} trips)")
+    print("  Dan account : ofridan@gmail.com  (real driver — untouched by seeding)")
     print(f"  Yoni login  : yoni@carma.app / Yoni1234  (Level 3, {_YONI_TOTAL_POINTS} pts, {len(_YONI_TRIPS)} trips — demo protagonist)")
     print("  Test login  : daniel@carma.app / password123")
     print("  Business    : aroma@carma.app / Aroma1234  (owns Aroma — /api/business/rewards)")

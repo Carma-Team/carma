@@ -6,9 +6,26 @@ import { ICONS } from '@/constants/icons';
 import { formatTripDuration, formatTripDistance } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TripMapPlaceholder } from '@/components/driving/TripMapPlaceholder';
+import { TripOccupancyControl } from '@/components/driving/TripOccupancyControl';
 import { TripScoreGauge } from '@/components/driving/TripScoreGauge';
 import { StatsGrid } from '@/components/ui/StatsGrid';
+import { Progress } from '@/components/ui/Progress';
 import type { TripSummary } from '@/lib/tripSummary';
+
+/** How much of the night multiplier this trip earned, 0–1. Read off the two
+ *  multipliers the server already sends rather than re-deriving its taper: the
+ *  effective multiplier is the base one tapered by exactly this fraction, so a change
+ *  to the server's floor score can never leave this bar behind. Callers gate on a base
+ *  multiplier above 1; the clamp is against float drift, not against that. */
+function nightBonusEarned(summary: TripSummary): number {
+  return Math.min(1, Math.max(0, (summary.effectiveRiskMultiplier - 1) / (summary.riskMultiplier - 1)));
+}
+
+// The declaration is off every surface for now. The control, the calls behind it and
+// its strings all stay wired, so putting it back is this one word — deleting the call
+// site instead would leave a component nothing references, and the next sweep for dead
+// code would take the whole phase's only source of passenger labels with it.
+const SHOW_OCCUPANCY_CONTROL = false;
 
 interface TripSummaryViewProps {
   summary: TripSummary;
@@ -40,6 +57,10 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
   // still coming, the other never will.
   const unscored = summary.state === 'pending' || summary.state === 'failed';
 
+  // The gauge above rounds, so the night line has to round with it: at 99.6 an unrounded
+  // gate reads "100" on the gauge and still promises the bonus in the future tense below.
+  const score = Math.round(summary.score);
+
   return (
     <View style={styles.body}>
       {unscored ? (
@@ -59,15 +80,37 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
         </>
       )}
 
-      <StatsGrid columns={4} variant="compact" items={[
+      <StatsGrid columns={3} variant="compact" items={[
         // Duration and distance are the device's own measurement and hold in every
-        // state; points and the multiplier are the server's alone, so with no answer
-        // they say nothing rather than repeating the zero the gauge was removed for.
-        { icon: ICONS.duration, label: t('trip.duration'),       value: formatTripDuration(summary.durationSeconds) },
-        { icon: ICONS.distance, label: t('trip.distance'),       value: formatTripDistance(summary.distanceKm) },
-        { icon: ICONS.points,   label: t('trip.points'),         value: unscored ? '--' : `+${summary.points}` },
-        { icon: ICONS.flash,    label: t('trip.riskMultiplier'), value: unscored ? '--' : `x${summary.effectiveRiskMultiplier.toFixed(2)}` },
+        // state; points are the server's alone, so with no answer they say nothing
+        // rather than repeating the zero the gauge was removed for. The multiplier
+        // used to sit here as a raw x1.33 — a number that told a driver what happened
+        // and never what to do about it. It is the night line below now (CAR-192).
+        { icon: ICONS.duration, label: t('trip.duration'), value: formatTripDuration(summary.durationSeconds) },
+        { icon: ICONS.distance, label: t('trip.distance'), value: formatTripDistance(summary.distanceKm) },
+        { icon: ICONS.points,   label: t('trip.points'),   value: unscored ? '--' : `+${summary.points}` },
       ]} />
+
+      {/* Night hours pay more for driving well, not for being out late — so the line
+          is what a score of 100 would be worth, and the bar is how far this trip got.
+          Gated on the base multiplier, never the effective one: a night trip at or
+          below the taper floor has an effective of exactly 1, the same as any daytime
+          trip, and that is the trip where the gap is widest and worth saying. */}
+      {!unscored && summary.riskMultiplier > 1 && (
+        <View style={styles.nightBlock}>
+          <View style={COMMON_STYLES.noticeRow}>
+            <Ionicons name={ICONS.night} size={16} color={COLORS.textMuted} />
+            <Text style={COMMON_STYLES.noticeText}>
+              {t(score >= 100
+                ? 'trip.nightBonusFull'
+                : summary.riskMultiplier >= 2 ? 'trip.nightBonusDouble' : 'trip.nightBonusHalf')}
+            </Text>
+          </View>
+          {score < 100 && (
+            <Progress value={nightBonusEarned(summary) * 100} showValue={false} height={6} />
+          )}
+        </View>
+      )}
 
       {summary.pointsCapped && (
         <View style={COMMON_STYLES.noticeRow}>
@@ -75,6 +118,12 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           <Text style={COMMON_STYLES.noticeText}>{t('trip.pointsCapped')}</Text>
         </View>
       )}
+
+      {/* Declaring who drove is a call against a server trip, so it needs a trip the
+          server has. A trip still in the queue is unreachable by id until the queue
+          lands it — the driver reaches it from history afterwards, which is the whole
+          reason this control is not only the post-trip prompt. */}
+      {SHOW_OCCUPANCY_CONTROL && summary.state === 'scored' && summary.id && <TripOccupancyControl key={summary.id} tripId={summary.id} />}
 
       {/* Route + bad-event markers (route shown when GPS waypoints exist) */}
       <View style={styles.mapWrapper}>
@@ -92,6 +141,7 @@ const styles = StyleSheet.create({
   stateTitle: { ...TYPOGRAPHY.h2, fontSize: 26, marginBottom: SPACING.md, textAlign: 'center' },
   stateText:  { ...TYPOGRAPHY.body, color: COLORS.textMuted, textAlign: 'center' },
   scoreLabel: { ...TYPOGRAPHY.caption, fontSize: 13, marginBottom: SPACING.md },
+  nightBlock: { width: '100%', gap: SPACING.sm },
   mapWrapper: { width: '100%' },
   // Same footprint as the map it stands in for, so the screen does not jump when the
   // route lands (TripMapPlaceholder: height 220, marginTop 20, radius 16).

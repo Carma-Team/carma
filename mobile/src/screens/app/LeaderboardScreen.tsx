@@ -10,6 +10,7 @@ import { LeaderboardTabs } from '@/components/social/LeaderboardTabs'
 import { LeaderboardRow } from '@/components/social/LeaderboardRow'
 import { LocationPicker } from '@/components/ui/LocationPicker'
 import { Button } from '@/components/ui/Button'
+import { InfoNote } from '@/components/ui/InfoNote'
 import { useTranslation } from '@/hooks/useTranslation'
 import { cityLabel } from '@/lib/cityLabel'
 import { leaderboardApi, type LocationsOut } from '@/services/api/leaderboard.api'
@@ -20,7 +21,10 @@ import type { FollowStatus, LeaderboardEntry, LeaderboardType } from '@/types'
 
 type SearchState = 'idle' | 'loading' | 'found' | 'not_found'
 
-const INSTALL_LINK = 'https://github.com/Carma-Team/carma'
+// Where an invited driver lands. The project's public page, not the repository: someone
+// who was sent this has no reason to be handed source code, and the repository is not
+// somewhere an install can start from.
+const INSTALL_LINK = 'https://carma-team.github.io/'
 
 // How many drivers render before the viewer asks for more, and how many each press
 // adds. The endpoint caps at 100 rows, so this is purely about not handing someone a
@@ -56,6 +60,9 @@ export default function LeaderboardScreen() {
 
   // Remove friend confirmation
   const [removeConfirm, setRemoveConfirm] = useState<LeaderboardEntry | null>(null)
+
+  // What the board is showing and what the number on each row means.
+  const [legendOpen, setLegendOpen] = useState(false)
 
   // Fetch available locations once on mount
   useEffect(() => {
@@ -257,6 +264,8 @@ export default function LeaderboardScreen() {
           onPress={handleSearch}
           style={styles.searchBtn}
           disabled={searchState === 'loading'}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.search')}
         >
           {searchState === 'loading'
             ? <ActivityIndicator size="small" color={COLORS.text} />
@@ -267,6 +276,8 @@ export default function LeaderboardScreen() {
           onPress={handleAddFriend}
           disabled={searchState !== 'found'}
           style={[styles.addBtn, searchState !== 'found' && styles.addBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.addFriend')}
         >
           <Ionicons
             name="add"
@@ -288,7 +299,7 @@ export default function LeaderboardScreen() {
         <View style={styles.notFoundBox}>
           <Text style={styles.notFoundText}>{t('leaderboard.userNotFound')}</Text>
           <TouchableOpacity onPress={handleSendInvite} style={styles.inviteBtn}>
-            <Ionicons name="share-outline" size={14} color={COLORS.brand} style={{ marginRight: 4 }} />
+            <Ionicons name="share-outline" size={14} color={COLORS.brand} style={{ marginEnd: 4 }} />
             <Text style={styles.inviteBtnText}>{t('leaderboard.sendInvite')}</Text>
           </TouchableOpacity>
         </View>
@@ -298,7 +309,24 @@ export default function LeaderboardScreen() {
 
   const header = (
     <>
-      <Text style={styles.heading}>{t('leaderboard.title')}</Text>
+      <View style={styles.headingRow}>
+        <Text style={styles.heading}>{t('leaderboard.title')}</Text>
+        <TouchableOpacity
+          onPress={() => setLegendOpen(open => !open)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('leaderboard.legend')}
+        >
+          <Ionicons name="information-circle-outline" size={18} color={COLORS.textMuted} />
+        </TouchableOpacity>
+      </View>
+      {legendOpen && (
+        <InfoNote
+          title={t('leaderboard.title')}
+          message={t('leaderboard.legend')}
+          onClose={() => setLegendOpen(false)}
+        />
+      )}
       <LeaderboardTabs activeTab={type} onTabChange={setType} tabs={tabs} />
       <View style={{ height: 16 }} />
       {filterRow}
@@ -405,7 +433,8 @@ export default function LeaderboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  heading:      { ...TYPOGRAPHY.h2, marginBottom: SPACING.lg },
+  headingRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.lg },
+  heading:      { ...TYPOGRAPHY.h2 },
   divider:      { height: 1, backgroundColor: COLORS.border },
   empty:        { ...TYPOGRAPHY.body, textAlign: 'center', color: COLORS.textMuted, marginTop: 40 },
   myRankBanner: { padding: SPACING.md, alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border },
@@ -483,7 +512,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   notFoundText:  { ...TYPOGRAPHY.caption, color: COLORS.textMuted, flex: 1 },
-  inviteBtn:     { flexDirection: 'row', alignItems: 'center', paddingLeft: 8 },
+  inviteBtn:     { flexDirection: 'row', alignItems: 'center', paddingStart: 8 },
   inviteBtnText: { ...TYPOGRAPHY.label, color: COLORS.brand, fontSize: 12 },
 
   // Remove friend confirmation modal
