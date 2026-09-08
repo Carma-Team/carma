@@ -15,13 +15,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from google.genai import errors
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TripStatus, UserRole
+from app.models.enums import EventType, TripStatus, UserRole
+from app.models.event import Event
 from app.models.trip import Trip
 from app.models.user import User
 from app.schemas.occupancy import OccupancyDeclarationIn
+from app.schemas.trip import TripDetailOut
 from app.services import insights
 from app.services import occupancy as occupancy_service
 from app.services import trips as trips_service
@@ -78,6 +81,43 @@ async def test_generate_calls_the_configured_model(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("code", [400, 403, 404])
+async def test_a_provider_config_error_asks_to_be_retried(monkeypatch: pytest.MonkeyPatch, code: int) -> None:
+    """The outage itself: `gemini-2.5-flash` began answering 404 to our key.
+
+    A retired model, a rejected key and an unavailable service say nothing about
+    the trip being scored, so they must not spend its one attempt — otherwise
+    every trip viewed during the outage stays blank after the fix ships.
+    """
+    monkeypatch.setattr(insights.settings, "gemini_api_key", "test-key")
+    insights._client.cache_clear()
+
+    error = errors.ClientError(code, {"error": {"code": code, "message": "no", "status": "NOT_FOUND"}})
+    mock_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(side_effect=error)))
+    )
+    monkeypatch.setattr(insights, "_client", lambda: mock_client)
+
+    with pytest.raises(insights.InsightRetryableError):
+        await insights.generate(72.0, "braking", occurrences=3)
+
+
+@pytest.mark.asyncio
+async def test_quota_exhaustion_is_not_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429 is the one failure the attempt marker was built to stop repeating."""
+    monkeypatch.setattr(insights.settings, "gemini_api_key", "test-key")
+    insights._client.cache_clear()
+
+    error = errors.ClientError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    mock_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(side_effect=error)))
+    )
+    monkeypatch.setattr(insights, "_client", lambda: mock_client)
+
+    assert await insights.generate(50.0, "distraction") is None
+
+
+@pytest.mark.asyncio
 async def test_a_provider_error_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(insights.settings, "gemini_api_key", "test-key")
     insights._client.cache_clear()
@@ -130,6 +170,53 @@ async def test_a_failed_attempt_is_not_retried(db_session: AsyncSession, monkeyp
     second = await trips_service.ensure_ai_insight(db_session, first)
     assert second.ai_insight is None
     mock_generate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_call_releases_the_attempt(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half: a call the provider never answered must be free to run again."""
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(side_effect=insights.InsightRetryableError)
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    first = await trips_service.ensure_ai_insight(db_session, trip)
+    assert first.ai_insight is None
+    assert first.ai_insight_attempted_at is None
+
+    mock_generate.side_effect = None
+    mock_generate.return_value = "נסה/י לבלום בעדינות רבה יותר."
+    second = await trips_service.ensure_ai_insight(db_session, first)
+    assert second.ai_insight == "נסה/י לבלום בעדינות רבה יותר."
+
+
+@pytest.mark.asyncio
+async def test_releasing_the_attempt_still_renders_the_trip(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the release through the route's own path, not a hand-built trip.
+
+    The test above builds its Trip directly, so it never notices that the release
+    ran a full `db.refresh` over an instance the route had loaded with
+    `selectinload(Trip.events)`. That expires the eager load, and serialising the
+    events a line later lazy-loads them outside the greenlet: every trip view
+    during a provider outage answers 500 rather than a trip without a tip.
+    """
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+    db_session.add(Event(trip_id=trip.id, type=EventType.HARD_BRAKE, timestamp=datetime.now(UTC)))
+    await db_session.commit()
+
+    monkeypatch.setattr(trips_service.insights, "generate", AsyncMock(side_effect=insights.InsightRetryableError))
+
+    loaded = await trips_service.get_by_id(db_session, driver.id, trip.id)
+    released = await trips_service.ensure_ai_insight(db_session, loaded)
+
+    assert released.ai_insight_attempted_at is None
+    assert len(TripDetailOut.from_orm_trip_detail(released).events) == 1
 
 
 @pytest.mark.asyncio
