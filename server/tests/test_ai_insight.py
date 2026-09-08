@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import TripStatus, UserRole
 from app.models.trip import Trip
 from app.models.user import User
+from app.schemas.occupancy import OccupancyDeclarationIn
 from app.services import insights
 from app.services import occupancy as occupancy_service
 from app.services import trips as trips_service
@@ -182,3 +183,50 @@ async def test_occupancy_reads_never_trigger_generation(
     refreshed = await trips_service.get_by_id(db_session, driver.id, trip.id)
     assert refreshed.ai_insight is None
     assert refreshed.ai_insight_attempted_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_declared_passenger_trip_gets_no_insight(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Coaching a driver on a trip they said they didn't drive is wrong regardless of score."""
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(return_value="should never be called")
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=False, prompted=False)
+    )
+
+    result = await trips_service.ensure_ai_insight(db_session, trip)
+
+    mock_generate.assert_not_awaited()
+    assert result.ai_insight is None
+    # Skipped, not attempted — a later correction to DRIVER must still be free to generate.
+    assert result.ai_insight_attempted_at is None
+
+
+@pytest.mark.asyncio
+async def test_correcting_to_driver_still_allows_generation(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PASSENGER declaration later corrected to DRIVER must not be locked out forever."""
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(return_value="נסה/י לבלום בעדינות רבה יותר.")
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=False, prompted=False)
+    )
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=True, prompted=False)
+    )
+
+    result = await trips_service.ensure_ai_insight(db_session, trip)
+
+    mock_generate.assert_awaited_once()
+    assert result.ai_insight == "נסה/י לבלום בעדינות רבה יותר."
