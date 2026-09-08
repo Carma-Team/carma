@@ -674,9 +674,13 @@ async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
     of. Call this only from the trip-detail route.
 
     `ai_insight_attempted_at` is set whether or not the call produced text, so
-    a quota-exhausted or erroring attempt is not retried on the next view —
-    the free Gemini tier's daily budget would otherwise be spent re-trying
-    trips that already failed once.
+    a quota-exhausted attempt is not retried on the next view — the free Gemini
+    tier's daily budget would otherwise be spent re-trying trips that already
+    failed once. It is released again when the provider never answered at all
+    (`insights.InsightRetryableError`): a retired model name, a rejected key or a
+    timeout says nothing about this trip, and burning the one attempt on those
+    is how a wrong `_MODEL` string turned into every trip on the platform being
+    permanently insight-less, fixed model or not.
 
     The attempt is claimed with an atomic UPDATE before calling out, not by
     checking the field on `trip` and setting it after: two requests racing the
@@ -706,9 +710,18 @@ async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
 
     counter = _WEAKEST_FACTOR_COUNT.get(trip.weakest_factor or "")
     occurrences = counter(trip) if counter else None
-    insight = await insights.generate(
-        trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
-    )
+    try:
+        insight = await insights.generate(
+            trip.score_v2, cast("scoring.WeakestFactor | None", trip.weakest_factor), occurrences
+        )
+    except insights.InsightRetryableError:
+        await db.execute(update(Trip).where(Trip.id == trip.id).values(ai_insight_attempted_at=None))
+        await db.commit()
+        # Named column, not a bare refresh: the caller is the detail route, which
+        # serialises trip.events straight after — and a full refresh expires that
+        # eager load into a lazy one, which in async is a 500 instead of a trip.
+        await db.refresh(trip, ["ai_insight_attempted_at"])
+        return trip
     if insight:
         trip.ai_insight = insight
         await db.commit()
