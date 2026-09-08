@@ -19,10 +19,12 @@ from google.genai import errors
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TripStatus, UserRole
+from app.models.enums import EventType, TripStatus, UserRole
+from app.models.event import Event
 from app.models.trip import Trip
 from app.models.user import User
 from app.schemas.occupancy import OccupancyDeclarationIn
+from app.schemas.trip import TripDetailOut
 from app.services import insights
 from app.services import occupancy as occupancy_service
 from app.services import trips as trips_service
@@ -189,6 +191,32 @@ async def test_an_unanswered_call_releases_the_attempt(
     mock_generate.return_value = "נסה/י לבלום בעדינות רבה יותר."
     second = await trips_service.ensure_ai_insight(db_session, first)
     assert second.ai_insight == "נסה/י לבלום בעדינות רבה יותר."
+
+
+@pytest.mark.asyncio
+async def test_releasing_the_attempt_still_renders_the_trip(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the release through the route's own path, not a hand-built trip.
+
+    The test above builds its Trip directly, so it never notices that the release
+    ran a full `db.refresh` over an instance the route had loaded with
+    `selectinload(Trip.events)`. That expires the eager load, and serialising the
+    events a line later lazy-loads them outside the greenlet: every trip view
+    during a provider outage answers 500 rather than a trip without a tip.
+    """
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+    db_session.add(Event(trip_id=trip.id, type=EventType.HARD_BRAKE, timestamp=datetime.now(UTC)))
+    await db_session.commit()
+
+    monkeypatch.setattr(trips_service.insights, "generate", AsyncMock(side_effect=insights.InsightRetryableError))
+
+    loaded = await trips_service.get_by_id(db_session, driver.id, trip.id)
+    released = await trips_service.ensure_ai_insight(db_session, loaded)
+
+    assert released.ai_insight_attempted_at is None
+    assert len(TripDetailOut.from_orm_trip_detail(released).events) == 1
 
 
 @pytest.mark.asyncio

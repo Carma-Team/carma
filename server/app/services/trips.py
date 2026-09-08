@@ -717,7 +717,10 @@ async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
     except insights.InsightRetryableError:
         await db.execute(update(Trip).where(Trip.id == trip.id).values(ai_insight_attempted_at=None))
         await db.commit()
-        await db.refresh(trip)
+        # Named column, not a bare refresh: the caller is the detail route, which
+        # serialises trip.events straight after — and a full refresh expires that
+        # eager load into a lazy one, which in async is a 500 instead of a trip.
+        await db.refresh(trip, ["ai_insight_attempted_at"])
         return trip
     if insight:
         trip.ai_insight = insight
