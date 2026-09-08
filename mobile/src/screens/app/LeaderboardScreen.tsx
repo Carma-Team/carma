@@ -21,7 +21,10 @@ import type { FollowStatus, LeaderboardEntry, LeaderboardType } from '@/types'
 
 type SearchState = 'idle' | 'loading' | 'found' | 'not_found'
 
-const INSTALL_LINK = 'https://github.com/Carma-Team/carma'
+// Where an invited driver lands. The project's public page, not the repository: someone
+// who was sent this has no reason to be handed source code, and the repository is not
+// somewhere an install can start from.
+const INSTALL_LINK = 'https://carma-team.github.io/'
 
 // How many drivers render before the viewer asks for more, and how many each press
 // adds. The endpoint caps at 100 rows, so this is purely about not handing someone a

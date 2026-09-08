@@ -9,7 +9,8 @@ import he from '@/i18n/he'
 // only linked in a device build. Neither is what this screen is being tested for.
 jest.mock('@/context/AppContext', () => ({ useApp: () => ({ lang: 'HE' }) }))
 jest.mock('react-native-maps', () => ({ __esModule: true, default: 'MapView', Polyline: 'Polyline', Marker: 'Marker' }))
-// The occupancy control talks to the server on mount; it has its own test file.
+// Kept for when the occupancy control is shown again: it calls the server on mount,
+// and it has its own test file either way.
 jest.mock('@/services/api/trips.api', () => ({
   tripsApi: {
     occupancy: jest.fn().mockResolvedValue({ tripId: 't1', verdict: 'UNKNOWN', excludedFromDriverScore: false }),
@@ -106,6 +107,14 @@ describe('TripSummaryView', () => {
   it('holds the night line back until the trip has a score', () => {
     render(<TripSummaryView summary={summary({ state: 'pending', riskMultiplier: 2 })} />)
     expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
+  })
+
+  // Hidden on every surface while the declaration is off; the control keeps its own
+  // tests for when it comes back.
+  it('does not offer the occupancy declaration', () => {
+    render(<TripSummaryView summary={summary()} />)
+    expect(screen.queryByText(he.trip.occupancyPassengerCta)).toBeNull()
+    expect(screen.queryByText(he.trip.occupancyExplainer)).toBeNull()
   })
 
   it('warns when the points were capped', () => {
