@@ -35,6 +35,7 @@ async def save_trip(
 @router.get("/{trip_id}", response_model=TripSingle, response_model_by_alias=True, summary="Get a single trip by id")
 async def get_trip(trip_id: str, user: CurrentUser, db: DbSession) -> TripSingle:
     trip = await trips_service.get_by_id(db, user.id, trip_id)
+    trip = await trips_service.ensure_ai_insight(db, trip)
     return TripSingle(trip=TripDetailOut.from_orm_trip_detail(trip))
 
 

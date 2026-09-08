@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     # a voucher never starts this — only churn does.
     reward_reissue_cooldown_seconds: int = Field(default=60, ge=0)
 
+    # Google AI Studio key for the per-trip AI insight (app/services/insights.py).
+    # Blank disables the feature outright — a trip saves the same either way, just
+    # with ai_insight left null — rather than failing a save over a missing key.
+    gemini_api_key: str | None = None
+
     @field_validator("cors_origins")
     @classmethod
     def _normalise_origins(cls, v: str) -> str:
