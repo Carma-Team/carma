@@ -209,6 +209,61 @@ async def test_a_declared_passenger_trip_gets_no_insight(
 
 
 @pytest.mark.asyncio
+async def test_declaring_passenger_clears_an_insight_already_generated(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other ordering: the detail screen generates on mount, the driver declares after.
+
+    The skip in ensure_ai_insight only covers declare-then-view. TripDetailScreen
+    fetches the trip (generating) and renders TripOccupancyControl underneath it,
+    so view-then-declare is at least as common, and left driver coaching sitting
+    on a trip the driver had just said they did not drive.
+    """
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(return_value="נסה/י לבלום בעדינות רבה יותר.")
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    generated = await trips_service.ensure_ai_insight(db_session, trip)
+    assert generated.ai_insight is not None
+
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=False, prompted=False)
+    )
+
+    refreshed = await trips_service.get_by_id(db_session, driver.id, trip.id)
+    assert refreshed.ai_insight is None
+    # Cleared with the text, or correcting back to DRIVER would never regenerate.
+    assert refreshed.ai_insight_attempted_at is None
+
+
+@pytest.mark.asyncio
+async def test_correcting_to_driver_regenerates_a_cleared_insight(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Undoing the passenger declaration brings the coaching back."""
+    driver = await _driver(db_session)
+    trip = await _scored_trip(db_session, driver)
+
+    mock_generate = AsyncMock(return_value="נסה/י לבלום בעדינות רבה יותר.")
+    monkeypatch.setattr(trips_service.insights, "generate", mock_generate)
+
+    await trips_service.ensure_ai_insight(db_session, trip)
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=False, prompted=False)
+    )
+    await occupancy_service.declare(
+        db_session, driver.id, trip.id, OccupancyDeclarationIn(was_driving=True, prompted=False)
+    )
+
+    refreshed = await trips_service.get_by_id(db_session, driver.id, trip.id)
+    result = await trips_service.ensure_ai_insight(db_session, refreshed)
+
+    assert result.ai_insight == "נסה/י לבלום בעדינות רבה יותר."
+
+
+@pytest.mark.asyncio
 async def test_correcting_to_driver_still_allows_generation(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
