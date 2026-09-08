@@ -108,6 +108,14 @@ describe('TripSummaryView', () => {
     expect(screen.queryByText(he.trip.nightBonusDouble)).toBeNull()
   })
 
+  // Hidden on every surface while the declaration is off; the control keeps its own
+  // tests for when it comes back.
+  it('does not offer the occupancy declaration', () => {
+    render(<TripSummaryView summary={summary()} />)
+    expect(screen.queryByText(he.trip.occupancyPassengerCta)).toBeNull()
+    expect(screen.queryByText(he.trip.occupancyExplainer)).toBeNull()
+  })
+
   it('warns when the points were capped', () => {
     render(<TripSummaryView summary={summary({ pointsCapped: true })} />)
     expect(screen.getByText(he.trip.pointsCapped)).toBeOnTheScreen()

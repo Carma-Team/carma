@@ -21,6 +21,12 @@ function nightBonusEarned(summary: TripSummary): number {
   return Math.min(1, Math.max(0, (summary.effectiveRiskMultiplier - 1) / (summary.riskMultiplier - 1)));
 }
 
+// The declaration is off every surface for now. The control, the calls behind it and
+// its strings all stay wired, so putting it back is this one word — deleting the call
+// site instead would leave a component nothing references, and the next sweep for dead
+// code would take the whole phase's only source of passenger labels with it.
+const SHOW_OCCUPANCY_CONTROL = false;
+
 interface TripSummaryViewProps {
   summary: TripSummary;
   /** Route still on its way from the server. Without it the map claims "route not
@@ -117,7 +123,7 @@ export function TripSummaryView({ summary, loadingRoute }: TripSummaryViewProps)
           server has. A trip still in the queue is unreachable by id until the queue
           lands it — the driver reaches it from history afterwards, which is the whole
           reason this control is not only the post-trip prompt. */}
-      {summary.state === 'scored' && summary.id && <TripOccupancyControl key={summary.id} tripId={summary.id} />}
+      {SHOW_OCCUPANCY_CONTROL && summary.state === 'scored' && summary.id && <TripOccupancyControl key={summary.id} tripId={summary.id} />}
 
       {/* Route + bad-event markers (route shown when GPS waypoints exist) */}
       <View style={styles.mapWrapper}>
