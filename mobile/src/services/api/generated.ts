@@ -2512,8 +2512,6 @@ export interface components {
             startLocation?: string | null;
             /** Endlocation */
             endLocation?: string | null;
-            /** Aiinsight */
-            aiInsight?: string | null;
         };
         /**
          * SoldOutRewardOut
@@ -3476,7 +3474,9 @@ export interface operations {
     };
     get_trip_api_trips__trip_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                generateInsight?: boolean;
+            };
             header?: never;
             path: {
                 trip_id: string;

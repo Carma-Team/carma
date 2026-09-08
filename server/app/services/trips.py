@@ -682,8 +682,17 @@ async def ensure_ai_insight(db: AsyncSession, trip: Trip) -> Trip:
     checking the field on `trip` and setting it after: two requests racing the
     same first view (a client retry, a double-tap) would otherwise both pass
     the check before either commits, and both would call Gemini.
+
+    A trip declared PASSENGER (`occupancy.declare`) skips generation without
+    claiming the attempt — coaching a driver on a trip they said they didn't
+    drive is wrong regardless of quota, and the declaration can later flip
+    back to DRIVER, at which point generation should still be free to run.
     """
     if trip.ai_insight is not None or trip.ai_insight_attempted_at is not None or trip.score_v2 is None:
+        return trip
+
+    occupancy = await db.get(TripOccupancy, trip.id)
+    if occupancy is not None and occupancy.excluded_from_driver_score:
         return trip
 
     claimed: CursorResult[Any] = await db.execute(  # type: ignore[assignment]
