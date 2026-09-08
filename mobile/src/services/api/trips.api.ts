@@ -41,7 +41,14 @@ export const tripsApi = {
     });
   },
 
-  getById: (id: string) => request<{ trip: TripDetail }>(`/api/trips/${id}`),
+  // `generateInsight` defaults true for the trip actually on screen. Prefetching a
+  // neighbour (TripDetailScreen) passes false — otherwise opening one trip fires up
+  // to three Gemini calls at once, burning the free tier's daily quota on trips the
+  // driver hasn't tapped into yet.
+  getById: (id: string, opts?: { generateInsight?: boolean }) =>
+    request<{ trip: TripDetail }>(
+      opts?.generateInsight === false ? `/api/trips/${id}?generateInsight=false` : `/api/trips/${id}`
+    ),
 
   occupancy: (id: string) => request<Occupancy>(`/api/trips/${id}/occupancy`),
 

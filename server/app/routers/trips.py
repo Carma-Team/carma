@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header
+from typing import Annotated
+
+from fastapi import APIRouter, Header, Query
 
 from app.core.deps import CurrentUser, DbSession
 from app.schemas.occupancy import OccupancyDeclarationIn, OccupancyOut
@@ -33,8 +35,18 @@ async def save_trip(
 
 
 @router.get("/{trip_id}", response_model=TripSingle, response_model_by_alias=True, summary="Get a single trip by id")
-async def get_trip(trip_id: str, user: CurrentUser, db: DbSession) -> TripSingle:
+async def get_trip(
+    trip_id: str,
+    user: CurrentUser,
+    db: DbSession,
+    generate_insight: Annotated[bool, Query(alias="generateInsight")] = True,
+) -> TripSingle:
     trip = await trips_service.get_by_id(db, user.id, trip_id)
+    # The mobile detail screen prefetches both neighbouring trips ahead of a tap
+    # (TripDetailScreen.tsx) and passes generateInsight=false for those — only the
+    # trip actually on screen should spend a Gemini call.
+    if generate_insight:
+        trip = await trips_service.ensure_ai_insight(db, trip)
     return TripSingle(trip=TripDetailOut.from_orm_trip_detail(trip))
 
 
