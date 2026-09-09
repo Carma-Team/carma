@@ -79,5 +79,14 @@ class PasswordResetIn(CamelModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+# ─── Email address verification ──────────────────────────────────────────────
+# No request body on the send half: the address verified is the one on the
+# session, never one the caller names, or the endpoint would mail anybody.
+
+
+class EmailVerifyIn(CamelModel):
+    code: str = Field(min_length=4, max_length=10)
+
+
 class MessageOut(CamelModel):
     message: str

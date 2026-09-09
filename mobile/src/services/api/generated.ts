@@ -191,6 +191,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/email/verify/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a verification code to the signed-in account's email */
+        post: operations["email_verify_request_api_auth_email_verify_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/email/verify/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm the signed-in account's email with a verification code */
+        post: operations["email_verify_confirm_api_auth_email_verify_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/levels": {
         parameters: {
             query?: never;
@@ -1857,6 +1891,11 @@ export interface components {
             recentScores: components["schemas"]["RecentScore"][];
             eventCounts: components["schemas"]["EventCounts"];
         };
+        /** EmailVerifyIn */
+        EmailVerifyIn: {
+            /** Code */
+            code: string;
+        };
         /** EventCounts */
         EventCounts: {
             /** Hardbrakes */
@@ -2731,6 +2770,11 @@ export interface components {
             name?: string | null;
             /** Email */
             email?: string | null;
+            /**
+             * Isemailverified
+             * @default false
+             */
+            isEmailVerified: boolean;
             /** Phone */
             phone?: string | null;
             role: components["schemas"]["UserRole"];
@@ -3166,6 +3210,59 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PasswordResetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    email_verify_request_api_auth_email_verify_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OtpSent"];
+                };
+            };
+        };
+    };
+    email_verify_confirm_api_auth_email_verify_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailVerifyIn"];
             };
         };
         responses: {

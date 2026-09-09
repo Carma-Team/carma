@@ -14,6 +14,7 @@ const user: AppUser = {
   id: 'mock-driver-user',
   name: 'Mock Driver',
   email: EMAIL,
+  isEmailVerified: true,
   role: 'DRIVER',
   language: 'HE',
   points: 999999,

@@ -15,6 +15,11 @@ class UserOut(CamelModel):
     id: str
     name: str | None = None
     email: EmailStr | None = None
+    # Exposed while `is_phone_verified` is not, which looks inconsistent and is
+    # deliberate: this is the one a screen needs to read, and a field nothing
+    # renders is a field nobody keeps correct. Expose the phone one when a screen
+    # wants it too.
+    is_email_verified: bool = False
     phone: str | None = None
     role: UserRole
     language: Language

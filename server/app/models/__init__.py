@@ -5,6 +5,7 @@ from app.models.business_invitation import BusinessInvitation
 from app.models.business_join_request import BusinessJoinRequest
 from app.models.business_membership import BusinessMembership
 from app.models.city import City
+from app.models.email_verification import EmailVerificationCode
 from app.models.enums import (
     BusinessCategory,
     BusinessJoinRequestStatus,
@@ -52,6 +53,7 @@ __all__ = [
     "BusinessMembership",
     "BusinessMembershipRole",
     "City",
+    "EmailVerificationCode",
     "Event",
     "EventType",
     "FriendStatus",

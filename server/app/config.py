@@ -77,6 +77,23 @@ class Settings(BaseSettings):
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
 
+    # SMTP rather than a named vendor's SDK: SendGrid, Resend, Postmark and a
+    # plain mailbox all speak it, so the provider is a config change and not a
+    # dependency change. Same console default as `sms_provider` - a `git clone`
+    # with no mail account still runs the endpoint and its tests.
+    email_provider: Literal["console", "smtp"] = "console"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    # Codes one account may trigger per hour. Lower than `otp_max_per_hour`'s
+    # sibling reasoning: an email costs ~$0.0013 against ~$0.26 for an SMS to
+    # Israel, so the budget is not the point. What is, is that a send is our
+    # domain putting mail in someone's inbox, and an unthrottled endpoint is how
+    # a sending domain gets a spam reputation it does not get back.
+    email_verification_max_per_hour: int = 5
+
     # Where staged calibration recordings land (CAR-213). Same shape as
     # `sms_provider`: "local" writes under `recording_local_dir` so a plain
     # `git clone` with no cloud account can still run the endpoint and its
@@ -195,6 +212,21 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"SMS_PROVIDER=twilio requires {', '.join(missing)}")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_smtp(self) -> Settings:
+        if self.email_provider == "smtp":
+            missing = [
+                k
+                for k, v in {
+                    "SMTP_HOST": self.smtp_host,
+                    "SMTP_FROM": self.smtp_from,
+                }.items()
+                if not v
+            ]
+            if missing:
+                raise ValueError(f"EMAIL_PROVIDER=smtp requires {', '.join(missing)}")
         return self
 
     @property
